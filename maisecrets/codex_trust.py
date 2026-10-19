@@ -35,7 +35,7 @@ def declaration_hash(event: str, group: dict, handler: dict, windows: bool) -> s
     return "sha256:" + hashlib.sha256(blob).hexdigest()
 
 
-def content_hash(root: Path) -> str:
+def content_hash(root: Path, windows: bool | None = None) -> str:
     """The plugin folder as Codex fingerprints it: depth first in byte order of the names, without bytecode,
     virtual environments and package metadata. A symlink makes Codex fail the check, and this raises."""
     h = hashlib.sha256(b"codex-plugin-bundle-v1")
@@ -46,8 +46,8 @@ def content_hash(root: Path) -> str:
         name = path.name if rel else ""
         if name in _SKIPPED or name.endswith(".pyc") or name.endswith(".egg-info"):
             continue
-        if os.name == "nt":
-            rel = rel.replace("/", "\\")
+        if (os.name == "nt") if windows is None else windows:
+            rel = rel.replace("/", "\\")       # as Codex spells it there (measured, windows-latest, 2026-10-19)
         encoded = rel.encode("utf-8", "surrogateescape")
         h.update(struct.pack("<Q", len(encoded)))
         h.update(encoded)
@@ -117,13 +117,12 @@ def status_lines(root: Path, codex_home: Path, windows: bool | None = None) -> l
                    f"codex plugin remove, so that one version runs the hooks")
     try:
         hooks = json.loads((root / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
-        # Windows: how Codex spells the paths in its hash is not measured there, so no answer about the contents
-        current = None if windows else content_hash(root)
+        current = content_hash(root, windows)
     except (OSError, ValueError, KeyError) as e:
         return out + [f"codex hooks: unknown ({type(e).__name__})"]
     state = (cfg.get("hooks") or {}).get("state") or {}
     baseline = _legacy_baseline(codex_home, plugin_id)
-    untrusted = changed = old = unknown = total = 0
+    untrusted = changed = old = total = 0
     for event, groups in hooks.items():
         if event not in EVENTS:
             continue
@@ -135,8 +134,6 @@ def status_lines(root: Path, codex_home: Path, windows: bool | None = None) -> l
                     untrusted += 1
                 elif entry.get("trusted_content_hash") is None and baseline is None:
                     old += 1
-                elif current is None:
-                    unknown += 1
                 elif (entry.get("trusted_content_hash") or baseline) != current:
                     changed += 1
     fix = "open /hooks in Codex and trust the maisecrets entries; until then Codex lets prompts and tool calls through"
@@ -145,9 +142,6 @@ def status_lines(root: Path, codex_home: Path, windows: bool | None = None) -> l
     elif changed:
         out.append(f"codex hooks: trusted for other contents of this folder (an update, or a changed file), "
                    f"so Codex 0.164 and newer skip them: {fix}")
-    elif unknown:
-        out.append("codex hooks: trusted for these hooks; whether Codex 0.164 and newer accept the contents of this "
-                   "folder is unknown on Windows (not measured): if a prompt with a secret is not blocked, " + fix)
     elif old:
         out.append("codex hooks: trusted (an approval from before Codex 0.164: after the next maisecrets update, "
                    "Codex 0.164 and newer ask again in /hooks)")

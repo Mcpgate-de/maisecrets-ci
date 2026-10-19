@@ -94,6 +94,21 @@ class BirthDateTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(values(text), [("birth-date-after-label", v)])
 
+    def test_a_date_after_born_on_or_a_birth_label_with_a_copula(self):
+        # Benchmark V1, Nemotron dev split: birth dates found whole 4,736 to 9,609, no new false positive
+        d = J(["1984", "-03-", "12"])
+        for text in ("The patient was born on " + d + ".", "Her date of birth is " + d + ".", "Ivanov born on " + d,
+                     "DateOfBirth=" + d, "date_of_birth: " + d, "Date of birth was " + d):
+            with self.subTest(text=text[:16]):
+                self.assertEqual(values(text), [("birth-date-after-label", d)])
+                self.assertEqual(values(text, "prompt"), [], "a typed prompt is not blocked by it")
+
+    def test_born_on_with_a_future_or_no_date_stays_text(self):
+        for text in ("was born on " + J(["2091", "-03-", "12"]), "the idea was born on a Tuesday",
+                     "build was created on " + J(["1984", "-03-", "12"])):
+            with self.subTest(text=text[:16]):
+                self.assertEqual(values(text), [])
+
     def test_other_dates_and_the_word_born_stay_text(self):
         for text in ("created: 2024-03-11", "released: 12.03.2024", "born 23 June 1912 in London",
                      "DOB 01/01/1970 is the placeholder for unknown records"):
@@ -296,6 +311,36 @@ class TwilioTests(unittest.TestCase):
         self.assertEqual([m.kind for m in scan("digest " + sid, "prompt")], [])
         counted = J(["AC", "0123456789abcdef", "0123456789abcdef"])
         self.assertEqual(scan("account_sid " + counted, "prompt"), [])
+
+
+class IdAfterLabelWholeTests(unittest.TestCase):
+    """An id after its label is masked whole: after `of`, after a certificate or license number label, and with a letter
+    prefix that a digit rule (us-license, us-bank) used to cut off (Benchmark V1, Nemotron dev: national ids whole
+    15,713 to 17,123, partial 1,213 to 220)."""
+    MRN = J(["MRN", "-48", "2913", "7"])
+    CERT = J(["CL", "-48820", "19"])
+    ACCT = J(["ACC", "-4071", "8653", "29"])
+    SUFFIX = J(["4071", "8653", "-XY"])                     # a letter suffix after the digits
+
+    def test_the_whole_id_after_its_label(self):
+        for text, v in (("a medical record number of " + self.MRN, self.MRN),
+                        ("The certificate license number is " + self.CERT + ".", self.CERT),
+                        ("certificate license number " + self.CERT, self.CERT),
+                        ("account number " + self.ACCT, self.ACCT)):
+            with self.subTest(text=text[:20]):
+                self.assertIn(("id-number-after-label", v), [(m.kind, m.value) for m in scan(text)])
+
+    def test_a_digit_rule_takes_no_part_of_a_hyphenated_id(self):
+        for text in ("The certificate license number is " + self.CERT, "account number " + self.ACCT,
+                     "account number " + self.SUFFIX):
+            with self.subTest(text=text[:20]):
+                kinds = {m.kind for m in scan(text)}
+                self.assertFalse(kinds & {"us-license#1", "us-bank"}, kinds)
+
+    def test_words_after_the_labels_stay_text(self):
+        for text in ("record number of rows: 12", "license number 2 applies (MIT)", "driver's license is required"):
+            with self.subTest(text=text):
+                self.assertEqual(values(text), [])
 
 
 if __name__ == "__main__":

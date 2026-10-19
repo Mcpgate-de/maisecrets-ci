@@ -137,5 +137,70 @@ class GermanCompanyNumberTests(unittest.TestCase):
                 self.assertEqual(both(text), [])
 
 
+class UsBankLabelWindowTests(unittest.TestCase):
+    """A us-bank number (8 to 17 digits) is a hit when its label stands before it on its own line, within 60
+    characters (core.PRESIDIO_LABEL_BEFORE). Benchmark V1: Gretel lost 1,920 false alarms, Nemotron 73 of 9,051
+    account numbers."""
+    NUMBER = "".join(["4071", "8653", "29"])               # 10 digits, no date and no card shape
+
+    def us(self, text: str) -> set:
+        active = regions.Active(regions=("generic", "us"), languages=("en",), source="test")
+        with detect.Detector(regions=active).activate():
+            return {m.kind for m in detect.scan(text, channel="tool")}
+
+    def test_a_label_within_60_characters_before_the_number_is_a_hit(self):
+        for text in ("account number: " + self.NUMBER,
+                     "The account number associated with this agreement is " + self.NUMBER + "."):
+            with self.subTest(text=text[:30]):
+                self.assertIn("us-bank", self.us(text))
+
+    def test_a_number_whose_line_names_no_account_is_no_hit(self):
+        for text in ("order " + self.NUMBER + " shipped, see the bank holiday notice",
+                     "The account was opened in March.\nreference " + self.NUMBER,
+                     "account " + "x" * 70 + " " + self.NUMBER):
+            with self.subTest(text=text[:30]):
+                self.assertNotIn("us-bank", self.us(text))
+
+
+class AccountNumberWholeTests(unittest.TestCase):
+    """An account number is masked whole: written with a hyphen after its label (us-bank took only the digits after
+    the hyphen and won the overlap), and in a table column named account number (Benchmark V1, Nemotron: account
+    numbers found whole 8,978 to 11,266)."""
+    HYPHEN = "".join(["482", "-", "3917", "265", "104"])
+    PLAIN = "".join(["7305", "1928", "4461"])
+    AWS = "".join(["1234", "5678", "9012"])
+
+    def hits(self, text: str) -> list:
+        active = regions.Active(regions=("generic", "de", "us"), languages=("en", "de"), source="test")
+        with detect.Detector(regions=active).activate():
+            return [(m.kind, m.value) for m in detect.scan(text, channel="tool")]
+
+    def test_a_hyphenated_account_number_after_its_label_is_masked_whole(self):
+        for text in ("Account Number: " + self.HYPHEN, "Your account number is " + self.HYPHEN + ".",
+                     "account_number=" + self.HYPHEN, '{"accountNumber": "' + self.HYPHEN + '"}'):
+            with self.subTest(text=text[:16]):
+                self.assertIn(self.HYPHEN, [v for _, v in self.hits(text)])
+
+    def test_us_bank_takes_no_part_of_a_hyphenated_number(self):
+        self.assertNotIn("us-bank", [k for k, _ in self.hits("account ref " + self.HYPHEN)])
+
+    def test_code_that_names_an_account_number_stays_text(self):
+        self.assertEqual(self.hits("account_number = get_account(row)"), [])
+
+    def test_a_number_in_a_column_named_account_number_is_masked(self):
+        for head in ("Account Number", "**Account Number**", "Mortgage Account Number", "Acct No"):
+            text = f"| Name | {head} | Balance |\n|---|---|---|\n| Cap | {self.PLAIN} | $10.00 |"
+            with self.subTest(head=head):
+                self.assertIn((("md-table-personal-column"), self.PLAIN), self.hits(text))
+
+    def test_other_columns_and_cells_that_are_no_account_number_stay_text(self):
+        for head, cell in (("Account ID", self.AWS), ("Account", self.AWS), ("Policy Number", self.PLAIN),
+                           ("Account Number", "0" * 12), ("Account Number", "2024-01-02"),
+                           ("Account Number", "".join(["407", "1865"])), ("Account Number", "see contract")):
+            text = f"| {head} | Region |\n|---|---|\n| {cell} | eu-west-1 |"
+            with self.subTest(head=head, cell=cell[:4]):
+                self.assertNotIn("md-table-personal-column", [k for k, _ in self.hits(text)])
+
+
 if __name__ == "__main__":
     unittest.main()

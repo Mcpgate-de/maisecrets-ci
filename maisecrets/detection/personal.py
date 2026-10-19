@@ -47,10 +47,12 @@ _DATE = (r"(?:\d{4}-\d{2}-\d{2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{1,2}\.?\s+[A-
 # A colon must follow: /api/users/bday;from=2020-01-01 is a path, and its date is no birth date (review of 0.6.25)
 _VCARD_PARAMS = r"(?:(?:;[A-Za-z][\w-]{0,20}(?:=(?:\"[^\"\n]{0,80}\"|[^:;\"\n]{0,60}))?){1,8}(?=:))?"
 # "born" alone is left out: "born 23 June 1912" is history in a text about a public person (holdout v6 negative)
-_BIRTH_RE = re.compile(r"(?i)(?:\bd\.?o\.?b\b|date of birth|birth[ _-]?date|\bbday\b" + _VCARD_PARAMS
+_BIRTH_RE = re.compile(r"(?i)(?:\bd\.?o\.?b\b|date[ _-]?of[ _-]?birth|birth[ _-]?date|\bborn on"
+                       r"|\bbday\b" + _VCARD_PARAMS
                        + r"|\bgeb(?:\.|oren am|urtsdatum)"
                        r"|n[ée]\(?e?\)? le|date de naissance|fecha de nacimiento|\bnac[ií](?:d[oa])? el"
-                       r"|data de nascimento|data di nascita|\bnato il)[\"'\]]?\s{0,3}[:=]?\s{0,3}[\"'(]?\s{0,3}"
+                       r"|data de nascimento|data di nascita|\bnato il)[\"'\]]?"
+                       r"\s{0,3}(?:(?:is|was|as)\s{1,3})?[:=]?\s{0,3}[\"'(]?\s{0,3}"
                        r"(" + _DATE + r"|(?:19|20)\d{6})(?!\d)")   # and YYYYMMDD after the label (Gretel, 2026-10-19)
 
 # --------------------------------------------------------------------------------- ID number after a label --
@@ -78,9 +80,10 @@ _TRAVEL_ID_LABELS = (r"|driving[ _-]?licen[cs]e(?:[ _-]?(?:no|number))?"
 _ID_RE = re.compile(r"(?i)(?<![a-z])(?:mrn|member[ -]?id|passport(?:[ _-]?(?:no|number))?|driver'?s? licen[cs]e"
                     r"(?:[ _-]?(?:no|number))?|dl[ _-]?(?:no|number|#)|(?-i:DL)(?=\s{0,3}[:#])|sin|tfn|nir|tax[ _-]?id"
                     r"|insurance (?:member )?id"
-                    r"|account (?:number|no\.?)|patient[ -]?id|id on file" + _HEALTH_ID_LABELS
+                    r"|account[ _-]?(?:number|no\.?)|(?:certificate[ _-]?)?licen[cs]e[ _-]?(?:number|no\.?)"
+                    r"|patient[ -]?id|id on file" + _HEALTH_ID_LABELS
                     + _TRAVEL_ID_LABELS + r")(?![a-z])[\"']?"
-                    r"(?:\s{0,3}(?:on file|is|number|no\.?|#|n\.?[º°o]\.?|nr\.?|num[ée]ro|n[úu]mero|numero"
+                    r"(?:\s{0,3}(?:on file|is|of|number|no\.?|#|n\.?[º°o]\.?|nr\.?|num[ée]ro|n[úu]mero|numero"
                     r"|nummer|numer))?"
                     r"\s{0,3}[:=#]?\s{0,3}[\"']?"
                     r"((?-i:[A-Z0-9](?:[A-Z0-9]|[ -](?=[A-Z0-9])){4,24}))(?![A-Za-z0-9])")
@@ -530,6 +533,21 @@ def _md_cells(line: str) -> list:
     return out
 
 
+# a column whose header names an account number holds one on each row, whatever the other columns are: Benchmark V1,
+# Nemotron, 40 of the 73 account numbers that the us-bank label window lost were cells under `Account Number`. Only
+# the names that say number: `account`, `account_id` and `aws_account` hold a cloud account or a user id, and a
+# 12-digit AWS account id in a table of resources is no bank account
+_ACCOUNT_NUMBER_COL_RE = re.compile(r"(?:bank_|mortgage_|savings_|checking_|loan_|customer_|primary_)?"
+                                    r"(?:account|acct)_?(?:number|no|nr|num|#)|kontonummer|iban")
+_ACCOUNT_CELL_RE = re.compile(r"\d{2,17}(?:[ -]\d{2,12}){0,3}")
+
+
+def _account_cell(v: str) -> bool:
+    digits = sum(c.isdigit() for c in v)
+    return bool(_ACCOUNT_CELL_RE.fullmatch(v)) and 8 <= digits <= 20 and not _placeholder_digits(v) \
+        and not _DATE_CELL_RE.fullmatch(v)
+
+
 def _md_table_hits(text: str) -> list:
     out = []
     lines = text.split("\n")
@@ -546,11 +564,18 @@ def _md_table_hits(text: str) -> list:
         names = [_md_column(hdr[a:b]) for a, b in _md_cells(hdr)]
         strong = {i for i, h in enumerate(names) if h in _STRONG_COLS}
         cols = strong | {i for i, h in enumerate(names) if h in _WEAK_COLS} if strong else set()
+        accounts = {i for i, h in enumerate(names) if _ACCOUNT_NUMBER_COL_RE.fullmatch(h)}
         li += 2
         rows = 0
         while li < len(lines) and rows < _CSV_ROWS and "|" in lines[li] and lines[li].strip():
             line = lines[li]
             row: list = []
+            for col, (a, b) in enumerate(_md_cells(line)):
+                if col in accounts:
+                    v = line[a:b].strip().strip("*`")
+                    if _account_cell(v):
+                        s0 = a + line[a:b].index(v)
+                        out.append((pos[li] + s0, pos[li] + s0 + len(v), "md-table-personal-column", ID_NUMBER))
             if cols:
                 for col, (a, b) in enumerate(_md_cells(line)):
                     if col not in cols:
@@ -617,6 +642,7 @@ FORMS = {
     "address-street-after-label": (ADDRESS, "tool", "generic", "label"),
     "md-table-personal-column": ("COLUMN", "tool", "generic", "label"),
     "username-after-label": (USERNAME, "tool", "generic", "label"),
+    "secret-password-with-sign": ("SECRET", "tool", "generic", "label"),
 }
 # a value that only names one: a variable, a template, an elision, a path
 _NOT_A_VALUE_START = ("$", "%", "{", "<", "(", "[", "*", "#", "/", ".")
@@ -1198,8 +1224,29 @@ def _a_date(v: str) -> bool:
     return bool(re.fullmatch(r"(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])", v))
 
 
+# a password after the password word and a space or a short connector ("use the password <v>", "a password such as
+# <v>", "and password <v>"), in a tool result. The prose rules take only a value that is no word of a sentence after
+# a plain space, so `Word@2024` stayed in the clear (Benchmark V1, Nemotron: 1,440 of 4,500 missed passwords had this
+# form). Only a value with a letter, a digit and a sign: a word, a version (iPhone15), a hash name (SHA256-Hash) and
+# an e-mail address stay text
+_PW_REFERENCE_RE = _lazy(r"(?i)(?<![\w-])(?:password|passwd|passphrase|pwd)s?"
+                         r"(?:[ \t]+(?:such[ \t]+as|like|e\.g\.,?|for[ \t]+example,?|of|set[ \t]+to|to))?"
+                         r"[ \t]+[\"'`]?([^\s\"'`]{6,64})")
+_PW_WITH_SIGN_RE = _lazy(r"(?=.*[A-Za-z])(?=.*\d)(?=.*[@#$!%&*?])[A-Za-z0-9@#$!%&*?._+=~^-]{6,64}")
+_EMAIL_SHAPE_RE = _lazy(r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}")
+# a reference after the word: a pull request or issue (#PR-1234, #4711), a ticket (OPS-1234)
+_PW_REFERENCE_VALUE_RE = _lazy(r"#?[A-Z][A-Z0-9]{0,9}-\d{1,7}|#\d{1,7}")
+
+
 def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> list:
     out = []
+    if "secret-password-with-sign" in want and ("pass" in text.lower() or "pwd" in text.lower()):
+        for m in _PW_REFERENCE_RE.finditer(text):
+            v = m.group(1).rstrip(".,;:)")   # a stop of the sentence; `!` and `?` end many passwords and stay
+            if len(v) >= 6 and _PW_WITH_SIGN_RE.fullmatch(v) and not _EMAIL_SHAPE_RE.fullmatch(v) \
+                    and not _PW_REFERENCE_VALUE_RE.fullmatch(v) \
+                    and not v.startswith(("$", "%", "{", "<", "*")):
+                out.append((m.start(1), m.start(1) + len(v), "secret-password-with-sign", "SECRET"))
     if "secret-add-mask" in want and "::add-mask::" in text:
         for m in _ADD_MASK_RE.finditer(text):
             # ::add-mask:: declares its value a secret: a password made of words stays one
@@ -1410,8 +1457,8 @@ def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> l
 
 # ------------------------------------------------------------------------------------------------- the scan --
 # words one of which a text must hold before a rule's regex runs (a cheap test on the lowered text)
-_BIRTH_WORDS = ("dob", "d.o.b", "birth", "bday", "geb", "n\u00e9", "ne le", "nee le", "naissance", "nacimiento", "naci",
-                "nac\u00ed", "nascimento", "nascita", "nato")
+_BIRTH_WORDS = ("dob", "d.o.b", "birth", "born", "bday", "geb", "n\u00e9", "ne le", "nee le", "naissance", "nacimiento",
+                "naci", "nac\u00ed", "nascimento", "nascita", "nato")
 _ID_WORDS = ("mrn", "member", "passport", "licen", "dl", "sin", "tfn", "nir", "tax", "insurance", "account",
              "patient", "id on file", "beneficiary", "medical", "national", "tin", "social",
              "reisepass", "passnummer", "pass-nr", "pass nr", "hrerschein", "passeport", "permis", "pasaporte",

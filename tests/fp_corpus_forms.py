@@ -315,6 +315,16 @@ FORMS_NO_HIT = [
     ("compact birth date in the future", "birth_date: 20991231 is rejected by the form"),
     ("username deep yaml example", "example:\n  account:\n    username: octavia77"),
     ("username json examples list", '{"examples": [{"username": "octavia77"}]}'),
+    # a password word and a value that is no password: a version, a hash name, a variable, an address, a rule, a mask
+    ("password word and a version", "Set the password iPhone15 profile in MDM"),
+    ("password word and a hash name", "the password SHA256-Hash is stored, never the password"),
+    ("password word and a variable", "password ${DB_PASS1}"),
+    ("password word and a shell variable", "export PGPASSWORD; use the password $DB_PASS1 here"),
+    ("password word and a windows variable", "set the password %DB_PASS1% in the job"),
+    ("password word and an address", "send the password to it-help1@mail.invalid"),
+    ("password word and a rule", "the password must be 12+ chars"),
+    ("password word and a mask", "password ****1234! shown in the log"),
+    ("password word and a pull request", "the password #PR-1234 merged, see #4711"),
 ]
 
 FORMS_HIT = [
@@ -328,6 +338,11 @@ FORMS_HIT = [
     ("username short with digits", "username: " + "js" + "42", ["js" + "42"]),
     ("us bank account number", "Checking account number: " + "4839" + "2017563", ["4839" + "2017563"]),
     ("compact birth date after its label", "Customer: Canada\n  Date of Birth: " + "1984" + "0312", ["1984" + "0312"]),
+    ("password after use the", "Please use the password " + "Quill" + "ary@4821" + " to log in.", ["Quill" + "ary@4821"]),
+    ("password after such as", "Choose a password such as " + "Tarn" + "wick#77" + ".", ["Tarn" + "wick#77"]),
+    ("password after and password", "Sign in as lea.v and password " + "Bramble" + "wood@19", ["Bramble" + "wood@19"]),
+    ("password that ends with a bang", "Use the password " + "Quill" + "ary99!" + " for the wifi.", ["Quill" + "ary99!"]),
+    ("password that starts with a hash", "use the password " + "#Sec" + "ure123" + " here", ["#Sec" + "ure123"]),
     ("username of two dictionary words", "username: " + "hunter" + ".king42", ["hunter" + ".king42"]),
     ("username after an unrelated example key", "example: ignored\nusername: " + "lvo" + "gel2026", ["lvo" + "gel2026"]),
     ("username in json", '{"id": 4711, "username": "' + "lea" + ".vogel87" + '", "active": true}', ["lea" + ".vogel87"]),

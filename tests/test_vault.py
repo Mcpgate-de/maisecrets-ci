@@ -1441,6 +1441,7 @@ class RaceAgainstPutTests(unittest.TestCase):
     WRITER = (
         "import sys, time\n"
         "from pathlib import Path\n"
+        "from maisecrets.home import _Lock\n"
         "from maisecrets.vault import JsonFileBackend, Vault\n"
         "_put = JsonFileBackend.put\n"
         "def slow_put(self, *a, **k):\n"
@@ -1448,6 +1449,7 @@ class RaceAgainstPutTests(unittest.TestCase):
         "    return _put(self, *a, **k)\n"
         "JsonFileBackend.put = slow_put\n"
         "Vault.expire = lambda self, limit=25: 0\n"
+        "_Lock.LOCK_DEADLINE = 60.0\n"
         "n, go = int(sys.argv[1]), Path(sys.argv[2])\n"
         "while not go.exists():\n"
         "    time.sleep(0.002)\n"
@@ -1468,6 +1470,8 @@ class RaceAgainstPutTests(unittest.TestCase):
         "    time.sleep(0.03)\n"
         "    return _delete(self, *a, **k)\n"
         "JsonFileBackend.delete = slow_delete\n"
+        "from maisecrets.home import _Lock\n"
+        "_Lock.LOCK_DEADLINE = 60.0\n"
         "mode, go, keys = sys.argv[1], Path(sys.argv[2]), sys.argv[3:]\n"
         "while not go.exists():\n"
         "    time.sleep(0.002)\n"
@@ -1491,6 +1495,9 @@ class RaceAgainstPutTests(unittest.TestCase):
         "    assert not problems, problems\n"
         "print('done')\n"
     )
+    # both children wait up to 60 s for the lock, not the 6 s of a hook: this test asks whether the lock keeps every
+    # entry, not whether a lock comes within a hook's deadline (other tests own that). On a loaded windows-latest
+    # runner B waited longer than 6 s for one forget and the test failed with LockTimeout (2026-10-15, 2026-10-19)
     SEEDS, N = 10, 25
 
     def _race(self, mode: str, expired_seeds: bool = False) -> tuple[Path, dict, dict, dict[str, int], list[str]]:

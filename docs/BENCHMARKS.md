@@ -102,6 +102,130 @@ credits), so the last reading is the author's own probes.
   Mendeley, PIILO, catalogs, bank val unchanged; holdout unchanged before the birth date change (84 of 96, 0 false
   positives; not run after it, see "Splits"); false-alarm bank +0; recorded test inputs unchanged.
 
+### Mastercard of the 2-series, 15-digit JCB, and the label window of `us-bank`, 2026-10-19
+
+- **Gap seen:** the label window of A above lost 681 Mendeley card numbers. All 681 pass Luhn and start with 2:
+  388 Mastercard numbers of the 2-series (2221 to 2720, 16 digits) and 293 JCB numbers of 15 digits (2131).
+- **Cause:** Presidio's card pattern takes the first digits 1, 3, 4, 5 and 6, so these numbers never reached the Luhn
+  check. Only `us-bank` covered them, by chance.
+- **Fix 1, cards:** the first group of the card pattern takes both ranges (`PRESIDIO_CARD_FIRST`, applied only to the
+  upstream text it expects), and the issuer table knows the 15-digit JCB.
+- **Fix 2, `us-bank`:** the label must stand before the number on its own line, within 60 characters
+  (`PRESIDIO_LABEL_BEFORE`). Presidio's window is 80 characters before and 40 after, across lines. 30 characters lost
+  251 Nemotron account numbers ("the account number associated with this loan is ..."); across lines took 948 false
+  alarms back for 25 numbers.
+
+| Measure | Before (`next`, 31e1676e) | Fix 1: cards | Fix 1 and 2 |
+|---|---|---|---|
+| Mendeley: full spans, F1 | 123,987, 0.6477 | 127,725, 0.6608 (cards 31,687 → 35,425) | 128,890, 0.6648 (phone +1,165) |
+| Gretel: false positives, precision, F1 | 5,606, 0.852, 0.3471 | 5,607, 0.853, 0.3477 (cards 238 → 305) | 3,687, 0.898, 0.3509 |
+| Gretel: full spans lost by fix 2 | – | – | account −6, card −6, id −10, name −19, phone −3, birth date −1 |
+| Nemotron: account numbers found whole, F1 | 9,051, 0.6538 | 9,051, 0.6538 | 8,978, 0.6537 |
+| Nemotron: false positives | 913 | 913 | 873 |
+| PIILO: full spans, false positives | 127, 5 | 127, 5 | 125, 4 |
+| Bank dev, bank val | 87 / 0, 36 / 0 | no change | no change |
+| False-alarm bank, seven trees (`compare`) | – | +2 (card test values of a card scanner's tests) | +0 against fix 1 |
+| Recorded test inputs (`scripts/detection_fingerprint.py` calls, 21,656) | – | – | 0 changed |
+
+### Account numbers whole: a hyphen, and a column named account number, 2026-10-19
+
+- **Gap seen:** Nemotron, after the change above: 8,978 of 12,503 account numbers found whole, 2,197 in part. The
+  most frequent shape of a miss was `999-9999999999` (1,541), after "account number" on the same line.
+- **Cause:** `us-bank` (`\b[0-9]{8,17}\b`) took the digits after the hyphen; that shorter hit won the overlap against
+  `id-number-after-label`, which had the whole number, so the first digits reached the model. The label rule also
+  missed `account_number` and `accountNumber`.
+- **Fix 1:** `us-bank` takes no part of a hyphenated number (`PRESIDIO_WHOLE_DIGIT_RUN`); the label takes
+  `account_number`, `account-number`, `accountnumber`.
+- **Fix 2, tables** (the review asked for this after the 73 numbers that the label window lost; 40 of the 49 table
+  cases among them sat under a column `Account Number`): a Markdown table column whose header names an account
+  number (`account number`, `acct no`, `bank account number`, `mortgage account number`, `kontonummer`, `iban`;
+  not `account`, `account id` or `aws account`) masks a cell of 8 to 20 digits that is no date and no placeholder.
+
+| Measure | Before (`next`, 7aaa0033) | Fix 1 | Fix 1 and 2 |
+|---|---|---|---|
+| Nemotron: account numbers whole / in part | 8,978 / 2,197 | 10,858 / 37 | 11,266 / 37 |
+| Nemotron: false positives, F1 | 873, 0.6537 | 872, 0.6586 | 893, 0.6596 |
+| Gretel: false positives, precision | 3,687, 0.898 | 3,704, 0.897 | 3,716, 0.897 |
+| Mendeley, PIILO, bank dev and val | – | no change | no change |
+| False-alarm bank, seven trees (`compare`) | – | +0 | +0 |
+
+The table rule brings back 408 account numbers, more than the 73 that the label window lost: it was written from the
+column names, not from those cases. Its negative cases are in `tests/test_bank_and_company_numbers.py`.
+
+### A card number written as one run of digits, 2026-10-19
+
+The review of 0.6.24 kept a card number without a card word only when it is written in groups: a float, a timestamp
+and an IMEI pass Luhn as often as a card does. With the issuer table (the prefix and the length of a card network),
+the checks for a decimal, a longer run and an id label before it, a run of digits is safe enough: re-measured on the
+baseline after the account changes, as the review asked.
+
+| Measure | Before (`next`, 161e2a62) | One run of digits |
+|---|---|---|
+| Gretel: card numbers whole, false positives, F1 | 299, 3,716, 0.3509 | 431, 3,730, 0.3522 |
+| Mendeley: card numbers whole, F1 | 35,425, 0.6648 | 35,544, 0.6652 |
+| Nemotron, PIILO, bank dev and val | – | no change |
+| False-alarm bank, seven trees (`compare`) | – | +0 |
+
+### A password with a sign after the password word, in a tool result, 2026-10-19
+
+- **Gap seen:** Nemotron, 4,500 passwords missed. 1,440 stood after "use the password", "a password such as",
+  "and password" and the like, with a letter, a digit and a sign (`Word@2024`, `Word99!`).
+- **Cause:** after the password word and only a space, `label-password-after-space` takes no value that reads like
+  English words (`_wordlike`), to keep "password iPhone15" and "Passwort SHA256-Hash" as prose; `Word@2024` reads like
+  a word.
+- **Fix:** the tool-channel form `secret-password-with-sign` (`maisecrets/detection/personal.py`): a value after the
+  password word and a space or a short connector (`such as`, `like`, `e.g.`, `for example`, `of`, `set to`, `to`)
+  that holds a letter, a digit and one of `@ # $ ! % & * ?`. An e-mail address and a variable (`$NAME`, `%NAME%`) stay
+  text; a `!` or `?` at the end stays part of the value. A typed prompt is never blocked by it.
+
+| Measure | Before (`next`, 161e2a62) | This change and the card run above |
+|---|---|---|
+| Nemotron: passwords whole, false positives, F1 | 2,485, 893, 0.6596 | 3,918, 893, 0.6634 |
+| Gretel: passwords whole, false positives, F1 | 152, 3,716, 0.3509 | 168, 3,730, 0.3523 (cards +132) |
+| Mendeley, PIILO, bank dev and val, secret catalogs (11,902 examples) | – | no change except Mendeley cards +119 |
+| False-alarm bank, seven trees (`compare`) | – | +0 |
+
+### A birth date after "born on", and after a birth label with "is" or "was", 2026-10-20
+
+The first change of the corrected method (`docs/BENCHMARK-V2.md`, draft): the cases were read on the `dev` split
+only, the change was decided on `val` and the false-alarm bank.
+
+- **Gap seen (dev):** Nemotron missed 6,214 birth dates, 6,201 of them ISO dates, after "was born on", "date of birth
+  is", "date of birth" and "<name> born on".
+- **Fix:** `birth-date-after-label` takes `born on`, the spellings `DateOfBirth` and `date_of_birth`, and a copula
+  (`is`, `was`, `as`) after the label. The checks stay: a real past day, no placeholder. Tool channel only. A known
+  limit: "the project was born on <date>" is masked too.
+
+| Measure | Before (`next`, 69d99234) | This change |
+|---|---|---|
+| Nemotron dev: birth dates whole, false positives, F1 | 4,736, 503, 0.6633 | 9,609, 503, 0.6839 |
+| Nemotron val: birth dates whole, false positives, F1 | 1,594, 187, 0.6678 | 3,068, 187, 0.6865 |
+| Gretel dev / val: birth dates whole | 712 / 235 | 746 / 253 (false positives unchanged) |
+| Mendeley, PIILO, bank dev and val | – | no change |
+| False-alarm bank, seven trees (`compare`) | – | +0 |
+
+### An id after its label, whole: `of`, a certificate or license number, a letter prefix, 2026-10-20
+
+Read on the `dev` split, decided on `val` and the false-alarm bank.
+
+- **Gap seen (dev):** Nemotron's national ids (health plan beneficiary, medical record, certificate and license
+  numbers) missed 4,107 and found 1,213 in part, after "plan beneficiary number", "medical record number",
+  "certificate license number", often with `is` or `of`. No checksum rule would reach them: they have no checksum.
+- **Causes:** the id label took no `of` after it; `license number` without "driver's" was no label; and the digit
+  rule `us-license#1` took the digits after a letter prefix (`CL-4882019`), and that shorter hit won the overlap
+  against the label rule's whole id (the same collision as `us-bank` above).
+- **Fix:** `of` after the label; `license number` and `certificate license number` as labels; `us-bank` and
+  `us-license#1` take no part of a token joined by a hyphen to letters or digits.
+
+| Measure | Before (`next`, 113fa044) | This change |
+|---|---|---|
+| Nemotron dev: national ids whole / in part, false positives, F1 | 15,713 / 1,213, 503, 0.6839 | 17,123 / 220, 498, 0.6899 |
+| Nemotron val: national ids whole / in part, false positives, F1 | 5,072 / 386, 187, 0.6865 | 5,490 / 80, 185, 0.6918 |
+| Gretel dev: national ids whole, false positives | 1,023, 2,246 | 1,066, 2,165 |
+| Gretel val: national ids whole, false positives | 333, 764 | 353, 734 |
+| Mendeley, PIILO, bank dev and val | – | no change |
+| False-alarm bank, seven trees (`compare`) | – | +0 |
+
 ## CredData, results per release
 
 CredData line method, without repository `2ba83c6a` (23,667 rows: 10,106 credentials, 13,561 non-secrets),

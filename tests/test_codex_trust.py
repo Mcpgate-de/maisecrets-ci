@@ -62,6 +62,9 @@ FIXTURE = {
 }
 FIXTURE_DECLARATION = "sha256:e730d6c05679736eaccc5349f8aa92ec34ebd81c0a29da55459ab65ebced4952"
 FIXTURE_CONTENTS = "sha256:da1aaf212af5a401d5f881a2064ae182309936af54f0fd6069ce23e2eee3d477"
+# the same fixture on windows-latest, codex-cli 0.164.0-alpha.4 (harness/codex_trust_probe.py, 2026-10-19): Codex
+# spells the relative paths with "\\" there
+FIXTURE_CONTENTS_WINDOWS = "sha256:d0f73e3e4b2efac73ea2f649f0ae78db7c431c45c6e5250241ccf5ed248dd74b"
 
 # hook groups added after the trust above: Codex treats each as a new hook that needs its own trust, while the groups
 # above keep theirs (an added group changes no hash of another). apply_patch by its own name (0.6.40): Codex
@@ -114,8 +117,10 @@ class CodexTrustTests(unittest.TestCase):
         group = json.loads(FIXTURE["hooks/hooks.json"])["hooks"]["UserPromptSubmit"][0]
         self.assertEqual(codex_trust.declaration_hash("UserPromptSubmit", group, group["hooks"][0], False),
                          FIXTURE_DECLARATION)
-        if os.name != "nt":          # Codex hashes the relative path as the OS spells it: measured on macOS only
-            self.assertEqual(codex_trust.content_hash(root), FIXTURE_CONTENTS)
+        self.assertEqual(codex_trust.content_hash(root, windows=False), FIXTURE_CONTENTS)
+        self.assertEqual(codex_trust.content_hash(root, windows=True), FIXTURE_CONTENTS_WINDOWS)
+        self.assertEqual(codex_trust.content_hash(root),
+                         FIXTURE_CONTENTS_WINDOWS if os.name == "nt" else FIXTURE_CONTENTS)
 
     def test_a_python_without_tomllib_says_unknown(self):
         # runs on every Python: the 3.9 and 3.10 the plugin supports have no tomllib
@@ -154,19 +159,19 @@ class CodexTrustStatusTests(unittest.TestCase):
 
     def test_trusted_for_these_contents(self):
         self.config({self.KEY: {"trusted_hash": FIXTURE_DECLARATION,
-                                "trusted_content_hash": codex_trust.content_hash(self.root)}})
+                                "trusted_content_hash": codex_trust.content_hash(self.root, windows=False)}})
         self.assertEqual(self.lines(), "codex hooks: trusted (1 of 1)")
 
     def test_a_file_written_into_the_folder_is_a_change_codex_skips_the_hooks_for(self):
         self.config({self.KEY: {"trusted_hash": FIXTURE_DECLARATION,
-                                "trusted_content_hash": codex_trust.content_hash(self.root)}})
+                                "trusted_content_hash": codex_trust.content_hash(self.root, windows=False)}})
         (self.root / "hooks" / "last-start.txt").write_text("x")
         self.assertIn("trusted for other contents", self.lines())
         self.assertIn("open /hooks", self.lines())
 
     def test_bytecode_is_no_change(self):
         self.config({self.KEY: {"trusted_hash": FIXTURE_DECLARATION,
-                                "trusted_content_hash": codex_trust.content_hash(self.root)}})
+                                "trusted_content_hash": codex_trust.content_hash(self.root, windows=False)}})
         (self.root / "hooks" / "__pycache__").mkdir()
         (self.root / "hooks" / "__pycache__" / "x.cpython-312.pyc").write_text("x")
         self.assertEqual(self.lines(), "codex hooks: trusted (1 of 1)")
@@ -177,12 +182,14 @@ class CodexTrustStatusTests(unittest.TestCase):
         self.config({self.KEY: {"trusted_hash": "sha256:" + "0" * 64}})
         self.assertIn("1 of 1 not trusted", self.lines())
 
-    def test_on_windows_the_contents_are_unknown_never_trusted(self):
-        # the path spelling of Codex's content hash is not measured on Windows: no green answer from a guess
-        self.config({self.KEY: {"trusted_hash": FIXTURE_DECLARATION, "trusted_content_hash": "sha256:" + "1" * 64}})
+    def test_on_windows_the_contents_are_checked_with_its_own_spelling(self):
+        self.config({self.KEY: {"trusted_hash": FIXTURE_DECLARATION,
+                                "trusted_content_hash": FIXTURE_CONTENTS_WINDOWS}})
         lines = "\n".join(codex_trust.status_lines(self.root, self.home, windows=True))
-        self.assertNotIn("trusted (", lines)
-        self.assertIn("unknown on Windows", lines)
+        self.assertEqual(lines, "codex hooks: trusted (1 of 1)")
+        self.config({self.KEY: {"trusted_hash": FIXTURE_DECLARATION, "trusted_content_hash": FIXTURE_CONTENTS}})
+        self.assertIn("trusted for other contents",
+                      "\n".join(codex_trust.status_lines(self.root, self.home, windows=True)))
 
     def test_an_old_approval_is_trusted_until_codex_pins_it(self):
         self.config({self.KEY: {"trusted_hash": FIXTURE_DECLARATION}})
@@ -195,7 +202,7 @@ class CodexTrustStatusTests(unittest.TestCase):
         for part in (os.fsencode(os.path.realpath(self.home / "config.toml")), b"fx@fxm"):
             h.update(struct.pack("<Q", len(part)) + part)
         (self.home / ".hook-trust").mkdir()
-        (self.home / ".hook-trust" / h.hexdigest()).write_text(codex_trust.content_hash(self.root))
+        (self.home / ".hook-trust" / h.hexdigest()).write_text(codex_trust.content_hash(self.root, windows=False))
         self.assertEqual(self.lines(), "codex hooks: trusted (1 of 1)")
         (self.root / "B.txt").write_text("changed")
         self.assertIn("trusted for other contents", self.lines())

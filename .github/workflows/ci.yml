@@ -33,6 +33,9 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # a hung run turned the GitLab job windows_macos into a wait without end (9d7a40fb, 2026-10-19: Windows unit tests
+    # past 29 minutes; a normal run takes 12 to 15). Twice the slowest normal run, then red.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6

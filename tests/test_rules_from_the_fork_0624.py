@@ -206,5 +206,59 @@ class CardWithoutWordTests(unittest.TestCase):
                 self.assertNotIn("credit-card", kinds(text, channel="tool"))
 
 
+class CardAsOneRunTests(unittest.TestCase):
+    """A card number written as one run of digits is masked alone in a tool result when it has the prefix and the
+    length of a card network (Benchmark V1: Gretel cards 299 to 431); a timestamp, an IMEI, an order id, a decimal
+    and a longer run stay text."""
+    VISA = luhn10(J(["4532", "0151", "1283", "036"]))
+    MC = luhn10(J(["5425", "2334", "3010", "910"]))
+    IMEI = luhn10(J(["3567", "0702", "3456", "78"]))      # 15 digits, the type code of a phone
+
+    def test_an_ungrouped_card_number_is_masked_alone_in_a_tool_result(self):
+        for text in ("row 17: " + self.VISA, "paid with " + self.MC + " today"):
+            with self.subTest(text=text[:8]):
+                self.assertIn("credit-card", kinds(text, channel="tool"))
+
+    def test_a_run_that_is_no_card_stays_text(self):
+        for text in ("device " + self.IMEI + " registered", "ts=" + J(["1760", "9123", "4567", "8901"]),
+                     "order_id: " + self.VISA, "value 0." + self.VISA, "id " + self.VISA + "12"):
+            with self.subTest(text=text[:6]):
+                self.assertNotIn("credit-card", kinds(text, channel="tool"))
+
+    def test_a_typed_prompt_still_needs_the_card_word(self):
+        self.assertNotIn("credit-card", kinds("row 17: " + self.VISA, channel="prompt"))
+
+
+class CardRangesPresidioMissedTests(unittest.TestCase):
+    """Presidio's card pattern knew the first digits 1, 3, 4, 5 and 6: a Mastercard of the 2-series and a 15-digit JCB
+    never reached the Luhn check (Benchmark V1, Mendeley, 681 card numbers, 2026-10-19)."""
+    MC2 = luhn10(J(["2221", "0012", "3456", "789"]))        # 16 digits, the first BIN of the 2-series
+    MC2_TOP = luhn10(J(["2720", "9912", "3456", "789"]))
+    JCB15 = luhn10(J(["2131", "0012", "3456", "78"]))       # 15 digits
+    PAST = luhn10(J(["2721", "0012", "3456", "789"]))       # above the 2-series: no card network
+
+    def test_a_mastercard_of_the_2_series_after_its_word_is_a_hit(self):
+        for card in (self.MC2, self.MC2_TOP):
+            for channel in ("tool", "prompt"):
+                with self.subTest(card=card[:4], channel=channel):
+                    self.assertIn("credit-card", kinds("Mastercard " + card, channel=channel))
+
+    def test_a_15_digit_jcb_after_its_word_is_a_hit(self):
+        for channel in ("tool", "prompt"):
+            with self.subTest(channel=channel):
+                self.assertIn("credit-card", kinds("JCB card " + self.JCB15, channel=channel))
+
+    def test_a_grouped_mastercard_of_the_2_series_is_masked_alone_in_a_tool_result(self):
+        c = self.MC2
+        self.assertIn("credit-card", kinds("row 17: " + " ".join((c[:4], c[4:8], c[8:12], c[12:])), channel="tool"))
+
+    def test_a_grouped_15_digit_jcb_is_masked_alone_in_a_tool_result(self):
+        c = self.JCB15                                       # written 4-6-5, as a 15-digit card is printed
+        self.assertIn("credit-card", kinds("row 17: " + " ".join((c[:4], c[4:10], c[10:])), channel="tool"))
+
+    def test_a_number_above_the_2_series_stays_text(self):
+        self.assertNotIn("credit-card", kinds("Mastercard " + self.PAST, channel="tool"))
+
+
 if __name__ == "__main__":
     unittest.main()
