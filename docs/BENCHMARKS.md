@@ -12,6 +12,96 @@ limits are in their own section. "Repeat this measurement" has the commands.
 | Python | 3.14.8 (CredData runs); 3.14.8 and 3.9.6 (timing) |
 | Scripts | `scripts/measure_creddata.py`, `scripts/measure_scan_time.py`, `scripts/measure_datasets.py`, `tests/test_fp_corpus.py` |
 
+## Benchmark V1 baseline, 0.6.39 (2026-10-19)
+
+`docs/BENCHMARK-V1.md` defines the method; `bench/results/2026-10-19-v0.6.39.md` holds every table. maisecrets
+`v0.6.39` against detect-secrets 1.5.0, secret-scan 0.4.2 (7d8b5c1), pii-anon 1.7.0rc1 (2171ace) and Preserve 0.6.1
+(01dbd77), each only on the classes it claims. Strict recall counts a span only when it is masked whole; precision
+counts a finding as right when it lies on sensitive text.
+
+| Source | Family | maisecrets 0.6.39 | Others (same cases) | What it says |
+|---|---|---|---|---|
+| Bank, dev (75 cases) | secret | R 0.94, P 1.00, 0 FP | secret-scan R 0.77, P 0.86; Preserve R 0.71, P 0.87; detect-secrets R 0.35, P 1.00 | the forms maisecrets sees: written by this project, so a regression check, not a fair ranking |
+| Rule examples of six catalogs (11,902 cases) | secret | R 0.59 | detect-secrets 0.24, secret-scan 0.07, Preserve 0.06 | provider token formats bare and after `token = `; no negatives, so no precision |
+| Nemotron-PII, 1 in 50 (1,921 documents) | pii | R 0.48, P 0.996 | Preserve R 0.67, P 0.84; pii-anon R 0.75, P 0.29 | maisecrets finds no names or street addresses by design (README); the others find more and mask much ordinary text |
+| Nemotron-PII, 1 in 50 | secret | R 0.32, P 1.00 | secret-scan 0.17, Preserve 0.10, detect-secrets 0.03 | passwords and keys in prose, mostly after a label |
+| Gretel finance, 1 in 50 (837 documents) | pii | R 0.23, P 0.85 | Preserve R 0.44, P 0.22; pii-anon R 0.42, P 0.22 | the precision of maisecrets is lowest here; its false alarms are the next thing to read (dev split only) |
+| Mendeley financial, 1 in 50 (872 documents) | pii | R 0.48, P 1.00 | Preserve R 0.65, P 0.76; pii-anon R 0.59, P 0.50 | |
+| PIILO, full (6,807 essays) | pii | R 0.08, P 0.96 | – (the sample of 1 in 50 has 15 spans: too few for a rate) | names of students: maisecrets does not detect names |
+| Private frozen holdout (80 cases) | both | R 0.83, P 1.00, 0 FP | not run for the others | `bench/HOLDOUT-LOG.md` |
+
+Time per case, median: maisecrets 0.25 to 6.8 ms, detect-secrets 0.3 to 3.7 ms, secret-scan 0.1 to 0.4 ms, pii-anon 0.3
+to 9.5 ms, Preserve 25 to 390 ms (the same machine, one process each). The false-alarm bank (seven trees,
+`scripts/measure_fp_bank.py`) gives 0.6.39: 1,325 / 85 / 1,143 / 119 / 4 / 25 / 24 acted hits on CPython `Lib/`,
+detect-secrets, ferret-scan, Preserve, starter-workflows, awesome-compose and tldr pages.
+
+Not shown here: an overall rank. The tools have different aims (a secret scanner, a PII anonymiser, a guard of model
+input), and the classes with fewer than 30 spans have no rate.
+## Rule changes measured with Benchmark V1
+
+### A user name after its label, and a tax id under `steuer_id`, 2026-10-19
+
+The first rule change measured with Benchmark V1 (`docs/BENCHMARK-V1.md`) against the baseline of 0.6.39 (tag
+`v0.6.39`); the same cases (the same case hash) on both sides.
+
+- **Gap seen:** the bank's dev split (`bank/tool/user-record`, `bank/tool/csv-customers`): a user name after
+  `"username":` and a German tax id under a CSV column `steuer_id` were missed. Nemotron-PII labels 15,800 user names;
+  0.6.39 found 51 of them whole.
+- **Cause:** user names had rules only in a URL, a home path and a table column; the tax id rule (`de-tax-id`, with
+  its checksum) knew `steuer-id` and `steuerid` as context words, not `steuer_id`.
+- **Fix:** the tool-channel rule `username-after-label` (`maisecrets/detection/personal.py`) reads the whole value after
+  a label that names a user name and masks it whole or not at all; a service account, a placeholder, a schema word, a
+  Kubernetes principal, a field or role name of dictionary words, code, and a value inside an `example:` stay. The
+  tax id rule takes `steuer_id` and close spellings as context words; the checksum still decides. A CSV column for
+  the social insurance, identity card or tax identification number (long names only) makes a table personal.
+- **Inspiration:** the label bridge of pii-anon (the label gives the type); Presidio has no user name recognizer.
+
+| Measure | 0.6.39 | This change |
+|---|---|---|
+| Bank, dev: full spans / false positives | 81 / 0 | 87 / 0 (tax id 0 → 3, user name 0 → 3) |
+| Bank, val | 36 / 0 | 36 / 0 |
+| Nemotron-PII (100,000 documents): user names found whole | 51 of 15,800 | 2,849 |
+| Nemotron-PII: false positives, precision | 910, 0.9946 | 919, 0.9946 |
+| Gretel (41,932 documents): user names found whole | 57 of 725 | 125 |
+| Gretel: false positives, precision | 7,016, 0.8213 | 7,040, 0.8212 |
+| Mendeley, PIILO, rule examples of six catalogs | – | no change in full spans or false positives |
+| Private frozen holdout (80 cases) | R 0.875, 0 FP | no change (`bench/HOLDOUT-LOG.md`) |
+| False-alarm bank, seven trees (`compare`) | – | +0 acted hits |
+| Recorded test inputs (`scripts/detection_fingerprint.py` calls, 21,656) | – | 0 changed |
+| Time per Nemotron document (1 in 10, three alternating runs) | 1.83 / 2.06 / 2.30 ms median | 1.93 / 2.23 / 2.60 ms median: −0.5 % and +2.6 % against the neighbouring runs of 0.6.39, within the drift of the machine during the runs |
+
+Limits kept on purpose: prose that names a user name (`Use username: octavia77 in the walkthrough`) is masked like a
+record; a value that is an e-mail address plus more (`a@b.net/tenant`) goes to the e-mail rule; a user name that is one
+dictionary word (`porter2026`) stays unmasked; an `example:` key more than 40 lines above the label is not seen.
+Review: codex Gate A (gpt-5.6-sol) rounds 1 to 3, each finding fixed; round 4 could not run (the workspace had no
+credits), so the last reading is the author's own probes.
+
+### An 8-digit date is no US bank account number, 2026-10-19
+
+- **Gap seen:** Gretel, dev split, maisecrets with `us`: 2,730 of 4,148 false alarms came from `us-bank` (Presidio's
+  `\b[0-9]{8,17}\b` with `account`, `bank`, `debit` … anywhere in 120 characters). In English text: 1,935 false alarms
+  against 145 account numbers. The most frequent lengths were 8 and 10 digits.
+- **Two fixes measured:** (A) the context word in the 30 characters before the number on its line, and no 8-digit
+  date; (B) no 8-digit date only. Against the user-name change above, same cases:
+
+| Measure | Before | A: label window and date | B: date only (merged) |
+|---|---|---|---|
+| Gretel: false positives, precision | 7,040, 0.821 | 3,593, 0.900 | 5,605, 0.852 |
+| Gretel: full spans | 28,901 | 28,843 (bank −11, card −11, id −11, name −19) | 28,900 (birth date −1) |
+| Nemotron: account numbers found whole | 9,051 of 12,503 | 8,800 | 9,051 |
+| Mendeley: card numbers found whole | 31,687 of 39,060 | 31,006 | 31,687 |
+| Nemotron, Mendeley: false positives | 919, 24 | 861, 24 | 913, 24 |
+
+  A takes real card and account numbers that only `us-bank` finds today (no card word near them), so B is the change.
+  The next step is a card rule that finds those numbers; then the window of A costs no card.
+- **The birth date that B lost** (Gretel dev split, `Date of Birth: YYYYMMDD`) was masked only by chance, by
+  `us-bank`. `birth-date-after-label` now reads the compact form after its label when it is a real past day: Gretel
+  birth dates 1,196 (0.6.39) → 1,195 (B) → 1,199, false positives 5,605 → 5,606; nothing else changes.
+- **All sources, all changes of this section against 0.6.39:** bank dev 81 → 87 full, 0 false positives; Nemotron
+  166,039 → 168,846 full, 910 → 913 false positives; Gretel 28,820 → 28,904 full, 7,016 → 5,606 false positives;
+  Mendeley, PIILO, catalogs, bank val unchanged; holdout unchanged before the birth date change (84 of 96, 0 false
+  positives; not run after it, see "Splits"); false-alarm bank +0; recorded test inputs unchanged.
+
 ## CredData, results per release
 
 CredData line method, without repository `2ba83c6a` (23,667 rows: 10,106 credentials, 13,561 non-secrets),

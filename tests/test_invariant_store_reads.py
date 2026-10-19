@@ -338,6 +338,19 @@ class PopulationTests(unittest.TestCase):
         self.assertTrue(all(t.get("why") for t in _CLAUDE_TOOLS.values() if t["class"] == "no-path"),
                         "a tool without a guard must say why it needs none")
 
+    def test_every_codex_tool_with_a_path_is_in_the_matcher_by_its_own_name(self):
+        # Codex 0.163.0-alpha on Windows (field report, 2026-10-19): apply_patch inside functions.exec reached no
+        # PreToolUse hook. The Mac build maps it to the aliases Write and Edit, which the matcher names; that build
+        # did not, so a placeholder went into the file unchecked. The matcher must name the tool itself
+        hooks_json = json.loads((ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+        matchers = [m.get("matcher", "") for m in hooks_json["hooks"]["PreToolUse"]]
+        codex_tools = INVENTORY["codex"]["tools"]
+        with_path = sorted(n for n, t in codex_tools.items() if t["class"] in ("edits-path", "reads-path"))
+        self.assertIn("apply_patch", with_path)
+        missing = [t for t in with_path if not any(re.fullmatch(m, t) for m in matchers)]
+        self.assertEqual(missing, [],
+                         "a Codex tool reached only through an alias meets no guard where the alias is missing")
+
     def test_a_codex_patch_never_touches_the_store(self):
         codex_tools = INVENTORY["codex"]["tools"]
         edits = sorted(n for n, t in codex_tools.items() if t["class"] == "edits-path")

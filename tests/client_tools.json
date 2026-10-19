@@ -48,7 +48,7 @@
       "exec": {"class": "shell", "why": "code mode: the nested tools.exec_command reaches the hooks as Bash"},
       "exec_command": {"class": "shell", "why": "reaches the hooks as Bash"},
       "write_stdin": {"class": "no-path", "why": "input to a running command"},
-      "apply_patch": {"class": "edits-path", "field": "command", "why": "one patch whose headers name the paths; the matcher reaches it through its aliases Write and Edit (measured on 0.158.0, tests/client_payloads/codex-apply-patch.json)"},
+      "apply_patch": {"class": "edits-path", "field": "command", "why": "one patch whose headers name the paths; a PreToolUse group of its own names it: 0.158.0 maps it to the aliases Write and Edit of the first group (then both groups run on it), 0.163.0-alpha on Windows does not (tests/client_payloads/codex-apply-patch.json; field report 2026-10-19)"},
       "spawn_agent": {"class": "no-path", "why": "a subagent's own tool calls pass the same hooks"},
       "send_message": {"class": "no-path", "why": "a message to an agent"},
       "followup_task": {"class": "no-path", "why": "a follow-up task"},

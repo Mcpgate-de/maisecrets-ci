@@ -96,9 +96,10 @@ Section 13 lists the changes after the reviews (codex gpt-5.6-sol, Opus, ChatGPT
   the store's own folder, which every other part of maisecrets already trusts.
   - **Writers** (each after its own answer is out, each ignoring every error): `run.sh` (`launcher.no-python`,
     only when `[ -d "$HOME_DIR" ] && [ ! -L "$HOME_DIR" ]`, `umask 077`, in the background with no output),
-    `run.cmd` (`launcher.no-python` in its own `hooks` folder, where it writes `last-start.txt` on every start:
-    a detached child on Windows inherits the hook's pipe handles, and the home is another, configured folder;
-    code review round 3), `dispatch.py` (`launcher.import`), `guard.py`
+    `run.cmd` (`launcher.no-python` in `%LOCALAPPDATA%\maisecrets-launcher`, where it writes `last-start.txt` on
+    every start: a detached child on Windows inherits the hook's pipe handles, and the home is another, configured
+    folder, code review round 3; not in the plugin folder, because Codex 0.164 binds the approval of the hooks to
+    its contents, openai/codex#54619), `dispatch.py` (`launcher.import`), `guard.py`
     (`guard.fired`), the watchdog (`hook.<event>.watchdog`), the scrub child (`scrub.write`). An empty home
     variable resolves the same way in all of them: `vault.py`, `guard.py` and `run.sh` use the default home for an
     empty value (today `vault.py:28` differs).

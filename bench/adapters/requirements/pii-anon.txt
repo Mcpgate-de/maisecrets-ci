@@ -1,0 +1,9 @@
+# pii-anon: every distribution of the measured environment (Python 3.15, macOS arm64), 2026-10-19.
+# pip install --no-deps -r bench/adapters/requirements/pii-anon.txt
+annotated-types==0.8.0
+numpy==2.5.4
+pii-anon @ git+https://github.com/subhash-holla/pii-anon.git@2171ace5847a0d2add555419c02b41c47155cabe
+pydantic==2.14.1
+pydantic_core==2.50.1
+typing-inspection==0.4.4
+typing_extensions==4.16.0

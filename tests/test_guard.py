@@ -639,7 +639,10 @@ class SyncedInstallTests(_Env):
         managed = cli.managed_guard_settings()["hooks"]
         plugin = json.loads((ROOT / "hooks" / "hooks.json").read_text())["hooks"]
         for event in ("UserPromptSubmit", "PreToolUse", "PostToolUse"):
-            self.assertEqual([e.get("matcher") for e in managed[event]], [e.get("matcher") for e in plugin[event]])
+            # the plugin's groups, without those of a Codex-only tool: Claude Code has no apply_patch
+            self.assertEqual([e.get("matcher") for e in managed[event]],
+                             [e.get("matcher") for e in plugin[event]
+                              if e.get("matcher") not in cli.CODEX_ONLY_MATCHERS])
         home = Path(tempfile.mkdtemp(prefix="maisecrets-nohome-"))
         self.addCleanup(lambda: __import__("shutil").rmtree(home, ignore_errors=True))
         r = subprocess.run(["sh", "-c", cli.MANAGED_GUARD_COMMAND], input="{}", capture_output=True, text=True,

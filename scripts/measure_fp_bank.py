@@ -1,4 +1,4 @@
-"""The false-alarm bank: four public trees on fixed commits, measured with scripts/measure_false_alarms.py. A fixed
+"""The false-alarm bank: seven public trees on fixed commits, measured with scripts/measure_false_alarms.py. A fixed
 instrument for a detector change: run it before and after, and compare.
 
     python3 scripts/measure_fp_bank.py fetch <cache>                  clone each tree at its commit (once)
@@ -36,6 +36,13 @@ TREES = (
     ("5e141933554a0b74e7341841f318be21e895339c", "detect-secrets", "https://github.com/Yelp/detect-secrets.git", ""),
     ("e8c6fe2467818e2054c179ce000dc223300c4778", "ferret-scan", "https://github.com/awslabs/ferret-scan.git", ""),
     ("01dbd7710de79e21bef851aaa8b6cbfb4b1188ad", "Preserve", "https://github.com/thirtysix/Preserve.git", ""),
+    # Benchmark V1 (docs/BENCHMARK-V1.md): CI files, configuration samples, and shell commands in documentation
+    ("e3c451d60f119b71caebf13c98ac45da6e15b4b7", "starter-workflows", "https://github.com/actions/starter-workflows.git",
+     ""),
+    ("30f4b7f6a6c3b0c0ecf4d4efb0de203c48d11562", "awesome-compose", "https://github.com/docker/awesome-compose.git",
+     ""),
+    ("481978fcfbac2229ccfe0dca91ce2e7d67d34ebc", "tldr-pages", "https://github.com/tldr-pages/tldr.git",
+     "pages/common"),
 )
 
 

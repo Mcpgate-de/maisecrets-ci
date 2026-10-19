@@ -36,6 +36,17 @@
             "commandWindows": "if not exist \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.py\" (echo {\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"maisecrets: its folder is gone, a plugin update removed it while this session was open. Exit and resume the session with codex resume. Until then maisecrets blocks this.\"}}) else if not exist \"${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd\" (echo {\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"maisecrets: its folder is gone, a plugin update removed it while this session was open. Exit and resume the session with codex resume. Until then maisecrets blocks this.\"}}) else (\"${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd\" pre-tool)"
           }
         ]
+      },
+      {
+        "matcher": "apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "set -- `# <#`\nif [ -f \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" ]; then bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" pre-tool; else printf '%s' '{\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"maisecrets: its folder is gone (a plugin update moved it while this session was open). Run /reload-plugins in Claude Code; in Codex, exit and run codex resume. Until then maisecrets blocks this.\"}}'; fi; exit\n: <<'#PS_END'\n#>\n$m = 'maisecrets: its folder is gone (a plugin update moved it while this session was open). Run /reload-plugins. Until then maisecrets blocks this.'; if (Test-Path -LiteralPath \"${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd\") { $m = 'maisecrets: PowerShell could not start hooks/run.cmd. Until then maisecrets blocks this.'; $global:LASTEXITCODE = 424242; try { & \"${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd\" pre-tool } catch {}; if ($LASTEXITCODE -ne 424242) { exit $LASTEXITCODE } }; '{\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"' + $m + '\"}}'; exit 0\n#PS_END",
+            "timeout": 10,
+            "commandWindows": "if not exist \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.py\" (echo {\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"maisecrets: its folder is gone, a plugin update removed it while this session was open. Exit and resume the session with codex resume. Until then maisecrets blocks this.\"}}) else if not exist \"${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd\" (echo {\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"maisecrets: its folder is gone, a plugin update removed it while this session was open. Exit and resume the session with codex resume. Until then maisecrets blocks this.\"}}) else (\"${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd\" pre-tool)"
+          }
+        ]
       }
     ],
     "PostToolUse": [

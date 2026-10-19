@@ -29,6 +29,8 @@ CODES = frozenset({
     "launcher.no-python", "launcher.import", "guard.fired",
 } | {f"hook.{e}.{k}" for e in HOOK_EVENTS for k in ("unexpected", "watchdog")})
 
+# run.cmd's folder under %LOCALAPPDATA%: its start record (last-start.txt) and its marker
+LAUNCHER_DIR = "maisecrets-launcher"
 # the codes a marker can carry: written by a place that cannot write the record (a launcher, the guard, a child,
 # the watchdog in its last 0.3 s)
 MARKER_CODES = frozenset({"launcher.no-python", "launcher.import", "guard.fired", "scrub.write", "hook.payload",
@@ -339,7 +341,7 @@ def flush(today: str | None = None) -> None:
         home = _home()
         if not home.is_dir() or home.is_symlink():
             return
-        if not items and not _takeable_markers(home) and not _plugin_marker_is_there():
+        if not items and not _takeable_markers(home) and not _launcher_marker_is_there():
             return                                   # nothing to write: no file is touched
         with _OneTry(home / LOCK_NAME) as locked:
             if not locked:
@@ -349,7 +351,7 @@ def flush(today: str | None = None) -> None:
             groups, damaged = load(path, today)
             if damaged:
                 _set_aside(path)
-            taken = _claim_markers(home) + _claim_plugin_marker()
+            taken = _claim_markers(home) + _claim_launcher_marker()
             for code, day in taken:
                 groups = add(groups, _marker_item(code), day if _valid_day(day, *_window(today)) else today)
             for item in items:
@@ -417,22 +419,27 @@ def write_marker_bounded(code: str, seconds: float = 0.3) -> None:
         pass
 
 
-def _plugin_marker() -> Path:
-    """The marker run.cmd leaves in this plugin's own hooks folder: it never touches the home, as a detached child
-    on Windows would inherit the hook's pipe handles (codex code review, round 3)."""
-    return Path(__file__).resolve().parent.parent / "hooks" / (MARKER_PREFIX + "launcher.no-python")
+def _launcher_marker() -> Path | None:
+    """The marker run.cmd leaves in %LOCALAPPDATA%\\maisecrets-launcher: never in the home, as a detached child on
+    Windows would inherit the hook's pipe handles (codex code review, round 3), and never in the plugin folder, as
+    Codex binds a hook's approval to the plugin's contents (openai/codex#54619). None where the variable is not set."""
+    base = os.environ.get("LOCALAPPDATA")
+    return Path(base) / LAUNCHER_DIR / (MARKER_PREFIX + "launcher.no-python") if base else None
 
 
-def _plugin_marker_is_there() -> bool:
+def _launcher_marker_is_there() -> bool:
+    p = _launcher_marker()
     try:
-        return stat.S_ISDIR(os.lstat(_plugin_marker()).st_mode)
+        return p is not None and stat.S_ISDIR(os.lstat(p).st_mode)
     except OSError:
         return False
 
 
-def _claim_plugin_marker() -> list[tuple[str, str]]:
-    """The plugin folder's marker, counted only when its rmdir succeeded (at most once)."""
-    p = _plugin_marker()
+def _claim_launcher_marker() -> list[tuple[str, str]]:
+    """The launcher's marker, counted only when its rmdir succeeded (at most once)."""
+    p = _launcher_marker()
+    if p is None:
+        return []
     try:
         st = os.lstat(p)
         if not stat.S_ISDIR(st.st_mode) or os.listdir(p):
@@ -496,7 +503,7 @@ def _claim_markers(home: Path) -> list[tuple[str, str]]:
 def unfolded_markers(home: Path | None = None) -> list[str]:
     """The codes of markers no hook folded yet, read only."""
     home = home or _home()
-    out = ["launcher.no-python"] if _plugin_marker_is_there() else []
+    out = ["launcher.no-python"] if _launcher_marker_is_there() else []
     for name in _marker_names(home):
         code = name[len(MARKER_PREFIX):]
         try:
@@ -521,7 +528,7 @@ def clear(home: Path | None = None) -> int:
 
 
 def _clear_locked(home: Path) -> int:
-    n = len(_claim_plugin_marker())
+    n = len(_claim_launcher_marker())
     try:
         names = os.listdir(home)
     except OSError:

@@ -1974,12 +1974,19 @@ PRESIDIO_PATTERN_CONTEXT = {"de-vat-id#0"}
 # statement reached the model. The number must still pass Luhn. A short word that means something else in a
 # neighbour language (kort: short in Danish and Dutch) stays out
 PRESIDIO_EXTRA_CONTEXT = {
+    # 2026-10-19, Benchmark V1: a CSV or JSON key `steuer_id` over a valid tax id; the checksum still decides
+    "de-tax-id": ("steuer_id", "steuer_identifikationsnummer", "steuer-identifikationsnummer", "steuer_idnr"),
     "credit-card": ("karte", "kreditkarte", "kartennummer", "kartennr", "debitkarte", "bankkarte", "ec-karte",
                     "girocard", "carte", "cartes", "carta", "tarjeta", "creditcard", "kaart", "cart\u00e3o", "karta",
                     # 0.6.24, review: the PAN of a payment log, a camelCase key, and the Nordic and Polish words
                     "pan", "cardnumber", "ccnum", "ccnumber", "karty", "kortnummer", "kaartnummer", "korttinumero",
                     "kreditkort", "kortnr"),
 }
+# A bare run of 8 to 17 digits with "account" or "bank" nearby (us-bank) also takes the dates of a finance document,
+# written YYYYMMDD: Benchmark V1, Gretel, 1,435 of its false alarms. A window of 30 characters before the number took
+# 3,447, but lost 681 card and 251 account numbers that only this rule found (Mendeley, Nemotron), so only the date
+# goes (docs/BENCHMARKS.md, "Rule changes measured with Benchmark V1")
+PRESIDIO_NO_DATE = frozenset({"us-bank"})
 # Presidio tags every US/UK/IN/AU/… recognizer as language "en", so language is the wrong
 # switch: an Indian PAN rule produced 290 false positives in one German transcript. The
 # switch is the REGION, derived from the recognizer id; "generic" is always on.
@@ -1991,7 +1998,8 @@ DEFAULT_PII_REGIONS = ("generic",)   # without a config: the rules of no country
 # with require_context needs one of its context words within 80 characters before or 40 after the value.
 _DE_TAX_ID_CONTEXT = ("steueridentifikationsnummer", "steuer-id", "steuerid", "steuerliche identifikationsnummer",
                       "steuerliche identifikation", "persönliche identifikationsnummer", "steuer identifikation",
-                      "idnr", "steuer-idnr", "identifikationsnummer", "bzst")
+                      "idnr", "steuer-idnr", "identifikationsnummer", "bzst",
+                      "steuer_id", "steuer_identifikationsnummer", "steuer-identifikationsnummer", "steuer_idnr")
 _DE_ID_CARD_CONTEXT = ("personalausweis", "ausweis", "personalausweisnummer", "ausweisnummer", "ausweis-nr",
                        "ausweisnr", "personalausweisnr", "dokumentennummer", "ausweisdokument", "npa",
                        "neuer personalausweis", "bundespersonalausweis", "identity card", "id card", "id-card",
@@ -3633,6 +3641,12 @@ _DERIVED_LABEL_RE = _LazyRx(
     r"|(?:secret|password|token)Name)\\?[\"']?\s*(?::=|=>|[:=])\s*\\?[\"'`]?$")
 
 
+def _yyyymmdd(v: str) -> bool:
+    """An 8-digit number in the shape of a date of the years 1900 to 2099: 20231015. On purpose the shape, not the
+    calendar: 20230231 is no day, but next to "account" it reads as a date field, not as an account number."""
+    return len(v) == 8 and v.isdigit() and v[:2] in ("19", "20") and "01" <= v[4:6] <= "12" and "01" <= v[6:] <= "31"
+
+
 def _label_before(text: str, start: int) -> str:
     """The label of the value at `start`: `TTL_REFRESH_TOKEN` in `TTL_REFRESH_TOKEN = 15552000`."""
     m = _LABEL_TAIL_RE.search(_before_value(text, start))
@@ -4146,6 +4160,8 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
                 if rule.require_context and not has_context:
                     continue
                 if rule.score < 0.5 and not has_context:
+                    continue
+                if rule.id in PRESIDIO_NO_DATE and _yyyymmdd(secret):
                     continue
             if _allowed(rule, text, m, secret):
                 continue

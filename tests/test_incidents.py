@@ -222,10 +222,10 @@ class MarkerTests(_Home):
         self.assertFalse(left.exists())
         self.assertEqual(incidents.load()[0], {})
 
-    def test_the_marker_run_cmd_leaves_in_the_hooks_folder_is_listed_folded_once_and_cleared(self):
-        plugin = self.home / "plugin-hooks" / (incidents.MARKER_PREFIX + "launcher.no-python")
-        plugin.parent.mkdir()
-        with mock.patch.object(incidents, "_plugin_marker", return_value=plugin):
+    def test_the_marker_run_cmd_leaves_in_its_launcher_folder_is_listed_folded_once_and_cleared(self):
+        plugin = self.home / "localappdata" / incidents.LAUNCHER_DIR / (incidents.MARKER_PREFIX + "launcher.no-python")
+        plugin.parent.mkdir(parents=True)
+        with mock.patch.dict(os.environ, {"LOCALAPPDATA": str(self.home / "localappdata")}):
             plugin.mkdir()
             self.assertEqual(incidents.unfolded_markers(), ["launcher.no-python"])
             incidents.flush()

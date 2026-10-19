@@ -41,7 +41,7 @@ def git(cwd, *args):
 class PinTests(unittest.TestCase):
     def test_each_tree_has_a_unique_name_and_a_full_commit(self):
         names = [t[1] for t in fb.TREES]
-        self.assertEqual(len(names), 4)
+        self.assertEqual(len(names), 7)
         self.assertEqual(len(set(names)), len(names))
         for commit, name, url, sub in fb.TREES:
             self.assertRegex(commit, r"^[0-9a-f]{40}$", name)

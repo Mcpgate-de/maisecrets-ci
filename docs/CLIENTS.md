@@ -75,7 +75,9 @@ distribution (Intune, MDM). Not yet measured: whether the sandbox user may start
 
 Measured on codex-cli 0.158.0 with a real model (2026-09-29): Codex edits files with one tool,
 `apply_patch`. A PreToolUse matcher of `Write` or `Edit` reaches it (aliases), but the payload says
-`tool_name: "apply_patch"` and holds the whole patch in `tool_input.command`:
+`tool_name: "apply_patch"` and holds the whole patch in `tool_input.command`. Codex 0.163.0-alpha on Windows maps it
+to no alias (field report, 2026-10-19), so a PreToolUse group of its own names `apply_patch` (0.6.40). Where Codex
+maps the aliases, both groups run on one patch: two equal answers, two audit lines (measured on codex-cli 0.163.0):
 
 ```
 *** Begin Patch

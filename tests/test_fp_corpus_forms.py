@@ -59,6 +59,15 @@ OWNER = {
     "phone after a phone word": "phone-after-phone-word", "phone national after a label": "phone-after-phone-word",
     "one first name": "name-single-after-label", "street line after a label": "address-street-after-label",
     "markdown table of persons": "md-table-personal-column",
+    "username in json": "username-after-label", "user_name in yaml": "username-after-label",
+    "userName in a log": "username-after-label", "benutzername": "username-after-label",
+    "csv with a german social insurance column": "csv-personal-column",
+    "tax id under a steuer_id key": "de-tax-id", "username with a year": "username-after-label",
+    "username with a path part": "username-after-label", "username with a realm": "username-after-label",
+    "username with an umlaut": "username-after-label", "username short with digits": "username-after-label",
+    "username after an unrelated example key": "username-after-label",
+    "username of two dictionary words": "username-after-label", "us bank account number": "us-bank",
+    "compact birth date after its label": "birth-date-after-label",
 }
 
 
@@ -92,8 +101,27 @@ class FormsCorpusTests(unittest.TestCase):
                     self.assertNotIn(v, out)
                 self.assertIn(OWNER[name], {m.kind for m in found})
 
+    def test_many_username_fields_on_one_line_take_linear_time(self):
+        # codex Gate A, 2026-10-19: the example check copied the whole line head for each field (8,000 fields: 10 s)
+        from _timing import assert_linear
+        assert_linear(self, lambda t: scan(t, "tool"),
+                      lambda n: ", ".join('"username": "u%dxq"' % i for i in range(n)), 2000)
+
+    def test_a_username_form_masks_its_whole_value_by_its_own_rule(self):
+        # codex Gate A, 2026-10-19: a prefix masked by the rule and the rest by another passed the test above
+        for name, text, values in corpus.FORMS_HIT:
+            if OWNER.get(name) != "username-after-label":
+                continue
+            spans = {(m.start, m.end) for m in scan(text, "tool") if m.kind == "username-after-label"}
+            for v in values:
+                with self.subTest(name=name):
+                    self.assertIn((text.index(v), text.index(v) + len(v)), spans)
+
     def test_every_form_has_a_positive(self):
-        self.assertLessEqual(set(personal.FORMS), set(OWNER.values()))
+        # from the positives themselves (codex Gate A, 2026-10-19): a name in OWNER without its entry proves nothing
+        names = {name for name, _t, _v in corpus.FORMS_HIT}
+        self.assertLessEqual(set(OWNER) - names, set(), "an OWNER entry without its positive")
+        self.assertLessEqual(set(personal.FORMS), {OWNER[n] for n in names if n in OWNER})
 
 
 class FormsChannelTests(unittest.TestCase):

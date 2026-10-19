@@ -51,7 +51,7 @@ _BIRTH_RE = re.compile(r"(?i)(?:\bd\.?o\.?b\b|date of birth|birth[ _-]?date|\bbd
                        + r"|\bgeb(?:\.|oren am|urtsdatum)"
                        r"|n[ée]\(?e?\)? le|date de naissance|fecha de nacimiento|\bnac[ií](?:d[oa])? el"
                        r"|data de nascimento|data di nascita|\bnato il)[\"'\]]?\s{0,3}[:=]?\s{0,3}[\"'(]?\s{0,3}"
-                       r"(" + _DATE + r")(?!\d)")
+                       r"(" + _DATE + r"|(?:19|20)\d{6})(?!\d)")   # and YYYYMMDD after the label (Gretel, 2026-10-19)
 
 # --------------------------------------------------------------------------------- ID number after a label --
 # the labels of health, tax and national numbers: the number of a health plan's beneficiary, a medical record, a
@@ -389,7 +389,14 @@ _STRONG_COLS = frozenset({"address", "street", "street_address", "home_address",
                           "anschrift", "strasse", "dob", "date_of_birth", "birth_date", "birthdate", "birthday",
                           "geburtsdatum", "phone", "phone_number", "telephone", "telefone", "telefono", "telefon",
                           "mobile", "mobile_phone", "cell", "ssn", "tfn", "aadhaar", "nir",
-                          "passport", "passport_number", "national_id", "tax_id", "mrn"})
+                          "passport", "passport_number", "national_id", "tax_id", "mrn",
+                          # German ids that only a person has (2026-10-19): the tax identification number, the social
+                          # insurance and the identity card number. `steuernummer` and `steuer_id` stay out: a company
+                          # register and a table of tax rates have them too (codex Gate A); a tax id in such a column is
+                          # found by its checksum rule (de-tax-id, region de)
+                          # only the long names: `sv_nummer` and `ausweisnummer` also number versions and badges
+                          "steueridentifikationsnummer", "steuer_identifikationsnummer", "sozialversicherungsnummer",
+                          "rentenversicherungsnummer", "personalausweisnummer"})
 _WEAK_COLS = frozenset({"name", "full_name", "fullname", "first_name", "last_name", "firstname", "lastname",
                         "given_name", "family_name", "surname", "customer", "customer_name", "employee",
                         "employee_name", "emp_name", "patient", "patient_name", "nome", "nombre", "nom", "vorname",
@@ -609,6 +616,7 @@ FORMS = {
     "name-single-after-label": (NAME, "tool", "generic", "label"),
     "address-street-after-label": (ADDRESS, "tool", "generic", "label"),
     "md-table-personal-column": ("COLUMN", "tool", "generic", "label"),
+    "username-after-label": (USERNAME, "tool", "generic", "label"),
 }
 # a value that only names one: a variable, a template, an elision, a path
 _NOT_A_VALUE_START = ("$", "%", "{", "<", "(", "[", "*", "#", "/", ".")
@@ -737,6 +745,95 @@ _SINGLE_NAME_RE = _lazy(r"(?i:(?<![a-z_./-])(?:" + _SINGLE_NAME_LABELS + r"))[\"
                         r"[" + _LO + "\u1e00-\u1eff\u0300-\u036f" + r"'’-]{1,30})"
                         r"(?![\w'’-])"   # Nguyễn, Ạnh, and a combining accent
                         r"(?![ \t]{1,2}[" + _UP + r"])")
+# a user name after a label that names one (`"username": "jdoe42"`, `user_name: jdoe42`): the label of a record, not
+# the word `user` or `login` alone (`"user": {`, `login: true`). The whole value is read first (a quoted string, else
+# the scalar up to a space, a comma, a semicolon or a bracket) and judged as one: it is masked whole or not at all, so
+# `jdoe.x/tenant` never leaves `/tenant` in the clear. It must read as a person's account name: a service account, a
+# placeholder, a schema word, a Kubernetes principal (`system:serviceaccount:…`), a name of words (`database_owner`,
+# `ci_actor`) or a name in code (`username = os.environ[...]`, `username = account.name`) stays (Benchmark V1 bank and
+# codex Gate A, 2026-10-19). An e-mail address after the label is left to the e-mail rule
+_USERNAME_LABEL_RE = _lazy(r"(?i)(?<![a-z_.-])(?:user[ _-]?name|benutzername|nutzername|login[ _-]?name)[\"']?"
+                           r"([ \t]{0,3}[:=][ \t]{0,3})(?:\"([^\"\n]{1,64})\"|'([^'\n]{1,64})'"
+                           r"|([^\s\"',;{}\[\]()<>]{1,64})(?=[\s,;}\])]|$))")
+_EXAMPLE_KEY_RE = _lazy(r"(?i)[\"']?examples?[\"']?[ \t]{0,3}:[ \t]*(?:\{|\|)?")
+_USERNAME_SHAPE_RE = _lazy(r"[\w][\w.@+\\/-]{1,63}")
+# a name in code, not a value: `username = os.environ[...]`, `user_name: self.user.name`
+_USERNAME_CODE_START = ("self.", "this.", "os.", "request.", "req.", "user.", "config.", "settings.", "args.", "env.",
+                        "process.", "params.", "form.", "data.", "props.", "ctx.", "context.", "options.", "opts.",
+                        "cls.", "obj.", "row.", "item.", "record.", "payload.", "body.", "event.", "input.")
+# the last word of a field, a role or a variable, not of a person's name: ci_actor, database_owner, enum_value
+_USERNAME_NOT_A_NAME_END = ("_actor", "_account", "_owner", "_value", "_name", "_user", "_id", "_type", "_field",
+                            "_key", "_role", "_group", "_bot", "_service", "_svc", "_admin", "acct", "_reader",
+                            "_writer")
+# the last part of an attribute in code: `username=authn.principal`, `username: current.user`
+_USERNAME_ATTRIBUTE_END = frozenset({"name", "user", "username", "login", "principal", "id", "email", "value",
+                                     "current", "subject", "sub", "identity", "account", "owner"})
+# a service account by its form only (the short-name rule of a home path, `ab12`, is no help here: js42 is a person)
+_USERNAME_SERVICE_RE = re.compile(r"(?i)^(?:.{0,12}[-_]?user\d*|user[-_]?\d+|.{0,20}(?:bot|svc|service|admin|runner|"
+                                  r"agent|daemon|worker|deploy|build)(?:[-_]?\d+)?|.*\[bot\])$")
+_USERNAME_NOT_A_VALUE = frozenset({"string", "null", "none", "true", "false", "required", "optional", "undefined",
+                                   "unknown", "changeme", "placeholder", "value", "empty", "text", "varchar",
+                                   "your_username", "yourusername", "my_username", "myusername", "username_here",
+                                   "ok", "no", "na", "yes", "on", "off", "nil", "tbd", "todo"})
+
+
+_JSON_EXAMPLE_RE = _lazy(r"(?i)[\"']examples?[\"']\s*:\s*[\[{]")
+
+
+def _under_example_key(text: str, pos: int) -> bool:
+    """Whether the label at pos sits inside an `example:` or `examples:` value: one of its YAML ancestors (each nearest
+    line above with less indentation) is that key, or an `"example": {` / `"examples": [` before it on its line is
+    still open. The look is bounded (200 characters of the line, 40 lines up), so a long line costs no more."""
+    start = text.rfind("\n", 0, pos) + 1
+    head_from = max(start, pos - 200)
+    for m in _JSON_EXAMPLE_RE.finditer(text, head_from, pos):
+        rest = text[m.end() - 1:pos]
+        if rest.count("{") + rest.count("[") > rest.count("}") + rest.count("]"):
+            return True
+    line_head = text[start:pos] if pos - start <= 200 else ""
+    indent = len(line_head) - len(line_head.lstrip(" ")) if line_head else 0
+    end = start - 1
+    for _ in range(40):
+        if end <= 0 or indent == 0:
+            return False
+        prev_start = max(text.rfind("\n", 0, end) + 1, end - 200)
+        line = text[prev_start:end]
+        end = prev_start - 1
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        ind = len(line) - len(line.lstrip(" "))
+        if ind < indent:
+            if _EXAMPLE_KEY_RE.fullmatch(line.strip().lstrip("- ")):
+                return True
+            indent = ind       # the next ancestor is above this one
+    return False
+
+
+def _username_value_ok(v: str, quoted: bool, sep: str) -> bool:
+    """Whether the whole value after a user-name label reads as a person's account name (see _USERNAME_LABEL_RE)."""
+    low = v.lower()
+    core = low.strip("._-")
+    if not _USERNAME_SHAPE_RE.fullmatch(v) or not any(c.isalpha() for c in core) or len(core) < 2:
+        return False
+    bare = re.sub(r"[-_.]?\d+$", "", low)     # default_reader01, database_owner2: the digits of a numbered role
+    if low in SERVICE_USERS or bare in SERVICE_USERS or _USERNAME_SERVICE_RE.match(low) or low.startswith("__") \
+            or core in _USERNAME_NOT_A_VALUE or core in PLACEHOLDER_NAMES or low.startswith("system:") \
+            or bare.endswith(_USERNAME_NOT_A_NAME_END):
+        return False
+    if low.startswith(_USERNAME_CODE_START):
+        return False
+    # an attribute in code, not a value: `username = account.name`, `username=authn.principal`
+    if not quoted and re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+", v) and (
+            sep.strip() == "=" and sep != "=" or v.rsplit(".", 1)[1].lower().endswith(tuple(_USERNAME_ATTRIBUTE_END))):
+        return False   # authn.userPrincipalName: the last part ends in a field word
+    # a field or a role of dictionary words joined by `_` or `-` (local_account, fixture-account), not a person; a
+    # dot joins a person's names (hunter.king42), and a part under three letters (js42) is no word
+    if "." in core or "@" in core:
+        return True
+    words = [w for w in re.split(r"[_+\\/-]+", re.sub(r"\d+$", "", core)) if w]
+    return not (all(w.isalpha() and len(w) >= 3 for w in words) and _reads_as_words(" ".join(words), every=True))
+
+
 # the value of an i18n file or a form schema, not a name: the label in another language (first_name: Vorname) and the
 # words of a type, a case or an option
 # the translations of a name label: a text whose name fields hold these is an i18n file or a form schema
@@ -1269,6 +1366,14 @@ def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> l
                 continue
             found.append((m.start(1), m.end(1), "name-single-after-label", NAME))
         out += found
+    if "username-after-label" in want and "name" in low:
+        for m in _USERNAME_LABEL_RE.finditer(text):
+            g = next(i for i in (2, 3, 4) if m.group(i) is not None)
+            # inside an `example:` value (OpenAPI, Swagger): the value of the documentation, not of a person
+            if _under_example_key(text, m.start()):
+                continue
+            if _username_value_ok(m.group(g), g != 4, m.group(1)):
+                out.append((m.start(g), m.end(g), "username-after-label", USERNAME))
     if "address-street-after-label" in want and any(w in low for w in _STREET_LABEL_WORDS):
         for m in _STREET_LABEL_RE.finditer(text):
             g = 1 if m.group(1) is not None else 2
@@ -1341,6 +1446,16 @@ def _placeholder_digits(v: str, dates: bool = False) -> bool:
     return len(set(d)) <= 1 or d in "01234567890" or d in "98765432109"
 
 
+def _compact_birth_date(v: str) -> bool:
+    """YYYYMMDD after a birth label: a real day of the calendar, in a year before this one."""
+    import datetime
+    try:
+        day = datetime.date(int(v[:4]), int(v[4:6]), int(v[6:]))
+    except ValueError:
+        return False
+    return day.year < _host().this_year()
+
+
 def _past_year(date: str) -> bool:
     """A birth date lies before this year: a date of this year or later is an event, a release, a deadline."""
     years = re.findall(r"(?<!\d)(\d{4})(?!\d)", date)
@@ -1384,6 +1499,9 @@ def hits(text: str, channel: str, regions: tuple, company: list | None = None) -
     if "birth-date-after-label" in want and any(k in low for k in _BIRTH_WORDS):
         for m in _BIRTH_RE.finditer(text):
             if _placeholder_digits(m.group(1), dates=True) or not _past_year(m.group(1)):
+                continue
+            # YYYYMMDD: a real past day; after a vCard BDAY it stays with birth-date-vcard-compact (its rule id)
+            if m.group(1).isdigit() and (not _compact_birth_date(m.group(1)) or "bday" in m.group(0).lower()):
                 continue
             out.append((m.start(1), m.end(1), "birth-date-after-label", BIRTH_DATE))
     if "id-number-after-label" in want and any(k in low for k in _ID_WORDS):

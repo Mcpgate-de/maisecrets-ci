@@ -306,9 +306,14 @@ codex plugin add maisecrets@maisecrets
 Codex reads `.codex-plugin/plugin.json` (listing texts, icon) and the hooks from
 `hooks/hooks.json`.
 
-Codex skips a plugin's hooks until you review and trust them once: open `/hooks`
+Codex skips a plugin's hooks until you review and trust them: open `/hooks`
 in Codex and trust the maisecrets entries. Until then nothing is protected and
-the plugin cannot tell you so, because no hook of it runs. A workspace admin
+the plugin cannot tell you so, because no hook of it runs. From Codex 0.164 the
+trust also covers the contents of the plugin folder (openai/codex#54619): after
+each maisecrets update, Codex shows the hooks as failed and lets every prompt and
+tool call through until you trust them again in `/hooks`. `/maisecrets:status`
+reads Codex's `config.toml` and says whether Codex runs the hooks of the
+installed version, and whether a second maisecrets is installed. A workspace admin
 can ship the hooks as managed hooks (`requirements.toml`, MDM), which are
 trusted by policy and cannot be disabled. The plain ChatGPT chat, web and
 mobile have no local runtime and no hooks.
@@ -319,7 +324,7 @@ For development:
 claude --plugin-dir /path/to/maisecrets                 # one session, straight from the checkout
 python3 -m unittest discover -s tests -v               # about 30 seconds
 python3 harness/run.py                                 # 38 scenarios against a fake upstream (4 for the PowerShell tool of Windows)
-python3 harness/codex.py [--real]                      # 13 scenarios through codex exec (five need --real)
+python3 harness/codex.py [--real]                      # 15 scenarios through codex exec (five need --real)
 python3 scripts/replay_can_fail.py                     # 360 proofs: each control's test, and each path of the seven invariants, goes red without its guard
 python3 scripts/derived_counts.py                      # the numbers in the docs, measured again
 python3 scripts/lint_plugin.py                         # frontmatter YAML, manifests, hook paths (pre-commit, CI)
@@ -355,9 +360,9 @@ that lists maisecrets with this repository as its source, or mirror this
 repository into a namespace you control and review each release there before
 your members get it. ChatGPT workspace: Admin > Plugins > Add > Import
 marketplace, with the same `marketplace.json`; the sync runs daily or on
-"Sync now". Codex CLI users trust the hooks once in `/hooks`; a change to
-`hooks/hooks.json` asks again, and until then Codex runs no maisecrets hook and
-says nothing. Managed hooks (`requirements.toml` through MDM) are trusted by
+"Sync now". Codex CLI users trust the hooks in `/hooks`; a change to
+`hooks/hooks.json`, and from Codex 0.164 every maisecrets update, asks again, and
+until then Codex runs no maisecrets hook and lets prompts and tool calls through. Managed hooks (`requirements.toml` through MDM) are trusted by
 policy.
 
 **Updates.** A new version reaches a member when `version` in

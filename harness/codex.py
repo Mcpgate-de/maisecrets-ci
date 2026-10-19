@@ -59,6 +59,13 @@ def value_in_file(path: Path, value: str) -> bool:
     return False
 
 
+def _patch_js(line: str, fname: str) -> str:
+    """Code mode: one tools.apply_patch call that adds fname with one line."""
+    patch = f"*** Begin Patch\n*** Add File: {fname}\n+{line}\n*** End Patch\n"
+    return (f"const r = await tools.apply_patch({json.dumps(patch)}); "
+            "text(typeof r === 'string' ? r : JSON.stringify(r));")
+
+
 def _js(cmd: str) -> str:
     return (f"const r = await tools.exec_command({{cmd: {json.dumps(cmd)}}}); "
             "text(typeof r === 'string' ? r : JSON.stringify(r));")
@@ -142,6 +149,24 @@ SCENARIOS = {
         "expect_placeholder": "⟦SECRET_c1⟧",
         "expect_file": ("notes.txt", f"key={MARK}\n"),
         "expect_hook": ("pre-tool", "apply_patch", "rewrite"),
+    },
+    # apply_patch nested in code mode (functions.exec -> tools.apply_patch) reaches the hook by its own name: Codex
+    # 0.163.0-alpha on Windows did not map it to the aliases Write and Edit, and a placeholder went into the file
+    # unchecked (field report, 2026-10-19). A known placeholder gets its value; an unknown one is refused. The known
+    # one stands in the prompt, so the session saw it (else the hook answers foreign-session)
+    "exec_apply_patch_known": {
+        "prompt": "Write the file notes.txt with ⟦SECRET_c1⟧",
+        "preload": True,
+        "turns": [{"exec": _patch_js("⟦SECRET_c1⟧", "notes.txt")}, {"text": "done"}],
+        "expect_file": ("notes.txt", f"{MARK}\n"),
+        "expect_hook": ("pre-tool", "apply_patch", "rewrite"),
+    },
+    "exec_apply_patch_unknown": {
+        "prompt": "write the file",
+        "preload": True,
+        "turns": [{"exec": _patch_js("⟦SECRET_c999⟧", "bad.txt")}, {"text": "done"}],
+        "expect_file": ("bad.txt", "<missing>"),
+        "expect_hook": ("pre-tool", "apply_patch", "deny"),
     },
     # a patch against the maisecrets home is refused before Codex applies it (invariant I3, C14)
     "apply_patch_store_refused": {
@@ -272,6 +297,12 @@ def run_scenario(name: str, sc: dict) -> list[str]:
                 break
             except Exception:
                 time.sleep(0.1)
+    # the plugin must not write into its own folder: Codex 0.164 and newer bind the approval of its hooks to the
+    # contents (openai/codex#54619), and a written file switched them off (measured, 2026-10-19)
+    sys.path.insert(0, str(ROOT))
+    from maisecrets.codex_trust import content_hash
+    plugin_roots = [p.parent.parent for p in (codex_home / "plugins" / "cache").rglob("hooks/hooks.json")]
+    contents_before = [content_hash(p) for p in plugin_roots]
     try:
         r = subprocess.run(
             ["codex", "exec", "--dangerously-bypass-hook-trust", "--skip-git-repo-check",
@@ -282,6 +313,10 @@ def run_scenario(name: str, sc: dict) -> list[str]:
         (codex_home / "auth.json").unlink(missing_ok=True)
         if srv:
             srv.terminate()
+    if not plugin_roots:
+        fails.append("no installed plugin folder found under CODEX_HOME/plugins/cache")
+    elif [content_hash(p) for p in plugin_roots] != contents_before:
+        fails.append("the plugin wrote into its own folder: Codex 0.164 and newer switch its hooks off")
     bodies = "".join(p.read_text(errors="ignore") for p in out.glob("request_*.json"))
     # every built-in tool Codex offered must be classified (harness/inventory.py)
     from inventory import offered, unclassified

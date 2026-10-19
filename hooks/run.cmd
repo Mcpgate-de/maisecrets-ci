@@ -12,9 +12,10 @@ set "HERE=%~dp0"
 rem One line per start, overwritten: when a hook does not act, this says whether the client started it and with
 rem which environment. Codex clears the environment of a hook and replays a snapshot (codex-rs command_runner.rs);
 rem on one Windows machine no hook acted with Python installed (2026-09-30). Names and paths only, never a payload.
+rem Taken here, before the repairs below; written after them, into %LOCALAPPDATA%\maisecrets-launcher.
 set "MS_PATH=no"
 if defined PATH set "MS_PATH=yes"
->"%HERE%last-start.txt" echo %DATE% %TIME% event=%~1 user=%USERNAME% profile=%USERPROFILE% localappdata=%LOCALAPPDATA% programfiles=%ProgramFiles% path=%MS_PATH%
+set "MS_START=%DATE% %TIME% event=%~1 user=%USERNAME% profile=%USERPROFILE% localappdata=%LOCALAPPDATA% programfiles=%ProgramFiles% path=%MS_PATH%"
 rem Codex clears the environment of a hook and replays a snapshot (codex-rs command_runner.rs). Without these
 rem variables Python finds no home directory and run.cmd no Python (measured on windows-latest, 2026-09-30).
 if not defined SystemRoot set "SystemRoot=C:\Windows"
@@ -27,6 +28,12 @@ if "%MS_UP%"=="%HERE%" goto :profile_set
 for /f "tokens=1 delims=|" %%A in ("%MS_UP%") do set "USERPROFILE=%%A"
 :profile_set
 if not defined LOCALAPPDATA if defined USERPROFILE set "LOCALAPPDATA=%USERPROFILE%\AppData\Local"
+rem Not in this plugin's folder: Codex binds the approval of a plugin's hooks to the contents of that folder
+rem (openai/codex#54619, 0.164), so one written file switched every hook off until the person approved them again.
+rem 2>nul on the call: a folder the hook may not write gave "Access is denied" on every start (field report, 2026-10-19).
+set "MS_DIAG="
+if defined LOCALAPPDATA set "MS_DIAG=%LOCALAPPDATA%\maisecrets-launcher"
+call :start_record 2>nul
 py -3 -c "import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)" >nul 2>&1
 if not errorlevel 1 (
   py -3 "%HERE%dispatch.py" %*
@@ -63,7 +70,7 @@ for /d %%D in ("%LOCALAPPDATA%\Programs\Python\Python3*" "%ProgramFiles%\Python3
     )
   )
 )
->>"%HERE%last-start.txt" echo no Python 3.9 or newer found
+call :no_python_record 2>nul
 rem JSON and exit 0 for every hook event, as run.sh answers: Codex runs the tool when a hook exits 2, so exit 2 was a
 rem block in Claude Code only (codex code review of the diagnostics work, 2026-10-09). One label per event: a
 rem parenthesis in a message would end an if block.
@@ -109,9 +116,20 @@ exit /b 0
 exit /b %errorlevel%
 
 rem an incident marker for /maisecrets:report incident (docs/DIAGNOSTICS.md, section 3): after the answer, one md in
-rem this plugin's own hooks folder, where last-start.txt is written on every start. Not in the home: a detached child
+rem the launcher's folder, where last-start.txt is written on every start. Not in the home: a detached child
 rem inherits the hook's pipe handles on Windows (codex code review, round 3), and the home is another, configured
-rem folder. The hooks fold it from there once Python runs.
+rem folder. The hooks fold it from there once Python runs (maisecrets/incidents.py, LAUNCHER_DIR).
 :mark
-md "%HERE%incident-marker.launcher.no-python" >nul 2>&1
+if defined MS_DIAG md "%MS_DIAG%\incident-marker.launcher.no-python" >nul 2>&1
+exit /b 0
+
+:start_record
+if not defined MS_DIAG exit /b 0
+md "%MS_DIAG%" >nul 2>&1
+>"%MS_DIAG%\last-start.txt" echo %MS_START%
+exit /b 0
+
+:no_python_record
+if not defined MS_DIAG exit /b 0
+>>"%MS_DIAG%\last-start.txt" echo no Python 3.9 or newer found
 exit /b 0

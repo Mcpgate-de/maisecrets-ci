@@ -289,15 +289,17 @@ class MovedPluginFolderFailsClosedTests(unittest.TestCase):
     def assert_refused(self, event: str, r: subprocess.CompletedProcess) -> None:
         assert_refuses(self, event, r)
 
-    def commands(self) -> dict[str, str]:
+    def commands(self) -> list:
+        """(event, command) of every hook group: an event with two groups (PreToolUse: the main matcher and
+        apply_patch, 0.6.40) has both, so one cannot hide the other."""
         data = json.loads((ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
-        out = {}
+        out = []
         for groups in data["hooks"].values():
             for group in groups:
                 for hook in group["hooks"]:
                     event = next(e for e in EVENTS if f" {e};" in hook["command"] or hook["command"].endswith(f" {e}"))
-                    out[event] = hook["command"]
-        self.assertEqual(sorted(out), sorted(EVENTS), "every event has one command")
+                    out.append((event, hook["command"]))
+        self.assertEqual(sorted({e for e, _c in out}), sorted(EVENTS), "every event has a command")
         return out
 
     def run_command(self, command: str, root: Path) -> subprocess.CompletedProcess:
@@ -308,7 +310,7 @@ class MovedPluginFolderFailsClosedTests(unittest.TestCase):
 
     def test_a_missing_plugin_folder_blocks_every_event(self):
         gone = Path(tempfile.mkdtemp(prefix="maisecrets-moved-")) / "maisecrets"
-        for event, command in self.commands().items():
+        for event, command in self.commands():
             with self.subTest(event):
                 r = self.run_command(command, gone)
                 self.assertIn(self.HINT, r.stdout + r.stderr)
@@ -323,7 +325,7 @@ class MovedPluginFolderFailsClosedTests(unittest.TestCase):
 
     def test_a_present_plugin_folder_runs_the_launcher(self):
         # the fallback must not replace the launcher: with the real root, the launcher answers
-        for event, command in self.commands().items():
+        for event, command in self.commands():
             if event != "user-prompt":
                 continue
             r = self.run_command(command, ROOT)
@@ -362,7 +364,7 @@ class PowerShellPartFailsClosedTests(MovedPluginFolderFailsClosedTests):
         root = Path(tempfile.mkdtemp(prefix="maisecrets-nostart-")) / "maisecrets"
         (root / "hooks" / "run.cmd").mkdir(parents=True)
         self.addCleanup(shutil.rmtree, root.parent, True)
-        for event, command in self.commands().items():
+        for event, command in self.commands():
             with self.subTest(event):
                 r = self.run_command(command, root)
                 self.assertIn("could not start hooks/run.cmd", r.stdout)
@@ -393,12 +395,12 @@ class CmdExeFailsClosedTests(MovedPluginFolderFailsClosedTests):
         if os.name != "nt":
             self.skipTest("cmd.exe runs on Windows only; the GitHub Windows runner and the e2e project run it")
 
-    def commands(self) -> dict[str, str]:
+    def commands(self) -> list:
         data = json.loads((ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
         found = [hook["commandWindows"] for groups in data["hooks"].values() for group in groups
                  for hook in group["hooks"]]
-        out = {next(e for e in EVENTS if f" {e})" in c): c for c in found}
-        self.assertEqual(sorted(out), sorted(EVENTS), "every event has one Windows command")
+        out = [(next(e for e in EVENTS if f" {e})" in c), c) for c in found]
+        self.assertEqual(sorted({e for e, _c in out}), sorted(EVENTS), "every event has a Windows command")
         return out
 
     def run_command(self, command: str, root: Path) -> subprocess.CompletedProcess:
@@ -422,13 +424,13 @@ class CmdExeFailsClosedTests(MovedPluginFolderFailsClosedTests):
     def test_the_exit_code_of_the_launcher_comes_through(self):
         for parent in ("plain", "Program Files (x86)"):
             root = self.stub_root(parent)
-            for event, command in self.commands().items():
+            for event, command in self.commands():
                 with self.subTest(parent=parent, event=event):
                     self.assertEqual(self.run_command(command, root).returncode, 7)
 
     def test_a_missing_folder_under_a_path_with_spaces_and_parentheses_blocks(self):
         gone = Path(tempfile.mkdtemp(prefix="maisecrets-moved-")) / "Program Files (x86)" / "maisecrets"
-        for event, command in self.commands().items():
+        for event, command in self.commands():
             with self.subTest(event):
                 r = self.run_command(command, gone)
                 if event == "session-start":
@@ -440,7 +442,7 @@ class CmdExeFailsClosedTests(MovedPluginFolderFailsClosedTests):
         # Codex deletes the old version folder while the session runs: run.cmd may still be there
         root = self.stub_root("half-deleted")
         (root / "hooks" / "dispatch.py").unlink()
-        for event, command in self.commands().items():
+        for event, command in self.commands():
             with self.subTest(event):
                 r = self.run_command(command, root)
                 if event == "session-start":
@@ -484,7 +486,9 @@ class RunCmdFindsAnInstallOffThePathTests(unittest.TestCase):
         self.assertNotIn("needs Python", r.stdout + r.stderr)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         # the start record says which event ran with which environment, and nothing of the payload
-        record = (RUN_CMD.parent / "last-start.txt").read_text(encoding="utf-8", errors="replace")
+        # not in the plugin folder: Codex binds the approval of the hooks to its contents (openai/codex#54619)
+        self.assertFalse((RUN_CMD.parent / "last-start.txt").exists(), "run.cmd wrote into the plugin folder")
+        record = (local / "maisecrets-launcher" / "last-start.txt").read_text(encoding="utf-8", errors="replace")
         self.assertIn("event=user-prompt", record)
         self.assertIn(f"localappdata={local}", record)
         self.assertNotIn("no Python", record)
@@ -492,15 +496,16 @@ class RunCmdFindsAnInstallOffThePathTests(unittest.TestCase):
 
 
 class RunCmdMarkerTests(unittest.TestCase):
-    """run.cmd without Python leaves its incident marker in its own hooks folder, where last-start.txt is written
-    (docs/DIAGNOSTICS.md, section 3): no detached child, which would inherit the hook's pipe handles, and the
-    configured home is not touched (codex code review, round 3)."""
+    """run.cmd without Python leaves its incident marker in %LOCALAPPDATA%\\maisecrets-launcher, where last-start.txt
+    is written (docs/DIAGNOSTICS.md, section 3): no detached child, which would inherit the hook's pipe handles, the
+    configured home is not touched (codex code review, round 3), and nothing is written into the plugin folder, whose
+    contents Codex binds the approval of the hooks to (openai/codex#54619)."""
 
     def setUp(self):
         if os.name != "nt":
             self.skipTest("cmd.exe runs on Windows only; the GitHub Windows runner runs it")
 
-    def test_without_python_the_marker_is_in_the_hooks_folder_and_the_home_is_untouched(self):
+    def test_without_python_the_marker_is_in_the_launcher_folder_and_the_home_is_untouched(self):
         base = Path(tempfile.mkdtemp(prefix="maisecrets-runcmd-mark-"))
         self.addCleanup(shutil.rmtree, base, True)
         (base / "hooks").mkdir()
@@ -521,7 +526,9 @@ class RunCmdMarkerTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("withheld", r.stdout)
         self.assertLess(took, 20)
-        self.assertTrue((base / "hooks" / "incident-marker.launcher.no-python").is_dir())
+        self.assertTrue((empty / "maisecrets-launcher" / "incident-marker.launcher.no-python").is_dir())
+        self.assertIn("no Python", (empty / "maisecrets-launcher" / "last-start.txt").read_text(errors="replace"))
+        self.assertEqual(sorted(os.listdir(base / "hooks")), ["dispatch.py", "run.cmd"], "nothing in the plugin folder")
         self.assertEqual(os.listdir(home), [], "the configured home is not touched")
 
     def test_without_python_each_event_refuses_in_the_form_of_each_client(self):

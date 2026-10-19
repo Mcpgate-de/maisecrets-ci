@@ -92,8 +92,9 @@ Four goals hold over every path, each with its own tests and a mutation per path
   no OCR by design). The one exception is `updatedInput` of a resolving PreToolUse answer,
   the delivery the user allows.
 - **I3** No tool of the agent reads a file of the vault home or the value run directory, within
-  the end of C8 (Bash is a text match). Codex `apply_patch` reaches the matcher through its aliases
-  `Write` and `Edit`; a patch whose header names the home is refused (measured on codex-cli 0.158.0).
+  the end of C8 (Bash is a text match). Codex `apply_patch` reaches a PreToolUse group of its own name
+  and, in builds that map it, the first group through its aliases `Write` and `Edit`; a patch whose header names the
+  home is refused (measured on codex-cli 0.158.0 and 0.163.0).
 - **I4** Every value the detector finds can be masked in a transcript in every record shape the
   clients write.
 

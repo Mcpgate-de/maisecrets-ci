@@ -1,0 +1,4 @@
+# sha256 of each file of the private frozen holdout (docs/BENCHMARK-V1.md, "Splits"); bench/run.py --source holdout
+3b75e43efb82805b6fd9aeac778d6ed6156cbdf76301517a47a034f5d230738c  neg.jsonl
+cd23ddbe1735aad239ec186b5b48cf2b5f6a4a2034657e9b633555fe14d172d0  prompt.jsonl
+af9da93f4dbc8c3bcf522952ad967b05b1a33615d451ca471c3b3b3c77141592  tool.jsonl
