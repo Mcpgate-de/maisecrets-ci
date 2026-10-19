@@ -5,6 +5,6 @@ statement = "A listed term that a built-in rule finds too (an email address, a t
 runner = ["tests/test_terms_hooks.py::ShapedTermTests::test_the_store_keeps_the_entity_and_the_placeholder_stays"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = "        else:\n            _claim(m, text, found, taken_starts, taken_ends)\n"
 replace = "        else:\n            pass\n"

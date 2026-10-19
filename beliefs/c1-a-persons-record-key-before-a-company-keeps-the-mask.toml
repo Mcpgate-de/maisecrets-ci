@@ -5,6 +5,6 @@ statement = "A key of a person's record (name, person, user, customer, Kunde, Mi
 runner = ["tests/test_company_numbers_follow_the_address.py::CompanyNumberTests::test_a_persons_key_before_the_company_keeps_the_mask", "tests/test_company_numbers_follow_the_address.py::CompanyNumberTests::test_a_user_or_staff_record_keeps_the_mask"]
 
 [proof]
-file = "maisecrets/personal.py"
+file = "maisecrets/detection/personal.py"
 find = '''            and any(not (_CUSTOMER_KEY_RE.fullmatch(k.group())'''
 replace = '''            and False and any(not (_CUSTOMER_KEY_RE.fullmatch(k.group())'''

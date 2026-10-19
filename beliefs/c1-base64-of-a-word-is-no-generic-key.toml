@@ -5,6 +5,6 @@ statement = "Under the lowered entropy floors of generic-api-key, base64 of prin
 runner = ["tests/test_rules_from_the_fork_0624.py::GenericKeyFloorTests::test_base64_of_a_word_under_the_old_floor_is_no_key"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = '''        return e >= ENTROPY_BY_ALPHABET[alphabet_of(secret)] and not _base64_of_text(secret)'''
 replace = '''        return e >= ENTROPY_BY_ALPHABET[alphabet_of(secret)]'''

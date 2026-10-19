@@ -5,6 +5,6 @@ statement = "In a tool result, the cells of a Markdown table column for personal
 runner = ["tests/test_personal_after_its_label.py::MarkdownTableTests::test_the_person_columns_of_a_markdown_table_mask_their_cells"]
 
 [proof]
-file = "maisecrets/personal.py"
+file = "maisecrets/detection/personal.py"
 find = '''        out += _md_table_hits(text)'''
 replace = '''        pass'''

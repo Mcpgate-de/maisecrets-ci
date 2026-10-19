@@ -18,7 +18,6 @@ import random
 import sys
 import unittest
 from pathlib import Path
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -95,14 +94,9 @@ def _other_languages() -> list[str]:
 
 def _scan(languages: tuple[str, ...], texts: list[str]) -> list[list[tuple[str, str]]]:
     """The detector's result for each text with exactly these label languages on."""
-    saved = detect._RULES
     active = regions.Active(regions=("generic",), languages=languages, source="test")
-    try:
-        detect._RULES = None
-        with mock.patch.object(detect, "active_regions", return_value=active):
-            return [[(m.type, m.value) for m in detect.scan(t)] for t in texts]
-    finally:
-        detect._RULES = saved
+    with detect.Detector(regions=active).activate():
+        return [[(m.type, m.value) for m in detect.scan(t)] for t in texts]
 
 
 def _cases(lang: str, n: int = 300, seed: int = 28) -> list[dm.Case]:

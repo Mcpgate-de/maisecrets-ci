@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Build maisecrets/rules/words_en.txt from a pinned SCOWL release (the English word list of the password rule).
+"""Build maisecrets/detection/rules/words_en.txt from a pinned SCOWL release (the English word list of the password
+rule).
 
 The list holds the base words of SCOWL's en_US Hunspell dictionary (size 60) with 4 to 8 lower-case ASCII
 letters, one per line: about 21,000 words, about 140 KB. The password rule (label-pw-literal in
-maisecrets/detect.py) reads it once, and only when a password label stands in the text. A longer word is still
+maisecrets/detection/core.py) reads it once, and only when a password label stands in the text. A longer word is still
 covered by its parts (basketball: basket + ball).
 
 Offline by design: download the release asset yourself and pass its path. The digest is pinned, so a changed
@@ -12,7 +13,7 @@ asset fails here.
     gh release download rel-2026.02.25 -R en-wl/wordlist -p 'hunspell-en_US-2026.02.25.zip' -D <dir>
     python3 scripts/sync_words.py <dir>/hunspell-en_US-2026.02.25.zip
 
-Writes maisecrets/rules/words_en.txt, LICENSE-scowl (the copyright part of the dictionary's README) and
+Writes maisecrets/detection/rules/words_en.txt, LICENSE-scowl (the copyright part of the dictionary's README) and
 SCOWL_VERSION.
 """
 import hashlib
@@ -58,10 +59,11 @@ def main() -> int:
     z = zipfile.ZipFile(io.BytesIO(raw))
     words = words_of(z.read("en_US.dic").decode("utf-8"))
     lic = license_of(z.read("README_en_US.txt").decode("utf-8"))
-    dst = Path(__file__).resolve().parent.parent / "maisecrets" / "rules"
+    dst = Path(__file__).resolve().parent.parent / "maisecrets" / "detection" / "rules"
     (dst / "words_en.txt").write_text("\n".join(words) + "\n", encoding="utf-8")
     (dst / "LICENSE-scowl").write_text(
-        f"maisecrets/rules/words_en.txt is a word list created from SCOWL: the base words of 4 to 8 letters of\n"
+        f"maisecrets/detection/rules/words_en.txt is a word list created from SCOWL: the base words of 4 to 8 "
+        f"letters of\n"
         f"the en_US Hunspell dictionary (SCOWL size 60), release {TAG},\n{SOURCE}\n"
         f"(sha256 {SHA256}).\n"
         f"The English dictionaries come directly from SCOWL and are under the same copyright terms\n"

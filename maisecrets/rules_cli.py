@@ -384,7 +384,8 @@ def _list_row(spec, off: frozenset) -> dict:
 
 
 def list_rules(args: list[str]) -> int:
-    """Every rule in scan order with where it comes from (maisecrets/registry.py): the passes outside the rule list
+    """Every rule in scan order with where it comes from (maisecrets/detection/registry.py): the passes outside the
+    rule list
     too. A rule that the allow list switches off is marked. Ids, keys and names only: never a regex or a value."""
     if args not in ([], ["--json"]):
         print(USAGE, file=sys.stderr)

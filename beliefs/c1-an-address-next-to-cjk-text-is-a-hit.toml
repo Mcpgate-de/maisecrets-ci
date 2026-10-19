@@ -5,6 +5,6 @@ statement = "An e-mail address or a phone number written right next to Chinese, 
 runner = ["tests/test_cjk_boundaries.py::CjkBoundaryTests::test_an_address_or_number_next_to_cjk_text_is_found_alone_in_both_channels"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = '''_NOT_CJK_WORD = "(?![" + _CJK + "])\\w"'''
 replace = '''_NOT_CJK_WORD = "\\w"'''

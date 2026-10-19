@@ -5,7 +5,7 @@ statement = "The corrections of BETTERLEAKS_PATCHES apply when the vendored rule
 runner = ["tests/test_rules_from_the_catalogs.py::BetterleaksPatchTests::test_a_bare_token_without_the_providers_name_is_found"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = '''            r = _patched(r)
 '''
 replace = ""

@@ -5,6 +5,6 @@ statement = "In test code only a label-rule value counts as a fixture: a token s
 runner = ["tests/test_leak_direction.py::LeakDirectionTests::test_a_token_shape_after_a_label_stays_a_hit_in_test_code"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = "    return not scan(m.value, enabled=_shape_rule_ids())\n"
 replace = "    return True\n"

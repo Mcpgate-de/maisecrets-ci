@@ -5,7 +5,7 @@ statement = "After an unquoted value of a label (password: <value>. and password
 runner = ["tests/test_password_after_word.py::SentenceStopTests::test_the_stop_after_an_unquoted_value_is_no_part_of_it"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = '''                end -= len(secret) - cut
                 secret = secret[:cut]
             take('''

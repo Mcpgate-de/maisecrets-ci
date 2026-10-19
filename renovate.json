@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": [
-    "Renovate keeps the three vendored rulesets in maisecrets/rules/ current. It runs as the scheduled job `renovate` in .gitlab-ci.yml, self-hosted, because only a self-hosted Renovate runs postUpgradeTasks.",
+    "Renovate keeps the three vendored rulesets in maisecrets/detection/rules/ current. It runs as the scheduled job `renovate` in .gitlab-ci.yml, self-hosted, because only a self-hosted Renovate runs postUpgradeTasks.",
     "A bump of a *_VERSION file alone would leave the JSON the detector reads at the old version (red: tests/test_vendored_rules.py). The postUpgradeTasks run the sync script of that ruleset, so one MR carries the version and the regenerated rules together.",
     "The sync scripts read the upstream rules as data (scripts/_static_python.py) and execute no upstream code; the job holds one credential, the Renovate token, a Developer token. Nothing merges by itself: a person merges the tested MR.",
     "Only the custom managers are on: the CI images and the GitHub Actions stay pinned by hand."
@@ -25,7 +25,7 @@
       "customType": "regex",
       "description": "betterleaks: the rules come from config/betterleaks.toml at the release tag",
       "fileMatch": [
-        "^maisecrets/rules/BETTERLEAKS_VERSION$"
+        "^maisecrets/detection/rules/BETTERLEAKS_VERSION$"
       ],
       "matchStrings": [
         "^(?<currentValue>v\\d+\\.\\d+\\.\\d+)\\s*$"
@@ -38,7 +38,7 @@
       "customType": "regex",
       "description": "detect-secrets: the keyword and basic-auth regexes at the release tag",
       "fileMatch": [
-        "^maisecrets/rules/DETECT_SECRETS_VERSION$"
+        "^maisecrets/detection/rules/DETECT_SECRETS_VERSION$"
       ],
       "matchStrings": [
         "^(?<currentValue>v\\d+\\.\\d+\\.\\d+)\\s*$"
@@ -51,7 +51,7 @@
       "customType": "regex",
       "description": "Presidio: the pattern recognizers of the presidio-analyzer package",
       "fileMatch": [
-        "^maisecrets/rules/PRESIDIO_VERSION$"
+        "^maisecrets/detection/rules/PRESIDIO_VERSION$"
       ],
       "matchStrings": [
         "^(?<currentValue>\\d+\\.\\d+\\.\\d+)\\s*$"
@@ -79,7 +79,7 @@
           "python3 scripts/sync_betterleaks.py {{{newValue}}}"
         ],
         "fileFilters": [
-          "maisecrets/rules/**"
+          "maisecrets/detection/rules/**"
         ],
         "executionMode": "update"
       }
@@ -93,7 +93,7 @@
           "python3 scripts/sync_detect_secrets.py {{{newValue}}}"
         ],
         "fileFilters": [
-          "maisecrets/rules/**"
+          "maisecrets/detection/rules/**"
         ],
         "executionMode": "update"
       }
@@ -107,7 +107,7 @@
           "python3 scripts/sync_presidio.py {{{newValue}}}"
         ],
         "fileFilters": [
-          "maisecrets/rules/**"
+          "maisecrets/detection/rules/**"
         ],
         "executionMode": "update"
       }

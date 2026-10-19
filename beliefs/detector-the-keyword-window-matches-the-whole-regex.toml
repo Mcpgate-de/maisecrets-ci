@@ -5,6 +5,6 @@ statement = "On long text, generic-api-key runs only in windows around its keywo
 runner = ["tests/test_core.py::DetectTests::test_the_keyword_window_finds_exactly_what_the_whole_regex_finds"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = "        a = max(_line_start(text, k.start()), k.start() - 50)\n"
 replace = "        a = max(_line_start(text, k.start()), k.start() - 10)\n"

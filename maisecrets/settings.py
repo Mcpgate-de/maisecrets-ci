@@ -14,8 +14,8 @@ import re
 import time
 from pathlib import Path
 
-from .vault import (CONFIG, DEFAULT_CONFIG, HOME, ConfigError, LockTimeout, _check_types, _lock_for, atomic_write,
-                    load_config)
+from .home import (CONFIG, DEFAULT_CONFIG, HOME, ConfigError, LockTimeout, _check_types, _lock_for, atomic_write,
+                   load_config)
 
 # Every key of the config is in exactly one class (a test holds it): a new key without one is a test failure.
 DISCOVERABLE = ("ssh_consent", "ssh_autonomous_hosts", "secret_destinations", "rehydration", "read_pdf",

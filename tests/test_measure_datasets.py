@@ -21,6 +21,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+RULES = ROOT / "maisecrets" / "detection" / "rules"
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
 
@@ -234,7 +235,7 @@ class CleaningTests(unittest.TestCase):
     def test_every_label_maps_to_a_type_maisecrets_reports_or_out_of_scope(self):
         sys.path.insert(0, str(ROOT))
         from maisecrets import detect
-        presidio = json.loads((ROOT / "maisecrets" / "rules" / "presidio.json").read_text(encoding="utf-8"))
+        presidio = json.loads((RULES / "presidio.json").read_text(encoding="utf-8"))
         known = ({detect.ENTITY_TYPE.get(r["entity"], r["entity"]) for r in presidio["recognizers"]} | {"SECRET"}
                  | {r.type for r in detect._load_own()})
         from maisecrets import personal

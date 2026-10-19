@@ -6,9 +6,9 @@ Usage: scripts/sync_presidio.py 2.2.364
 Presidio ships its recognizers as Python classes. This script reads them from the source of the
 presidio-analyzer wheel as data (scripts/_static_python.py) and executes none of it: the wheel is
 downloaded from PyPI, checked against the sha256 PyPI lists, and opened as a zip. The plugin reads
-the resulting maisecrets/rules/presidio.json as data.
+the resulting maisecrets/detection/rules/presidio.json as data.
 
-Checksum validators are NOT exported (they are code); maisecrets/detect.py
+Checksum validators are NOT exported (they are code); maisecrets/detection/core.py
 ports the ones it needs (generic + DE) and marks the rest as "context only".
 """
 from __future__ import annotations
@@ -106,7 +106,7 @@ def main(argv: list[str]) -> int:
     except Refused as e:
         print(f"refused: {e}", file=sys.stderr)
         return 1
-    dst = Path(__file__).resolve().parent.parent / "maisecrets" / "rules"
+    dst = Path(__file__).resolve().parent.parent / "maisecrets" / "detection" / "rules"
     json.dump({"presidio_version": ver, "recognizers": out}, open(dst / "presidio.json", "w"), indent=1)
     (dst / "PRESIDIO_VERSION").write_text(ver + "\n")
     (dst / "LICENSE-presidio").write_bytes(fetch("https://raw.githubusercontent.com/microsoft/presidio/main/LICENSE"))

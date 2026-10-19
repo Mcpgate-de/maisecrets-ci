@@ -5,6 +5,6 @@ statement = "A PESEL, Spanish DNI or NIE, NHS number, ABA routing number or codi
 runner = ["tests/test_rules_from_other_detectors.py::PortedCheckDigitTests::test_a_valid_value_after_its_label_is_a_hit_and_its_twin_is_not"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = '''                      "pl-pesel": "pl_pesel", "es-nif": "es_nif",'''
 replace = '''                      "es-nif": "es_nif",'''

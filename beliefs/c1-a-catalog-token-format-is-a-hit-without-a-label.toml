@@ -5,6 +5,6 @@ statement = "A token of the 23 rules added in 0.6.20 (Google OAuth client secret
 runner = ["tests/test_rules_from_the_catalogs.py::TokenFormatTests::test_each_token_is_found_whole_by_its_rule_and_a_look_alike_is_not"]
 
 [proof]
-file = "maisecrets/rules/prefixes.txt"
+file = "maisecrets/detection/rules/prefixes.txt"
 find = '''google-oauth-client-secret   GOCSPX-'''
 replace = '''google-oauth-client-secret   (?!)GOCSPX-'''

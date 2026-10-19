@@ -29,7 +29,7 @@ os.environ["MAISECRETS_HOME"] = _HOME
 from maisecrets import detect  # noqa: E402
 
 SKIP = {".git", ".claude", "__pycache__", "dist", "node_modules"}
-VENDORED = ("maisecrets/rules/",)   # the rule sets carry secret shapes by design
+VENDORED = ("maisecrets/detection/rules/",)   # the rule sets carry secret shapes by design
 
 
 def main(argv: list[str]) -> int:

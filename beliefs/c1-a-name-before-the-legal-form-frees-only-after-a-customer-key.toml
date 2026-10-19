@@ -5,6 +5,6 @@ statement = "A NAME hit that ends right before the legal form counts as the comp
 runner = ["tests/test_company_numbers_more_forms.py::CompanyFormTests::test_each_guard_alone_keeps_the_mask"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = '''and _CUSTOMER_VALUE_RE.search(text, max(0, names[k][0] - 16), names[k][0]):'''
 replace = ''':'''

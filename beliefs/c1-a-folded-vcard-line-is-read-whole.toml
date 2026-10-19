@@ -5,6 +5,6 @@ statement = "A vCard property folded over two lines (RFC 6350: a line break and 
 runner = ["tests/test_vcard_folded_lines.py::FoldedLineTests::test_a_folded_address_is_masked_in_both_parts", "tests/test_vcard_folded_lines.py::FoldedLineTests::test_a_folded_name_phone_mail_and_birth_date_are_masked_in_both_parts"]
 
 [proof]
-file = "maisecrets/normalise.py"
+file = "maisecrets/detection/normalise.py"
 find = '''STAGES = ("unfold", "entity",'''
 replace = '''STAGES = ("entity",'''

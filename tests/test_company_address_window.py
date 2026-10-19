@@ -15,7 +15,6 @@ import os
 import sys
 import unittest
 from pathlib import Path
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -31,14 +30,9 @@ FILL = {"industry": "freight and storage", "employees": 250, "founded": 1998, "t
 
 def masked(obj: dict) -> bool:
     text = json.dumps(obj, separators=(",", ":"))
-    saved = detect._RULES
     active = regions.Active(regions=("generic", "us", "uk"), languages=("en",), source="test")
-    try:
-        detect._RULES = None
-        with mock.patch.object(detect, "active_regions", return_value=active):
-            return any(text[m.start:m.end] == ADDRESS for m in detect.scan(text, channel="tool"))
-    finally:
-        detect._RULES = saved
+    with detect.Detector(regions=active).activate():
+        return any(text[m.start:m.end] == ADDRESS for m in detect.scan(text, channel="tool"))
 
 
 class CompanyWindowTests(unittest.TestCase):

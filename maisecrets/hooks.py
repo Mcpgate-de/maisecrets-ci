@@ -25,7 +25,7 @@ import sys
 from typing import Any
 
 from . import check_value, detect, incidents, rehydration, term_files, value_files
-from .detect import _LazyRx
+from .lazy_regex import LazyRx as _LazyRx
 from .placeholder import KEY_RE, find_refs
 from . import vault as vault_mod
 from .vault import ConfigError, Vault, load_config
@@ -746,7 +746,7 @@ def _mention_prefix_exists(prompt: str, cwd: str, cfg: dict) -> bool:
 def _prompt_hits(prompt: str) -> list:
     """The detected values of a prompt, without the fixtures of a pasted test (C1); the hook and the mod both
     take these out."""
-    return [m for m in detect.scan(prompt) if not detect.is_fixture(m, prompt)]
+    return detect.findings(prompt)
 
 
 def _exact_spans(text: str, vault, session: str | None, resolved: list | None, prompt: bool = False) -> list:
@@ -899,19 +899,7 @@ def _verdict(text: str, cfg: dict, session: str | None, vault=None) -> tuple:
 def _allowed_by_the_list(value: str) -> str | None:
     """Why the allow list lets this value through, or None. Only for a value no rule caught: the scan with every rule,
     without the allow list, shows whether the list took a hit out (`rule: <id>` or an exact value)."""
-    from .user_rules import switched_off
-    values, ids = detect.allow_list()
-    if not values and not ids:
-        return None
-    if value in values or value.strip() in values:
-        return "your allow list allows this exact value"
-    every = [r for _, r in detect._ranked(detect.active_regions())]
-    for m in detect.scan(value, rule_list=every):
-        if m.value in values or m.value.strip() in values:
-            return "your allow list allows this exact value"
-        if switched_off(m.kind, ids):
-            return f"your allow list switches off the rule {m.kind}"
-    return None
+    return detect.explain_allowed(value)
 
 
 def _store_unseen(payload: dict, cfg: dict, value: str, session: str | None, exact: bool) -> str:
@@ -4496,7 +4484,7 @@ def post_tool_failure(payload: dict) -> dict:
         return {}
     cfg = load_config()
     session = payload.get("session_id")
-    matches = [m for m in detect.scan(error, channel="tool") if not detect.is_fixture(m, error, "")]
+    matches = detect.findings(error, channel="tool")
     if not matches and not _has_live(cfg):
         return {}
     vault = Vault(cfg)
@@ -4791,7 +4779,7 @@ def _scrub_failed_prompt_now(prompt: str, path: str) -> None:
             # huge paste: the late scrub of the check starts first (Gate B, round 2)
             _scrub_transcript_later(path, list(values), [])
         try:
-            values += [m.value for m in detect.scan(prompt) if not detect.is_fixture(m, prompt)]
+            values += [m.value for m in detect.findings(prompt)]
         except Exception:  # noqa: BLE001 - the forms of a check are masked already; the detector failed after them
             if not values:
                 raise
@@ -4916,6 +4904,13 @@ def main(argv: list[str]) -> int:
         incidents.write_marker_bounded("hook.payload")       # it answers before the timer: a marker, bounded
         return 0
     import threading
+    from .home import regions_from_config
+    # the plugin gives the config reader; the mod's rewrite_prompt (dispatch.py) still reads the config in detect
+    detect.use_regions(regions_from_config)
+    from .sources import PLUGIN_SOURCES
+    detect.use_sources(PLUGIN_SOURCES)
+    from .placeholder import REFERENCES
+    detect.use_references(REFERENCES)
     try:
         from . import vault_refs
         # vault references read the client config of this payload's client (Claude Code or Codex)

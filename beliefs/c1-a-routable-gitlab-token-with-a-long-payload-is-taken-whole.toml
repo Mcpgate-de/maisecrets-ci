@@ -5,6 +5,6 @@ statement = "A routable GitLab token whose base64 payload runs past 128 characte
 runner = ["tests/test_rules_from_the_catalogs.py::SessionFormTests::test_a_routable_gitlab_token_with_a_long_payload_is_one_hit"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = '''(400 if gitlab else 128)'''
 replace = '''128'''

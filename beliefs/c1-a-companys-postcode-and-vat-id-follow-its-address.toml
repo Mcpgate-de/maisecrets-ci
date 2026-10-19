@@ -5,7 +5,7 @@ statement = "When an address rule leaves an address as text because a legal form
 runner = ["tests/test_company_numbers_follow_the_address.py::CompanyNumberTests::test_an_invoice_to_a_company_keeps_its_postcode_and_vat_id_with_its_street", "tests/test_company_numbers_follow_the_address.py::CompanyNumberTests::test_a_company_record_after_an_address_label_keeps_its_postcode_and_vat_id"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = '''    if company:
         _free_company_numbers('''
 replace = '''    if False:

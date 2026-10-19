@@ -5,6 +5,6 @@ statement = "In a tool result or a file, a value split by a zero-width character
 runner = ["tests/test_tool_channel_normaliser.py::DisguiseTests::test_each_disguise_hides_a_token_from_the_raw_scan_but_not_from_the_tool_channel"]
 
 [proof]
-file = "maisecrets/detect.py"
-find = '''    if _CHANNEL[0] == "tool" and not _copy:'''
+file = "maisecrets/detection/core.py"
+find = '''    if channel == "tool" and not _copy:'''
 replace = '''    if False:'''

@@ -5,6 +5,6 @@ statement = "A person's name (a personal NAME hit) in the paragraph before the c
 runner = ["tests/test_company_numbers_follow_the_address.py::CompanyNumberTests::test_a_persons_name_before_the_company_keeps_the_mask"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = '''if not (k < len(names) and names[k][0] < f.end):'''
 replace = '''if True:'''

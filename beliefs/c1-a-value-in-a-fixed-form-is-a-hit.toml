@@ -5,6 +5,6 @@ statement = "A value in a fixed form or after a label that names it (an ::add-ma
 runner = ["tests/test_fp_corpus_forms.py::FormsCorpusTests::test_each_form_masks_its_value_in_the_tool_channel"]
 
 [proof]
-file = "maisecrets/personal.py"
+file = "maisecrets/detection/personal.py"
 find = '''    out += _form_hits(text, channel, regions, want, company)'''
 replace = '''    pass'''

@@ -5,6 +5,6 @@ statement = "An import hit never lands inside a placeholder, so an import cannot
 runner = ["tests/test_values.py::ReviewRoundOne::test_an_import_hit_never_lands_inside_a_placeholder"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = "        if refs and any(a < m.end and m.start < b for a, b in refs):\n            continue\n"
 replace = "        if False:\n            continue\n"

@@ -212,13 +212,9 @@ def _credential_word(v: str) -> bool:
         return False   # a label of YAML or of a list (`npm-github:`)
     if _DATE_ID_FILE_RE.fullmatch(core) or _SEMVER_RE.fullmatch(core) or detect.reads_as_word(core):
         return False   # a date, an issue, a file, a version; a name or a label (`npm-github:`, `Wartungsfenster`)
-    if _PLACEHOLDER_WORD_RE.search(v) or detect._names_itself(v):
+    if _PLACEHOLDER_WORD_RE.search(v):
         return False
-    if detect._pw_literal_ok(v):
-        return True
-    return (detect.shannon_entropy(v) >= detect.ENTROPY_BY_ALPHABET[detect.alphabet_of(v)]
-            and not detect._base64_of_text(v) and not detect.reads_as_word(v)
-            and detect._wordlike(detect._deleet(v)) < 0.3 and detect._ds_value_ok(v))
+    return detect.bare_value_is_a_credential(v)
 
 
 def looks_like_a_credential(value: str) -> bool:

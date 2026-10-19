@@ -5,6 +5,6 @@ statement = "A company after an employer, job or membership label (employer, Arb
 runner = ["tests/test_company_numbers_follow_the_address.py::CompanyNumberTests::test_an_employer_label_makes_the_address_the_employees", "tests/test_company_numbers_follow_the_address.py::CompanyNumberTests::test_a_legal_form_in_a_job_field_keeps_the_mask", "tests/test_company_numbers_follow_the_address.py::CompanyNumberTests::test_a_member_of_a_club_keeps_the_mask"]
 
 [proof]
-file = "maisecrets/personal.py"
+file = "maisecrets/detection/personal.py"
 find = '''    if _EMPLOYER_RE.search(text, max(0, f.start() - 60), f.start()):'''
 replace = '''    if False:'''

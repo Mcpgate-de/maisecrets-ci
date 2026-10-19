@@ -53,14 +53,16 @@ if not os.environ.get(_MINE) or os.environ.get(_MINE) != os.environ.get("MAISECR
     os.environ["MAISECRETS_HOME"] = home
     os.environ[_MINE] = home
 
-# a runner that imported the vault before this module (detect.rules() loads the config) bound the vault to the real
-# ~/.maisecrets, and the resets of the suite deleted the real index, vault file and key (a fork's runner, 2026-10-12)
-_vault = sys.modules.get("maisecrets.vault")
-if _vault is not None and os.path.realpath(str(getattr(_vault, "HOME", ""))) != os.path.realpath(
-        os.environ["MAISECRETS_HOME"]):
-    # the marker stays: the vault then refuses the user's home in the modules that run after this one anyway
-    raise RuntimeError(f"maisecrets.vault was imported with the home {_vault.HOME}; tests/_isolate must be imported "
-                       "first (before anything that imports maisecrets), or the tests reach the real store")
+# a runner that imported maisecrets.home before this module (detect.rules() loads the config through it) bound HOME
+# to the real home, and the resets of the suite deleted the real index, vault file and key (a fork's runner,
+# 2026-10-12, then through the vault). The vault takes HOME from maisecrets.home, so both are checked
+for _name in ("maisecrets.home", "maisecrets.vault"):
+    _mod = sys.modules.get(_name)
+    if _mod is not None and os.path.realpath(str(getattr(_mod, "HOME", ""))) != os.path.realpath(
+            os.environ["MAISECRETS_HOME"]):
+        # the marker stays: the vault then refuses the user's home in the modules that run after this one anyway
+        raise RuntimeError(f"{_name} was imported with the home {_mod.HOME}; tests/_isolate must be imported "
+                           "first (before anything that imports maisecrets), or the tests reach the real store")
 
 if not os.environ.get(_MINE_TMP) or os.environ.get(_MINE_TMP) != os.environ.get("TMPDIR"):
     tmp = tempfile.mkdtemp(prefix="maisecrets-test-tmp-")

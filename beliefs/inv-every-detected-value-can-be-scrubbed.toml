@@ -66,6 +66,6 @@ replace = "            pass\n"
 
 [[proof]]
 path = "the population reaches every placeholder type"
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = "    \"de_tax_id\": _de_tax_id_ok,"
 replace = "    \"de_tax_id\": lambda v: False,"

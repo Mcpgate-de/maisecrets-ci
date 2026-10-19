@@ -246,7 +246,7 @@ class PasswordLiteralTests(unittest.TestCase):
             detect._WORDS_OK[:] = [True]
 
     def test_the_word_list_is_the_one_its_license_names(self):
-        rules = ROOT / "maisecrets" / "rules"
+        rules = ROOT / "maisecrets" / "detection" / "rules"
         words = (rules / "words_en.txt").read_text(encoding="utf-8").split("\n")[:-1]
         self.assertEqual(words, sorted(set(words)))
         self.assertTrue(all(w.isascii() and w.isalpha() and w.islower() and 4 <= len(w) <= 8 for w in words))

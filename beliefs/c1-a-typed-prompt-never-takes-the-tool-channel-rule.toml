@@ -13,21 +13,21 @@ runner = [
 
 [[proof]]
 path = "every scan takes the tool rule, a typed prompt too"
-file = "maisecrets/detect.py"
-find = "    outer, _CHANNEL[0] = _CHANNEL[0], channel if channel == \"tool\" else \"prompt\""
-replace = "    outer, _CHANNEL[0] = _CHANNEL[0], \"tool\""
+file = "maisecrets/detection/core.py"
+find = "channel=\"tool\" if channel == \"tool\" else \"prompt\""
+replace = "channel=\"tool\""
 
 [[proof]]
 path = "the prompt hook scans with the tool rule"
 file = "maisecrets/hooks.py"
-find = "    return [m for m in detect.scan(prompt) if not detect.is_fixture(m, prompt)]"
-replace = "    return [m for m in detect.scan(prompt, channel=\"tool\") if not detect.is_fixture(m, prompt)]"
+find = "    return detect.findings(prompt)\n"
+replace = "    return detect.findings(prompt, channel=\"tool\")\n"
 
 [[proof]]
 path = "the cache of a tool scan answers a later prompt scan of the same text"
-file = "maisecrets/detect.py"
-find = "    return cache[\"literal\", _CHANNEL[0]]"
-replace = "    return cache.get((\"literal\", \"tool\")) or cache[\"literal\", _CHANNEL[0]]"
+file = "maisecrets/detection/core.py"
+find = "    return cache[key]"
+replace = "    return cache.get((\"literal\", \"tool\") + key[2:]) or cache[key]"
 
 [[proof]]
 path = "the tool hook scans with the prompt rule"
@@ -38,5 +38,5 @@ replace = "        matches = [m for m in detect.scan(s, path=scan_path)"
 [[proof]]
 path = "the failed-command hook scans with the prompt rule"
 file = "maisecrets/hooks.py"
-find = "    matches = [m for m in detect.scan(error, channel=\"tool\") if not detect.is_fixture(m, error, \"\")]"
-replace = "    matches = [m for m in detect.scan(error) if not detect.is_fixture(m, error, \"\")]"
+find = "    matches = detect.findings(error, channel=\"tool\")"
+replace = "    matches = detect.findings(error)"

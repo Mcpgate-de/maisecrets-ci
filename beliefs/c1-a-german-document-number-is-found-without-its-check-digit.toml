@@ -5,6 +5,6 @@ statement = "With region de, a German ID card or passport number after its label
 runner = ["tests/test_rules_from_other_detectors.py::GermanDocumentNumberTests::test_a_number_whose_ninth_character_is_a_letter_is_found_after_its_label"]
 
 [proof]
-file = "maisecrets/checksums.py"
+file = "maisecrets/detection/checksums.py"
 find = '''    if len(v) not in (9, 10) or any('''
 replace = '''    if len(v) not in (10,) or any('''

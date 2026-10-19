@@ -14,7 +14,6 @@ import string
 import sys
 import unittest
 from pathlib import Path
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -28,14 +27,9 @@ RNG = random.Random(618)
 
 def found(text: str, channel: str = "prompt") -> list[tuple[str, str]]:
     """(type, value) of each hit with the German region on."""
-    saved = detect._RULES
     active = regions.Active(regions=("generic", "de"), languages=("en", "de"), source="test")
-    try:
-        detect._RULES = None
-        with mock.patch.object(detect, "active_regions", return_value=active):
-            return [(m.type, m.value) for m in detect.scan(text, channel=channel)]
-    finally:
-        detect._RULES = saved
+    with detect.Detector(regions=active).activate():
+        return [(m.type, m.value) for m in detect.scan(text, channel=channel)]
 
 
 def both(text: str) -> list[tuple[str, str]]:

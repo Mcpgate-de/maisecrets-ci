@@ -5,6 +5,6 @@ statement = "A company's postcode and German VAT ID stay text with the street wh
 runner = ["tests/test_company_numbers_more_forms.py::CompanyFormTests::test_street_and_postcode_on_two_lines", "tests/test_company_numbers_more_forms.py::CompanyFormTests::test_a_department_between_the_company_and_its_address"]
 
 [proof]
-file = "maisecrets/personal.py"
+file = "maisecrets/detection/personal.py"
 find = '''if company is not None and {"de", "at", "ch"}.intersection(regions) and "\n" in text:'''
 replace = '''if False:'''

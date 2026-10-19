@@ -5,6 +5,6 @@ statement = "Outside a vCard and without a .vcf file name, a line in lower or mi
 runner = ["tests/test_vcard_bare_lines.py::BareLineTests::test_shapes_that_are_no_vcard_line_stay_text"]
 
 [proof]
-file = "maisecrets/personal.py"
+file = "maisecrets/detection/personal.py"
 find = '''    if prop != prop.upper():'''
 replace = '''    if False:'''

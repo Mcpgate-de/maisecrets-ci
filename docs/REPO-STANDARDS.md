@@ -66,7 +66,7 @@ and OpenAI plugin directories.
 - Matrix by hand: push the commit to the GitHub branch `ci-check` (pushed over each time; the rulesets
   protect only `main`, `release` and the tags `v*`). `.github/workflows/ci.yml` runs on it. No draft pull request
   and no new branch name: GitHub keeps listing a deleted pull-request branch.
-- Vendored rulesets: Renovate keeps `maisecrets/rules/` current (`renovate.json`). The job `renovate`
+- Vendored rulesets: Renovate keeps `maisecrets/detection/rules/` current (`renovate.json`). The job `renovate`
   runs self-hosted on a pipeline schedule with `RENOVATE_RUN=true`; on a schedule no other job runs.
   It reads the three `*_VERSION` files. For an upstream release at least 7 days old it runs the sync
   script of that ruleset (`postUpgradeTasks`), so the MR carries the version and the regenerated
@@ -186,7 +186,7 @@ and OpenAI plugin directories.
 - Apache-2.0 for the plugin. A gateway-side implementation lives in its
   own repository under its own licence; this repo owns the protocol spec.
 - Detection rules: betterleaks (MIT), Presidio (MIT) and detect-secrets
-  (Apache-2.0) are vendored as data under `maisecrets/rules/`, each with its
+  (Apache-2.0) are vendored as data under `maisecrets/detection/rules/`, each with its
   licence file, version file and sync script. The six own rules in
   `detect.py` are plain regular expressions; `NOTICE` records every origin.
 

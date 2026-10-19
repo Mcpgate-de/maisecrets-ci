@@ -5,6 +5,6 @@ statement = "A quoted key of 12 characters and more with few word letters and a 
 runner = ["tests/test_literal_values.py::SecretLiteralTests::test_a_key_after_a_secret_label_is_a_hit"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = '''    if (quoted and weak and'''
 replace = '''    if (False and quoted and weak and'''

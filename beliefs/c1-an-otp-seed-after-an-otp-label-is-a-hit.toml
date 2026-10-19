@@ -5,6 +5,6 @@ statement = "16 to 64 base32 capitals that are no word after a label with totp, 
 runner = ["tests/test_literal_values.py::OtpSeedTests::test_a_base32_seed_after_an_otp_label_is_a_hit"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = '''    if otp and _OTP_SEED_RE.fullmatch(v)'''
 replace = '''    if False and otp and _OTP_SEED_RE.fullmatch(v)'''

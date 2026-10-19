@@ -5,6 +5,6 @@ statement = "A Kunde: or Customer: key whose value is the company's name names t
 runner = ["tests/test_company_numbers_more_forms.py::CompanyFormTests::test_a_customer_label_before_the_company"]
 
 [proof]
-file = "maisecrets/personal.py"
+file = "maisecrets/detection/personal.py"
 find = '''and _COMPANY_AFTER_KEY_RE.fullmatch(text, k.end(), f.start()))'''
 replace = '''and False)'''

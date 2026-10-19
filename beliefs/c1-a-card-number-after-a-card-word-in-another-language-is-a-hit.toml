@@ -5,6 +5,6 @@ statement = "A card number that passes Luhn next to Karte, Kreditkarte, carte, c
 runner = ["tests/test_bank_and_company_numbers.py::CardWordTests::test_a_card_word_in_another_language_counts"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = '''+ PRESIDIO_EXTRA_CONTEXT.get(rec["id"], ()),'''
 replace = '''+ (),'''

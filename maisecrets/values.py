@@ -45,7 +45,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import terms, value_files
-from .vault import HOME, ConfigError
+from .home import HOME, ConfigError
 
 TYPES = terms.TYPES
 IMPORTS = value_files.IMPORTS
@@ -79,7 +79,7 @@ def _reserved() -> frozenset:
     """The setting keys (config.json and the settings cards), lower case."""
     if not _RESERVED:
         from . import settings
-        from .vault import DEFAULT_CONFIG
+        from .home import DEFAULT_CONFIG
         keys = list(DEFAULT_CONFIG) + list(settings.TITLE) + list(settings.MEANING)
         _RESERVED.append(frozenset(k.lower() for k in keys if "_" in k))
     return _RESERVED[0]
@@ -263,7 +263,7 @@ def _path_key(path: Path) -> str:
 
 def _lock():
     """One lock for every write of the imports and the state: two imports at once lost one (review of block 3)."""
-    from .vault import _lock_for
+    from .home import _lock_for
     return _lock_for(HOME / ".values.lock")
 
 
@@ -310,7 +310,7 @@ def _read_import(iid: str, path: Path) -> tuple[dict, list]:
 
 
 def _write_import(iid: str, head: dict, items: list) -> None:
-    from .vault import atomic_write
+    from .home import atomic_write
     IMPORTS.mkdir(mode=0o700, parents=True, exist_ok=True)
     body = [json.dumps(head, sort_keys=True)] + [json.dumps({"v": v, "t": t}, ensure_ascii=False) for v, t in items]
     atomic_write(IMPORTS / f"{iid}{SUFFIX}", "\n".join(body) + "\n")
@@ -325,7 +325,7 @@ def _load_state() -> dict:
 
 
 def _save_state(state: dict) -> None:
-    from .vault import atomic_write
+    from .home import atomic_write
     try:
         atomic_write(STATE_FILE, json.dumps(state, sort_keys=True))
     except OSError:
@@ -338,7 +338,7 @@ def _configured(key: str) -> bool:
     `origin` is a caller's word, and a command that called this module with "file" took the places of the value
     files (Gate A, round 2)."""
     try:
-        from .vault import load_config
+        from .home import load_config
         files = load_config().get("value_files") or []
     except Exception:  # noqa: BLE001 - no config: no value file
         return False

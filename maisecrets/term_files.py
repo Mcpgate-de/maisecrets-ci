@@ -10,7 +10,7 @@ import os
 import re
 from pathlib import Path
 
-from .vault import HOME
+from .home import HOME
 
 PERSONAL = HOME / "terms.txt"
 MARKED = HOME / "terms.marked.json"

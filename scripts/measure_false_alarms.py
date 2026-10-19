@@ -30,18 +30,20 @@ def shape(v: str) -> str:
     return re.sub(r"(.)\1+", r"\1+", s)[:20]
 
 
-def main(argv: list[str]) -> int:
-    if not argv or argv[0].startswith("-"):
-        print(__doc__.strip())
-        return 2
-    tree = Path(argv[0])
-    samples = "--samples" in argv
+def load_detect():
+    """The detector, with a fresh temp store as its home, never the user's own."""
     home = tempfile.mkdtemp(prefix="maisecrets-measure-")
     Path(home, "config.json").write_text('{"backend": "jsonfile", "allow_plaintext_store": true}')
     os.environ["MAISECRETS_HOME"] = home
     sys.path.insert(0, str(ROOT))
     from maisecrets import detect
 
+    return detect
+
+
+def measure(tree: Path, detect, samples: bool = False) -> dict:
+    """The files and characters read, and per (where, type, rule) the hits and the hits a Read would act on. With
+    samples, up to six lines per key: the file, the end of the label and the shape of the value, never the value."""
     raw: collections.Counter = collections.Counter()
     acted: collections.Counter = collections.Counter()
     seen: dict = collections.defaultdict(list)
@@ -72,6 +74,15 @@ def main(argv: list[str]) -> int:
                     a = text.rfind("\n", 0, m.start) + 1
                     label = re.sub(r"[^\w .:=\-\[\]\"'()]", "?", text[a:m.start][-28:])
                     seen[key].append(f"{rel[-48:]} | {label!r} | {shape(m.value)} len {len(m.value)}")
+    return {"files": files, "size": size, "raw": raw, "acted": acted, "seen": seen}
+
+
+def main(argv: list[str]) -> int:
+    if not argv or argv[0].startswith("-"):
+        print(__doc__.strip())
+        return 2
+    r = measure(Path(argv[0]), load_detect(), "--samples" in argv)
+    files, size, raw, acted, seen = r["files"], r["size"], r["raw"], r["acted"], r["seen"]
     print(f"{files} files, {size / 1e6:.1f} MB")
     print(f"{'where':6} {'type':18} {'rule':40} {'hits':>6} {'acted':>6}")
     for key in sorted(raw, key=lambda k: -raw[k]):

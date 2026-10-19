@@ -5,6 +5,6 @@ statement = "A rule hit inside an imported value keeps its span and its kind (an
 runner = ["tests/test_values.py::Registry::test_an_imported_value_inside_a_rule_hit_keeps_the_rules_kind"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = "            _term_rest(m, text, found, taken_starts, taken_ends)\n"
 replace = "            _claim(m, text, found, taken_starts, taken_ends)\n"

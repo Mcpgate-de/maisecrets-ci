@@ -5,6 +5,6 @@ statement = "In a tool result, a number after a passport or driving licence labe
 runner = ["tests/test_personal_after_its_label.py::TravelIdLabelTests::test_a_passport_or_licence_number_after_its_label_in_an_eu_language_is_masked"]
 
 [proof]
-file = "maisecrets/personal.py"
+file = "maisecrets/detection/personal.py"
 find = '''                    + _TRAVEL_ID_LABELS + r")(?![a-z])[\"']?"'''
 replace = '''                    + r")(?![a-z])[\"']?"'''

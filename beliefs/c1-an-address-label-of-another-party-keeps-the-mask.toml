@@ -5,6 +5,6 @@ statement = "The label between a company's name and the address must name the co
 runner = ["tests/test_company_numbers_follow_the_address.py::CompanyNumberTests::test_an_address_label_of_another_party_keeps_the_mask", "tests/test_company_numbers_follow_the_address.py::CompanyNumberTests::test_a_name_before_a_colon_between_the_company_and_the_address_is_no_label"]
 
 [proof]
-file = "maisecrets/personal.py"
+file = "maisecrets/detection/personal.py"
 find = '''(?:(?i:(?:rechnungs|firmen|geschäfts|post|haupt)?(?:adresse|anschrift)'''
 replace = '''(?:(?i:[a-zäöüß_ -]{1,30}|(?:adresse|anschrift)'''

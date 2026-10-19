@@ -5,6 +5,6 @@ statement = "The value after `Authorization: ApiKey` (a header line, curl -H, a 
 runner = ["tests/test_labelled_keys.py::ApiKeySchemeTests::test_an_elasticsearch_api_key_header_is_a_hit"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = '''"regex": r"(?i:authorization)'''
 replace = '''"regex": r"(?!)(?i:authorization)'''

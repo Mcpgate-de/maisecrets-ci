@@ -1,4 +1,4 @@
-maisecrets/rules/bip39_english.txt is the English word list of BIP39, taken unchanged from
+maisecrets/detection/rules/bip39_english.txt is the English word list of BIP39, taken unchanged from
 trezor/python-mnemonic, commit b57a5ad77a981e743f4167ab2f7927a55c1e82a8, src/mnemonic/wordlist/english.txt
 (sha256 2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda, the same file as bip-0039/english.txt
 of bitcoin/bips). The text below is that repository's license.

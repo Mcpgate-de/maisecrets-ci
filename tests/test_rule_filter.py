@@ -1,4 +1,4 @@
-"""The betterleaks rules and their filters (maisecrets/rule_filter.py, Mcpgate-de/maisecrets#18).
+"""The betterleaks rules and their filters (maisecrets/detection/rule_filter.py, Mcpgate-de/maisecrets#18).
 
 betterleaks replaced the gitleaks ruleset: gitleaks takes security patches only since v8.30.1, and its maintainers
 develop betterleaks. Its rules drop a finding when an Expr filter is true; rule_filter reads the subset the vendored
@@ -18,6 +18,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+RULES = ROOT / "maisecrets" / "detection" / "rules"
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
@@ -25,7 +26,7 @@ import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
 from maisecrets import detect, rule_filter  # noqa: E402
 
 RNG = random.Random(18)
-VENDORED = json.loads((ROOT / "maisecrets" / "rules" / "betterleaks.json").read_text(encoding="utf-8"))
+VENDORED = json.loads((RULES / "betterleaks.json").read_text(encoding="utf-8"))
 
 
 def tok(n: int, alphabet: str = string.ascii_letters + string.digits) -> str:
@@ -176,16 +177,12 @@ class BetterleaksRuleTests(unittest.TestCase):
         self.assertEqual(sorted(r.id for r in kept), sorted(samples), "the premise: one sample per kept rule")
         full = detect.rules()
         alone = [r for r in full if r.id not in samples]
-        saved = detect._RULES
-        try:
-            for rid, text in samples.items():
-                with self.subTest(rid):
-                    detect._RULES = alone
-                    self.assertEqual([m.kind for m in detect.scan(text + "\n")], [], "betterleaks finds it alone")
-                    detect._RULES = full
-                    self.assertIn(rid, [m.kind for m in detect.scan(text + "\n")])
-        finally:
-            detect._RULES = saved
+        without = detect.Detector()
+        without._rules = alone   # the default rule list without the samples' rules, as a detector of its own
+        for rid, text in samples.items():
+            with self.subTest(rid):
+                self.assertEqual([m.kind for m in without.scan(text + "\n")], [], "betterleaks finds it alone")
+                self.assertIn(rid, [m.kind for m in detect.scan(text + "\n")])
 
     def test_the_rule_filter_drops_a_low_entropy_value(self):
         value = "ddp_" + "ab" * 18                 # entropy 1.x: the rule's filter drops it

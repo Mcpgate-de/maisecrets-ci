@@ -5,6 +5,6 @@ statement = "A Handelsregister number (HRA or HRB and digits) names a company, i
 runner = ["tests/test_bank_and_company_numbers.py::GermanCompanyNumberTests::test_a_company_register_number_is_no_personal_data"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = '''"crypto", "de-handelsregister", "uk-postcode"}'''
 replace = '''"crypto", "uk-postcode"}'''

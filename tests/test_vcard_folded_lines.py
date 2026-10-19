@@ -14,7 +14,6 @@ import os
 import sys
 import unittest
 from pathlib import Path
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -33,14 +32,9 @@ BIRTH = "1980" + "0412"
 
 
 def redact(text: str, channel: str = "tool") -> str:
-    saved = detect._RULES
     active = regions.Active(regions=("generic", "us", "uk", "de"), languages=("en", "de"), source="test")
-    try:
-        detect._RULES = None
-        with mock.patch.object(detect, "active_regions", return_value=active):
-            found = detect.scan(text, channel=channel)
-    finally:
-        detect._RULES = saved
+    with detect.Detector(regions=active).activate():
+        found = detect.scan(text, channel=channel)
     for m in sorted(found, key=lambda m: -m.start):
         text = text[:m.start] + "•" + text[m.end:]
     return text

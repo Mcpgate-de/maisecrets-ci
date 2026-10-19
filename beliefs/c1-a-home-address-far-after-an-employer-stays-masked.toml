@@ -5,6 +5,6 @@ statement = "The check for a company before an address label reads at most 120 c
 runner = ["tests/test_company_address_window.py::CompanyWindowTests::test_a_home_address_far_after_an_employer_stays_masked"]
 
 [proof]
-file = "maisecrets/personal.py"
+file = "maisecrets/detection/personal.py"
 find = '''def _line_back(text: str, pos: int, most: int = 120) -> int:'''
 replace = '''def _line_back(text: str, pos: int, most: int = 2000) -> int:'''

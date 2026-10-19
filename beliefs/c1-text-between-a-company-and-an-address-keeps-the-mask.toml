@@ -5,6 +5,6 @@ statement = "The legal form makes an address a company's only when nothing but s
 runner = ["tests/test_company_numbers_follow_the_address.py::CompanyNumberTests::test_a_persons_address_after_the_companys_address_keeps_its_vat_id_masked", "tests/test_company_numbers_follow_the_address.py::CompanyNumberTests::test_a_home_label_between_the_company_and_the_address_keeps_the_mask"]
 
 [proof]
-file = "maisecrets/personal.py"
+file = "maisecrets/detection/personal.py"
 find = '''    if not _FORM_TO_ADDRESS_RE.fullmatch(between):'''
 replace = '''    if False:'''

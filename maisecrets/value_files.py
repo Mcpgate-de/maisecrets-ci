@@ -13,8 +13,8 @@ from __future__ import annotations
 import os
 import re
 
-from .detect import _LazyRx      # compiled at first use: a hook imports this module on every call
-from .vault import HOME
+from .lazy_regex import LazyRx as _LazyRx      # compiled at first use: a hook imports this module on every call
+from .home import HOME
 
 IMPORTS = HOME / "imports"
 SUFFIX = ".jsonl"

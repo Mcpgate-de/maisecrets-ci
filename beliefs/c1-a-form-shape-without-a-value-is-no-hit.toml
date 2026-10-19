@@ -5,6 +5,6 @@ statement = "Developer text in the shape of a form of 0.6.24 without a value sta
 runner = ["tests/test_fp_corpus_forms.py::FormsCorpusTests::test_no_rule_fires_on_the_developer_text_in_the_shapes_of_the_forms"]
 
 [proof]
-file = "maisecrets/personal.py"
+file = "maisecrets/detection/personal.py"
 find = '''                if sum(c.isdigit() for c in v) >= 2 and re.search(r"\d[A-Z]", v):'''
 replace = '''                if sum(c.isdigit() for c in v) >= 2:'''

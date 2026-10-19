@@ -671,7 +671,7 @@ works.
 Credential labels come in languages. English labels (`password:`, `pass:`,
 `token:`) are always on. maisecrets adds the labels of your system language
 and of each region, for example `passwort:` and `kennwort:` for German. The
-labels are data files in `maisecrets/rules/labels/`, one file per language.
+labels are data files in `maisecrets/detection/rules/labels/`, one file per language.
 A new language is one new file. Files exist for Czech, Danish, Dutch,
 English, Finnish, French, German, Italian, Korean, Norwegian (Bokmål),
 Polish, Portuguese, Spanish, Swedish, Thai and Turkish. Each word comes from
@@ -1286,7 +1286,7 @@ does not need to look like a real secret, and these forms are never a hit:
   `2001:db8::/32`, private and loopback addresses.
 - **A test value that vendor documentation publishes,** for its own type only: the payment
   test cards (Stripe, Braintree), the Stripe API reference keys, the jwt.io example token and
-  the Twilio test numbers (`maisecrets/rules/public_test_values.txt`, as sha256 digests). The
+  the Twilio test numbers (`maisecrets/detection/rules/public_test_values.txt`, as sha256 digests). The
   same digits under another type stay a hit: an IBAN or a bank account that holds a test
   card's digits is found. A published key that a label assigns (`PROD_PASSWORD=…`,
   `api_key: …`, `?token=…`) is used as a credential there and stays a hit.
@@ -1299,20 +1299,20 @@ sends the rule name, never the value.
 
 ## Detection rules
 
-Four sources, one scanner (`maisecrets/detect.py`):
+Four sources, one scanner (`maisecrets/detection/core.py`):
 
-- **betterleaks** ruleset, vendored as data under `maisecrets/rules/` (MIT,
+- **betterleaks** ruleset, vendored as data under `maisecrets/detection/rules/` (MIT,
   version in `BETTERLEAKS_VERSION`, refresh with `scripts/sync_betterleaks.py vX.Y.Z`):
   463 rules, 416 of them loaded. No betterleaks binary is used. betterleaks is the
   successor of gitleaks by the same maintainers; gitleaks takes security patches
   only since v8.30.1. Each rule's filter (an Expr expression: entropy limits,
-  pattern lists) is read by `maisecrets/rule_filter.py`; a rule whose filter is a
+  pattern lists) is read by `maisecrets/detection/rule_filter.py`; a rule whose filter is a
   program that module cannot read is left out (`generic-password`,
   `generic-username`, `generic-credential-uri`), and so are the 43 components that
   betterleaks never reports alone (`skipReport`). The BPE token ratio filter needs
   a tokenizer the standard library does not have; maisecrets answers 0 there, as
   betterleaks does without a tokenizer.
-- **Own secret rules** (`maisecrets/rules/own_secret_rules.json`, patterns
+- **Own secret rules** (`maisecrets/detection/rules/own_secret_rules.json`, patterns
   derived from gitleaks v8.30.1, MIT): `generic-api-key`, to which the label
   filters of the detector are tuned, and nine token forms the betterleaks rules
   miss (Alibaba `LTAI`, Etsy, JFrog twice, a bare Fly.io token, an Atlassian
@@ -1325,7 +1325,7 @@ Four sources, one scanner (`maisecrets/detect.py`):
   the US bank-account rule adds 546 false alarms (F1 0.690 and 0.649).
   `docs/BENCHMARKS.md` has the method, each release, a comparison with other
   tools and the commands to repeat it.
-- **Presidio** pattern recognizers, vendored as data under `maisecrets/rules/`
+- **Presidio** pattern recognizers, vendored as data under `maisecrets/detection/rules/`
   (MIT, version in `PRESIDIO_VERSION`, refresh with `scripts/sync_presidio.py`):
   country-specific PII with scores and context words. The config key
   `regions` selects them (default: the country of the system setting; `de`
@@ -1340,7 +1340,7 @@ Four sources, one scanner (`maisecrets/detect.py`):
   such as `USt-IdNr` or `VAT` nearby: alone, that shape is often a FIX tag or
   an XML id. A Handelsregister number is not reported: it names a company, is
   public and is no personal data. Own rules (`REGIONAL_RULES` in
-  `maisecrets/detect.py`) add what Presidio lacks: the Personalausweis and
+  `maisecrets/detection/core.py`) add what Presidio lacks: the Personalausweis and
   Reisepass number in the 9 characters the card prints (Presidio read the 9th
   as a check digit, which only the machine-readable zone carries), the
   Steuer-ID and the Rentenversicherungsnummer with the spaces of their printed
@@ -1348,7 +1348,7 @@ Four sources, one scanner (`maisecrets/detect.py`):
   repeat rule of its issuer (exactly one digit twice or three times, never three
   in a row; ITZBund, "KONZEPT Steueridentifikationsnummer", version 2.3, 2016).
 - **Crypto wallet secrets**: a BIP39 seed phrase (12 to 24 words of the
-  English list, `maisecrets/rules/bip39_english.txt`, MIT, whose checksum
+  English list, `maisecrets/detection/rules/bip39_english.txt`, MIT, whose checksum
   holds), a Bitcoin private key in Wallet Import Format and a BIP32 extended
   private key (`xprv`, `yprv`, `zprv`, `tprv`, …) are secrets by their checksum,
   with no label. A phrase of 12 words (a checksum of 4 bits) needs a word such
@@ -1391,7 +1391,7 @@ Four sources, one scanner (`maisecrets/detect.py`):
   of words that make it name something else (`password_hint`, `passwordPolicy`, `bypass`). The
   value must be no word after undoing leet (`P4ssw0rd` is a word), no fixture (`testpass`),
   no mask, template or reference (`${DB_PASSWORD}`, `{{ … }}`, `settings.DB_PASSWORD`). The
-  words come from `maisecrets/rules/words_en.txt`, about 21,000 English words of 4 to 8
+  words come from `maisecrets/detection/rules/words_en.txt`, about 21,000 English words of 4 to 8
   letters from SCOWL (see `NOTICE`), read only when a password label is in the text. A miss in
   an English list is no evidence alone: the value needs a letter and a digit or a sign beside
   it (`_`, `-` and `.` join the words of a name and count as no sign), or (letters only) a
@@ -1465,7 +1465,7 @@ Four sources, one scanner (`maisecrets/detect.py`):
   Elasticsearch `ApiKey` rule and the AWS session token rule are own secret rules: they take
   their spans in the secret stage, before detect-secrets and betterleaks.
 - Prefixes newer than the vendored rulesets live in
-  `maisecrets/rules/prefixes.txt`, one line each, extended by pull request
+  `maisecrets/detection/rules/prefixes.txt`, one line each, extended by pull request
   (`CONTRIBUTING.md`): `glrt-`, `gldt-`, `whsec_`, `cfut_`, the last two
   found bare in real prompts on 2026-09-26, and since 0.6.19 Google OAuth
   access tokens (`ya29.`), Tailscale keys, Discord webhook URLs, Salesforce
@@ -1485,7 +1485,7 @@ Four sources, one scanner (`maisecrets/detect.py`):
   Joining the next line was measured on five months of session logs and left
   out: nearly every candidate was the next `.env` line, not the rest of a key.
 
-- Personal data after a label or in a fixed form (0.6.21, `maisecrets/personal.py`), in a tool
+- Personal data after a label or in a fixed form (0.6.21, `maisecrets/detection/personal.py`), in a tool
   result or a file only: a name after a name label (`patient:`, `tenant:`, `full_name:`, `FN:`,
   `Ansprechpartner:`; after the weak labels `name`, `owner` and `author` only a value that does not
   read as English words or nouns, so `name: Customer Portal` stays text), a name before an e-mail
@@ -1579,7 +1579,7 @@ A folder holds three kinds of file, and maisecrets reads nothing else from it
   and more than one part is dropped (the stricter side), and
   `/maisecrets:rules` says so.
 - `*.prefixes`, one rule per line, `id  regex`, as in
-  `maisecrets/rules/prefixes.txt`. The whole match is the secret.
+  `maisecrets/detection/rules/prefixes.txt`. The whole match is the secret.
 - `*.terms`, a team term list with a floor against common words (Terms). Not
   in `rules.d`: your own list is `~/.maisecrets/terms.txt`.
 

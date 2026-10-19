@@ -5,6 +5,6 @@ statement = "In a tool result, one capitalised name word after a first or last n
 runner = ["tests/test_personal_after_its_label.py::SingleNameTests::test_one_name_word_after_a_first_or_last_name_label_is_masked"]
 
 [proof]
-file = "maisecrets/personal.py"
+file = "maisecrets/detection/personal.py"
 find = '''            found.append((m.start(1), m.end(1), "name-single-after-label", NAME))'''
 replace = '''            pass'''

@@ -115,7 +115,8 @@ DATASETS = tuple(SOURCES)
 # A label maps to a maisecrets type where maisecrets claims that type, else to OUT_OF_SCOPE: a detection on an
 # out-of-scope value is neither a find nor a false alarm. docs/BENCHMARKS.md has the same tables. The types fall
 # into two tiers: the shapes maisecrets claims since its first releases (CORE), and the personal data that 0.6.21
-# takes after a label or in a fixed form, in the tool channel only (PERSONAL, maisecrets/personal.py). A release
+# takes after a label or in a fixed form, in the tool channel only (PERSONAL, maisecrets/detection/personal.py). A
+# release
 # before 0.6.21 has no rule for the second tier; its rows show what a later rule class finds.
 CORE = ("SECRET", "EMAIL", "PHONE", "IP", "IBAN", "CARD", "US_SSN", "ABA_ROUTING_NUMBER", "US_BANK_NUMBER")
 PERSONAL = ("NAME", "ADDRESS", "BIRTH_DATE", "ID_NUMBER", "USERNAME")

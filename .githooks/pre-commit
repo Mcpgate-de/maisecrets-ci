@@ -13,7 +13,7 @@ cd "$ROOT" || exit 1
 
 # 1. staged additions through the detector
 # the vendored ruleset legitimately contains secret SHAPES (its own regexes), so it is excluded
-ADDED=$(git diff --cached --unified=0 --no-color -- . ':(exclude)maisecrets/rules/*' | grep -E '^\+' | grep -vE '^\+\+\+' | sed 's/^+//')
+ADDED=$(git diff --cached --unified=0 --no-color -- . ':(exclude)maisecrets/detection/rules/*' ':(exclude)maisecrets/rules/*' | grep -E '^\+' | grep -vE '^\+\+\+' | sed 's/^+//')
 if [ -n "$ADDED" ]; then
   HITS=$(printf '%s\n' "$ADDED" | python3 -m maisecrets.cli scan 2>/dev/null | grep -E '^SECRET ' || true)
   if [ -n "$HITS" ]; then

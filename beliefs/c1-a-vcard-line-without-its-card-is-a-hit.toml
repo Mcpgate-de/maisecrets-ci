@@ -5,7 +5,7 @@ statement = "An ADR, N or BDAY line of a vCard without its BEGIN:VCARD is a hit 
 runner = ["tests/test_vcard_bare_lines.py::BareLineTests::test_grep_output_of_a_contact_export", "tests/test_vcard_bare_lines.py::BareLineTests::test_a_line_of_a_card_without_a_file_name"]
 
 [proof]
-file = "maisecrets/personal.py"
+file = "maisecrets/detection/personal.py"
 find = '''    """A line outside a vCard that is one of its properties (see _VCARD_BARE_RE)."""
 '''
 replace = '''    """A line outside a vCard that is one of its properties (see _VCARD_BARE_RE)."""

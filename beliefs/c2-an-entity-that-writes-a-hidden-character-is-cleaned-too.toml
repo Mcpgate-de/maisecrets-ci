@@ -5,6 +5,6 @@ statement = "The normaliser writes HTML entities out before it removes ANSI code
 runner = ["tests/test_tool_channel_normaliser.py::DisguiseTests::test_each_disguise_hides_a_token_from_the_raw_scan_but_not_from_the_tool_channel"]
 
 [proof]
-file = "maisecrets/normalise.py"
+file = "maisecrets/detection/normalise.py"
 find = '''STAGES = ("unfold", "entity", "ansi", "invisible", "fullwidth", "emphasis", "decode")'''
 replace = '''STAGES = ("unfold", "ansi", "invisible", "entity", "fullwidth", "emphasis", "decode")'''

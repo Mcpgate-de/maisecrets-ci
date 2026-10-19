@@ -17,10 +17,13 @@ What runs, where, and what makes it fail. The history of each finding is in the 
 | Codex with a real model | `python3 harness/codex.py --real` | by hand: `mcp_text_field_rehydrate`, `allow_keeps_the_codex_sandbox`, `apply_patch_rehydrate` and `apply_patch_store_refused` need a real model (an MCP call, a sandbox and a patch the fake upstream cannot script) |
 | ssh through the sandbox | `MAISECRETS_E2E_HOST=<ssh alias> MAISECRETS_E2E_IP=<address> python3 harness/sandbox/ssh_e2e.py` | by hand before a release that touches the ssh route, on macOS and on Linux: the real Claude Code sandbox against a real host, under `rehydration: automatic` (cases 0a to 0f) and `confirm` |
 | false alarms in a real tree | `python3 scripts/measure_false_alarms.py <dir> [--samples]` | by hand after a detector change: the hits a Read would act on, per rule, with the shape of each value and never the value; the regression corpus of normal work is `tests/fp_corpus.py` (`tests/test_fp_corpus.py`), a night of autonomous work is `tests/test_night_run.py` |
+| false alarms in four public trees | `python3 scripts/measure_fp_bank.py fetch <cache>`, then `measure <cache> --json <out>` before and after, then `compare <before> <after>` | by hand after a detector change: the Python standard library, detect-secrets, ferret-scan and Preserve on fixed commits; `compare` names each rule whose acted count changed; it exits 2 when a tree is missing or at another commit and 1 when the total of acted hits rose. `fetch` makes each clone new; in a directory it did not make, it only reads refs and objects and compares each file with the commit. The fetch needs the network, so it is not a CI job |
 | detector identity | `python3 scripts/detection_fingerprint.py --out FILE [--creddata DIR]` | by hand before and after a refactor of the rules: the full hit list on fixed inputs, compared with `cmp` (section "A refactor of the rules") |
 | Windows end to end | `GITLAB_COM_TOKEN=… python3 scripts/windows_e2e.py [--rev REV]` | by hand before a release that touches the hooks, the launchers or the harness: GitLab-hosted Windows runners of a separate project, in three shapes (PowerShell 7, Windows PowerShell 5.1, Git Bash). Each job runs `harness/windows/shell_probe.py` (which shell runs a hook, and the `hooks.json` command in each shell) and `harness/run.py` with the shell tool the client offers (`MAISECRETS_HARNESS_SHELL_TOOL`) |
 
-2299 tests (`tests/test_*.py`), about 35 seconds on an M-series laptop. The GitHub matrix runs on
+2386 tests (`tests/test_*.py`), about 35 seconds on an M-series laptop. Without PyYAML, two tests of
+`tests/test_measure_catalog_coverage.py` fail and the belief `manifest-every-frontmatter-parses-as-yaml` is
+skipped; CI installs it. A virtual environment with `pip install pyyaml` gives the full run locally. The GitHub matrix runs on
 Windows and macOS in two places. In a merge request, the GitLab job `windows_macos` pushes the commit
 that `main` would get to the CI repository `Mcpgate-de/maisecrets-ci` and fails with the names of the
 failing tests. On `main`, it runs on the tested commit of a release (branch `ci`), unless a green run
@@ -78,7 +81,7 @@ on the same git tree exists (the release then reuses it). A merge without a rele
   ids replaced). The Codex file row first used Claude Code's `Write`; Codex sends `apply_patch`, and
   every cell was green while real Codex edits resolved nothing.
 - **Generated inputs with known answers.** `tests/detection_matrix.py` builds 2,500 cases from
-  labels (the denylist and `maisecrets/rules/labels/*.txt`), separators, value shapes and
+  labels (the denylist and `maisecrets/detection/rules/labels/*.txt`), separators, value shapes and
   context; the gate compares the full result per case. The matrix takes the label files of the
   active languages (English and German under the pinned test locale). `tests/test_label_languages.py`
   runs each other label file the same way with its language on, and checks prose with each word.
@@ -117,7 +120,7 @@ The inputs:
 - CredData (`--creddata`): every unique labelled line.
 - `tests/fp_corpus.py`, and `tests/fp_corpus_pii.py` when the tree has it.
 - The token lists of `tests/test_rules_from_the_catalogs.py` and `tests/test_rules_from_other_detectors.py`.
-- Probes: one or more texts for each matcher and each named filter of `maisecrets/registry.py`, and a password
+- Probes: one or more texts for each matcher and each named filter of `maisecrets/detection/registry.py`, and a password
   export with its file name.
 - The recorded scans of the detector tests: the script runs those test modules with `detect.scan` wrapped, and
   replays each call with its path and its `enabled` set (`--no-recorded` leaves them out, `--record FILE` and

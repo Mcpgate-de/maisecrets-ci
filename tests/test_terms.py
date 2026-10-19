@@ -626,12 +626,12 @@ class MarkedFileTests(unittest.TestCase):
 _RACE_CHILD = r"""
 import sys, time
 sys.path.insert(0, sys.argv[1])
-from maisecrets import terms, vault
-real = vault.atomic_write
+from maisecrets import terms, home, vault
+real = home.atomic_write
 def slow(*a, **k):
     time.sleep(0.15)          # a wide window between the read and the write: without the lock an update is lost
     return real(*a, **k)
-vault.atomic_write = slow
+home.atomic_write = vault.atomic_write = slow   # terms writes through home
 while time.time() < float(sys.argv[2]):
     time.sleep(0.005)
 verb, arg = sys.argv[3], sys.argv[4]
@@ -647,13 +647,13 @@ else:
 _SLOW_SUGGEST = r"""
 import sys, time
 sys.path.insert(0, sys.argv[1])
-from maisecrets import cli, vault
-real = vault.atomic_write
+from maisecrets import cli, home, vault
+real = home.atomic_write
 def slow(*a, **k):
     print("writing", flush=True)   # under the terms lock: the parent starts its wipe now
     time.sleep(1.0)           # the proposal is written while a wipe runs
     return real(*a, **k)
-vault.atomic_write = slow
+home.atomic_write = vault.atomic_write = slow   # terms writes through home
 cli.main(["terms", "suggest", sys.argv[2]])
 """
 

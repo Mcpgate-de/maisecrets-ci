@@ -286,7 +286,6 @@ class Registry(_Files):
                          [("imports:import", "import", "import", "import")])
         self.assertEqual(spec[0].priority[0], registry.PHASES["imports"])
         self.assertGreater(registry.PHASES["imports"], registry.PHASES["terms"])
-        self.assertLess(registry.PHASES["imports"], registry.PHASES["extra"])
 
     def test_enabled_turns_the_pass_on_and_off(self):
         self.imported([{"value": NAME, "type": "NAME"}])

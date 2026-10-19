@@ -1,4 +1,5 @@
-"""Personal data after a label or in a fixed form (maisecrets/personal.py), and three token forms with a shorter tail
+"""Personal data after a label or in a fixed form (maisecrets/detection/personal.py), and three token forms with a
+shorter tail
 (0.6.21). Each rule is checked on a hit, on the ordinary developer text next to it, and on its channel and region.
 
 Run: python3 -m unittest tests.test_personal_data -v
@@ -25,14 +26,9 @@ ALL_REGIONS = ("us", "uk", "in", "de", "fr", "es", "it", "pt", "ca", "au")
 
 
 def scan(text: str, channel: str = "tool", region: tuple = ALL_REGIONS):
-    saved = detect._RULES
     active = regions.Active(regions=("generic", *region), languages=("en",), source="test")
-    try:
-        detect._RULES = None
-        with mock.patch.object(detect, "active_regions", return_value=active):
-            return detect.scan(text, channel=channel)
-    finally:
-        detect._RULES = saved
+    with detect.Detector(regions=active).activate():
+        return detect.scan(text, channel=channel)
 
 
 def masked(text: str, value: str, channel: str = "tool", region: tuple = ALL_REGIONS) -> bool:
@@ -154,7 +150,7 @@ class HomeUserTests(unittest.TestCase):
                      "/home/user1/x", "/home/airflow/dags/x.py", "File /home/oai/share/project/main.py, line 42"):
             with self.subTest(text=text):
                 self.assertEqual(values(text), [])
-        with mock.patch.object(personal.getpass, "getuser", return_value="tkellermann"):
+        with mock.patch("getpass.getuser", return_value="tkellermann"):
             self.assertEqual(values("/home/tkellermann/src/app.py"), [])
 
 

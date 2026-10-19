@@ -1,6 +1,6 @@
 # Sources of the credential label words
 
-Each word in `maisecrets/rules/labels/<language>.txt` (except `en.txt` and `de.txt`) comes from a
+Each word in `maisecrets/detection/rules/labels/<language>.txt` (except `en.txt` and `de.txt`) comes from a
 reviewed translation in a large open-source project. The table names the file and the string
 (msgid, key or English source string) that the word translates. A word with no source row is not
 in a file. The label files add the spellings people type for the same word: without diacritics

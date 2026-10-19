@@ -14,7 +14,7 @@ A folder is data that a hook reads in every call, so each rule passes checks at 
 QUARANTINED: it is left out, and /maisecrets:rules, the status and events.log name it with its reason. A refused rule
 is named by its place (`rule 3`, `line 7`), never by a text of its own: a refused line can be a pasted value. A broken
 rule file or folder never stops a hook and never costs the rules of another folder. A broken machine policy still
-does (vault.load_config).
+does (home.load_config).
 
 The checks: a literal of 4 characters; at most 300 characters of regex; no shape that backtracks (a repeat inside a
 repeat, a repeat of something that can be empty, branches that start alike inside a repeat, two repeats in a row that
@@ -44,7 +44,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import detect
-from .vault import HOME
+from .home import HOME
 
 try:   # the regex parser of the standard library: re._parser from 3.11, sre_parse before
     from re import _parser as _sre
@@ -371,7 +371,7 @@ def check_regex(rx: str, keywords: tuple = (), allowlist: bool = False):
         return "no regex", None, ()
     if len(rx) > MAX_REGEX:
         return f"a regex longer than {MAX_REGEX} characters", None, ()
-    rx = detect._re2_to_python(rx)
+    rx = detect.re2_to_python(rx)
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -642,7 +642,7 @@ def _read_state() -> dict:
 
 def _write_state(state: dict) -> bool:
     try:
-        from .vault import atomic_write
+        from .home import atomic_write
         atomic_write(STATE_FILE, json.dumps(state, sort_keys=True) + "\n")
         return True
     except (OSError, TypeError, ValueError):
@@ -655,8 +655,8 @@ def _hash(*parts) -> str:
 
 
 # ------------------------------------------------------------------- rules --
-def _lazy(pattern: str) -> "detect._Lazy":
-    return detect._Lazy(pattern, 0)
+def _lazy(pattern: str) -> "detect.LazyRegex":
+    return detect.LazyRegex(pattern, 0)
 
 
 def _allowlists(lists, dropped) -> tuple[list, list, str]:
@@ -682,7 +682,7 @@ def _allowlists(lists, dropped) -> tuple[list, list, str]:
             awhy, _, _ = check_regex(arx, allowlist=True)
             if awhy:
                 return [], [], "in an allowlist: " + awhy
-            allow.append((detect._re2_to_python(arx), target))
+            allow.append((detect.re2_to_python(arx), target))
         stop += [s.lower() for s in words if isinstance(s, str)]
     return allow, stop, ""
 
@@ -730,7 +730,7 @@ def _json_rule(r: dict, place: str, kept, refuse, dropped, cache: dict) -> None:
     if verdict.get("why"):
         refuse(place, str(verdict["why"]))
         return
-    pattern = detect._re2_to_python(r["regex"])
+    pattern = detect.re2_to_python(r["regex"])
     rule = detect.Rule(id=ID_PREFIX + rid, type=type_, regex=_lazy(pattern), keywords=tuple(verdict["kw"]),
                        entropy=entropy, secret_group=group,
                        allow_regexes=tuple((_lazy(p), t) for p, t in allow), stopwords=tuple(stop))
@@ -780,7 +780,7 @@ def _prefix_rules(text: str, kept, refuse, cache: dict) -> None:
             if verdict.get("why"):
                 refuse(place, str(verdict["why"]))
                 continue
-            pattern = detect._re2_to_python(rx)
+            pattern = detect.re2_to_python(rx)
             kept(rid, detect.Rule(id=ID_PREFIX + rid, type="SECRET", regex=_lazy(pattern),
                                   keywords=tuple(verdict["kw"])), place, key, pattern, ())
         except Exception:  # noqa: BLE001 - one odd line never costs the others
@@ -993,7 +993,7 @@ def folders(cfg: dict) -> list[tuple[str, Path, str]]:
 
 
 def _config() -> dict:
-    from .vault import load_config
+    from .home import load_config
     try:
         return load_config()
     except Exception:  # noqa: BLE001 - a broken policy fails closed in the hook itself; here it means no folder
@@ -1165,9 +1165,7 @@ def allow_list(cfg: dict | None = None) -> tuple[frozenset, frozenset]:
     return _allow_lines(own + policy)
 
 
-def switched_off(rule_id: str, ids: frozenset) -> bool:
-    """A rule id on the allow list, also with the `#n` of one of several patterns of a Presidio rule."""
-    return rule_id in ids or rule_id.split("#", 1)[0] in ids
+switched_off = detect.switched_off   # a rule id on the allow list; the detector owns the rule (rules_cli uses it here)
 
 
 def reset() -> None:

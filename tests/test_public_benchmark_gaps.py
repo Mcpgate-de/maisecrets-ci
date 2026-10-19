@@ -16,6 +16,7 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
+RULES = ROOT / "maisecrets" / "detection" / "rules"
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
@@ -27,14 +28,9 @@ RNG = random.Random(17)
 
 
 def found(text: str, region: tuple[str, ...] = ()) -> list[tuple[str, str]]:
-    saved = detect._RULES
     active = regions.Active(regions=("generic", *region), languages=("en",), source="test")
-    try:
-        detect._RULES = None
-        with mock.patch.object(detect, "active_regions", return_value=active):
-            return [(m.type, m.value) for m in detect.scan(text)]
-    finally:
-        detect._RULES = saved
+    with detect.Detector(regions=active).activate():
+        return [(m.type, m.value) for m in detect.scan(text)]
 
 
 def luhn_complete(prefix: str, length: int) -> str:
@@ -54,7 +50,7 @@ JWT_IO = J(["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9", ".",
 class PublicTestValueTests(unittest.TestCase):
     def test_the_rule_file_holds_digests_and_never_a_value(self):
         lines = [ln.split("#", 1)[0].strip()
-                 for ln in (ROOT / "maisecrets" / "rules" / "public_test_values.txt").read_text().splitlines()]
+                 for ln in (RULES / "public_test_values.txt").read_text().splitlines()]
         entries = [ln for ln in lines if ln]
         self.assertGreaterEqual(len(entries), 30)
         for e in entries:

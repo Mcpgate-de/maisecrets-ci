@@ -5,6 +5,6 @@ statement = "A vCard property with parameters (ADR;TYPE=home:, FN;CHARSET=UTF-8:
 runner = ["tests/test_vcard_parameters.py::VcardParameterTests::test_a_property_with_parameters_masks_what_the_plain_property_masks"]
 
 [proof]
-file = "maisecrets/personal.py"
+file = "maisecrets/detection/personal.py"
 find = '''_VCARD_PARAMS = r"(?:(?:;[A-Za-z][\w-]{0,20}(?:=(?:\"[^\"\n]{0,80}\"|[^:;\"\n]{0,60}))?){1,8}(?=:))?"'''
 replace = '''_VCARD_PARAMS = r""'''

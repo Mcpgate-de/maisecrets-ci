@@ -5,6 +5,6 @@ statement = "A legal form of up to three letters names a company only in capital
 runner = ["tests/test_company_numbers_follow_the_address.py::CompanyNumberTests::test_a_short_legal_form_after_a_word_still_needs_its_case"]
 
 [proof]
-file = "maisecrets/personal.py"
+file = "maisecrets/detection/personal.py"
 find = '''    if len(form) <= 3 and not form.isupper()'''
 replace = '''    if False and len(form) <= 3'''

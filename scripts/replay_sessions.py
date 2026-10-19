@@ -114,7 +114,7 @@ def main() -> int:
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     lines = [f"# Replay report ({time.strftime('%Y-%m-%d %H:%M')}), detector rules: {len(detect.rules())}, "
-             f"betterleaks {(ROOT / 'maisecrets/rules/BETTERLEAKS_VERSION').read_text().strip()}", ""]
+             f"betterleaks {(ROOT / 'maisecrets/detection/rules/BETTERLEAKS_VERSION').read_text().strip()}", ""]
     for name, r in per_source.items():
         lines += [f"## {name}: {r['files']} files, {r['lines']} lines, {r['mb']:.0f} MB", "",
                   "| rule | hits | distinct values |", "|---|---:|---:|"]

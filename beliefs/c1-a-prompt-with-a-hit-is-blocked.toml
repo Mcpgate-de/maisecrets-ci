@@ -6,5 +6,5 @@ runner = ["tests/test_core.py::HookTests::test_prompt_with_secret_is_blocked_and
 
 [proof]
 file = "maisecrets/hooks.py"
-find = "    return [m for m in detect.scan(prompt) if not detect.is_fixture(m, prompt)]\n"
+find = "    return detect.findings(prompt)\n"
 replace = "    return []\n"

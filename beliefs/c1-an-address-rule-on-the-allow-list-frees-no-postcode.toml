@@ -5,6 +5,6 @@ statement = "An address rule that the allow list switches off (rule: street-addr
 runner = ["tests/test_company_numbers_follow_the_address.py::CompanyNumberTests::test_an_address_rule_on_the_allow_list_decides_nothing"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = '''               and not (off and c[4] in off)]'''
 replace = '''               ]'''

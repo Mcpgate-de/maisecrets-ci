@@ -5,6 +5,6 @@ statement = "In a tool result, a phone number in its national form after a phone
 runner = ["tests/test_personal_after_its_label.py::PhoneAfterWordTests::test_a_national_number_after_a_phone_word_is_masked"]
 
 [proof]
-file = "maisecrets/personal.py"
+file = "maisecrets/detection/personal.py"
 find = '''    if "phone-after-phone-word" in want and any(w in low for w in _PHONE_WORDS):'''
 replace = '''    if "phone-after-phone-word" in want and not low:'''

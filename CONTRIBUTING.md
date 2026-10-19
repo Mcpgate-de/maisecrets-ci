@@ -1,7 +1,7 @@
 # Contributing
 
 The quickest useful contribution is a token prefix that went through
-undetected. Add one line to `maisecrets/rules/prefixes.txt`:
+undetected. Add one line to `maisecrets/detection/rules/prefixes.txt`:
 
 ```
 <service>-<token-kind>    <prefix>[A-Za-z0-9_-]{<minimum length>,}
@@ -48,7 +48,7 @@ A new or changed detection rule needs numbers, not only tests:
 ## Rules from other projects
 
 Rules from MIT or Apache-2.0 sources are welcome. Name the source in the
-commit body; `maisecrets/rules/` keeps the licence of each vendored set. From
+commit body; `maisecrets/detection/rules/` keeps the licence of each vendored set. From
 an AGPL source (for example trufflehog) take the token format as a fact, but
 never its code or its regex text.
 

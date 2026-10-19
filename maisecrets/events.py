@@ -13,7 +13,7 @@ import time
 import urllib.parse
 from pathlib import Path
 
-from .vault import HOME
+from .home import HOME
 
 EVENTS = HOME / "events.log"
 KEEP = 200
@@ -173,7 +173,7 @@ def generic_issue_url(kind: str, text: str) -> str:
 def tracker() -> str | None:
     """The configured `report_url`: a policy can point it to its own tracker, or set null to turn
     reporting off. The report ignored it and always used ISSUES_URL (found 2026-09-28)."""
-    from .vault import load_config
+    from .home import load_config
     url = load_config().get("report_url", ISSUES_URL)
     return url.strip() or None if isinstance(url, str) else None
 

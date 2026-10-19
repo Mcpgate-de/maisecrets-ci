@@ -18,9 +18,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SKILL = ROOT / "skills" / "secret-hygiene"
-DETECTOR = ("maisecrets/__init__.py", "maisecrets/checksums.py", "maisecrets/detect.py", "maisecrets/normalise.py",
-            "maisecrets/regions.py", "maisecrets/registry.py", "maisecrets/rule_filter.py",
-            "maisecrets/rulespec.py")
+# the detection core without personal.py, the names of maisecrets.* that the skill scripts import (the same module
+# objects), and the placeholder form of the plugin
+DETECTOR = ("maisecrets/__init__.py", "maisecrets/detection/__init__.py", "maisecrets/detection/checksums.py",
+            "maisecrets/detection/core.py", "maisecrets/detection/lazy_regex.py", "maisecrets/detection/normalise.py",
+            "maisecrets/detection/regions.py", "maisecrets/detection/registry.py",
+            "maisecrets/detection/rule_filter.py", "maisecrets/detection/rulespec.py",
+            "maisecrets/detect.py", "maisecrets/checksums.py", "maisecrets/lazy_regex.py", "maisecrets/normalise.py",
+            "maisecrets/regions.py", "maisecrets/registry.py", "maisecrets/rule_filter.py", "maisecrets/rulespec.py",
+            "maisecrets/placeholder.py", "maisecrets/rules/freemail_domains.txt")
 OPENAI_NAME = "maisecrets-secret-hygiene"
 
 
@@ -31,10 +37,11 @@ def members() -> list[tuple[Path, str]]:
             out.append((path, f"secret-hygiene/{path.relative_to(SKILL).as_posix()}"))
     for rel in DETECTOR:
         out.append((ROOT / rel, f"secret-hygiene/scripts/{rel}"))
-    rules = ROOT / "maisecrets" / "rules"
+    rules = ROOT / "maisecrets" / "detection" / "rules"
     for path in sorted(rules.rglob("*")):
         if path.is_file():
-            out.append((path, f"secret-hygiene/scripts/maisecrets/rules/{path.relative_to(rules).as_posix()}"))
+            rel = path.relative_to(rules).as_posix()
+            out.append((path, f"secret-hygiene/scripts/maisecrets/detection/rules/{rel}"))
     out.append((ROOT / "LICENSE", "secret-hygiene/LICENSE"))
     out.append((ROOT / "NOTICE", "secret-hygiene/NOTICE"))
     return out

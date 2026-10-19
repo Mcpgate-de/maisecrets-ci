@@ -5,6 +5,6 @@ statement = "The import pass skips only the bracket and the key of a placeholder
 runner = ["tests/test_values.py::ReviewRoundTwo::test_an_imported_value_in_the_display_text_of_a_placeholder_is_masked"]
 
 [proof]
-file = "maisecrets/detect.py"
-find = "            refs += [(a, colon if colon >= 0 else b - 1), (b - 1, b)]\n"
-replace = "            refs += [(a, b)]\n"
+file = "maisecrets/placeholder.py"
+find = "                spans += [(a, colon if colon >= 0 else b - 1), (b - 1, b)]\n"
+replace = "                spans += [(a, b)]\n"

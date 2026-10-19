@@ -5,6 +5,6 @@ statement = "A Swedish organisation number after its word is a hit only when its
 runner = ["tests/test_rules_from_the_fork_0624.py::PresidioChecksTests::test_a_swedish_organisation_number_needs_its_check_digit"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = '''    "se_organisationsnummer": checksums.se_organisationsnummer_ok,'''
 replace = '''    "se_organisationsnummer": lambda v: True,'''

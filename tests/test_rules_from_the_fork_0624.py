@@ -12,7 +12,6 @@ import os
 import sys
 import unittest
 from pathlib import Path
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -25,14 +24,9 @@ J = "".join
 
 
 def found(text: str, region: tuple = (), channel: str = "tool") -> list:
-    saved = detect._RULES
     active = regions.Active(regions=("generic", *region), languages=("en", "de"), source="test")
-    try:
-        detect._RULES = None
-        with mock.patch.object(detect, "active_regions", return_value=active):
-            return [(m.kind, text[m.start:m.end]) for m in detect.scan(text, channel=channel)]
-    finally:
-        detect._RULES = saved
+    with detect.Detector(regions=active).activate():
+        return [(m.kind, text[m.start:m.end]) for m in detect.scan(text, channel=channel)]
 
 
 def kinds(text: str, region: tuple = (), channel: str = "tool") -> set:

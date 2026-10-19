@@ -5,6 +5,6 @@ statement = "A label that ends its line takes the value from the next non-empty 
 runner = ["tests/test_core.py::DetectTests::test_label_on_its_own_line_takes_the_value_from_the_next_line"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = "        if _LABEL_ONLY_RE.search(line) and not _CODE_CONDITION_RE.search(line):\n"
 replace = "        if False:\n"

@@ -5,6 +5,6 @@ statement = "In a tool result, a value after a label in Markdown bold (**Label:*
 runner = ["tests/test_personal_after_its_label.py::BoldLabelTests::test_a_value_after_a_bold_label_is_masked_like_after_the_plain_label"]
 
 [proof]
-file = "maisecrets/normalise.py"
+file = "maisecrets/detection/normalise.py"
 find = '''STAGES = ("unfold", "entity", "ansi", "invisible", "fullwidth", "emphasis", "decode")'''
 replace = '''STAGES = ("unfold", "entity", "ansi", "invisible", "fullwidth", "decode")'''

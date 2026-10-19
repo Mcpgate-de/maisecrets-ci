@@ -1,4 +1,5 @@
-"""The rule registry (maisecrets/registry.py): every rule has a spec, a unique key and a unique rank, and the register
+"""The rule registry (maisecrets/detection/registry.py): every rule has a spec, a unique key and a unique rank, and the
+register
 order is the order of detect.rules().
 
 Run: python3 -m unittest tests.test_registry -v
@@ -64,7 +65,7 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(collections.Counter(s.matcher for s, _ in self.specs)["lines"], 7)
 
     def test_each_named_filter_is_one_that_scan_runs(self):
-        source = (ROOT / "maisecrets" / "detect.py").read_text(encoding="utf-8")
+        source = (ROOT / "maisecrets" / "detection" / "core.py").read_text(encoding="utf-8")
         names = {n for ns in registry.FILTERS.values() for n in ns} | {n for _, ns in registry.PREFIX_FILTERS
                                                                      for n in ns} | {"derived-label"}
         for name in sorted(names):

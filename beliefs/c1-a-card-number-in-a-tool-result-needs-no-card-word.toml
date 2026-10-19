@@ -5,6 +5,6 @@ statement = "A card number that passes Luhn is masked in a tool result without a
 runner = ["tests/test_rules_from_the_fork_0624.py::CardWithoutWordTests::test_a_card_number_without_a_card_word_is_masked_in_a_tool_result"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = '''CARD_ALONE_IN_TOOL = frozenset({"credit-card"})'''
 replace = '''CARD_ALONE_IN_TOOL = frozenset()'''

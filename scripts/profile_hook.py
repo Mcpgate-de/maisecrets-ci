@@ -17,7 +17,8 @@ in a new process, with one temp home per tree (regions de, locale de_DE) and the
   "regex compile" is the time of the compilations that miss the cache of re, per phase; the module that asks for each
   is in the table of compilations. "rest of the hook" is the hook call minus the interpreter, import, rules and first
   scan. The median of --runs processes, round robin as above.
-- classes: the steady scan time (median of 5 scans after one) per rule class of maisecrets/registry.py (coarse_class),
+- classes: the steady scan time (median of 5 scans after one) per rule class of maisecrets/detection/registry.py
+(coarse_class),
   per pass (personal data, cleaned copy, export cells) and the top rules. The time is exclusive: a pass that scans a
   copy does not count the rules it runs again. "scan loop" is the rest of detect._scan: the keyword and context gates of
   every rule, the filters and the checks after a hit, and the loop of the scan of the cleaned copy.
@@ -261,8 +262,8 @@ def _child_classes(tree: str, name: str) -> int:
     clock = _Clock()
     orig_matches = detect._matches
 
-    def matches(rule, t):
-        return _wrap_gen(clock, "rule|" + rule.id + "|" + _class_of(detect, rule), orig_matches(rule, t))
+    def matches(rule, t, *a, **k):     # the channel of the scan passes on (detect._matches(rule, text, channel))
+        return _wrap_gen(clock, "rule|" + rule.id + "|" + _class_of(detect, rule), orig_matches(rule, t, *a, **k))
     detect._matches = matches
     for fn, label in (("_personal_hits", "pass|personal data"), ("_scan_cleaned_copy", "pass|cleaned copy"),
                       ("_export_hits", "pass|export cells")):

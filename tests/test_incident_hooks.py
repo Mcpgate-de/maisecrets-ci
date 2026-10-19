@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
 
-from maisecrets import hooks, incidents, vault  # noqa: E402
+from maisecrets import home, hooks, incidents, vault  # noqa: E402
 
 HOME = Path(os.environ["MAISECRETS_HOME"])
 CLAUDE = {"prompt_id": "p1", "session_id": "S1", "transcript_path": "", "cwd": "/tmp"}
@@ -63,7 +63,9 @@ class ReportFromThePromptHookTests(_Clean):
             "code": "store.lock", "cause": "lock", "class": "fail-closed", "event": "UserPromptSubmit"})))
         with mock.patch.object(hooks, "load_config", boom), mock.patch.object(hooks, "Vault", boom), \
                 mock.patch.object(hooks, "_has_live", boom), \
-                mock.patch.object(vault, "load_config", side_effect=vault.ConfigError("/private/x is not valid")):
+                mock.patch.object(vault, "load_config", side_effect=vault.ConfigError("/private/x is not valid")), \
+                mock.patch.object(home, "load_config", side_effect=vault.ConfigError("/private/x is not valid")):
+            # events.report_url() reads the config through home
             out = hooks.user_prompt(dict(CLAUDE, prompt="/maisecrets:report incident"))
         self.assertEqual(out["decision"], "block")
         self.assertTrue(out["hookSpecificOutput"]["suppressOriginalPrompt"])

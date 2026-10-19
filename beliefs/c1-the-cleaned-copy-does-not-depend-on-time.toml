@@ -5,7 +5,7 @@ statement = "The decoder of the tool channel is bounded by work (runs and decode
 runner = ["tests/test_tool_channel_normaliser.py::NormaliseTests::test_a_busy_machine_decodes_the_same"]
 
 [proof]
-file = "maisecrets/normalise.py"
+file = "maisecrets/detection/normalise.py"
 find = '''        return self.candidates <= 0 or self.decoded <= 0
 '''
 replace = '''        return self.candidates <= 0 or self.decoded <= 0 or __import__("time").perf_counter() % 2 == 0

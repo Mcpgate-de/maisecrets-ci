@@ -5,6 +5,6 @@ statement = "Between a company's name and its address only a department of a clo
 runner = ["tests/test_company_numbers_more_forms.py::CompanyFormTests::test_a_persons_name_before_the_company_keeps_the_mask"]
 
 [proof]
-file = "maisecrets/personal.py"
+file = "maisecrets/detection/personal.py"
 find = '''r"(?i:" + _DEPARTMENTS + r")(?:[ ](?:(?:und|and|&)[ ])?(?i:" + _DEPARTMENTS + r"))?"'''
 replace = '''r"[^\W\d_][\w&/.-]{0,30}(?:[ ][\w&/.-]{1,30})?"'''

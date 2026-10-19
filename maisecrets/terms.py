@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import term_files
-from .vault import HOME, ConfigError
+from .home import HOME, ConfigError
 
 WORD = "word"        # Jan: the whole word
 STARTS = "starts"    # Kowalsk*: word start, any ending
@@ -772,7 +772,7 @@ def _lock():
     """One lock for every read-modify-write of terms.txt and terms.marked.json: two hooks at once lost an add, a
     removal or a marked name (codex review of block 2). Re-entrant in the process; a lock that stays busy raises,
     and the hook fails closed."""
-    from .vault import _lock_for
+    from .home import _lock_for
     return _lock_for(HOME / ".terms.lock")
 
 
@@ -815,7 +815,7 @@ def _marked_items() -> list:
 def _write_marked(items: list) -> None:
     """terms.marked.json with `items`, or no file when none is left (term_files.present then sees no list)."""
     if items:
-        from .vault import atomic_write
+        from .home import atomic_write
         atomic_write(MARKED, json.dumps({"terms": items}))
         return
     try:
@@ -1019,7 +1019,7 @@ def take_markers(prompt: str, ttl: int) -> tuple[str, int]:
     if not found:
         return prompt, 0
     now = time.time()
-    from .vault import atomic_write
+    from .home import atomic_write
     with _lock():
         # read after the lock, and a damaged file raises before anything is written
         items = [x for x in _marked_items() if x.get("expires", 0) > now]
@@ -1112,7 +1112,7 @@ def _add_typed(words: str, floor: bool = False) -> tuple[bool, str, list]:
     surnames = _surnames(given)
     variants = " | ".join(given + surnames)
     new = head + text + ("" if not text or text.endswith("\n") else "\n") + f"{label}  {variants}\n"
-    from .vault import atomic_write
+    from .home import atomic_write
     try:
         atomic_write(PERSONAL, new, mode=0o600)
     except OSError as exc:
@@ -1191,7 +1191,7 @@ def _term_remove_typed(words: str, entity_id: str | None = None) -> tuple[bool, 
     kept = [x for i, x in enumerate(lines, 1) if i not in drop]
     removed += [f"{e.label} ({len(e.variants)} variant{'s' if len(e.variants) != 1 else ''})"
                 for e in ents if e.line in drop]
-    from .vault import atomic_write
+    from .home import atomic_write
     if drop:
         try:
             atomic_write(PERSONAL, "".join(kept), mode=0o600)
@@ -1240,7 +1240,7 @@ def session_note() -> str | None:
                      + (f", {len(loaded.refused)} line(s) left out" if loaded.refused else "")
                      + "; /maisecrets:rules shows them.")
     try:
-        from .vault import atomic_write
+        from .home import atomic_write
         atomic_write(STATE_FILE, json.dumps({"digest": digest[:16], "team": team}))
     except OSError:
         return None    # a state that cannot be written would repeat the sentence at every start

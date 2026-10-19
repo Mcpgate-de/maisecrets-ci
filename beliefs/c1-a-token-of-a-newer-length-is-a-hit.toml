@@ -5,7 +5,7 @@ statement = "An OpenAI key, an Anthropic API key, a GitLab trigger token or a Gi
 runner = ["tests/test_rules_from_the_catalogs.py::SessionFormTests::test_openai_project_keys_of_every_length_are_found"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = '''        ("fallback", [Rule(id=d["id"], type=d["type"], regex=_Lazy(d["regex"])) for d in FALLBACK_RULES]),
 '''
 replace = '''        ("fallback", []),

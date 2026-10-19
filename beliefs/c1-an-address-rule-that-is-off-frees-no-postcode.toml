@@ -5,6 +5,6 @@ statement = "Only an address rule that runs makes the company decision: when `en
 runner = ["tests/test_company_numbers_follow_the_address.py::CompanyNumberTests::test_an_address_rule_that_is_off_decides_nothing"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = '''    company = [c for c in company if (enabled is None'''
 replace = '''    company = [c for c in company if (True or enabled is None'''

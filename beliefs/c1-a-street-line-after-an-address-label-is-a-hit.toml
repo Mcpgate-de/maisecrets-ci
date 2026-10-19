@@ -5,6 +5,6 @@ statement = "In a tool result, a street line (a house number and a street word, 
 runner = ["tests/test_personal_after_its_label.py::StreetLineTests::test_a_street_line_after_an_address_label_or_a_verb_of_residence_is_masked"]
 
 [proof]
-file = "maisecrets/personal.py"
+file = "maisecrets/detection/personal.py"
 find = '''                out.append((m.start(g), m.end(g), "address-street-after-label", ADDRESS))'''
 replace = '''                pass'''

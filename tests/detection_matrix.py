@@ -17,7 +17,7 @@ import string
 from dataclasses import dataclass, field
 
 # the detect-secrets denylist words, and the examples of each label file of the active languages
-# (maisecrets/rules/labels/*.txt): a new label file adds its words to the matrix
+# (maisecrets/detection/rules/labels/*.txt): a new label file adds its words to the matrix
 DENYLIST_LABELS = ["password", "pwd", "passwd", "Password", "PASSWORD", "secret", "api_key", "apikey", "API_KEY",
                    "db_password", "client_secret"]
 

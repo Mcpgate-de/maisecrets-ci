@@ -1,4 +1,4 @@
-maisecrets/rules/words_en.txt is a word list created from SCOWL: the base words of 4 to 8 letters of
+maisecrets/detection/rules/words_en.txt is a word list created from SCOWL: the base words of 4 to 8 letters of
 the en_US Hunspell dictionary (SCOWL size 60), release rel-2026.02.25,
 https://github.com/en-wl/wordlist/releases/download/rel-2026.02.25/hunspell-en_US-2026.02.25.zip
 (sha256 ac8e73310e951d88c52c2cf2ba54ceaca34f8486a81630ac8a75dc5f931179f9).

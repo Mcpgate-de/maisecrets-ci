@@ -17,7 +17,6 @@ import string
 import sys
 import unittest
 from pathlib import Path
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -32,22 +31,15 @@ D = string.digits
 U = string.ascii_uppercase
 
 
-_RULES_OF: dict = {}
+_DETECTOR_OF: dict = {}
 
 
 def found(text: str, region: tuple = ("de",), channel: str = "prompt") -> list:
-    """(kind, type, value) of each hit with the given regions. The rules of each regions setting are loaded once."""
-    saved = detect._RULES
-    active = regions.Active(regions=("generic", *region), languages=("en", "de"), source="test")
-    try:
-        with mock.patch.object(detect, "active_regions", return_value=active):
-            if region not in _RULES_OF:
-                detect._RULES = None
-                _RULES_OF[region] = detect.rules()
-            detect._RULES = _RULES_OF[region]
-            return [(m.kind, m.type, m.value) for m in detect.scan(text, channel=channel)]
-    finally:
-        detect._RULES = saved
+    """(kind, type, value) of each hit with the given regions. One detector per regions setting loads its rules once."""
+    if region not in _DETECTOR_OF:
+        active = regions.Active(regions=("generic", *region), languages=("en", "de"), source="test")
+        _DETECTOR_OF[region] = detect.Detector(regions=active)
+    return [(m.kind, m.type, m.value) for m in _DETECTOR_OF[region].scan(text, channel=channel)]
 
 
 def types_of(text: str, value: str, region: tuple = ("de",), channel: str = "prompt") -> list:

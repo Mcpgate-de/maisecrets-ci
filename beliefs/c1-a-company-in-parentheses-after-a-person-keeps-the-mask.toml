@@ -5,6 +5,6 @@ statement = "A company in an open parenthesis on its line (Max Muster (Beispiel 
 runner = ["tests/test_company_numbers_follow_the_address.py::CompanyNumberTests::test_a_company_in_parentheses_after_a_person_keeps_the_mask"]
 
 [proof]
-file = "maisecrets/personal.py"
+file = "maisecrets/detection/personal.py"
 find = '''    if head.count("(") > head.count(")"):'''
 replace = '''    if False:'''

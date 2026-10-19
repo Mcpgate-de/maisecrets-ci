@@ -5,7 +5,7 @@ statement = "A value found in the decoded text of a base64 or hex run redacts th
 runner = ["tests/test_tool_channel_normaliser.py::DisguiseTests::test_a_value_in_a_base64_run_takes_the_whole_run"]
 
 [proof]
-file = "maisecrets/normalise.py"
+file = "maisecrets/detection/normalise.py"
 find = '''        starts.extend([a] * len(new))
         ends.extend([b] * len(new))'''
 replace = '''        starts.extend(range(a, a + len(new)))

@@ -2,7 +2,8 @@
 
     python3 scripts/measure_scan_time.py [--maisecrets DIR] [--channel prompt|tool] [--runs 15]
 
-Inputs: a typed prompt of 1 KB, 70 KB of Python code (the start of maisecrets/detect.py of the measured checkout),
+Inputs: a typed prompt of 1 KB, 70 KB of Python code (the start of maisecrets/detection/core.py, or detect.py, of
+the measured checkout),
 a 70 KB log, and 70 KB of configuration with about 2,100 password labels. Each is scanned once to warm up and then
 --runs times; the script prints the median. "import + first scan" runs in a new process, as each hook call does.
 The inputs are built at run time and nothing is printed but the times. The store is a fresh temp directory.
@@ -28,7 +29,8 @@ def inputs(ms_dir: str) -> dict:
     rnd = random.Random(3)
     prompt = ("Kannst du bitte im Service den Retry-Mechanismus anpassen? Der Test test_retry_backoff schlaegt fehl, "
               "wenn das Timeout unter 200 ms liegt. Schau dir src/net/client.py an und die Config in config.yaml. ") * 5
-    code = Path(ms_dir, "maisecrets", "detect.py").read_text(encoding="utf-8")[:70_000]
+    core = Path(ms_dir, "maisecrets", "detection", "core.py")
+    code = (core if core.is_file() else Path(ms_dir, "maisecrets", "detect.py")).read_text(encoding="utf-8")[:70_000]
     log = "\n".join(f"2026-10-14T10:{i % 60:02d}:00Z INFO request id={rnd.getrandbits(64):016x} user=u{i} "
                     f"path=/api/v1/items/{i} status=200 ms={i % 97}" for i in range(700))[:70_000]
     letters = "abcdefghijklmnopqrstuvwxyz"

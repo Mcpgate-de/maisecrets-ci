@@ -5,6 +5,6 @@ statement = "The default rehydration policy is automatic: on every path that can
 runner = ["tests/test_rehydration_matrix.py::RehydrationMatrixTests::test_the_default_is_automatic_on_every_path"]
 
 [proof]
-file = "maisecrets/vault.py"
+file = "maisecrets/home.py"
 find = "    \"rehydration\": \"automatic\","
 replace = "    \"rehydration\": \"confirm\","

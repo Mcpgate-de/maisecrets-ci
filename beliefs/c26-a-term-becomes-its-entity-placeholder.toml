@@ -5,6 +5,6 @@ statement = "A term in a tool result is replaced by a placeholder, and every spe
 runner = ["tests/test_terms_hooks.py::TermHookTests::test_every_spelling_of_an_entity_gets_its_one_placeholder"]
 
 [proof]
-file = "maisecrets/detect.py"
-find = "                     + tuple(r for r in every if _runs_after_personal(r)) + (_TERMS, _IMPORTS)]"
-replace = "                     + tuple(r for r in every if _runs_after_personal(r)) + (_IMPORTS,)]"
+file = "maisecrets/detection/core.py"
+find = "                    + tuple(r for r in every if _runs_after_personal(r)) + (_TERMS, _IMPORTS))"
+replace = "                    + tuple(r for r in every if _runs_after_personal(r)) + (_IMPORTS,))"

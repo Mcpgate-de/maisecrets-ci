@@ -35,7 +35,7 @@ import tempfile
 # image files (UNREAD_ASSET_REFERENCED, 2026-09-30: "the plugin stays held for review")
 RUNTIME = (".claude-plugin/", "hooks/", "claude-mod/", "maisecrets/", "commands/", "skills/", "assets/",
            "LICENSE", "NOTICE", "README.md", "PRIVACY.md", "SECURITY.md", "CHANGELOG.md",
-           "docs/CLIENTS.md", "docs/PROTOCOL.md", "docs/THREAT-MODEL.md", "docs/label-sources.md")
+           "docs/CLIENTS.md", "docs/PROTOCOL.md", "docs/THREAT-MODEL.md", "docs/label-sources.md", "docs/DETECTION.md")
 
 
 def _git(*args: str, env: dict | None = None, text: bool = True) -> str:

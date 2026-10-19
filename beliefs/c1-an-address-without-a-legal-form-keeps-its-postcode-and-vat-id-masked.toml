@@ -5,6 +5,6 @@ statement = "Only a legal form makes the postcode and the VAT ID of an address a
 runner = ["tests/test_company_numbers_follow_the_address.py::CompanyNumberTests::test_a_hotel_or_an_office_names_no_holder", "tests/test_company_numbers_follow_the_address.py::CompanyNumberTests::test_a_sole_traders_invoice_keeps_its_postcode_and_vat_id_masked"]
 
 [proof]
-file = "maisecrets/personal.py"
+file = "maisecrets/detection/personal.py"
 find = '''    for m in _LEGAL_FORM_RE.finditer(text, lo, a_start):'''
 replace = '''    for m in _NOT_A_HOME_RE.finditer(text, lo, a_start):'''

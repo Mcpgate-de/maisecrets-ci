@@ -36,7 +36,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TESTS = ROOT / "tests"
 CHANNELS = ("prompt", "tool")
-# every country code that maisecrets/regions.py names a language for: a superset of the regions of the regional
+# every country code that maisecrets/detection/regions.py names a language for: a superset of the regions of the
+# regional
 # and the Presidio rules. Fixed here, so a change in how a rule finds its region shows up as a changed hit
 ALL_REGIONS = ("at", "au", "be", "br", "ca", "ch", "cz", "de", "dk", "es", "fi", "fr", "ie", "in", "it", "kr", "li",
                "lu", "ng", "nl", "no", "nz", "ph", "pl", "pt", "se", "sg", "th", "tr", "uk", "us", "za")
@@ -184,7 +185,8 @@ def recorded_items(recording: str = "") -> list:
 
 
 def probe_items() -> list:
-    """One or more inputs for each matcher and each named filter of maisecrets/registry.py, and for the password
+    """One or more inputs for each matcher and each named filter of maisecrets/detection/registry.py, and for the
+    password
     export, which reads the file name (a 4th element: the path given to scan). Values are drawn at run time from a
     fixed seed; the published test values are built from parts."""
     import random

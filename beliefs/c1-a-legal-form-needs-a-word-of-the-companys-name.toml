@@ -5,6 +5,6 @@ statement = "A legal form names a company only after a word of its name: a court
 runner = ["tests/test_company_numbers_follow_the_address.py::CompanyNumberTests::test_a_legal_form_after_no_word_is_no_companys_name"]
 
 [proof]
-file = "maisecrets/personal.py"
+file = "maisecrets/detection/personal.py"
 find = '''    if not _NAME_BEFORE_FORM_RE.search('''
 replace = '''    if False and not _NAME_BEFORE_FORM_RE.search('''

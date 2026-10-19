@@ -47,14 +47,9 @@ INVOICE = ("Rechnung\nRechnungsnummer: 5123456789\nRechnungsdatum: 30.09.2026\n\
 
 
 def redact(text: str, channel: str = "tool") -> str:
-    saved = detect._RULES
     active = regions.Active(regions=("generic", "de"), languages=("de", "en"), source="test")
-    try:
-        detect._RULES = None
-        with mock.patch.object(detect, "active_regions", return_value=active):
-            found = detect.scan(text, channel=channel)
-    finally:
-        detect._RULES = saved
+    with detect.Detector(regions=active).activate():
+        found = detect.scan(text, channel=channel)
     for m in sorted(found, key=lambda m: -m.start):
         text = text[:m.start] + "•" + text[m.end:]
     return text
@@ -217,14 +212,9 @@ class CompanyNumberTests(unittest.TestCase):
     def test_an_address_rule_that_is_off_decides_nothing(self):
         for key, value in (("presidio:de-vat-id#0", VAT), ("presidio:de-plz", PLZ)):
             with self.subTest(key=key):
-                saved = detect._RULES
                 active = regions.Active(regions=("generic", "de"), languages=("de", "en"), source="test")
-                try:
-                    detect._RULES = None
-                    with mock.patch.object(detect, "active_regions", return_value=active):
-                        found = detect.scan(INVOICE, channel="tool", enabled={key})
-                finally:
-                    detect._RULES = saved
+                with detect.Detector(regions=active).activate():
+                    found = detect.scan(INVOICE, channel="tool", enabled={key})
                 self.assertIn(value, [INVOICE[m.start:m.end] for m in found])
 
     def test_a_name_or_the_senders_label_before_the_vat_id_keeps_it_masked(self):
@@ -273,15 +263,10 @@ class CompanyNumberTests(unittest.TestCase):
         self.assertNotIn(VAT, out)
 
     def test_an_address_rule_on_the_allow_list_decides_nothing(self):
-        saved = detect._RULES
         active = regions.Active(regions=("generic", "de"), languages=("de", "en"), source="test")
-        try:
-            detect._RULES = None
-            with mock.patch.object(detect, "active_regions", return_value=active), \
+        with detect.Detector(regions=active).activate(), \
                     mock.patch.object(detect, "allow_list", return_value=(frozenset(), frozenset({"street-address"}))):
-                found = detect.scan(INVOICE, channel="tool")
-        finally:
-            detect._RULES = saved
+            found = detect.scan(INVOICE, channel="tool")
         self.assertIn(VAT, [INVOICE[m.start:m.end] for m in found])
 
     def test_a_typed_prompt_keeps_its_vat_id_hit(self):

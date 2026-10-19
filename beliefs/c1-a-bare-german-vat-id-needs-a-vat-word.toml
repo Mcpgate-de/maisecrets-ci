@@ -5,6 +5,6 @@ statement = "DE and nine digits that pass the VAT checksum are a DE_VAT_ID hit o
 runner = ["tests/test_bank_and_company_numbers.py::GermanCompanyNumberTests::test_a_bare_vat_id_without_a_vat_word_stays_text"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = '''PRESIDIO_PATTERN_CONTEXT = {"de-vat-id#0"}'''
 replace = '''PRESIDIO_PATTERN_CONTEXT = set()'''

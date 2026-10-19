@@ -4,7 +4,7 @@
 Usage: scripts/sync_detect_secrets.py v1.5.0
 Fetches keyword.py and basic_auth.py from Yelp/detect-secrets at that tag,
 reads the regexes and their secret group numbers from the source as data
-(scripts/_static_python.py; nothing upstream is executed), and writes maisecrets/rules/detect_secrets.json,
+(scripts/_static_python.py; nothing upstream is executed), and writes maisecrets/detection/rules/detect_secrets.json,
 LICENSE-detect-secrets and DETECT_SECRETS_VERSION. Only the "config" and
 "quotes required" regex sets are kept; the other sets are file-type specific.
 """
@@ -48,7 +48,7 @@ reserved, sub = ":/?#[]@", "!$&'()*+,;="
 esc = re.escape(reserved + sub)
 rules.append({"id": "ds-basic-auth", "regex": r"://[^{}\s]+:([^{}\s]+)@".format(esc, esc),
               "ignorecase": False, "group": 1, "set": "basic_auth"})
-dst = Path(__file__).resolve().parent.parent / "maisecrets" / "rules"
+dst = Path(__file__).resolve().parent.parent / "maisecrets" / "detection" / "rules"
 json.dump({"detect_secrets_version": tag, "denylist": list(ns["DENYLIST"]), "rules": rules},
           open(dst / "detect_secrets.json", "w"), indent=1)
 (dst / "DETECT_SECRETS_VERSION").write_text(tag + "\n")

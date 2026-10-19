@@ -5,6 +5,6 @@ statement = "A rule hit that holds more than a listed term (a password with a li
 runner = ["tests/test_terms_hooks.py::Issue19FormTests::test_a_term_inside_a_stored_password_never_splits_it"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = "    if any(_WORD_CHAR_RE.search(text, f.start, m.start) or _WORD_CHAR_RE.search(text, m.end, f.end) for f in hit):\n"
 replace = "    if False:\n"

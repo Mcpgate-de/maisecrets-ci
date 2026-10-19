@@ -6,5 +6,5 @@ runner = ["tests/test_failed_prompt_scrub.py::FailedPromptScrubTests::test_a_dam
 
 [proof]
 file = "maisecrets/hooks.py"
-find = "            values += [m.value for m in detect.scan(prompt) if not detect.is_fixture(m, prompt)]\n"
+find = "            values += [m.value for m in detect.findings(prompt)]\n"
 replace = "            values += []\n"

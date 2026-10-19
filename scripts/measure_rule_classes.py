@@ -3,7 +3,8 @@
     python3 scripts/measure_rule_classes.py [--creddata DIR] [--holdout DIR] [--regions de] [--channels prompt,tool]
         [--level coarse|class] [--workers N] [--out result.json]
 
-For each class of rules (maisecrets/registry.py: coarse_class, or rule_class with --level class) the script scans
+For each class of rules (maisecrets/detection/registry.py: coarse_class, or rule_class with --level class) the
+script scans
 every input once with all rules (the base) and once with that class switched off (`detect.scan(enabled=...)` with the
 keys of every other rule and pass). The difference is what the class adds at the margin: when it is off, another rule
 can still take the span.

@@ -18,7 +18,6 @@ import os
 import sys
 import unittest
 from pathlib import Path
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -36,14 +35,9 @@ NAME = "Lena " + "Brückner"
 
 
 def masked(text: str, channel: str = "tool") -> set:
-    saved = detect._RULES
     active = regions.Active(regions=("generic", "us", "uk", "de"), languages=("en", "de"), source="test")
-    try:
-        detect._RULES = None
-        with mock.patch.object(detect, "active_regions", return_value=active):
-            found = detect.scan(text, channel=channel)
-    finally:
-        detect._RULES = saved
+    with detect.Detector(regions=active).activate():
+        found = detect.scan(text, channel=channel)
     return {(m.type, text[m.start:m.end]) for m in found}
 
 

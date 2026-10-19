@@ -75,3 +75,53 @@ def display_for(type_: str, value: str, level: str = "standard") -> str | None:
         entity = "ip_address_v6"
     shown = pii_display.display(value, entity, level, freemail_domains())
     return shown or None
+
+
+# ------------------------------------------------------------------------------------------- the detector --
+# What the detector must know of this form (detect.References): the bodies are the ones detect.py had.
+_DETECTOR_PATTERNS = {   # compiled at first use: a hook imports this module on every call (tests/test_hook_start.py)
+    "cell": f"{OPEN}[A-Z][A-Z_]*_c\\d+(?::[^{CLOSE}\n]*)?{CLOSE}",
+    "key after open": r"[A-Z][A-Z_]*_c\d+",
+    "legacy in value": r"<[A-Z][A-Z_]*_c\d+>",
+}
+_COMPILED: dict = {}
+
+
+def _rx(name: str) -> re.Pattern:
+    if name not in _COMPILED:
+        _COMPILED[name] = re.compile(_DETECTOR_PATTERNS[name])
+    return _COMPILED[name]
+
+
+class MaisecretsReferences:
+    """The new form with its optional display part, and the old angle form, for the detector (detect.References)."""
+
+    def names_a_key(self, low: str) -> bool:
+        return low.startswith((OPEN, "<")) and "_c" in low
+
+    def key_spans(self, text: str) -> list:
+        spans: list = []
+        if OPEN in text:
+            for _k, a, b in find_refs(text):
+                # the bracket and the key only: a display text inside a placeholder (`:Jan Kowalski`) is text
+                colon = text.find(":", a, b)
+                spans += [(a, colon if colon >= 0 else b - 1), (b - 1, b)]
+        return spans
+
+    def cell_spans(self, text: str, a: int, b: int) -> list:
+        return [(m.start(), m.end()) for m in _rx("cell").finditer(text, a, b)]
+
+    def inside(self, text: str, pos: int) -> bool:
+        return text.rfind(OPEN, 0, pos) > text.rfind(CLOSE, 0, pos)
+
+    def hit_is_a_reference(self, text: str, start: int, secret: str) -> bool:
+        if text[max(0, start - 1):start] in ("<", OPEN) and _rx("key after open").match(secret):
+            return True
+        return OPEN in secret or _rx("legacy in value").search(secret) is not None
+
+    def has_marks(self, value: str) -> bool:
+        return OPEN in value or CLOSE in value
+
+
+REFERENCES = MaisecretsReferences()
+

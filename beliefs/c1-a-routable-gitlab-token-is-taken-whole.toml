@@ -5,6 +5,6 @@ statement = "A routable GitLab token (glpat-... with a tail .<version>.<id>) is 
 runner = ["tests/test_core.py::DetectTests::test_a_routable_gitlab_token_is_taken_whole"]
 
 [proof]
-file = "maisecrets/detect.py"
+file = "maisecrets/detection/core.py"
 find = "                tail = _ROUTABLE_TAIL_RE.match(text, end) if _GITLAB_PREFIX_RE.match(secret) else None\n"
 replace = "                tail = None\n"

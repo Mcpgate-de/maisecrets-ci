@@ -5,6 +5,6 @@ statement = "A key in the machine policy file overrides the user file and the en
 runner = ["tests/test_gates.py::FailClosedTests::test_policy_keys_win_over_the_user_file"]
 
 [proof]
-file = "maisecrets/vault.py"
+file = "maisecrets/home.py"
 find = "        cfg.update(policy)\n"
 replace = "        pass\n"
