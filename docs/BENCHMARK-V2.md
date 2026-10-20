@@ -74,9 +74,23 @@ report refuses a result from a modified tree. The run of 2026-10-20 took 41 minu
 - Privy's label names are Presidio's entity types, and its test split has no e-mail, phone, IP, IBAN or SSN labels.
   Its classes are names, national ids, passwords, cards and bank numbers; a comparison with Presidio on Privy may
   favour Presidio's taxonomy.
+- **Privy's precision for maisecrets measures mostly this gap** (counted 2026-10-20 on `next` at 40e638ef, totals by
+  class and rule only, no case read): of 3,443 false positives on 28,843 cases, 3,282 (95 %) are values of the
+  classes Privy does not label: `us-ssn` 796, `iban` 820, `ip` 760, `email` 738, phone 136. About 160 remain
+  (`us-license` 57, `ds-keyword-colon` 51, others below 25). The V2 number stays as frozen; a V3 should score Privy
+  only on the classes it labels (as the scope of a scanner leaves out what it cannot find) and report the rest apart.
 - Names and addresses are most of the missed spans. maisecrets has no named-entity model; Presidio has one.
 - maisecrets runs in the tool channel on every case; a typed prompt is a stricter channel.
 - PIILO is small (1,496 spans). A rate under 30 spans is not printed.
+
+## Development sources after the freeze
+
+`traces` (`bench/traces.py`, 2026-10-20) is development data and no part of a V2 comparison. A seeded generator makes
+3,000 protocol traces at run time (JSON, SQL, HTML, XML, CSV, log lines, query strings): a few personal fields among
+fields that only look like them. It was written to test whether the protocol formats cause Privy's false positives;
+the formats come from common practice of these protocols, not from Privy. On it, maisecrets has a precision of 0.993
+on `dev` and 0.986 on `val` (38 and 23 false positives), so the formats are not the cause: the count above is. Its
+misses (addresses, user names, names and birth dates in a field of their own) are recall work on development data.
 
 ## Holdout V2
 

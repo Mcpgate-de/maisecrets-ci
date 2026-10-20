@@ -261,6 +261,8 @@ characters in the clear. Hyphenated licenses are a real format (Wisconsin `A123-
 | Gretel val: national ids whole / in part | 353 / 30 | 381 / 2 |
 | Nemotron dev / val: national ids in part | 220 / 80 | 208 / 76 |
 | False positives on every source | – | no change |
+| False-alarm bank, seven trees (`compare`) | – | +0 |
+
 ### A double name with a hyphen, masked whole, 2026-10-20
 
 Found by the partial-detection audit of the dev splits (the largest cluster: 896 names whose part after the hyphen
@@ -276,6 +278,58 @@ stayed in the clear). Decided on `val` and the false-alarm bank.
 | Nemotron dev / val: names whole / in part | 16,266 / 103; 5,554 / 36 | 16,382 / 5; 5,591 / 1 |
 | Mendeley, PIILO, bank dev and val | – | no change |
 | False-alarm bank, seven trees (`compare`) | – | +0 |
+
+### An address keeps its unit after `Ste.` or `Apt.`, 2026-10-20
+
+Found by the partial-detection audit of the dev splits (Gretel, 682 addresses after a label with the unit number in the
+clear). Decided on `val` and the false-alarm bank.
+
+- **Cause:** the value after an address label ended at a dot and a space, so `1200 Harbor Road, Ste. 300` ended at `Ste`.
+- **Fix:** a dot ends the value only when no digit follows, or when the word before it is not a unit or a short street
+  name (`Ste`, `Apt`, `Rm`, `Fl`, `Bldg`, `No`, `Nr`, `…str`).
+
+| Measure | Before (`next`, 40e638ef) | This change |
+|---|---|---|
+| Gretel dev: addresses whole / in part, false positives, F1 | 3,141 / 1,052, 2,170, 0.3760 | 3,763 / 389, 2,163, 0.3857 |
+| Gretel val: addresses whole / in part, false positives, F1 | 1,008 / 290, 734, 0.3654 | 1,177 / 110, 732, 0.3736 |
+| Nemotron dev / val: addresses whole / in part | 3,420 / 313; 1,103 / 108 | 3,435 / 313; 1,108 / 107 |
+| Mendeley, PIILO, bank dev and val | – | no change |
+| False-alarm bank, seven trees (`scripts/compare_bench.py`) | – | 0 findings |
+
+### A medical license, masked whole around its DEA-shaped part, 2026-10-20
+
+Found by the partial-detection audit of the dev splits (Nemotron, 121 medical licenses found in part). Decided on `val`
+and the false-alarm bank.
+
+- **Cause:** Presidio's DEA pattern (two letters, seven digits) has no word boundary. It matched inside a longer license
+  number and left the letters before it and the digits after it in the clear.
+- **Fix:** a validated `medical-license` hit takes the whole token of letters and digits around it.
+
+| Measure | Before (`next`, 40e638ef) | This change |
+|---|---|---|
+| Nemotron dev: national ids whole / in part, F1 | 17,135 / 208, 0.6967 | 17,244 / 99, 0.6971 |
+| Nemotron val: national ids whole / in part, F1 | 5,494 / 76, 0.6990 | 5,529 / 41, 0.6995 |
+| Gretel dev / val: national ids whole / in part | 1,180 / 4; 381 / 2 | 1,181 / 3; 383 / 0 |
+| False positives and too-wide spans, every source | – | no change |
+| False-alarm bank, seven trees (`scripts/compare_bench.py`) | – | 0 findings |
+
+### A phone extension, masked with its number, 2026-10-20
+
+Found by the partial-detection audit of the dev splits (Gretel, 61 phone numbers whose extension stayed in the clear).
+Decided on `val` and the false-alarm bank.
+
+- **Cause:** each phone rule ended before an extension (`x204`, `ext. 31`). The international rule also refused a
+  number followed by a letter and a digit, so it stepped back one group and left its last digits in the clear too.
+- **Fix:** a phone hit takes an extension right after it (`x`, `ext.`, `extension`, up to six digits). The
+  international rule no longer refuses a number followed by `x` and a digit.
+
+| Measure | Before (`next`, 8b11dedf) | This change |
+|---|---|---|
+| Gretel dev: phone numbers whole / in part, false positives, F1 | 1,865 / 86, 2,163, 0.3857 | 1,900 / 51, 2,164, 0.3862 |
+| Gretel val: phone numbers whole / in part, false positives, F1 | 587 / 20, 732, 0.3736 | 597 / 10, 732, 0.3741 |
+| PIILO dev: phone numbers whole / in part | 0 / 3 | 3 / 0 |
+| Nemotron, Mendeley, bank dev and val | – | no change |
+| False-alarm bank, seven trees (`scripts/compare_bench.py`) | – | 0 findings |
 
 ## CredData, results per release
 

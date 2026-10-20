@@ -305,6 +305,56 @@ class TravelIdLabelTests(Base):
                 self.assertNotIn("id-number-after-label", {m.kind for m in scan(text)})
 
 
+
+# ------------------------------------------------------------- a unit or a short street name before its number --
+class AddressUnitAfterADotTests(Base):
+    def assertMaskedExactly(self, text: str, value: str) -> None:
+        """the whole value is masked, and nothing after it"""
+        s = text.index(value)
+        out = masked(text)
+        self.assertTrue(out.startswith(text[:s]) and out.endswith(text[s + len(value):]), "masked too much")
+        self.assertFalse(any(c.isalnum() for c in out[s:len(out) - len(text) + s + len(value)]), "a part stays")
+
+    def test_the_number_after_ste_apt_or_a_short_street_name_is_part_of_the_address(self):
+        for text, value in (
+                ("Address: 1200 Harbor " + "Road, Ste. 300\n", "1200 Harbor " + "Road, Ste. 300"),
+                ("Address: 48 Maple " + "Drive, Apt. 12\n", "48 Maple " + "Drive, Apt. 12"),
+                ("Adresse: Linden" + "str. 5, 10115 Berlin\n", "Linden" + "str. 5, 10115 Berlin")):
+            with self.subTest(text=text):
+                self.assertMaskedExactly(text, value)
+
+    def test_a_dot_that_ends_a_sentence_still_ends_the_address(self):
+        for text, value in (
+                ("Address: 12 Oak " + "Lane, Springfield. 3 people live there.", "12 Oak " + "Lane, Springfield"),
+                ("Address: 12 Paste " + "Road, Main. 300 more", "12 Paste " + "Road, Main")):
+            with self.subTest(text=text):
+                self.assertMaskedExactly(text, value)
+
+
+
+# ------------------------------------------------------------------------------- a phone extension after the number --
+class PhoneExtensionTests(Base):
+    US = "(212) 846-" + "2291"
+    INTL = "+1 212 846 " + "2291"
+
+    def assertWholeAndNoMore(self, text: str, value: str) -> None:
+        s = text.index(value)
+        out = masked(text, region=("us",))
+        self.assertTrue(out.startswith(text[:s]) and out.endswith(text[s + len(value):]), "masked too much")
+        self.assertFalse(any(c.isalnum() for c in out[s:len(out) - len(text) + s + len(value)]), "a part stays")
+
+    def test_the_extension_is_masked_with_the_number(self):
+        for text, value in (("Phone: " + self.US + "x204 today", self.US + "x204"),
+                            ("Phone: " + self.INTL + " ext. 31 today", self.INTL + " ext. 31"),
+                            ("phone: 212.846." + "2291 x1234 done", "212.846." + "2291 x1234")):
+            with self.subTest(text=len(text)):
+                self.assertWholeAndNoMore(text, value)
+
+    def test_a_word_after_the_number_and_a_hex_like_token_stay_text(self):
+        self.assertWholeAndNoMore("Phone: " + self.US + " extra", self.US)
+        self.assertText("build 1234x5678", region=("us",))
+
+
 if __name__ == "__main__":
     unittest.main()
 

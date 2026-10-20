@@ -1560,7 +1560,7 @@ OWN_RULES: list[dict] = [
     {"id": "phone", "type": "PHONE",
      # a CJK letter before or after the number is a boundary, as in the e-mail rule
      "regex": r"(?:(?<=[" + _CJK + r"])|(?<!\w))(?<!\+)\+(?!0)\d{1,3}[ \-]?(?:\(?\d{1,5}\)?[ \-]?)\d{2,5}"
-              r"(?:[ \-]?\d{2,5}){1,4}(?![\w.]\d|" + _NOT_CJK_WORD + r")"},
+              r"(?:[ \-]?\d{2,5}){1,4}(?![\w.](?<![xX])\d|" + _NOT_CJK_WORD + r")"},
     # bare token prefixes newer than the vendored rulesets live in rules/prefixes.txt (see _load_prefixes)
     {"id": "auth-scheme", "type": "SECRET", "secret_group": 3,
      "regex": r"(?<![\w-])(Bearer|Basic)([ \t]+)([A-Za-z0-9._~+/=-]{16,})"},
@@ -2010,6 +2010,10 @@ _HYPHEN_DIGITS_TAIL_RE = _LazyRx(r"(?:-\d{1,5}){1,4}(?![\w-])")
 # so three digits reached the model. Benchmark V1, Nemotron: 2,197 account numbers found only in part. The same for the
 # digits of a driver license after a letter prefix (CL-4882019): the label rule had the whole certificate number
 PRESIDIO_WHOLE_DIGIT_RUN = frozenset({"us-bank", "us-license#1"})
+# A DEA certificate number has no word boundary in Presidio's pattern: it matched two letters and seven digits inside a
+# longer license number and left the letters before and the digits after in the clear (Benchmark V2, Nemotron dev: 121
+# medical licenses found in part). A validated hit takes the whole token of letters and digits around it
+PRESIDIO_WHOLE_TOKEN = frozenset({"medical-license"})
 # Presidio tags every US/UK/IN/AU/… recognizer as language "en", so language is the wrong
 # switch: an Indian PAN rule produced 290 false positives in one German transcript. The
 # switch is the REGION, derived from the recognizer id; "generic" is always on.
@@ -4206,6 +4210,12 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
                         re.match(r"-[A-Za-z0-9]", text[end:end + 2])
                         or re.search(r"[A-Za-z0-9]-$", text[max(0, start - 2):start])):
                     continue
+                if rule.id in PRESIDIO_WHOLE_TOKEN:
+                    while start > 0 and text[start - 1].isascii() and text[start - 1].isalnum():
+                        start -= 1
+                    while end < len(text) and text[end].isascii() and text[end].isalnum():
+                        end += 1
+                    secret = text[start:end]
                 label_window = PRESIDIO_LABEL_BEFORE.get(rule.id)
                 if label_window:
                     line_start = text.rfind("\n", 0, start) + 1
@@ -4247,12 +4257,20 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
                 cut = len(secret) if secret.endswith("..") else len(secret) - 1
                 end -= len(secret) - cut
                 secret = secret[:cut]
+            if rule.type == "PHONE":
+                ext = _PHONE_EXTENSION_RE.match(text, end)
+                if ext:
+                    end = ext.end()
+                    secret = text[start:end]
             take(Match(rule.id, rule.type, secret, start, end), own)
     found.sort(key=lambda x: x.start)
     return found
 
 
 _PERSONAL = object()             # the place of _personal_hits in the scan order
+# the extension right after a phone number is part of it: (212) 555-0143x204, +1 212 555 0143 ext. 31. A phone hit
+# that stopped before it left the extension in the clear (Benchmark V2, Gretel dev: 61 numbers found in part)
+_PHONE_EXTENSION_RE = _LazyRx(r"(?i)[ ]?(?:x|ext\.?|extension)[ ]?\d{1,6}(?![\w.]?\d)")
 _TERMS = object()                # the place of _term_hits: registry phase "terms", after the rules of your own
 _IMPORTS = object()              # the place of _import_hits: registry phase "imports", after the terms
 
@@ -4297,6 +4315,10 @@ def _personal_hits(text: str, enabled, found: list, taken_starts: list, taken_en
     for start, end, kind, typ in every:
         if enabled is not None and kind not in enabled and "personal:" + kind not in enabled:
             continue
+        if typ == personal.PHONE:
+            ext = _PHONE_EXTENSION_RE.match(text, end)
+            if ext:
+                end = ext.end()
         value = text[start:end]
         if value in allowed or (off and kind in off):
             continue   # the allow list holds for these rules too: an exact value, or `rule: <id>`

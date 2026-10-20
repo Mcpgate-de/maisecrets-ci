@@ -4,7 +4,8 @@ repository.
 
     bank                          bench/bank/ (this repository)
     nemotron gretel mendeley piilo  the labelled PII datasets of scripts/measure_datasets.py, with its label cleaning
-    catalogs                      the rule examples of six secret catalogs (scripts/measure_catalog_coverage.py)"""
+    catalogs                      the rule examples of six secret catalogs (scripts/measure_catalog_coverage.py)
+    traces                        protocol traces made at run time by bench/traces.py (development data)"""
 from __future__ import annotations
 
 import collections
@@ -16,7 +17,7 @@ from bench import cases
 ROOT = Path(__file__).resolve().parent.parent
 BANK = ROOT / "bench" / "bank"
 DATASETS = ("nemotron", "gretel", "mendeley", "piilo", "privy")
-SOURCES = ("bank",) + DATASETS + ("catalogs",)
+SOURCES = ("bank",) + DATASETS + ("catalogs", "traces")
 
 # the types of scripts/measure_datasets.py to the classes of the benchmark; SECRET by the dataset's own label
 TYPE_CLASS = {"EMAIL": "pii.email", "PHONE": "pii.phone", "IP": "pii.ip", "IBAN": "pii.iban", "CARD": "pii.card",
@@ -133,6 +134,9 @@ def load(name: str, data: Path | None = None, catalogs: Path | None = None, limi
     if name in DATASETS:
         md = _measure_datasets()
         return dataset_cases(name, Path(data or md.DEFAULT_DATA), stats, limit)
+    if name == "traces":
+        from bench import traces
+        return traces.generate()
     if name == "catalogs":
         if catalogs is None:
             raise SystemExit("the catalogs source needs --catalogs DIR (one clone per catalog)")

@@ -223,5 +223,25 @@ class HyphenatedLicenseTests(unittest.TestCase):
         self.assertEqual([v for k, v in hits if k == "us-license"], ["A123"])
 
 
+
+class MedicalLicenseWholeTests(unittest.TestCase):
+    """A DEA-shaped part inside a longer medical license number takes the whole token (Benchmark V2, Nemotron dev:
+    121 medical licenses found in part); a DEA number alone keeps its hit."""
+    DEA = "".join(["AB", "123456", "3"])           # check digit: 1+3+5 + 2*(2+4+6) = 33
+
+    def us(self, text: str) -> list:
+        active = regions.Active(regions=("generic", "us"), languages=("en",), source="test")
+        with detect.Detector(regions=active).activate():
+            return [(m.kind.split("#")[0], m.value) for m in detect.scan(text, channel="tool")]
+
+    def test_the_letters_before_and_the_digits_after_the_dea_part_are_masked(self):
+        for v in ("ML" + self.DEA + "9", self.DEA + "42", "MDX" + self.DEA):
+            with self.subTest(v=len(v)):
+                self.assertIn(("medical-license", v), self.us("Medical license: " + v + " on file"))
+
+    def test_a_dea_number_alone_keeps_its_hit(self):
+        self.assertIn(("medical-license", self.DEA), self.us("Medical DEA number: " + self.DEA + "."))
+
+
 if __name__ == "__main__":
     unittest.main()

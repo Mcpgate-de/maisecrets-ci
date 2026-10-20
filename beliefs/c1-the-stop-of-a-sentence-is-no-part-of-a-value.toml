@@ -8,6 +8,6 @@ runner = ["tests/test_password_after_word.py::SentenceStopTests::test_the_stop_a
 file = "maisecrets/detection/core.py"
 find = '''                end -= len(secret) - cut
                 secret = secret[:cut]
-            take('''
+            if rule.type == "PHONE":'''
 replace = '''                pass
-            take('''
+            if rule.type == "PHONE":'''

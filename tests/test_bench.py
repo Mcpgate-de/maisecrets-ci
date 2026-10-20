@@ -440,5 +440,27 @@ class CompareBenchTests(unittest.TestCase):
         self.assertEqual(self.run_compare(base, new, {"email": 3}, {"email": 3}), [])
 
 
+
+class TracesSourceTests(unittest.TestCase):
+    """bench/traces.py makes the protocol traces at run time: the same cases on every run, each span on its value."""
+
+    def test_the_cases_are_the_same_on_every_run_and_each_span_holds_a_value(self):
+        from bench import sources, traces
+        a, b = list(traces.generate(count=200)), list(traces.generate(count=200))
+        self.assertEqual(a, b)
+        self.assertIn("traces", sources.SOURCES)
+        spans = [(c, s) for c in a for s in c["spans"]]
+        self.assertGreater(len(spans), 200, "the premise: the cases have spans")
+        for c, s in spans:
+            v = c["text"][s["start"]:s["end"]]
+            self.assertTrue(v and v == v.strip() and s["class"] in cases.CLASSES, c["id"])
+
+    def test_every_format_and_both_decision_splits_are_there(self):
+        from bench import traces
+        cs = list(traces.generate())
+        self.assertEqual({t for c in cs for t in c["tags"]}, {f"format:{n}" for n, _ in traces.FORMATS})
+        self.assertGreater(sum(c["split"] == "val" for c in cs), 400)
+
+
 if __name__ == "__main__":
     unittest.main()

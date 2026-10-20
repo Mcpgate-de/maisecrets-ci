@@ -753,11 +753,13 @@ _SQL_ALIAS_RE = _lazy(r"'([^'\n]{5,80})'\s+(?i:AS)\s+(?i:(sin|ssn|tax_?id|mrn|ni
 _JP_ADDRESS_RE = _lazy(r"〒\d{3}-\d{4}[ 　]?[^\s\"',;<>|]{2,40}")
 _JP_COMPANY_RE = _lazy(r"株式会社|有限会社|合同会社|本社|支社|支店|営業所|事務所|工場|センター|ビル|役所"
                             r"|大学|病院")
+# a unit or a street written short before its number does not end an address: `Ste. 300`, `Apt. 12`, `Hauptstr. 5`
+_UNIT_BEFORE_DOT = "".join(f"(?<!\\b{w})" for w in ("ste", "apt", "rm", "fl", "bldg", "no", "nr")) + "(?<!str)"
 _ADDRESS_LABEL_RE = _lazy(
     r"(?i)(?<![a-z_])(address(?: on file)?|home[ _-]?address|adr" + _VCARD_PARAMS
     + r"|ship[ _-]?to|reship to|property|lives"
     r"|endere[cç]o|direcci[oó]n|adresse|location)[\"']?\s{0,3}:\s{0,3}[\"']?(;*)([^\n\"|;]{8,100}?)"
-    r"(?=[\"\n|]|\s{2}|\.\s|$)")
+    r"(?=[\"\n|]|\s{2}|\.\s(?!\d)|" + _UNIT_BEFORE_DOT + r"\.\s|$)")
 # a house number and a street word, in either order: 12 Harbour Lane, Rua das Flores 12,
 _HOUSE_RE = _lazy(r"\b\d{1,5}[A-Za-z]?(?:/\d{1,4})?,? [A-ZÀ-Þ][a-zà-ÿ]{2,}\b(?! \d)"
                        r"|[A-ZÀ-Þ][a-zà-ÿ]{2,} \d{1,5}[A-Za-z]?,")
