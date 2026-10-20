@@ -441,6 +441,32 @@ Per span, no outcome got worse: Gretel `dev` 200 from partial to whole and 4 fro
 partial to whole. The street line stays text under a hotel, office or company name in the two lines above it, and a
 small word (`Die Adresse ist`) starts no street name; both were found by the existing tests of company addresses. `scripts/compare_bench.py`: no finding.
 
+### Values that 0.6.42 and 0.6.43 left in the clear again, 2026-10-20
+
+Found by the per-span line of `scripts/compare_bench.py` (`docs/REGRESSION-POLICY.md`) over the releases 0.6.41 to
+0.7.0: 0.6.42 and 0.6.43 made 85 spans of Gretel `dev` worse, hidden in the totals by the many more that got better.
+
+- **Double names (0.6.42, 25 names):** the second surname became part of the value. When it ends like a noun
+  (`-ing`, `-ers`), the whole name read as words and was dropped, where 0.6.41 had masked it up to the hyphen. A name
+  is now words only when it reads as words with and without the parts after its hyphens; a first try that judged it
+  without them only dropped 69 others (`Llanos` alone is a word), which the same line caught at once. A value that runs
+  on into the next label of its line (`Name: Ana Ruiz-Diaz Address: …`) is cut back to the end of its surname.
+- **Addresses with a template after the unit (0.6.43, 59 addresses):** the value ran on after `Apt. 999` into
+  `, [City], [State]`, and the bracket filter dropped it whole. A second pass with the end of a value before 0.6.43 now
+  takes a value the longer one could not, with the number after a unit word.
+
+| Measure | 0.7.0 | This change |
+|---|---|---|
+| Gretel dev: whole spans, false positives, F1 | 20,481, 2,277, 0.4008 | 20,561, 2,279, 0.4020 |
+| Gretel val: whole spans, false positives, F1 | 6,481, 791, 0.3878 | 6,499, 791, 0.3886 |
+| Nemotron dev / val, traces, Mendeley, PIILO, bank, false-alarm bank | – | no change but one more false positive on Nemotron dev |
+| Spans worse than in 0.7.0 / than in 0.6.41 (Gretel dev) | – | 0 / 4 |
+
+Per span against 0.7.0: dev 80 missed to whole and 2 missed to partial, val 18 and 1; nothing got worse. The four
+spans still worse than in 0.6.41 are two company names (`… Inc.`), which the name rule leaves as text on purpose, one
+French address after `Adresse:` with its postcode after the street, and one name broken at the end of the text whose
+hyphen alone stays in the clear (read on `dev`).
+
 ## CredData, results per release
 
 CredData line method, without repository `2ba83c6a` (23,667 rows: 10,106 credentials, 13,561 non-secrets),

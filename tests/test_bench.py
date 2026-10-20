@@ -434,10 +434,46 @@ class CompareBenchTests(unittest.TestCase):
         found = self.run_compare(base, new, {"email": 3}, {"email": 4})
         self.assertEqual(len(found), 3, found)
 
+    def test_runs_on_different_cases_are_not_compared(self):
+        import tempfile
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import compare_bench
+        with tempfile.TemporaryDirectory() as d:
+            a, b = Path(d) / "a", Path(d) / "b"
+            for p, h, full in ((a, "x" * 64, 500), (b, "y" * 64, 100)):
+                p.mkdir()
+                (p / "gretel-val-maisecrets.json").write_text(json.dumps(
+                    {"cases_sha256": h, "metrics": {"pii.name": {"spans": 1000, "full": full}}}), encoding="utf-8")
+            found = compare_bench.compare(a, b)
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("the cases differ", found[0])
+
     def test_small_changes_inside_the_lines_are_no_finding(self):
         base = {"all": {"fp": 1000}, "pii.name": {"spans": 1000, "full": 500, "partial": 10}}
-        new = {"all": {"fp": 1005}, "pii.name": {"spans": 1000, "full": 497, "partial": 9}}
+        new = {"all": {"fp": 1005}, "pii.name": {"spans": 1000, "full": 503, "partial": 9}}
         self.assertEqual(self.run_compare(base, new, {"email": 3}, {"email": 3}), [])
+
+    def test_any_whole_span_lost_on_val_is_a_finding(self):
+        # the releases 0.6.41 to 0.7.0 lost none, so the line is 0 (docs/REGRESSION-POLICY.md)
+        base = {"all": {"fp": 1000}, "pii.name": {"spans": 1000, "full": 500}}
+        new = {"all": {"fp": 1000}, "pii.name": {"spans": 1000, "full": 499}}
+        self.assertEqual(len(self.run_compare(base, new)), 1)
+
+    def test_a_span_that_got_worse_is_a_finding_and_missed_to_partial_is_none(self):
+        import tempfile
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import compare_bench
+        with tempfile.TemporaryDirectory() as d:
+            a, b = Path(d) / "a", Path(d) / "b"
+            for p, outcomes in ((a, {"c1": ["full", "missed"], "c2": ["missed"]}),
+                                (b, {"c1": ["partial", "missed"], "c2": ["partial", "fp"]})):
+                p.mkdir()
+                metrics = {"all": {"fp": 0}, "pii.name": {"spans": 3, "full": 1, "partial": 0}}
+                (p / "gretel-dev-maisecrets.json").write_text(json.dumps(
+                    {"metrics": metrics, "per_case": outcomes}), encoding="utf-8")
+            found = compare_bench.compare(a, b)
+        self.assertEqual(found, ["gretel-dev-maisecrets.json: 1 spans got worse (whole to partial or missed, "
+                                 "partial to missed)"])
 
 
 

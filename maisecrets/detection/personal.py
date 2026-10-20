@@ -974,6 +974,11 @@ _ADDRESS_LABEL_RE = _lazy(
     + r"|ship[ _-]?to|reship to|property|lives"
     r"|endere[cç]o|direcci[oó]n|adresse|location)[\"']?\s{0,3}:\s{0,3}[\"']?(;*)([^\n\"|;]{8,100}?)"
     r"(?=[\"\n|]|\s{2}|\.\s(?!\d)|" + _UNIT_BEFORE_DOT + r"\.\s|$)")
+# the end of a value before 0.6.43, at any dot and space: the second pass of address-after-label for a label whose
+# longer value the filters refused (a template with `[City]` after `Apt. 999`, a sentence going on after the unit)
+_ADDRESS_LABEL_SHORT_RE = _lazy(_ADDRESS_LABEL_RE._args[0].replace(
+    r"(?=[\"\n|]|\s{2}|\.\s(?!\d)|" + _UNIT_BEFORE_DOT + r"\.\s|$)", r"(?=[\"\n|]|\s{2}|\.\s|$)"))
+_UNIT_NUMBER_AFTER_RE = _lazy(r"\.\s\d{1,6}[A-Za-z]?(?![\w.-])")
 # a house number and a street word, in either order: 12 Harbour Lane, Rua das Flores 12,
 _HOUSE_RE = _lazy(r"\b\d{1,5}[A-Za-z]?(?:/\d{1,4})?,? [A-ZÀ-Þ][a-zà-ÿ]{2,}\b(?! \d)"
                        r"|[A-ZÀ-Þ][a-zà-ÿ]{2,} \d{1,5}[A-Za-z]?,")
@@ -1283,6 +1288,14 @@ _PHONE_WRAP_RE = _lazy(r"(?<![\w+])\+(?!0)\d{1,3}[ \-]?\d{2,5}(?:[ \-]\d{2,5}){0
                             r"(?:[ \-]\d{2,5}){0,3}(?![\w.]\d|\w)")
 
 
+def _address_value_ok(v: str) -> bool:
+    """The value after an address label reads as an address: a digit, a comma, a house number with a street word, and
+    no URL, version, port, markup or word of a thing (rack, version, status)."""
+    return (any(c.isdigit() for c in v) and "," in v and bool(_HOUSE_RE.search(v)) and "://" not in v
+            and not re.search(r"\d+\.\d+\.\d+|:\d{2,5}\b|[{}<>$()=_\[\]#@]", v)
+            and not _NOT_AN_ADDRESS_RE.search(v))
+
+
 def _block_back(text: str, line: int, lines: int = 2, most: int = 200) -> int:
     """The start of the block of an address line: the line itself and up to `lines` lines above it, at most `most`
     characters back, and never past a blank line (a blank line ends the block above)."""
@@ -1579,20 +1592,30 @@ def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> l
             if not _JP_COMPANY_RE.search(text, line, m.end()):
                 out.append((m.start(), m.end(), "address-jp-postcode", ADDRESS))
     if "address-after-label" in want and any(w in low for w in _ADDRESS_WORDS):
-        for m in _ADDRESS_LABEL_RE.finditer(text):
-            if re.match(r"(?i)adr(?![a-z])", m.group(1)) and not m.group(2):
-                continue   # ADR alone is an architecture decision record; the vCard field is ADR:;;<street>, also
-                #            with parameters (ADR;TYPE=home:;;<street>)
-            v = m.group(3).strip()
-            # the check for a company or a public place reads at most 120 characters of the line before the label:
-            # unbounded, a long line of addresses took quadratic time (review of 0.6.24). Back to the start of a
-            # JSON object was measured in 0.6.25 and left out: it also finds the employer in a person's record
-            # (tests/test_company_address_window.py)
-            line = _line_back(text, m.start())
-            if (any(c.isdigit() for c in v) and "," in v and _HOUSE_RE.search(v)
-                    and "://" not in v and not re.search(r"\d+\.\d+\.\d+|:\d{2,5}\b|[{}<>$()=_\[\]#@]", v)
-                    and not _NOT_AN_ADDRESS_RE.search(v)):
+        done: set = set()
+        for rx in (_ADDRESS_LABEL_RE, _ADDRESS_LABEL_SHORT_RE):
+            for m in rx.finditer(text):
+                if m.start() in done:
+                    continue
+                if re.match(r"(?i)adr(?![a-z])", m.group(1)) and not m.group(2):
+                    continue   # ADR alone is an architecture decision record; the vCard field is ADR:;;<street>, also
+                    #            with parameters (ADR;TYPE=home:;;<street>)
                 s0 = m.start(3) + (len(m.group(3)) - len(m.group(3).lstrip()))
+                v = m.group(3).strip()
+                if rx is _ADDRESS_LABEL_SHORT_RE:
+                    # the short value ends at a unit word: its number belongs to it (`…, Apt. 999`)
+                    u = _UNIT_NUMBER_AFTER_RE.match(text, s0 + len(v))
+                    if u and re.search(r"(?i)\b(?:ste|apt|rm|fl|bldg|no|nr)$", v) and _address_value_ok(
+                            v + text[s0 + len(v):u.end()]):
+                        v = text[s0:u.end()]
+                if not _address_value_ok(v):
+                    continue
+                done.add(m.start())
+                # the check for a company or a public place reads at most 120 characters of the line before the
+                # label: unbounded, a long line of addresses took quadratic time (review of 0.6.24). Back to the start
+                # of a JSON object was measured in 0.6.25 and left out: it also finds the employer in a person's
+                # record (tests/test_company_address_window.py)
+                line = _line_back(text, m.start())
                 if not _NOT_A_HOME_RE.search(text, line, m.end()):
                     out.append((s0, s0 + len(v), "address-after-label", ADDRESS))
                 else:
@@ -1862,7 +1885,21 @@ def hits(text: str, channel: str, regions: tuple, company: list | None = None) -
             v = m.group(3).rstrip("'’")   # tenant: 'Jonas Wendler': the closing quote is no part of the name
             # after a person label (patient, full_name) a surname may be a word (Sarah Park): only a value of words
             # alone (Product Owner) is no name. After a weak label (name, owner) one word is enough
-            words_only = _reads_as_words(v, every=True) if m.group(1) else _reads_as_words(v)
+            # a double name is judged with and without the parts after its hyphens, and is words only when both read as
+            # words: with them, a second surname with a noun ending (Bakker-Fleming) made the name words (25 names lost
+            # in 0.6.42); without them, a first surname that is a word alone (Llanos) did
+            plain = re.sub(r"-[^\s]*", "", v)
+            if m.group(1):
+                words_only = _reads_as_words(v, every=True) and _reads_as_words(plain, every=True)
+            else:
+                words_only = _reads_as_words(v) and _reads_as_words(plain)
+            short = re.match(r"\S+(?: \S+)*?-\S+", v)
+            if words_only and short and short.end() < len(v):
+                # the value ran on into the next word of its line (Name: Ana Ruiz-Diaz Address: …): the name up to the
+                # end of its double surname, as it was found up to the hyphen before 0.6.42
+                cut = short.group(0)
+                if not _reads_as_words(cut) or not _reads_as_words(re.sub(r"-[^\s]*", "", cut)):
+                    v, words_only = cut, False
             if _name_ok(v) and not words_only:
                 out.append((m.start(3), m.start(3) + len(v), "name-after-label", NAME))
     if "name-before-email" in want and "@" in text:

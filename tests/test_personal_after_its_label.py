@@ -534,6 +534,38 @@ class AddressWithItsPlaceTests(Base):
                 self.assertText(text, region=("us", "de"))
 
 
+
+# ------------------------------------------------- no value found in part before 0.6.42 is found no more since --
+class NoValueLostAgainTests(Base):
+    """Found by the per-span ratchet of scripts/compare_bench.py over the releases 0.6.41 to 0.7.0: spans that a
+    release made worse. Each value here was masked at least in part before and was in the clear after."""
+
+    def test_a_double_name_whose_second_part_is_a_word_is_masked(self):
+        # a second surname with the ending of a noun (Fleming, Waters) made the whole value read as words
+        for text, value in (("Name: Jasmijn Bakker-" + "Fleming, Passport Number: X\n", "Jasmijn Bakker-" + "Fleming"),
+                            ("- Name: Dana Okafor-" + "Waters\n- Street Address: x\n", "Dana Okafor-" + "Waters"),
+                            # and the other way round: a first surname that is a word alone (llano)
+                            ("Name: Leonor Llanos-" + "Pacheco\n", "Leonor Llanos-" + "Pacheco")):
+            with self.subTest(text=text[:12]):
+                self.assertMasked(text, value)
+
+    def test_a_double_name_that_runs_on_into_the_next_label_is_masked_up_to_its_surname(self):
+        text = "Name: Ana Ruiz-" + "Diaz Address: 12 Oak Lane\n"
+        out = masked(text, region=("us",))
+        self.assertNotIn("Ruiz", out)
+        self.assertNotIn("Diaz", out)
+        self.assertText("Name: Product Owner-Lead Meeting\n", region=("us",))
+
+    def test_an_address_with_a_template_after_its_unit_keeps_the_street_masked(self):
+        # street names without a street word (Pine Ridge): only the value after the label finds them
+        for text in ("Address: 12345 Pine " + "Ridge, Apt. 999, [City], [State], [Zip Code]\n",
+                     "Home Address: 999 Oak " + "Hollow, Apt. 12 (as an example only)\n",
+                     "Mailing Address: 4821 Maple " + "Crest, Apt. 77, and the property is leased until May.\n"):
+            with self.subTest(text=text[:14]):
+                out = masked(text, region=("us",))
+                self.assertNotIn(text.split(": ")[1].split(",")[0], out)
+
+
 if __name__ == "__main__":
     unittest.main()
 
