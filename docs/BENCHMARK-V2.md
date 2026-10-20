@@ -48,6 +48,25 @@ lenient, char recall, false positives, precision, F1, too wide, false positives 
 and one table per class (full / partial / missed per scanner). A comparison is read per class first: a gain in one
 class and a loss in another must both be visible. Aggregate F1 is a secondary number.
 
+## Repeat a run
+
+From the root of a checkout, with the commands of `docs/BENCHMARK-V1.md` ("Repeat a measurement") for the four V1
+scanners, the datasets and the catalogs, plus Presidio and Privy:
+
+```bash
+python3.11 -m venv /tmp/venv-presidio && /tmp/venv-presidio/bin/pip install --no-deps -r bench/adapters/requirements/presidio.txt
+export BENCH_PRESIDIO_PYTHON=/tmp/venv-presidio/bin/python
+python3 scripts/measure_datasets.py fetch --only privy          # the pinned archive and its test-small.json
+git worktree add --detach /tmp/maisecrets-0.6.41 v0.6.41         # the maisecrets release to measure
+BENCH_PYTHON=/tmp/venv-yaml/bin/python BENCH_CATALOGS=/tmp/catalogs bench/run_all.sh results /tmp/maisecrets-0.6.41
+```
+
+`results/` then holds one JSON file per scanner, source and split (the raw data), `report.md` (the tables of
+`bench/report.py`), `report.csv` (the same numbers, one row per run and family or class) and `environment.json`
+(`bench/manifest.py`: the operating system, the benchmark commit and the maisecrets checkout with their state, each
+scanner's Python with every installed distribution, the pinned datasets and the commits of the catalogs). The
+report refuses a result from a modified tree. The run of 2026-10-20 took 41 minutes on an Apple M5, beside other measurements.
+
 ## Limitations
 
 - The datasets are synthetic and mostly English. Their labels are not always ours: Nemotron labels some policy and

@@ -382,5 +382,33 @@ class AdapterInventoryTests(unittest.TestCase):
         self.assertLessEqual(named, set(cases.CLASSES))
 
 
+class ReproducibilityTests(unittest.TestCase):
+    """Benchmark V2 writes its environment and a CSV of the report next to the results (docs/BENCHMARK-V2.md)."""
+
+    def test_the_manifest_names_the_trees_the_datasets_and_each_scanner_python(self):
+        from bench import manifest
+        m = manifest.manifest(ROOT, {"BENCH_PYTHON": sys.executable})
+        self.assertEqual(sorted(m), ["benchmark", "catalogs", "datasets", "date", "maisecrets", "platform",
+                                     "scanners"])
+        self.assertIn("privy", m["datasets"])
+        self.assertEqual(m["scanners"]["maisecrets"]["python"], sys.executable)
+        self.assertIsInstance(m["benchmark"]["dirty"], (bool, type(None)))
+
+    def test_the_csv_holds_one_row_per_claimed_group(self):
+        import csv
+        import tempfile
+        from bench import report
+        run = {"source": "bank", "split": "dev", "every": 1, "cases": 2, "cases_sha256": "x", "bench_commit": "y",
+               "scanner": {"scanner": "s", "version": "1", "scope": ["pii."]}, "timing": {"median_ms": 1.0},
+               "metrics": {"all": {}, "pii": {"spans": 3, "full": 2}, "pii.email": {"spans": 3, "full": 2},
+                           "secret": {"spans": 1}}}
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "r.csv"
+            report.write_csv([run], str(out))
+            rows = list(csv.DictReader(out.open(encoding="utf-8")))
+        self.assertEqual([r["group"] for r in rows], ["pii", "pii.email"])
+        self.assertEqual(rows[0]["full"], "2")
+
+
 if __name__ == "__main__":
     unittest.main()

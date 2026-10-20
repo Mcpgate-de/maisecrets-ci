@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Write the Markdown tables of Benchmark V1 from result files of bench/run.py.
 
-    python3 bench/report.py [--allow-dirty] RESULT.json [RESULT.json ...] > report.md
+    python3 bench/report.py [--allow-dirty] [--csv report.csv] RESULT.json [RESULT.json ...] > report.md
 
 One table per source and split and per family: a scanner gets a row in a family table only when its scope claims
 that family, so a PII scanner is not listed under secrets and a secret scanner not under personal data. A rate is "-"
@@ -33,6 +33,11 @@ def _scanner_dirty(r: dict):
 def main(argv) -> int:
     allow_dirty = "--allow-dirty" in argv
     argv = [a for a in argv if a != "--allow-dirty"]
+    csv_path = None
+    if "--csv" in argv:
+        i = argv.index("--csv")
+        csv_path = argv[i + 1]
+        argv = argv[:i] + argv[i + 2:]
     runs = [json.loads(Path(p).read_text(encoding="utf-8")) for p in argv]
     # a result without a benchmark commit or a known state is never compared, not even in a draft
     unknown = [p for p, r in zip(argv, runs)
@@ -93,7 +98,34 @@ def main(argv) -> int:
                     out.append(f"| {c} | " + " | ".join(cells) + " |")
                 out.append("\nCells: full / partial / missed spans.\n")
     sys.stdout.write("\n".join(out) + "\n")
+    if csv_path:
+        write_csv(runs, csv_path)
     return 0
+
+
+CSV_FIELDS = ("source", "split", "every", "cases", "cases_sha256", "bench_commit", "scanner", "version", "commit",
+              "group", "spans", "full", "partial", "missed", "recall_strict", "recall_lenient", "char_recall", "fp",
+              "precision", "f1", "median_ms")
+
+
+def write_csv(runs: list, path: str) -> None:
+    """One row per run and group (a family or a class), with the numbers of the Markdown tables: the raw data of the
+    report for another tool. A group the scanner's scope does not claim has no row."""
+    import csv
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(CSV_FIELDS)
+        for r in runs:
+            s = r["scanner"]
+            for group, m in sorted(r["metrics"].items()):
+                fam = group.split(".")[0]
+                if group == "all" or not claims(s.get("scope", []), fam):
+                    continue
+                w.writerow([r["source"], r["split"], r.get("every", 1), r["cases"], r.get("cases_sha256", ""),
+                            r.get("bench_commit", ""), s["scanner"], s.get("version") or "", s.get("commit") or "",
+                            group, m.get("spans", 0), m.get("full", 0), m.get("partial", 0), m.get("missed", 0),
+                            m.get("recall_strict"), m.get("recall_lenient"), m.get("char_recall"), m.get("fp"),
+                            m.get("precision"), m.get("f1"), r.get("timing", {}).get("median_ms")])
 
 
 if __name__ == "__main__":

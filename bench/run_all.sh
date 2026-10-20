@@ -40,5 +40,6 @@ for s in $scanners; do
       --out "$out/catalogs-all-every$every_catalogs-$s.json"
   fi
 done
-"$py" bench/report.py "$out"/*.json > "$out/report.md"
+"$py" bench/manifest.py "$out" "$ms"
+"$py" bench/report.py --csv "$out/report.csv" $(ls "$out"/*.json | grep -v '/environment.json$') > "$out/report.md"
 echo "report: $out/report.md"
