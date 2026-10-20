@@ -109,6 +109,62 @@ The bench adapter also puts a `us-bank` hit into the class `pii.national_id` (`c
 `bench/adapters/maisecrets.py` does not know `US_BANK_NUMBER`). A false positive is counted the same either way; a
 per-class table is not. To fix with V3.
 
+## Prose misses by how they could be found (registered before the first case is read)
+
+Registered 2026-10-20 in this commit, before any case of the sample was read. The question: how many of the names and
+addresses that maisecrets misses in prose could a deterministic rule find, and how many need a model (NER)? And in
+which texts, so that a model, if one comes, runs only where it pays.
+
+- **Population:** the missed spans of `pii.name` and `pii.address` on the `dev` split of Gretel and Nemotron, in
+  cases whose text is prose (the shape test of `scripts/prose_miss_sample.py`: no JSON, XML, HTML, SQL, CSV, table or
+  key-value list), maisecrets `next` at d82047d2, regions `generic,de,us`, tool channel.
+- **Sample:** 50 per dataset and class, 200 in all. Order the spans by `sha256("prose-misses-20261020/" + case_id +
+  "/" + start)` and take the first 50. The script prints the class, the text type hints and the length, and 150
+  characters of context on each side with the value replaced by its shape and every digit written as 9.
+- **Solvability**, one code per span:
+  - `label-error`: the label is wrong or the value is no person's (a company, a product, a place name alone);
+  - `structure`: the value sits in structure that a parser does not read yet (a list `Name: …` inside prose, a
+    signature block, a letter head);
+  - `deterministic`: a rule could find it from what stands next to it (a title, a role word, a verb of residence, a
+    salutation) without an unacceptable false positive;
+  - `ner`: only a model of language finds it (a name in running text with nothing around it that marks it);
+  - `unclear`.
+- **Text type**, one code per span: `chat` (a dialogue turn), `ticket` (a support request or answer), `email`
+  (a letter or a mail with salutation and signature), `log` (log lines with free text), `doc` (Markdown or a report),
+  `form` (a filled form or a contract in prose), `other`.
+- **Length** of the case text: under 500, 500 to 2,000, 2,000 to 8,000, over 8,000 characters.
+- **Report:** the counts per dataset, class and code; the share of `deterministic` + `structure` with a 95 % Wilson
+  interval; the same split by text type and length. The result decides no rule by itself; it decides whether and
+  where a model layer is worth a prototype.
+
+### The prose result (read 2026-10-20, after the registration)
+
+One reader, codes from the masked context; the codes per row are kept with the results.
+
+| Stratum (dev) | deterministic | structure | label-error | ner | unclear | deterministic + structure, 95 % Wilson |
+|---|---|---|---|---|---|---|
+| Gretel addresses | 24 | 8 | 16 | 1 | 1 | 0.64 [0.50, 0.76] |
+| Gretel names | 14 | 10 | 16 | 10 | 0 | 0.48 [0.35, 0.61] |
+| Nemotron addresses | 38 | 3 | 6 | 0 | 3 | 0.82 [0.69, 0.90] |
+| Nemotron names | 25 | 0 | 0 | 25 | 0 | 0.50 [0.37, 0.63] |
+| **All** | **101** | **21** | **38** | **36** | **4** | **0.61 [0.54, 0.67]** |
+
+By text type: forms 45 (35 deterministic, 1 ner), documents 115 (51 deterministic, 32 ner), e-mails 23 (13
+deterministic, 2 ner), EDI, SWIFT and CSV inside prose 14 (all structure). By length: under 500 characters 43 (12
+ner), 500 to 2,000 139 (19 ner), 2,000 to 8,000 18 (5 ner).
+
+- **A model of language is needed for 18 % of the sample**, nearly all of it names in running documents. Addresses
+  almost never need one: they stand after `located at`, `residing at`, `Street Address:`, `Wohnhaft:`, `domicile`,
+  and are missed because their shape is not the street shape the rules expect (the number last, no street word).
+- **Deterministic forms seen:** a label the rules do not read (`Street Address:` before a value without a comma,
+  `Adresse` without a colon), verbs of residence and place (`residing at`, `located at`, `con dirección en`), a
+  salutation or a signature (`Dear X,`, `Sincerely, X`), the oath form (`I, X Y, hereby`), an apposition with a role
+  or a residence (`X, a resident of`, `X, born on`).
+- **Label errors** (19 %): company and institution addresses, template placeholders, role titles and words labelled
+  as names. They count against recall in V2 and are no misses.
+- **Where a model would pay:** documents with names in running text. Forms, e-mails and records are deterministic
+  ground. A model layer, if one comes, would run on prose documents only, after the deterministic scan.
+
 ## What V3 keeps
 
 The split rule, the span outcomes (`full`, `partial`, `missed`), `too wide`, the classes, the scanners and their
