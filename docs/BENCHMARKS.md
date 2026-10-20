@@ -331,6 +331,34 @@ Decided on `val` and the false-alarm bank.
 | Nemotron, Mendeley, bank dev and val | – | no change |
 | False-alarm bank, seven trees (`scripts/compare_bench.py`) | – | 0 findings |
 
+### Personal columns of an SQL INSERT and of an HTML table, 2026-10-20
+
+Found on the protocol traces (`bench/traces.py`, development data): most of their misses were rows of an SQL
+`INSERT … VALUES` and of an HTML table, whose column names say what each cell holds. The CSV and the Markdown rules
+read such names; these two formats had no rule. The generator was also changed so that most records name their
+person, as a customer record does: the column rules keep an address without a person in its row as text on purpose.
+
+- **Fix:** `sql-insert-personal-column` reads the column list of an `INSERT … VALUES` statement, and
+  `html-table-personal-column` the `<th>` cells of a table's first row. Both use the columns, cell checks and person
+  check of the Markdown table rule.
+- **Cells:** a value in SQL quotes or bare (`NULL` is no value); an HTML cell whose one text run sits in inline tags
+  (`<a>`, `<b>`, `<span>`). A cell with two text runs, a nested table, a row with another number of cells, a tuple
+  without its end and a table without `<th>` name no cell.
+- **Business tables stay text** (tests): offices, companies, venues, depots, branches, warehouses and stores, also with
+  a `name` and an `address` column. The person check needs a name that reads as a person's or an id in the row.
+- **Known limit:** a name with an apostrophe (`O'Brien`) fails the name check of every column rule, and with it its
+  row. That is a limit of the name rule, not of these two formats.
+
+| Measure | Before (`next`, 898a95c2) | This change |
+|---|---|---|
+| traces dev: whole spans, false positives, F1 | 6,176, 48, 0.7628 | 7,272, 48, 0.8412 |
+| traces val: whole spans, false positives, F1 | 2,019, 20, 0.7661 | 2,337, 20, 0.8363 |
+| Nemotron, Gretel, Mendeley, PIILO, bank dev and val | – | no change |
+| False-alarm bank, seven trees (`scripts/compare_bench.py`) | – | 0 findings |
+
+Both splits of `traces` come from the same generator, written in this project: its `val` checks the rule on unseen
+records, not on unseen formats.
+
 ## CredData, results per release
 
 CredData line method, without repository `2ba83c6a` (23,667 rows: 10,106 credentials, 13,561 non-secrets),

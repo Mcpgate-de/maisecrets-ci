@@ -609,6 +609,103 @@ class _lazy:
         return getattr(self._rx, name)
 
 
+def _grid_hits(text: str, names: list, rows, kind: str) -> list:
+    """The Markdown table rule for rows whose cells another format delimits: names are the folded column names, each
+    row a list of (start, end) of its cell values in text. The same columns, cell checks and person check."""
+    out = []
+    strong = {i for i, h in enumerate(names) if h in _STRONG_COLS}
+    cols = strong | {i for i, h in enumerate(names) if h in _WEAK_COLS} if strong else set()
+    accounts = {i for i, h in enumerate(names) if _ACCOUNT_NUMBER_COL_RE.fullmatch(h)}
+    if not cols and not accounts:
+        return out
+    for n, cells in enumerate(rows):
+        if n >= _CSV_ROWS:
+            break
+        row: list = []
+        for col, (a, b) in enumerate(cells):
+            v = text[a:b].strip()
+            s0 = a + text[a:b].index(v) if v else a
+            if col in accounts and _account_cell(v):
+                out.append((s0, s0 + len(v), kind, ID_NUMBER))
+            if col in cols:
+                typ = _column_type(names[col])
+                if v.lower() not in _NOT_A_CELL and len(v) >= 2 and _cell_ok(v, typ):
+                    row.append((s0, s0 + len(v), kind, typ, col))
+        if any(c in strong for *_, c in row) and any(h[3] in (NAME, ID_NUMBER) for h in row):
+            out += [h[:4] for h in row]
+    return out
+
+
+# INSERT INTO customers (full_name, street, dob) VALUES ('…', '…', '…'), (…): the column list names each value of
+# every tuple, as the header of a CSV file does
+_SQL_INSERT_RE = _lazy(r"(?i)\binsert\s+into\s+[\w.`\"\[\]]{1,128}\s*\(([^()]{1,2000})\)\s*values\s*")
+_SQL_CELL_RE = _lazy(r"\s*(?:'((?:[^'\n]|''){0,512})'|(-?[\w.:+-]{1,64}))\s*([,)])")
+
+
+def _sql_insert_hits(text: str) -> list:
+    out = []
+    for m in _SQL_INSERT_RE.finditer(text):
+        names = [_md_column(c.strip().strip("`\"[]")) for c in m.group(1).split(",")]
+        rows, j = [], m.end()
+        while j < len(text) and len(rows) < _CSV_ROWS and text[j] == "(":
+            cells, j = [], j + 1
+            while True:
+                c = _SQL_CELL_RE.match(text, j)
+                if not c:
+                    break
+                g = 1 if c.group(1) is not None else 2
+                cells.append((c.start(g), c.end(g)))
+                j = c.end()
+                if c.group(3) == ")":
+                    break
+            if len(cells) != len(names):
+                break
+            rows.append(cells)
+            k = re.match(r"\s*,\s*", text[j:j + 64])
+            if not k:
+                break
+            j += k.end()
+        out += _grid_hits(text, names, rows, "sql-insert-personal-column")
+    return out
+
+
+# an HTML table: the <th> cells of its first row name the <td> cells of each row after it
+_HTML_TABLE_RE = _lazy(r"(?is)<table\b[^>]{0,500}>(.{0,200000}?)</table>")
+_HTML_ROW_RE = _lazy(r"(?is)<tr\b[^>]{0,500}>(.*?)</tr>")
+_HTML_CELL_RE = _lazy(r"(?is)<(t[hd])\b[^>]{0,500}>(.{0,2048}?)</t[hd]>")
+_HTML_TAG_RE = _lazy(r"<[^<>]{0,500}>")
+
+
+def _html_cell_text(text: str, a: int, b: int) -> tuple:
+    """The span of a cell's text: the one text run between its inline tags (<b>, <a href>, <span>). A cell with two
+    runs (a name and a note) or a nested table gives an empty span, so its row is no row of this rule"""
+    runs, pos = [], a
+    for m in _HTML_TAG_RE.finditer(text, a, b):
+        runs.append((pos, m.start()))
+        pos = m.end()
+    runs = [r for r in runs + [(pos, b)] if text[r[0]:r[1]].strip()]
+    if len(runs) != 1 or "<table" in text[a:b].lower():
+        return (a, a)
+    return runs[0]
+
+
+def _html_table_hits(text: str) -> list:
+    out = []
+    for t in _HTML_TABLE_RE.finditer(text):
+        names, rows = None, []
+        for r in _HTML_ROW_RE.finditer(text, t.start(1), t.end(1)):
+            cells = list(_HTML_CELL_RE.finditer(text, r.start(1), r.end(1)))
+            if names is None:
+                if not cells or any(c.group(1).lower() != "th" for c in cells):
+                    break
+                names = [_md_column(text[slice(*_html_cell_text(text, *c.span(2)))]) for c in cells]
+                continue
+            if len(cells) == len(names) and all(c.group(1).lower() == "td" for c in cells):
+                rows.append([_html_cell_text(text, *c.span(2)) for c in cells])
+        if names:
+            out += _grid_hits(text, names, rows, "html-table-personal-column")
+    return out
+
 
 # ------------------------------------------------------------------------------------------ the forms of 0.6.24 --
 # A value in a fixed form or after a label that names it, from the holdout values that 0.6.21 still leaked
@@ -644,6 +741,8 @@ FORMS = {
     "name-single-after-label": (NAME, "tool", "generic", "label"),
     "address-street-after-label": (ADDRESS, "tool", "generic", "label"),
     "md-table-personal-column": ("COLUMN", "tool", "generic", "label"),
+    "sql-insert-personal-column": ("COLUMN", "tool", "generic", "label"),
+    "html-table-personal-column": ("COLUMN", "tool", "generic", "label"),
     "username-after-label": (USERNAME, "tool", "generic", "label"),
     "secret-password-with-sign": ("SECRET", "tool", "generic", "label"),
 }
@@ -1461,6 +1560,10 @@ def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> l
                 _company_window(text, line, m.start(g), m.end(g), "address-street-after-label", company)
     if "md-table-personal-column" in want and "|" in text and "---" in text:
         out += _md_table_hits(text)
+    if "sql-insert-personal-column" in want and "(" in text and ("INSERT" in text or "insert" in text):
+        out += _sql_insert_hits(text)
+    if "html-table-personal-column" in want and "<t" in text:
+        out += _html_table_hits(text)
     if "phone-wrapped-line" in want and "-\n" in text:
         for m in _PHONE_WRAP_RE.finditer(text):
             d = re.sub(r"\D", "", m.group())

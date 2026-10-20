@@ -156,6 +156,10 @@ def _record(rnd: random.Random) -> list:
     """(field, value, class) in a random order; at least one personal field and mostly plain ones."""
     person = _person(rnd)
     personal = [(f, person[k], c) for f, k, c in rnd.sample(PERSONAL, rnd.randint(1, 5))]
+    # a customer record names its person: most rows with a contact field also have a name field (a list of depots
+    # or stations has none, and a scanner may keep its addresses as text)
+    if not any(c == "pii.name" for _, _, c in personal) and rnd.random() < 0.85:
+        personal.append((rnd.choice(("full_name", "customer_name")), person["name"], "pii.name"))
     fields = personal + [(f, v, "") for f, v in _plain_fields(rnd)]
     rnd.shuffle(fields)
     seen, out = set(), []

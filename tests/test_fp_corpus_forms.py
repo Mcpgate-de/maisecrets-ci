@@ -59,6 +59,7 @@ OWNER = {
     "phone after a phone word": "phone-after-phone-word", "phone national after a label": "phone-after-phone-word",
     "one first name": "name-single-after-label", "street line after a label": "address-street-after-label",
     "markdown table of persons": "md-table-personal-column",
+    "sql insert of persons": "sql-insert-personal-column", "html table of persons": "html-table-personal-column",
     "username in json": "username-after-label", "user_name in yaml": "username-after-label",
     "userName in a log": "username-after-label", "benutzername": "username-after-label",
     "csv with a german social insurance column": "csv-personal-column",

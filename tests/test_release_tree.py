@@ -68,7 +68,8 @@ class ReleaseTreeTests(unittest.TestCase):
     DEV_ONLY_FILES = {".gitlab-ci.yml", ".gitignore", ".gitattributes", ".ci-known-hosts-github", "CONTRIBUTING.md",
                       "CLAUDE.md", "pyproject.toml",
                       "docs/TESTING.md", "docs/REPO-STANDARDS.md", "docs/DIAGNOSTICS.md", "docs/BENCHMARKS.md",
-                      "docs/BENCHMARK-V1.md", "docs/BENCHMARK-V2.md", "docs/REGRESSION-POLICY.md",
+                      "docs/BENCHMARK-V1.md", "docs/BENCHMARK-V2.md", "docs/BENCHMARK-V3-DRAFT.md",
+                      "docs/REGRESSION-POLICY.md",
                       "renovate.json"}
 
     def test_every_tracked_file_ships_unless_it_is_named_developer_only(self):

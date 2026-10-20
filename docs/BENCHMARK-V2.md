@@ -78,7 +78,11 @@ report refuses a result from a modified tree. The run of 2026-10-20 took 41 minu
   class and rule only, no case read): of 3,443 false positives on 28,843 cases, 3,282 (95 %) are values of the
   classes Privy does not label: `us-ssn` 796, `iban` 820, `ip` 760, `email` 738, phone 136. About 160 remain
   (`us-license` 57, `ds-keyword-colon` 51, others below 25). The V2 number stays as frozen; a V3 should score Privy
-  only on the classes it labels (as the scope of a scanner leaves out what it cannot find) and report the rest apart.
+  only on the source label types it annotates and report the rest apart.
+- **Correction (2026-10-20, later the same day):** "classes" above means Privy's source label types, not the classes
+  of this benchmark. Counted per class, 1,708 of the 3,443 false positives fall into classes Privy labels: its
+  `pii.national_id` has driver licenses, passports and ITINs but no SSN, and its 7 `pii.iban` spans are bank numbers
+  that the label cleaning retyped. `docs/BENCHMARK-V3-DRAFT.md` has the counts and the method that follows from them.
 - Names and addresses are most of the missed spans. maisecrets has no named-entity model; Presidio has one.
 - maisecrets runs in the tool channel on every case; a typed prompt is a stricter channel.
 - PIILO is small (1,496 spans). A rate under 30 spans is not printed.
