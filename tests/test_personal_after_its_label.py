@@ -206,6 +206,19 @@ class SingleNameTests(Base):
                 self.assertNotIn("name-single-after-label", {m.kind for m in scan(text)})
 
 
+class DutchAndSwedishNameLabelTests(Base):
+    def test_a_name_after_naam_or_namn_is_masked_whole(self):
+        name = "Daan " + "Bakker"
+        for text in ("Naam: " + name + "\nAdres: Kerkstraat 1", "Namn: " + name + "\n"):
+            with self.subTest(text=text):
+                self.assertEqual(text.replace(name, "•"), masked(text))
+
+    def test_words_after_naam_stay_text(self):
+        for text in ("Naam: Product Owner\n", "naam: Build Pipeline"):
+            with self.subTest(text=text):
+                self.assertNotIn("name-after-label", {m.kind for m in scan(text)})
+
+
 class NameNextToAPersonCueTests(Base):
     def test_a_name_in_a_declaration_a_self_introduction_or_before_its_birth_is_masked_whole(self):
         for text in ("I, " + NAME + ", hereby declare that the above is true.",

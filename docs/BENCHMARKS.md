@@ -550,6 +550,18 @@ Per span against the person-cue change: Nemotron dev 479 missed to whole, val 15
 nothing got worse; false positives, Mendeley, traces, bank and the false-alarm bank unchanged.
 `scripts/compare_bench.py`: no finding.
 
+### A name after naam and namn, 2026-10-20
+
+The record layer folds the column names `naam` and `namn` to `name`; the label rule for a name in a line of text did
+not know them, and 585 names of Gretel `dev` stood right after them, missed (counted by the words before each missed
+name). They join the weak name labels, so a value of words after them (`Naam: Product Owner`) stays text, as after
+`name`. Registered before the run: up to 585 on Gretel `dev`, fewer by the word check.
+
+Per span against the "first name is" change: Gretel dev 466 missed to whole and 9 to partial, val 173 and 3;
+nothing got worse; false positives Gretel dev ±0, val +1; Nemotron, Mendeley, PIILO, traces, bank and the false-alarm
+bank unchanged. The 9 partial, read: long Dutch and Swedish names with particles (`van der`) or of more than four
+words, whose last words stay visible. `scripts/compare_bench.py`: no finding.
+
 ## CredData, results per release
 
 CredData line method, without repository `2ba83c6a` (23,667 rows: 10,106 credentials, 13,561 non-secrets),

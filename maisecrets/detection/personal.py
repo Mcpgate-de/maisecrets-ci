@@ -284,7 +284,7 @@ _PERSON_KEY_RE = re.compile(r"(?i)(?<![a-z])(?:" + _PERSON_LABELS + r"|name|pers
                             r"|employee|staff|member|mitglied|student|schüler(?:in)?)(?![a-z])[\"']?[ \t]{0,3}[:=]")
 # a label that also names a product, a service, a team or a document: its value must not read as words
 _WEAK_LABELS = (r"fn" + _VCARD_PARAMS
-                + r"|name|display[ _-]?name|owner|author|driver|holder|kunde|inhaber(?:in)?|nom|nombre|nome")
+                + r"|name|display[ _-]?name|owner|author|driver|holder|kunde|inhaber(?:in)?|nom|nombre|nome|naam|namn")
 _NAME_LABEL_RE = re.compile(
     r"(?i:(?<![a-z_./-])(?:(" + _PERSON_LABELS + r")|(" + _WEAK_LABELS + r")))"
     r"[\"']?[ \t]{0,3}[:=][ \t]{0,3}[\"']?[ \t]{0,3}" + _NAME_VALUE + r"(?![\w'’])")
