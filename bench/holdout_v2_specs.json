@@ -1,0 +1,28 @@
+{
+ "about": "The public format specifications a Holdout V2 template may cite (docs/BENCHMARK-V2.md, 'Holdout V2'). A template names one by id. The list says where a format is defined, not how a case looks: the template author reads the source itself. Added 2026-10-20, before any template.",
+ "specs": [
+  {"id": "iso-13616-iban", "classes": ["pii.iban"], "source": "ISO 13616-1:2020 and the SWIFT IBAN Registry (country lengths and BBAN structure)", "url": "https://www.swift.com/standards/data-standards/iban-international-bank-account-number"},
+  {"id": "iso-iec-7812-pan", "classes": ["pii.card"], "source": "ISO/IEC 7812-1 (issuer identification number, Luhn check digit)", "url": "https://www.iso.org/standard/70484.html"},
+  {"id": "itu-e164", "classes": ["pii.phone"], "source": "ITU-T E.164 (international numbering plan)", "url": "https://www.itu.int/rec/T-REC-E.164"},
+  {"id": "nanp", "classes": ["pii.phone"], "source": "North American Numbering Plan Administrator, number format (NPA-NXX-XXXX)", "url": "https://www.nationalnanpa.com/"},
+  {"id": "bnetza-rufnummern", "classes": ["pii.phone"], "source": "Bundesnetzagentur, Nummernplan (German numbers)", "url": "https://www.bundesnetzagentur.de/DE/Fachthemen/Telekommunikation/Nummerierung/start.html"},
+  {"id": "rfc-5322-addr-spec", "classes": ["pii.email"], "source": "RFC 5322 section 3.4.1 (addr-spec) and RFC 6531 (internationalized addresses)", "url": "https://www.rfc-editor.org/rfc/rfc5322"},
+  {"id": "rfc-791-ipv4", "classes": ["pii.ip"], "source": "RFC 791 and RFC 6890 (special-purpose ranges, to tell a public address from a reserved one)", "url": "https://www.rfc-editor.org/rfc/rfc6890"},
+  {"id": "rfc-4291-ipv6", "classes": ["pii.ip"], "source": "RFC 4291 and RFC 5952 (text representation)", "url": "https://www.rfc-editor.org/rfc/rfc5952"},
+  {"id": "ssa-ssn", "classes": ["pii.national_id"], "source": "U.S. Social Security Administration, SSN randomization and the numbers never issued", "url": "https://www.ssa.gov/employer/randomization.html"},
+  {"id": "de-steuer-idnr", "classes": ["pii.tax_id"], "source": "German tax identification number, § 139b AO, and the BZSt check digit procedure", "url": "https://www.gesetze-im-internet.de/ao_1977/__139b.html"},
+  {"id": "de-ust-idnr", "classes": ["pii.tax_id"], "source": "EU VAT number formats, VIES (European Commission)", "url": "https://ec.europa.eu/taxation_customs/vies/"},
+  {"id": "icao-9303-mrz", "classes": ["pii.national_id"], "source": "ICAO Doc 9303 (machine readable travel documents, document numbers and check digits)", "url": "https://www.icao.int/publications/pages/publication.aspx?docnum=9303"},
+  {"id": "aamva-dl-id", "classes": ["pii.national_id"], "source": "AAMVA DL/ID Card Design Standard (driver license number formats per jurisdiction)", "url": "https://www.aamva.org/identity/dl-id-card-design-standard"},
+  {"id": "aba-routing", "classes": ["pii.bank_account"], "source": "ABA routing number format and check digit (American Bankers Association)", "url": "https://www.aba.com/about-us/routing-number"},
+  {"id": "iso-8601-date", "classes": ["pii.birth_date"], "source": "ISO 8601-1 (calendar dates) and common national date notations (CLDR)", "url": "https://cldr.unicode.org/"},
+  {"id": "upu-s42-address", "classes": ["pii.address"], "source": "UPU S42 international postal address components, and national postal address guides (USPS Publication 28, Deutsche Post)", "url": "https://pe.usps.com/text/pub28/welcome.htm"},
+  {"id": "cldr-person-names", "classes": ["pii.name"], "source": "Unicode CLDR person name formatting (TR35 part 8) and public name frequency lists of national statistics offices", "url": "https://www.unicode.org/reports/tr35/tr35-personNames.html"},
+  {"id": "rfc-3986-userinfo", "classes": ["pii.username", "secret.url_credential"], "source": "RFC 3986 section 3.2.1 (user information in a URI)", "url": "https://www.rfc-editor.org/rfc/rfc3986"},
+  {"id": "vendor-token-docs", "classes": ["secret.token", "secret.webhook", "secret.generic"], "source": "The public documentation of each vendor's token format (the template names the page in its text field comment)", "url": ""},
+  {"id": "rfc-7468-pem", "classes": ["secret.private_key"], "source": "RFC 7468 (textual encodings of PKIX, PKCS and CMS structures)", "url": "https://www.rfc-editor.org/rfc/rfc7468"},
+  {"id": "nist-800-63b-passwords", "classes": ["secret.password"], "source": "NIST SP 800-63B section 5.1.1 (memorized secrets)", "url": "https://pages.nist.gov/800-63-3/sp800-63b.html"},
+  {"id": "connection-uri-docs", "classes": ["secret.connection_string"], "source": "The public connection string documentation of each database (PostgreSQL libpq URI, MongoDB, Redis)", "url": "https://www.postgresql.org/docs/current/libpq-connect.html"},
+  {"id": "negative-text", "classes": [], "source": "A negative case: text in the shape of a format without a sensitive value (documentation, ids of things, timestamps). The template cites the format it imitates in its id", "url": ""}
+ ]
+}

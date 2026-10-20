@@ -429,6 +429,111 @@ class SqlAndHtmlTableTests(Base):
             with self.subTest(text=text[:30]):
                 self.assertNotIn("-personal-column", " ".join(m.kind for m in scan(text, region=("us",))))
 
+
+# --------------------------------------------------------------- personal fields of JSON objects and XML records --
+class JsonAndXmlRecordTests(Base):
+    LEE = "Lee " + "Kim"
+    OAK = "12 Oak " + "Lane"
+
+    def test_the_personal_fields_of_a_record_are_masked(self):
+        for text, values in (
+                ('{"order_id": 1234, "full_name": "' + NAME + '", "address_line1": "' + STREET + '"}', (NAME, STREET)),
+                ('{"data": [{"customer_name": "' + NAME + '", "street": "' + STREET + '"}, {"customer_name": "'
+                 + self.LEE + '", "street": "' + self.OAK + '"}]}', (NAME, STREET, self.LEE, self.OAK)),
+                ('{"fullName": "' + NAME + '", "streetAddress": "' + STREET + '"}', (NAME, STREET)),
+                ('<?xml version="1.0"?><records><record><full_name>' + NAME + "</full_name><street>" + STREET
+                 + "</street></record></records>", (NAME, STREET))):
+            out = masked(text, region=("us",))
+            for v in values:
+                with self.subTest(v=len(v), text=text[:12]):
+                    self.assertNotIn(v, out)
+
+    def test_a_record_of_a_place_or_text_with_markup_stays_text(self):
+        for text in ('{"name": "Berlin Office", "street": "' + STREET + '"}',
+                     "<venues><venue><name>Riverside Arena</name><address>" + STREET + "</address></venue></venues>",
+                     "<p>Hello <full_name>" + NAME + "</full_name> at <street>" + STREET + "</street></p>",
+                     '{"warehouse": "Warehouse 7", "address": "' + STREET + '"}'):
+            with self.subTest(text=text[:20]):
+                self.assertIn(STREET, masked(text, region=("us",)))
+
+    def test_a_broken_record_names_no_field(self):
+        for text in ('{"full_name": "' + NAME + '", "street": "' + STREET,
+                     "<record><full_name>" + NAME + "</full_name><street>" + STREET + "</record>"):
+            with self.subTest(text=text[:20]):
+                self.assertNotIn("-personal-field", " ".join(m.kind for m in scan(text, region=("us",))))
+
+
+
+# ------------------------------------------- one field policy: names folded, attributes, one level of nesting --
+class RecordFieldNameTests(Base):
+    def assertBothMasked(self, text: str) -> None:
+        out = masked(text, region=("us",))
+        for v in (NAME, STREET):
+            with self.subTest(v=len(v), text=text[:24]):
+                self.assertNotIn(v, out)
+
+    def test_a_namespace_an_escape_or_another_language_names_the_column(self):
+        for text in ("<fpml:party><fpml:full_name>" + NAME + "</fpml:full_name><fpml:street>" + STREET
+                     + "</fpml:street></fpml:party>",
+                     '"order",first\\_name\\_full,"full\\_name","street\\_address"\n"1","x","' + NAME + '","'
+                     + STREET + '"\n',
+                     "<kund><namn>" + NAME + "</namn><adress>" + STREET + "</adress></kund>",
+                     '{"cognome": "x", "nome": "' + NAME + '", "indirizzo": "' + STREET + '"}'):
+            self.assertBothMasked(text)
+
+    def test_the_attributes_of_an_element_are_a_record(self):
+        # address_line1 is a field name the column policy knows and no label rule does: only the record reads it
+        self.assertBothMasked('<Customer customer_name="' + NAME + '" address_line1="' + STREET + '" tier="gold"/>')
+        self.assertIn(STREET, masked('<Office name="Berlin Office" street="' + STREET + '"/>', region=("us",)))
+
+    def test_a_record_nested_right_in_a_person_record_joins_it(self):
+        self.assertBothMasked("<party id='p1'><name>" + NAME + "</name><postalAddress><streetAddress>" + STREET
+                              + "</streetAddress><city>Springfield</city></postalAddress></party>")
+        self.assertBothMasked('{"customer": {"full_name": "' + NAME + '", "address": {"street": "' + STREET
+                              + '", "city": "Springfield"}}}')
+
+    def test_a_company_with_a_branch_and_a_record_two_levels_down_stay_text(self):
+        for text in ("<company><name>Acme Logistics GmbH</name><branch><street>" + STREET
+                     + "</street></branch></company>",
+                     "<p><name>" + NAME + "</name><contact><postal><street>" + STREET
+                     + "</street></postal></contact></p>"):
+            with self.subTest(text=text[:20]):
+                self.assertIn(STREET, masked(text, region=("us",)))
+
+
+# ------------------------------------------------------------ the place after a street belongs to the address --
+class AddressWithItsPlaceTests(Base):
+    def assertWhole(self, text: str, value: str) -> None:
+        s = text.index(value)
+        out = masked(text, region=("us", "de"))
+        self.assertTrue(out.startswith(text[:s]) and out.endswith(text[s + len(value):]), "masked too much")
+        self.assertFalse(any(c.isalnum() for c in out[s:len(out) - len(text) + s + len(value)]), "a part stays")
+
+    def test_the_postcode_the_city_and_the_country_after_a_street_are_masked_with_it(self):
+        for text, value in (
+                ("Address: 12 Via " + "Roma, 00184 Roma\n", "12 Via " + "Roma, 00184 Roma"),
+                ("Street address: " + STREET + ", Springfield, IL 62704, USA\n",
+                 STREET + ", Springfield, IL 62704, USA"),
+                ("Kunde: Max-Planck-Straße " + "12, 80333 München, Deutschland\n",
+                 "Max-Planck-Straße " + "12, 80333 München, Deutschland"),
+                ("Lieferadresse 99 Rue de " + "Rivoli, 75001 Paris\n", "99 Rue de " + "Rivoli, 75001 Paris")):
+            with self.subTest(text=text[:16]):
+                self.assertWhole(text, value)
+
+    def test_a_street_line_that_no_other_rule_found_stays_text(self):
+        # the European form only widens a hit of another rule: a company seat or a hospital alone is no person's
+        for text in ("Siège social : 99 Rue de " + "Rivoli, 75001 Paris\n",
+                     "Lieu de destination : Hôpital Saint-Antoine, 184 Rue du " + "Faubourg, 75012 Paris\n"):
+            with self.subTest(text=text[:16]):
+                self.assertText(text, region=("us",))
+
+    def test_a_number_and_a_postcode_without_a_street_word_stay_text(self):
+        for text in ("Release notes version 12, 2024 Edition\n", "Order 12, 80333 Units shipped\n",
+                     "Chapter 4, 1999 Edition\n"):
+            with self.subTest(text=text[:16]):
+                self.assertText(text, region=("us", "de"))
+
+
 if __name__ == "__main__":
     unittest.main()
 

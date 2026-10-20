@@ -50,6 +50,23 @@ def holdout_cases(directory: Path) -> list:
     return out
 
 
+def release_candidate(checkout: Path) -> str:
+    """The commit of a maisecrets checkout when it may meet Holdout V2: a clean tree whose HEAD is the tip of `next`
+    (the head of a release merge request) or of `main`, or carries a release tag. A feature branch never does."""
+    def git(*args):
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        r = subprocess.run(["git", "-C", str(checkout), *args], capture_output=True, text=True, timeout=30, env=env)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    head = git("rev-parse", "HEAD")
+    if not head or git("status", "--porcelain"):
+        raise SystemExit("refused: Holdout V2 runs on a clean maisecrets checkout only")
+    tips = {git("rev-parse", "origin/next"), git("rev-parse", "origin/main")} - {""}
+    tagged = [t for t in git("tag", "--points-at", head).split() if re.fullmatch(r"v\d+\.\d+\.\d+", t)]
+    if head not in tips and not tagged:
+        raise SystemExit("refused: Holdout V2 runs only on a release candidate (the tip of next or main, or a v tag)")
+    return head
+
+
 def in_sample(case_id: str, every: int) -> bool:
     return every <= 1 or int(hashlib.sha256(case_id.encode()).hexdigest()[:8], 16) % every == 0
 
@@ -110,11 +127,13 @@ def main(argv=None) -> int:
     ap.add_argument("--scanner", choices=ADAPTERS, default="maisecrets")
     ap.add_argument("--maisecrets", type=Path, default=ROOT, help="the checkout the maisecrets adapter scans with")
     ap.add_argument("--regions", default="de,us")
-    ap.add_argument("--source", required=True, choices=sources.SOURCES + ("holdout",))
+    ap.add_argument("--source", required=True, choices=sources.SOURCES + ("holdout", "holdout-v2"))
     ap.add_argument("--split", choices=casefmt.SPLITS + ("all",), default="dev")
     ap.add_argument("--data", type=Path)
     ap.add_argument("--catalogs", type=Path)
-    ap.add_argument("--holdout", type=Path, help="the private bank (source holdout)")
+    ap.add_argument("--holdout", type=Path, help="the private bank (source holdout) or the sealed cases (holdout-v2)")
+    ap.add_argument("--release-candidate", action="store_true",
+                    help="holdout-v2 only: this run measures a release candidate (bench/holdout_v2.py)")
     ap.add_argument("--limit", type=int, default=0, help="read at most N records of a dataset (a quick run)")
     ap.add_argument("--every", type=int, default=1, help="a fixed sample: keep a case when sha256 of its id is a "
                     "multiple of N (the same cases for every scanner)")
@@ -126,6 +145,16 @@ def main(argv=None) -> int:
         if not a.holdout:
             raise SystemExit("--source holdout needs --holdout DIR")
         selected, a.split = holdout_cases(a.holdout), "holdout"
+    elif a.source == "holdout-v2":
+        if not a.holdout or not a.release_candidate:
+            raise SystemExit("--source holdout-v2 needs --holdout DIR and --release-candidate")
+        if a.scanner == "maisecrets":
+            release_candidate(a.maisecrets.resolve())
+        from bench import holdout_v2
+        try:
+            selected, a.split = holdout_v2.verify(a.holdout), "holdout"
+        except holdout_v2.HoldoutError as e:
+            raise SystemExit(f"refused: {e}") from None
     else:
         selected = [c for c in sources.load(a.source, a.data, a.catalogs, a.limit, stats)
                     if (a.split == "all" or c["split"] == a.split) and in_sample(c["id"], a.every)]

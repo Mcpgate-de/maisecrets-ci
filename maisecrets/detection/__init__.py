@@ -11,8 +11,19 @@ readers of the home folder, the placeholder form, this computer's user name and 
 The rule tables and the helpers of maisecrets/detection/core.py are not: maisecrets.detect keeps them for the
 plugin and its tests, and they change with the rules.
 """
-from .core import NO_REFERENCES, NO_SOURCES, THIS_COMPUTER, Detector, Host, LazyRegex, Match, References, Rule, Sources
+from .core import NO_REFERENCES, NO_SOURCES, THIS_COMPUTER, Detector, Host, Match, References, Rule, Sources, user_rule
 from .regions import Active, resolve as resolve_regions
 
 __all__ = ["Active", "Detector", "Host", "LazyRegex", "Match", "NO_REFERENCES", "NO_SOURCES", "References", "Rule",
-           "Sources", "THIS_COMPUTER", "resolve_regions"]
+           "Sources", "THIS_COMPUTER", "resolve_regions", "user_rule"]
+
+
+def __getattr__(name: str):
+    # LazyRegex is deprecated (2026-10-20): user_rule takes the pattern as a string. It stays importable until 0.8
+    if name == "LazyRegex":
+        import warnings
+        warnings.warn("maisecrets.detection.LazyRegex is deprecated: give user_rule(...) the pattern as a string",
+                      DeprecationWarning, stacklevel=2)
+        from .core import LazyRegex
+        return LazyRegex
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

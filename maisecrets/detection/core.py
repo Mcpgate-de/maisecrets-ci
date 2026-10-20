@@ -4326,6 +4326,8 @@ def _personal_hits(text: str, enabled, found: list, taken_starts: list, taken_en
         if _references().has_marks(value) or "example" in low or low in personal.PLACEHOLDER_NAMES \
                 or looks_like_placeholder(value) or is_public_test_value(value, typ):
             continue
+        if kind in personal.ONLY_WIDENS and not overlaps(start, end):
+            continue   # a form that only completes a hit another rule made: alone it would mask company addresses
         if overlaps(start, end):
             # an address takes the postcode that a region rule found inside it (de-plz): the whole address is the
             # value. A phone number wrapped over two lines takes the first line that the phone rule found. Any other
@@ -4561,6 +4563,34 @@ def contains_secret(text: str) -> bool:
 # steps: no behaviour moves.
 LazyRx = _LazyRx            # a regex compiled at its first use
 LazyRegex = _Lazy           # a compiled rule pattern with a time budget (the rules of your own)
+
+
+_USER_TYPE_RE = _LazyRx(r"[A-Z][A-Z0-9_]{0,40}")
+
+
+def user_rule(id: str, type: str, pattern: str, keywords=(), secret_group: int = 0) -> Rule:
+    """A rule of your own for Sources.user_rules: the stable way to make one (docs/DETECTION.md, "The API").
+
+    `id` names the rule (it becomes `user:<id>`, so no rule of your own takes the name of a built-in one), `type` the
+    placeholder type (SECRET, EMAIL, a name of your own in capitals), `pattern` a Python regex, `keywords` words of
+    which one must be in the text before the regex runs (lower case, the cheap prefilter), and `secret_group` the
+    group that holds the value (0: the whole match). A wrong argument raises ValueError. The Rule it returns is no
+    stable type: its other fields belong to the detector and can change in any version."""
+    if not isinstance(id, str) or not id or any(c.isspace() for c in id):
+        raise ValueError("user_rule: id must be a word without spaces")
+    if not isinstance(type, str) or not _USER_TYPE_RE.fullmatch(type):
+        raise ValueError("user_rule: type must be capitals, digits and _ (SECRET, EMAIL, MY_TYPE)")
+    try:
+        groups = re.compile(pattern).groups
+    except (re.error, TypeError) as e:
+        raise ValueError(f"user_rule: the pattern does not compile ({e})") from None
+    if not isinstance(secret_group, int) or isinstance(secret_group, bool) or not 0 <= secret_group <= groups:
+        raise ValueError(f"user_rule: secret_group must be 0 to {groups}, the groups of the pattern")
+    words = tuple(str(k).lower() for k in keywords)
+    if any(not w for w in words):
+        raise ValueError("user_rule: a keyword is empty")
+    rid = id if id.startswith("user:") else "user:" + id
+    return Rule(id=rid, type=type, regex=_Lazy(pattern, 0), keywords=words, secret_group=secret_group)
 re2_to_python = _re2_to_python   # a pattern in RE2 syntax, as Python's re reads it
 
 

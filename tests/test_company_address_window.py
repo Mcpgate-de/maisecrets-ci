@@ -32,7 +32,12 @@ def masked(obj: dict) -> bool:
     text = json.dumps(obj, separators=(",", ":"))
     active = regions.Active(regions=("generic", "us", "uk"), languages=("en",), source="test")
     with detect.Detector(regions=active).activate():
-        return any(text[m.start:m.end] == ADDRESS for m in detect.scan(text, channel="tool"))
+        # the hits of the address label rules, before the overlaps are resolved: the JSON record rule
+        # (json-personal-field) also masks a home address beside a name and wins the overlap, which would hide what
+        # these tests hold, the window of the label rules (replay of 2026-10-20)
+        from maisecrets import personal
+        return any(text[s:e] == ADDRESS and kind.startswith("address")
+                   for s, e, kind, _t in personal.hits(text, "tool", ("generic", "us", "uk"), []))
 
 
 class CompanyWindowTests(unittest.TestCase):

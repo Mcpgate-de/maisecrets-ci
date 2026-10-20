@@ -1,0 +1,46 @@
+{
+ "_about": "The known limits of a detection rule, by rule id or by family (class:<rule class>), each from a measurement or an audit with its source. scripts/rule_provenance.py adds them to the provenance of each rule; tests/test_rule_provenance.py checks that every key names a rule. Ids and words only, never a value.",
+ "us-bank": [
+  "Its label must stand before the number on the same line, within 60 characters: a table row whose label is the header line above is missed (docs/BENCHMARKS.md, Benchmark V1, 73 of 9,051 Nemotron accounts).",
+  "It also takes bank routing codes and policy numbers after an account word (V3 audit, Gretel dev: 4 of 40 sampled false positives were bank codes)."
+ ],
+ "us-ssn": [
+  "A policy or claim number in the SSN shape is taken (V3 audit, Nemotron dev: 1 of 40).",
+  "Most of its false positives on Nemotron are real SSNs the dataset did not label (V3 audit: 38 of 40)."
+ ],
+ "us-passport": [
+  "A nine-digit reference in an EDI or SWIFT message or a claim number is taken (V3 audit, Gretel and Nemotron dev)."
+ ],
+ "us-license": [
+  "Reference numbers of the same shape are taken: recall and campaign numbers, transmission dates, CAS numbers, hazard codes (V3 audit, Gretel and Nemotron dev)."
+ ],
+ "medical-license": [
+  "The DEA pattern has no word boundary; a hit is widened to its whole token after the validator (0.6.43). A DEA-shaped part of an unrelated token that passes the check digit is masked whole too."
+ ],
+ "de-plz": [
+  "A five-digit number after a postcode label that is no postcode (an application number) is taken (V3 audit, Gretel dev).",
+  "Alone it masks only the postcode of a German address; the street and the city stay in the clear unless an address rule takes the line (Gretel dev, 113 addresses found in part on 2026-10-20)."
+ ],
+ "address-after-label": [
+  "Its value runs to the end of the sentence when no stop follows, so it can be wider than the address (2026-10-20, a label followed by a street and running text)."
+ ],
+ "csv-personal-column": [
+  "A row counts only with a person in it (a name of two words, a birth date or an id): a list of depots or of cities stays text on purpose, and so does a row with a first name alone.",
+  "A name with an apostrophe (O'Brien) fails the name check, and with it its row (2026-10-20)."
+ ],
+ "md-table-personal-column": [
+  "The same person check as the CSV rule, without the birth date as a person."
+ ],
+ "sql-insert-personal-column": [
+  "A tuple without its end and a statement without a column list name no cell."
+ ],
+ "html-table-personal-column": [
+  "A cell with two text runs or a nested table, and a table without <th> in its first row, name no cell."
+ ],
+ "json-personal-field": [
+  "An object inside an array under a person's key is no part of the person's record (one level of nesting, no arrays)."
+ ],
+ "xml-personal-field": [
+  "Two levels of nesting below the element that names the person are not joined; an element with text and child elements both is no record."
+ ]
+}

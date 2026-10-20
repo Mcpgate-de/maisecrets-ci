@@ -54,9 +54,32 @@ for m in d.findings(text, channel="tool", path="notes.txt"):
 | `References`, `NO_REFERENCES` | The reference form of the caller |
 | `Host`, `THIS_COMPUTER` | What a scan reads of its computer |
 | `Active`, `resolve_regions` | The regions and label languages, and their resolution from a config (`locale=` to give the locale) |
-| `Rule`, `LazyRegex` | A rule of your own, for `Sources.user_rules` |
+| `user_rule` | A rule of your own, for `Sources.user_rules` (returns a `Rule`; `LazyRegex` is deprecated) |
 
 The rule tables and the helpers of `core.py` are no API: they change with the rules.
+
+## The API: the decision of 2026-10-20
+
+The wheel (`pyproject.toml`) makes the core usable without the plugin, so its names carry a promise. Decided by the
+maintainer on 2026-10-20 (merge request !160):
+
+| Name | Promise |
+|---|---|
+| `Detector`, `Match` (`kind`, `type`, `value`, `start`, `end`), `Sources`, `NO_SOURCES`, `References`, `NO_REFERENCES`, `Host`, `THIS_COMPUTER`, `Active`, `resolve_regions` | **stable** |
+| `user_rule(id, type, pattern, keywords=(), secret_group=0)` | **stable**: the one way for a caller to make a rule of its own. The id becomes `user:<id>`; a wrong argument raises `ValueError` |
+| `Rule` | **no stable constructor**: the type that `user_rule` returns and `Detector.rules()` lists. Of its fields only `id`, `type`, `keywords` and `secret_group` are promised; the other 17 belong to the detector |
+| `LazyRegex` | **deprecated**: a `DeprecationWarning` on access; importable until 0.8 at least |
+| `maisecrets.detect` and the other old names | **not API**: plugin modules, not in the wheel |
+| The hits themselves | **not API**: a patch version may find more or fewer values; `docs/BENCHMARKS.md` and `scripts/compare_bench.py` report how |
+
+**Changes to a stable name go through a deprecation, also before 1.0:** the old form keeps working with a
+`DeprecationWarning` for at least one minor version, the changelog says so under "API", and only then it goes. A
+1.0 of the wheel would freeze the stable names. `region` and `channel` for `user_rule` come only when they are meant
+to be carried as API.
+
+**Checks that hold it:** `tests/test_detection_package.py` pins `__all__`, the parameters of `user_rule`, the stable
+`Match` fields, a rule of your own found through a `Detector`, the `ValueError` of a wrong argument and the warning of
+`LazyRegex`. `scripts/wheel_smoke.py` makes a rule of its own through `user_rule` in a fresh venv.
 
 ## The old names
 

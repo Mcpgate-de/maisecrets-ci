@@ -20,7 +20,7 @@ import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
 from maisecrets import detect, detection  # noqa: E402
 
 API = {"Active", "Detector", "Host", "LazyRegex", "Match", "NO_REFERENCES", "NO_SOURCES", "References", "Rule",
-       "Sources", "THIS_COMPUTER", "resolve_regions"}
+       "Sources", "THIS_COMPUTER", "resolve_regions", "user_rule"}
 # maisecrets.<old name> -> the module of the package it is
 OLD_NAMES = {"detect": "core", "checksums": "checksums", "lazy_regex": "lazy_regex", "normalise": "normalise",
              "regions": "regions", "registry": "registry", "rulespec": "rulespec", "rule_filter": "rule_filter",
@@ -45,7 +45,8 @@ class ApiTests(unittest.TestCase):
     def test_a_star_import_gives_the_api_only(self):
         ns: dict = {}
         exec("from maisecrets.detection import *", ns)
-        self.assertEqual(set(ns) - {"__builtins__"}, API)
+        # the warning of the deprecated LazyRegex leaves __warningregistry__ in the namespace
+        self.assertEqual({k for k in ns if not k.startswith("__")}, API)
 
     def test_a_library_caller_imports_the_package_and_nothing_of_the_plugin(self):
         r = fresh('''
@@ -62,6 +63,47 @@ print(json.dumps([kinds, sorted(m for m in sys.modules if m.startswith("maisecre
         outside = [m for m in mods if m not in ("maisecrets", "maisecrets.detection")
                    and not m.startswith("maisecrets.detection.")]
         self.assertEqual(outside, [], "a library caller loads no module of the plugin and no old name")
+
+
+class UserRuleTests(unittest.TestCase):
+    """user_rule is the stable way to a rule of your own (docs/DETECTION.md, "The API"); LazyRegex is deprecated."""
+
+    def test_the_signature_is_the_promised_one(self):
+        import inspect
+        params = inspect.signature(detection.user_rule).parameters
+        self.assertEqual([(n, p.default) for n, p in params.items()],
+                         [("id", inspect.Parameter.empty), ("type", inspect.Parameter.empty),
+                          ("pattern", inspect.Parameter.empty), ("keywords", ()), ("secret_group", 0)])
+        self.assertEqual([f.name for f in __import__("dataclasses").fields(detection.Match)][:5],
+                         ["kind", "type", "value", "start", "end"])
+
+    def test_a_rule_of_your_own_finds_its_group_in_a_detector(self):
+        class Mine(detection.Sources):
+            def user_rules(self):
+                return [detection.user_rule("order-ref", "SECRET", r"ORD-(\d{6})", keywords=("ord-",),
+                                            secret_group=1)]
+        d = detection.Detector(regions=detection.Active(regions=("generic",), languages=("en",), source="t"),
+                               sources=Mine(), references=detection.NO_REFERENCES,
+                               host=detection.Host(user="t", year=2026))
+        hits = [(m.kind, m.value) for m in d.findings("ref ORD-" + "123456 done", channel="tool")]
+        self.assertEqual(hits, [("user:order-ref", "123456")])
+
+    def test_a_wrong_argument_raises_value_error(self):
+        for kw in ({"id": "a b", "type": "SECRET", "pattern": "x"}, {"id": "a", "type": "secret", "pattern": "x"},
+                   {"id": "a", "type": "SECRET", "pattern": "("},
+                   {"id": "a", "type": "SECRET", "pattern": "x", "secret_group": 1},
+                   {"id": "a", "type": "SECRET", "pattern": "x", "keywords": ("",)}):
+            with self.subTest(kw=kw):
+                with self.assertRaises(ValueError):
+                    detection.user_rule(**kw)
+
+    def test_lazy_regex_still_imports_and_warns(self):
+        import warnings
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            cls = detection.LazyRegex
+        self.assertIs(cls, detect.LazyRegex)
+        self.assertTrue(any(issubclass(x.category, DeprecationWarning) for x in w))
 
 
 class OldNamesTests(unittest.TestCase):

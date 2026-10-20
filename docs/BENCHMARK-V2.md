@@ -107,6 +107,29 @@ misses (addresses, user names, names and birth dates in a field of their own) ar
 4. No rule is changed because of a holdout result. **Whoever sees the totals of a holdout run does not derive a new
    case form or a new rule from them.** A set that was read for tuning becomes development data, and the log says so.
 
+### The procedure, built 2026-10-20 (no templates yet)
+
+`bench/holdout_v2.py` holds the procedure; the templates do not exist yet. The maintainer's session that built it had
+read lists of maisecrets misses the same day, so by rule 1 it writes no template. The templates come later from an
+author who has not seen such a list, or are derived automatically from the specifications fixed before.
+
+- **Admissible sources:** `bench/holdout_v2_specs.json` lists the public format specifications a template may cite
+  (ISO 13616 for IBANs, ISO/IEC 7812 for cards, E.164 and NANP for phones, RFC 5322 for e-mail addresses, the SSA
+  rules for SSNs, ICAO 9303 and AAMVA for documents, UPU S42 and USPS Publication 28 for addresses, CLDR for names
+  and dates, RFC 7468 for keys, NIST SP 800-63B for passwords, vendor documentation for tokens). It says where a
+  format is defined, not how a case looks.
+- **Private:** the templates, their value generators and the seed stay in a private directory. A public template could
+  not be unseen by whoever writes the next rule.
+- **Attestation:** the directory holds `ATTESTATION.json` with the author's role, the date and
+  `"seen_miss_lists": false`. `check` refuses any other value.
+- **Seal:** `seal` renders the cases again from the templates and the seed, refuses a case file that differs, and
+  writes `bench/holdout-v2.manifest` once: the sha256 of the template set, of the seed and of the case file, and the
+  counts per class. A second seal is refused; a new template set is a new holdout.
+- **Runs:** `bench/run.py --source holdout-v2 --holdout DIR --release-candidate` refuses without a sealed manifest,
+  when a file differs from it, and when the maisecrets checkout is not clean or its HEAD is not the tip of `next` or
+  `main` or a `v` tag. Each run writes one row to `bench/HOLDOUT-LOG.md`, totals only.
+- **Not yet:** no template, no case, no manifest, no run.
+
 ## Decisions taken at the freeze (2026-10-20)
 
 1. The public holdout split of the four read datasets is development data (no new salt).

@@ -8,7 +8,8 @@ interpreter of the venv, default this one; run it once with the oldest supported
 outside the checkout, with -I and an empty HOME, and must:
 
 - carry the plugin's version and every file of maisecrets/detection/ (the code and the rule data), and no other module;
-- find a token and an SSN with an explicit Detector, and with one built from defaults;
+- find a token and an SSN with an explicit Detector, and with one built from defaults, and the value of a rule
+  of your own made with user_rule;
 - load no module of the plugin and leave the empty HOME empty, so a library caller never reads a user's config.
 
 It prints one line per check and exits 1 when one fails. It changes nothing in the checkout."""
@@ -30,12 +31,17 @@ import json, os, sys
 from importlib import metadata
 from pathlib import Path
 import maisecrets.detection as det
-from maisecrets.detection import Active, Detector, Host, NO_REFERENCES, NO_SOURCES
+from maisecrets.detection import Active, Detector, Host, NO_REFERENCES, NO_SOURCES, Sources, user_rule
 
 text = "SSN " + "-".join(("536", "22", "8726")) + "\ntoken " + "ghp_" + "A1b2C3d4" * 4 + "Zz9y"
 given = Detector(regions=Active(regions=("generic", "us"), languages=("en",), source="lib"),
                  sources=NO_SOURCES, references=NO_REFERENCES, host=Host(user="lib", year=2030))
 defaults = Detector(regions=Active(regions=("generic", "us"), languages=("en",), source="lib"))
+class Mine(Sources):
+    def user_rules(self):
+        return [user_rule("order-ref", "SECRET", r"ORD-(\d{6})", secret_group=1)]
+own = Detector(regions=Active(regions=("generic",), languages=("en",), source="lib"), sources=Mine(),
+               references=NO_REFERENCES, host=Host(user="lib", year=2030))
 pkg = Path(det.__file__).parent
 print(json.dumps({
     "version": metadata.version("maisecrets"),
@@ -46,6 +52,7 @@ print(json.dumps({
     "defaults": sorted(m.type for m in defaults.findings(text, channel="tool")),
     "modules": sorted(m for m in sys.modules if m.startswith("maisecrets")),
     "home": sorted(os.listdir(os.environ["HOME"])),
+    "own": [(m.kind, m.value) for m in own.findings("ref ORD-" + "123456", channel="tool")],
 }))
 '''
 
@@ -95,6 +102,7 @@ def main(argv) -> int:
         ("no plugin module loaded", all(m == "maisecrets" or m.startswith("maisecrets.detection")
                                         for m in got["modules"]), str(got["modules"])),
         ("the empty HOME stays empty", got["home"] == [], str(got["home"])),
+        ("a rule of your own through user_rule", got["own"] == [["user:order-ref", "123456"]], str(got["own"])),
     ]
     for name, ok, detail in checks:
         print(("ok    " if ok else "FAIL  ") + name + ("" if ok else f": {detail}"))

@@ -69,6 +69,7 @@ class ReleaseTreeTests(unittest.TestCase):
                       "CLAUDE.md", "pyproject.toml",
                       "docs/TESTING.md", "docs/REPO-STANDARDS.md", "docs/DIAGNOSTICS.md", "docs/BENCHMARKS.md",
                       "docs/BENCHMARK-V1.md", "docs/BENCHMARK-V2.md", "docs/BENCHMARK-V3-DRAFT.md",
+                      "docs/rule-limits.json",
                       "docs/REGRESSION-POLICY.md",
                       "renovate.json"}
 

@@ -462,5 +462,120 @@ class TracesSourceTests(unittest.TestCase):
         self.assertGreater(sum(c["split"] == "val" for c in cs), 400)
 
 
+class HoldoutV2Tests(unittest.TestCase):
+    """bench/holdout_v2.py: a checked template set, a seeded rendering, one seal, and no run without it. The template
+    here is a fixture of this test, not a holdout template."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="hv2-"))
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.tmp, ignore_errors=True))
+        self.tpl = self.tmp / "tpl"
+        (self.tpl / "templates").mkdir(parents=True)
+        (self.tpl / "ATTESTATION.json").write_text(json.dumps(
+            {"author_role": "test fixture", "date": "2026-10-20", "seen_miss_lists": False}), encoding="utf-8")
+        (self.tpl / "generators.py").write_text(
+            "def digits(rnd, n=6):\n    return ''.join(rnd.choice('0123456789') for _ in range(n))\n"
+            "GENERATORS = {'digits': digits}\n", encoding="utf-8")
+        self.template({"id": "t1", "class": "pii.national_id", "channel": "tool", "context": "prose",
+                       "spec": "ssa-ssn", "text": "number {value} here", "value": {"generator": "digits"},
+                       "count": 3})
+        self.template({"id": "n1", "class": "pii.national_id", "channel": "tool", "context": "prose",
+                       "spec": "negative-text", "text": "build 1234 done", "count": 1})
+        self.seed = b"fixture seed"
+        self.manifest = self.tmp / "holdout-v2.manifest"
+
+    def template(self, t: dict) -> None:
+        (self.tpl / "templates" / f"{t['id']}.json").write_text(json.dumps(t), encoding="utf-8")
+
+    def test_the_rendering_is_the_same_for_the_same_seed_and_each_span_holds_its_value(self):
+        from bench import holdout_v2
+        _att, ts, gens = holdout_v2.load(self.tpl)
+        a, b = holdout_v2.render(ts, gens, self.seed), holdout_v2.render(ts, gens, self.seed)
+        self.assertEqual(a, b)
+        self.assertNotEqual(a, holdout_v2.render(ts, gens, b"another seed"))
+        self.assertEqual(len(a), 4)
+        for c in a:
+            for s in c["spans"]:
+                self.assertTrue(c["text"][s["start"]:s["end"]].isdigit())
+
+    def test_an_attestation_that_saw_the_misses_or_an_unknown_spec_is_refused(self):
+        from bench import holdout_v2
+        (self.tpl / "ATTESTATION.json").write_text(json.dumps(
+            {"author_role": "x", "date": "2026-10-20", "seen_miss_lists": True}), encoding="utf-8")
+        with self.assertRaises(holdout_v2.HoldoutError):
+            holdout_v2.load(self.tpl)
+        (self.tpl / "ATTESTATION.json").write_text(json.dumps(
+            {"author_role": "x", "date": "2026-10-20", "seen_miss_lists": False}), encoding="utf-8")
+        holdout_v2.load(self.tpl)
+        self.template({"id": "t2", "class": "pii.email", "channel": "tool", "context": "prose", "spec": "made-up",
+                       "text": "x {value}", "value": {"generator": "digits"}, "count": 1})
+        with self.assertRaises(holdout_v2.HoldoutError):
+            holdout_v2.load(self.tpl)
+
+    def test_a_seal_happens_once_and_a_changed_case_file_is_refused(self):
+        from bench import holdout_v2
+        out = self.tmp / "cases"
+        _att, ts, gens = holdout_v2.load(self.tpl)
+        holdout_v2.write(holdout_v2.render(ts, gens, self.seed), out)
+        with self.assertRaises(holdout_v2.HoldoutError):
+            holdout_v2.verify(out, self.manifest)          # no manifest yet: no run
+        m = holdout_v2.seal(self.tpl, self.seed, out, self.manifest)
+        self.assertEqual((m["cases"], m["negative_cases"]), (4, 1))
+        self.assertEqual(len(holdout_v2.verify(out, self.manifest)), 4)
+        with self.assertRaises(holdout_v2.HoldoutError):
+            holdout_v2.seal(self.tpl, self.seed, out, self.manifest)
+        f = out / holdout_v2.CASES_FILE
+        f.write_text(f.read_text(encoding="utf-8").replace("here", "there"), encoding="utf-8")
+        with self.assertRaises(holdout_v2.HoldoutError):
+            holdout_v2.verify(out, self.manifest)
+
+    def test_a_seal_refuses_cases_that_the_templates_and_the_seed_do_not_render(self):
+        from bench import holdout_v2
+        out = self.tmp / "cases"
+        _att, ts, gens = holdout_v2.load(self.tpl)
+        holdout_v2.write(holdout_v2.render(ts, gens, b"another seed"), out)
+        with self.assertRaises(holdout_v2.HoldoutError):
+            holdout_v2.seal(self.tpl, self.seed, out, self.manifest)
+
+    def test_run_refuses_holdout_v2_without_the_release_candidate_flag_and_on_a_feature_branch(self):
+        r = subprocess.run([sys.executable, str(ROOT / "bench" / "run.py"), "--source", "holdout-v2", "--holdout",
+                            str(self.tmp)], capture_output=True, text=True, timeout=120, cwd=ROOT)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--release-candidate", r.stdout + r.stderr)
+        from bench import run
+        repo = self.tmp / "repo"
+        repo.mkdir()
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
+        for args in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "x"]):
+            subprocess.run(["git", "-C", str(repo), *args], check=True, env=env, capture_output=True)
+        with self.assertRaises(SystemExit) as e:
+            run.release_candidate(repo)
+        self.assertIn("release candidate", str(e.exception))
+        subprocess.run(["git", "-C", str(repo), "tag", "v9.9.9"], check=True, env=env, capture_output=True)
+        self.assertTrue(run.release_candidate(repo))
+
+
+class ReleaseCompareTests(unittest.TestCase):
+    """scripts/release_compare.py: both releases per source and split, the change, gains and regressions by class."""
+
+    def test_the_report_names_the_change_the_gain_and_the_regression(self):
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import release_compare
+        with tempfile.TemporaryDirectory() as d:
+            a, b = Path(d) / "a", Path(d) / "b"
+            for p, full, partial, fp in ((a, 100, 5, 10), (b, 120, 7, 10)):
+                p.mkdir()
+                metrics = {"all": {"full": full, "partial": partial, "fp": fp, "f1": 0.5},
+                           "pii.name": {"spans": 200, "full": full, "partial": partial}}
+                (p / "gretel-val-maisecrets.json").write_text(json.dumps(
+                    {"metrics": metrics, "timing": {"median_ms": 1.0}}), encoding="utf-8")
+            text = release_compare.report(a, b, "v1", "v2")
+        self.assertIn("| full | 100 | 120 | +20 |", text)
+        self.assertIn("gretel-val: pii.name full 100 → 120", text.split("## Largest gains")[1].split("##")[0])
+        self.assertIn("gretel-val: pii.name partial 5 → 7", text.split("## Largest regressions")[1].split("##")[0])
+        self.assertIn("partial spans 5 -> 7", text.split("compare_bench.py")[1])
+
+
 if __name__ == "__main__":
     unittest.main()
