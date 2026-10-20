@@ -179,6 +179,50 @@ class SingleNameTests(Base):
         kinds = {m.kind for m in scan("Last name: " + FAMILY + " Smith")}
         self.assertEqual(kinds, {"name-after-label"})
 
+    def test_a_double_surname_with_two_capitals_is_masked_whole(self):
+        double = "Okafor-" + "Brandt"
+        for text in ("Last Name: " + double + "\nDate of Birth: none", "- **Last Name:** " + double + "\n- **City:** x",
+                     "Nachname: " + double + ", Vorname: none"):
+            with self.subTest(text=text):
+                self.assertEqual(text.replace(double, "•"), masked(text))
+
+    def test_a_name_after_first_or_last_name_is_in_a_sentence_is_masked(self):
+        for text in ("My last name is " + FAMILY + ".", "The patient's last name is " + FAMILY + ".",
+                     "Your first name is " + GIVEN + ", and your date of birth follows."):
+            with self.subTest(text=text):
+                value = FAMILY if FAMILY in text else GIVEN
+                self.assertEqual(text.replace(value, "•"), masked(text))
+
+    def test_a_state_or_a_type_after_name_is_stays_text(self):
+        for text in ("The first name is required.", "First name is Required", "The last name is Optional here",
+                     "first name is String", "The last name is Unknown."):
+            with self.subTest(text=text):
+                self.assertNotIn("name-single-after-label", {m.kind for m in scan(text)})
+
+    def test_a_hyphenated_value_of_words_stays_text(self):
+        for text in ("Last Name: Self-Employed\n", "Last Name: Non-Applicable\n",
+                     "last_name: Auto-Generated\n"):
+            with self.subTest(text=text):
+                self.assertNotIn("name-single-after-label", {m.kind for m in scan(text)})
+
+
+class NameNextToAPersonCueTests(Base):
+    def test_a_name_in_a_declaration_a_self_introduction_or_before_its_birth_is_masked_whole(self):
+        for text in ("I, " + NAME + ", hereby declare that the above is true.",
+                     "Hello, my name is " + NAME + " and I am writing about my claim.",
+                     "Patient " + NAME + ", born on " + BIRTH + ", was seen today.",
+                     "The policyholder, " + NAME + ", a resident of Springfield, signed."):
+            with self.subTest(text=text):
+                # the birth date has its own rule
+                self.assertEqual(text.replace(NAME, "•", 1).replace(BIRTH, "•"), masked(text).replace(BIRTH, "•"))
+
+    def test_one_word_words_a_role_or_a_placeholder_next_to_a_cue_stay_text(self):
+        for text in ("The Applicant, born on the date given above, signs here.", "Texas, born on paper, grew.",
+                     "my name is Required Field in this schema", "I, John Doe, hereby confirm the template.",
+                     "I, Product Owner, am responsible for the backlog."):
+            with self.subTest(text=text):
+                self.assertNotIn("name-next-to-a-person-cue", {m.kind for m in scan(text)})
+
 
 # ------------------------------------------------------------------- a street line after an address label --
 STREET = "4821 Maple " + "Ridge Drive"
@@ -222,6 +266,28 @@ class StreetLineTests(Base):
                 self.assertNotIn("address-street-after-label", {m.kind for m in scan(text)})
         self.assertMasked("Employer: Acme Inc.\nHome address: 12 Harbour Lane", "12 Harbour Lane")
         self.assertMasked("Name: " + NAME + "\nAddress: " + STREET, STREET)
+
+    def test_a_direction_and_a_unit_after_the_street_type_are_masked_with_the_street(self):
+        # masked() puts one mark where a hit was: the whole value goes, and nothing after it
+        for text, value in (
+                ("Street Address: 12 Oak " + "Street SW\nCity: Springfield", "12 Oak " + "Street SW"),
+                ("I live at 12 Oak " + "Street 99, in Springfield.", "12 Oak " + "Street 99"),
+                ("Address: 12 Oak " + "Street N Ste A | Phone: none", "12 Oak " + "Street N Ste A"),
+                ("She resides at 12 Oak " + "Avenue 9E, in Springfield", "12 Oak " + "Avenue 9E"),
+                ("- **Street Address:** 12 Oak " + "Road NE C\n- **City:** Springfield", "12 Oak " + "Road NE C"),
+                ("He lives at 12 Oak " + "Street B999.", "12 Oak " + "Street B999"),
+                ("I reside at 12 Oak " + "Lane Southwest and work from home.", "12 Oak " + "Lane Southwest")):
+            with self.subTest(text=text):
+                self.assertEqual(text.replace(value, "•"), masked(text))
+
+    def test_a_number_or_a_direction_that_goes_on_in_the_sentence_stays_text(self):
+        for text, value, rest in (
+                ("I live at 12 Oak " + "Street 3 days a week.", "12 Oak " + "Street", " 3 days"),
+                ("Address: 12 Oak " + "Street West of the river", "12 Oak " + "Street", " West of"),
+                ("He lives at 12 Oak " + "Street 5 more", "12 Oak " + "Street", " 5 more")):
+            with self.subTest(text=text):
+                self.assertEqual(text.replace(value, "•"), masked(text))
+                self.assertIn(rest, masked(text))
 
     def test_a_companys_address_takes_the_company_decision(self):
         company: list = []

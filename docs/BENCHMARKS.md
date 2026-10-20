@@ -467,6 +467,89 @@ spans still worse than in 0.6.41 are two company names (`… Inc.`), which the n
 French address after `Adresse:` with its postcode after the street, and one name broken at the end of the text whose
 hyphen alone stays in the clear (read on `dev`).
 
+### A street keeps its direction and its unit, 2026-10-20
+
+On 0.7.1, 309 address spans of Nemotron-PII `dev` were found in part, all by `address-street-after-label` and all
+with the rest at the end. The rest is not a house number: 129 are a unit number without a unit word (`… St 999`), 103 a
+direction after the street type (`… St SW`, `… St North`), 31 a unit letter (`… St C`, `… St 99A`), 11 a unit word
+(`… St Ste A`), 10 a direction and a unit. In a sample of 60 (by the hash of case and start), 55 are a person's home,
+3 a rented property, 1 the place of an incident, 1 a property in a loan; no company, no label error.
+
+The change widens the existing hit only: after the street type the value goes on over a direction and a unit, also
+without a unit word, where the value ends right after it (a comma, `;`, `|`, the end of the line, a dot before a space,
+`**`, ` in `, ` and `). The label, the house number and the street type stay required. A number or a direction that
+goes on in the sentence (`… Street 3 days a week`, `… Street West of the river`) stays text. Registered before the
+run: about 280 of the 309, no change in the number of hits.
+
+| Measure | 0.7.1 | This change |
+|---|---|---|
+| Nemotron dev: whole, partial, false positives, F1 | 111,448, 485, 502, 0.6973 | 111,732, 201, 502, 0.6984 |
+| Nemotron val: whole, partial, false positives, F1 | 37,026, 180, 186, 0.6995 | 37,112, 94, 186, 0.7006 |
+| Nemotron address recall, dev / val | 0.3392 / 0.3299 | 0.3672 / 0.3555 |
+| Gretel, Mendeley, PIILO, traces, bank, false-alarm bank | – | no change |
+
+Per span: dev 284 partial to whole, val 86; nothing got worse, too wide unchanged. `scripts/compare_bench.py`: no
+finding. Left open: a unit before a direction (`… St 999 North`, 7) and 13 other forms.
+
+### A double surname after a first or last name label, 2026-10-20
+
+On 0.7.1 plus the street change, 3,874 names of Nemotron-PII `dev` right after a name label were missed. Read per
+case, the deciding step: 1,102 one word after `Name:` (left as text on purpose: one word after this weak label is
+often no person), 1,060 after `first name is`, `last name is` or `my name is` (no rule takes `is` as a separator for one word), 542
+refused as words (`Hunter`, `Mason`: on purpose), 176 where the regex did not match a double surname with two
+capitals (`Last Name: Okafor-Brandt`): the value took a hyphen only before a small letter, and 104 with a capital
+inside the name (`McKenzie`), left open. This change takes the double surnames only. A hyphenated value stays text when each part is a word (`Self-Employed`, `Non-Applicable`), as for a
+name of two words. Registered before the run: about 176 on Nemotron `dev`.
+
+| Measure | Before (street change) | This change |
+|---|---|---|
+| Nemotron dev / val: whole spans | 111,732 / 37,112 | 111,911 / 37,193 |
+| Nemotron dev / val: name recall | 0.1909 / 0.1973 | 0.1930 / 0.2002 |
+| Gretel dev / val: whole spans, false positives | 20,561, 2,279 / 6,499, 791 | 20,620, 2,284 / 6,518, 795 |
+| Mendeley, PIILO, traces, bank, false-alarm bank | – | no change |
+
+Per span: Nemotron dev 179 missed to whole, val 81; Gretel dev 59, val 19; nothing got worse. The 5 new false
+positives of Gretel `dev`, read: each is a double surname after a last name label (`Apellidos`, `Nachname`,
+`Cognome`) in a record whose first name Gretel labelled and whose last name it did not. `scripts/compare_bench.py`:
+no finding.
+
+### A name next to words that say it is a person, 2026-10-20
+
+On dev, cue phrases next to a capitalised name were counted against the gold names, split by whether the name reads
+as words (counts only). Three families were clean, without a label and with almost no match outside a gold name:
+`I, <name>, hereby/am/the undersigned` (Nemotron 2,164 missed names to 1 match without one; Gretel 161 to 0),
+`<name>, born on / a resident of / residing at` (1,947 to 17; 419 to 3) and `my name is <name>` (314 to 0). Three
+were not, and are left out: `Dear <name>` (the matches without a name are roles: `Dear Policyholder`), a title
+(`Dr` is also a street: `… Dr. We`) and a signature after `Best regards,` (often a company).
+
+One rule takes the three clean families: the cue is a short phrase, the value has two name words at least and does
+not read as words, so a role, a place or a field state next to the cue stays text (`The Applicant, born on`,
+`Texas, born on`, `my name is Required`). Registered before the run: about 4,000 on Nemotron `dev`.
+
+| Measure | Before (double surname) | This change |
+|---|---|---|
+| Nemotron dev / val: whole spans, F1 | 111,911, 0.6992 / 37,193, 0.7016 | 118,466, 0.7252 / 39,402, 0.7281 |
+| Nemotron dev / val: name recall | 0.1930 / 0.2002 | 0.2694 / 0.2781 |
+| Gretel dev / val: whole spans, F1 | 20,620, 0.4030 / 6,518, 0.3895 | 21,066, 0.4099 / 6,654, 0.3960 |
+| False positives, all sources; Mendeley, traces, bank, false-alarm bank | – | no change |
+
+Per span: Nemotron dev 6,555 missed to whole, val 2,209 (Nemotron labels the first and the last name apart, so one
+hit makes two spans whole); Gretel dev 446, val 136; PIILO dev 7, val 1; nothing got worse. Read on Gretel `dev`:
+the 7 spans now found in part are a title Gretel counts to the name (`Mr.` stays visible) or a first name that reads
+as a word; the hits over a gold span are a surname Gretel did not label. `scripts/compare_bench.py`: no finding.
+
+### A name after "first name is" in a sentence, 2026-10-20
+
+Of the names missed after a name label (above), 1,060 stood after `first name is`, `last name is` or `my name is`;
+the person-cue rule takes `my name is`. The one-word name after a first or last name label now also takes `is` as its
+separator. The value still needs a capital, a field state or a type (`Required`, `Optional`, `String`) stays text,
+and so does a name that a lowercase word follows (`… is Dana and …`), as after a colon. Registered before the run:
+about 690 on Nemotron `dev`. 479 were found; the rest stays text by the guards above (a lowercase word after the name, a name that reads as a word), not counted one by one.
+
+Per span against the person-cue change: Nemotron dev 479 missed to whole, val 155; Gretel dev 4; PIILO val 1;
+nothing got worse; false positives, Mendeley, traces, bank and the false-alarm bank unchanged.
+`scripts/compare_bench.py`: no finding.
+
 ## CredData, results per release
 
 CredData line method, without repository `2ba83c6a` (23,667 rows: 10,106 credentials, 13,561 non-secrets),

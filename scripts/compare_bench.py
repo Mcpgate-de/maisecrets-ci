@@ -52,6 +52,16 @@ def worse_spans(a: dict | None, b: dict | None) -> int:
     return n
 
 
+def other_span_counts(a: dict | None, b: dict | None) -> int:
+    """The cases that the two runs scored with a different number of spans. Same cases, other spans: another scope of
+    the adapter or another scoring code. The outcomes then pair by position with the wrong spans, so the runs are not
+    compared (0 cases of this kind in the runs 0.6.41 to 0.7.1, 2026-10-20: the check cannot fire on them)."""
+    if not a or not b:
+        return 0
+    return sum(1 for case, ob in b.items()
+               if len([x for x in ob if x != "fp"]) != len([x for x in a.get(case, []) if x != "fp"]))
+
+
 def _fpbank(d: Path) -> dict:
     f = d / "fpbank-7trees.json"
     if not f.is_file():
@@ -78,6 +88,10 @@ def compare(base: Path, new: Path) -> list[str]:
         if ha.get(name) != hb.get(name):
             findings.append(f"{name}: the cases differ (sha256 {str(ha.get(name))[:12]} vs {str(hb.get(name))[:12]}),"
                             " not compared")
+            continue
+        other = other_span_counts(pa_.get(name), pb_.get(name))
+        if other:
+            findings.append(f"{name}: {other} cases scored a different number of spans, not compared")
             continue
         split = name.rsplit("-", 2)[-2]
         ma, mb = a[name], b[name]

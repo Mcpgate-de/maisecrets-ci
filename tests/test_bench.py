@@ -475,6 +475,23 @@ class CompareBenchTests(unittest.TestCase):
         self.assertEqual(found, ["gretel-dev-maisecrets.json: 1 spans got worse (whole to partial or missed, "
                                  "partial to missed)"])
 
+    def test_runs_that_scored_other_spans_of_the_same_cases_are_not_compared(self):
+        # another scope drops the first span: paired by position, missed -> full would read as a gain, silently
+        import tempfile
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import compare_bench
+        with tempfile.TemporaryDirectory() as d:
+            a, b = Path(d) / "a", Path(d) / "b"
+            for p, outcomes in ((a, {"c1": ["missed", "full"], "c2": ["full"]}),
+                                (b, {"c1": ["full"], "c2": ["full"]})):
+                p.mkdir()
+                metrics = {"all": {"fp": 0}, "pii.name": {"spans": 3, "full": 2}}
+                (p / "gretel-dev-maisecrets.json").write_text(json.dumps(
+                    {"cases_sha256": "x" * 64, "metrics": metrics, "per_case": outcomes}), encoding="utf-8")
+            found = compare_bench.compare(a, b)
+        self.assertEqual(found, ["gretel-dev-maisecrets.json: 1 cases scored a different number of spans, "
+                                 "not compared"])
+
 
 
 class TracesSourceTests(unittest.TestCase):

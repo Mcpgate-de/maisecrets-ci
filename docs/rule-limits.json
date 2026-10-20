@@ -6,13 +6,16 @@
  ],
  "us-ssn": [
   "A policy or claim number in the SSN shape is taken (V3 audit, Nemotron dev: 1 of 40).",
-  "Most of its false positives on Nemotron are real SSNs the dataset did not label (V3 audit: 38 of 40)."
+  "Most of its false positives on Nemotron are real SSNs the dataset did not label (V3 audit: 38 of 40).",
+  "FP audit 2026-10-20, Nemotron dev, 12 by order: 10 are real SSNs after an SSN word without a label; 1 is a medical record number."
  ],
  "us-passport": [
-  "A nine-digit reference in an EDI or SWIFT message or a claim number is taken (V3 audit, Gretel and Nemotron dev)."
+  "A nine-digit reference in an EDI or SWIFT message or a claim number is taken (V3 audit, Gretel and Nemotron dev).",
+  "FP audit 2026-10-20, Gretel dev, 12 by order: 11 are fields of SWIFT MT, EDIFACT, X12 or XBRL messages, 1 unclear."
  ],
  "us-license": [
-  "Reference numbers of the same shape are taken: recall and campaign numbers, transmission dates, CAS numbers, hazard codes (V3 audit, Gretel and Nemotron dev)."
+  "Reference numbers of the same shape are taken: recall and campaign numbers, transmission dates, CAS numbers, hazard codes (V3 audit, Gretel and Nemotron dev).",
+  "FP audit 2026-10-20, Gretel dev, 12 by order: 7 are GHS hazard codes, EDI fields, an HL7 trigger event or an FpML scheme; 3 are company or property numbers."
  ],
  "medical-license": [
   "The DEA pattern has no word boundary; a hit is widened to its whole token after the validator (0.6.43). A DEA-shaped part of an unrelated token that passes the check digit is masked whole too."
@@ -42,5 +45,14 @@
  ],
  "xml-personal-field": [
   "Two levels of nesting below the element that names the person are not joined; an element with text and child elements both is no record."
+ ],
+ "ip": [
+  "It takes values inside EDIFACT segments (FP audit 2026-10-20, Gretel dev: all 16 false positives are such segments)."
+ ],
+ "phone": [
+  "It takes numbers inside EDI and SWIFT segments (FP audit 2026-10-20, Gretel dev, 12 by order: 4), and the phone and fax lines of companies (6), which are no person's."
+ ],
+ "ds-keyword-colon": [
+  "It takes a value after labels that are no secret label: an encryption setting after Verschlüsselung, an amount after passivo or passifs (FP audit 2026-10-20, Gretel dev, 12 by order: 4)."
  ]
 }

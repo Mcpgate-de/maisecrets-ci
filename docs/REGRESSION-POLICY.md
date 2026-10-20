@@ -22,6 +22,7 @@ python3 scripts/compare_bench.py RESULTS_OF_THE_BASE RESULTS_OF_THE_CHANGE      
 | Partial spans | more spans in part, **only when the runs hold no outcomes per case** | with the outcomes, a rise of partial spans from missed to partial is a gain, not a loss (0.7.0: 25 such spans) |
 | False positives per source and split | more than 1 % more | the phone experiment raised Gretel's by 5 % (118) and was not merged |
 | Same cases | the two runs of a file scored different cases (`cases_sha256`) | the file is not compared and the finding says so: another generator, dataset revision or sample would read as a change of the rules |
+| Same spans | the two runs scored a different number of spans in the same case (another scope of the adapter, another scoring code) | the file is not compared: the outcomes would pair by position with the wrong spans, and a loss could read as a gain. 0 such cases in the runs 0.6.41 to 0.7.1 |
 | Time per case | never judged from two single runs | see below |
 
 The counts are deterministic: the same code on the same cases gives the same numbers, so every difference is real and

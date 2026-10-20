@@ -32,6 +32,12 @@ S1 = _sid("fixture-sid")
 
 FORMS_NO_HIT = [
     ("version and year after a number", "Release notes version 12, 2024 Edition"),
+    # ---------------------------------------------------------------- a person cue next to no name
+    ("cue next to a role", "The Applicant, born on the date given above, signs here."),
+    ("cue next to a place", "New York City, a resident of the state, may apply."),
+    ("cue next to a field state", "my name is Required Field in this form schema"),
+    ("cue next to a placeholder", "I, John Doe, hereby confirm the template text."),
+    ("cue next to words", "I, Product Owner, am responsible for the backlog."),
     # ---------------------------------------------------------------- tables of places, not of persons
     ("sql insert of offices", "INSERT INTO offices (name, street, phone) VALUES ('Berlin Office', '4821 Maple Street', '(415) 382-0174');"),
     ("html table of venues", "<table><tr><th>name</th><th>address</th></tr><tr><td>Riverside Arena</td><td>12 Oak Lane, Springfield</td></tr></table>"),
@@ -421,6 +427,9 @@ FORMS_HIT = [
     ("vcard adr fields", "BEGIN:VCARD\nADR;TYPE=home:;;" + "7 Rosemount Gardens;Dunmore;Wexford;4471;Ireland" + "\nEND:VCARD",
      ["7 Rosemount Gardens;Dunmore;Wexford;4471;Ireland"]),
     ("vcard n fields", "BEGIN:VCARD\nN;CHARSET=UTF-8:" + "Okafor;Dana" + ";;;\nEND:VCARD", ["Okafor;Dana"]),
+    ("name in a declaration", "I, " + "Dana Okafor" + ", hereby declare that the above is true.", ["Dana Okafor"]),
+    ("name before born on", "Patient " + "Dana Okafor" + ", born on 1984-03-12, was seen today.", ["Dana Okafor"]),
+    ("name after my name is", "Hello, my name is " + "Dana Okafor" + " and I am writing about my claim.", ["Dana Okafor"]),
     ("vcard bday digits", "BEGIN:VCARD\nBDAY:" + "19850412" + "\nEND:VCARD", ["19850412"]),
     ("encoded mail contact column", "Report for user list, generated 2026-10-01\nname,contact\nDana, " + "dana.okafor"
      + "%40mailbox-test.net", ["dana.okafor" + "%40mailbox-test.net"]),

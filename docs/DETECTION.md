@@ -98,6 +98,13 @@ import or a patch through an old name reaches the core itself. The plugin and it
 | `tests/test_detector.py` | Two detectors, their caches, their threads and the snapshot of a rule load. |
 | `tests/test_detector_host.py` | An explicit host reads neither the user name nor the clock; an explicit detector gives one result on two hosts. |
 | `tests/test_detection_package.py` | The API, the old names, the rule data, and a library caller that imports nothing of the plugin. |
+| `tests/test_library_consumer.py` | A server-like caller of the public names only (`examples/library_consumer.py`): its own sources and rules, `reset()`, two detectors in eight threads, a large input, many requests, no file under HOME. |
 
 `scripts/detection_fingerprint.py` records the hits of 27,337 inputs. A change that moves the code and not the rules
 leaves the fingerprint byte-identical.
+
+## A language-neutral spec
+
+`docs/DETECTION-SPEC-DRAFT.md` measures how far the core is from a spec that a second implementation could follow:
+what is data today, what is Python, about 31 semantic primitives, and a case format that tells normative cases from
+snapshot records. It is an analysis; nothing in the runtime depends on it.

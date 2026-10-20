@@ -27,7 +27,7 @@ What runs, where, and what makes it fail. The history of each finding is in the 
 | release comparison | `python3 scripts/release_compare.py PREV NEW OUT [--reuse-prev DIR] [--reuse-new DIR]` | by hand for each release: both tags on the dev and val splits of the development sources and Privy totals, the change per source, split and class, the five largest gains and regressions, and the findings of `scripts/compare_bench.py`; time is reported, not judged |
 | Windows end to end | `GITLAB_COM_TOKEN=… python3 scripts/windows_e2e.py [--rev REV]` | by hand before a release that touches the hooks, the launchers or the harness: GitLab-hosted Windows runners of a separate project, in three shapes (PowerShell 7, Windows PowerShell 5.1, Git Bash). Each job runs `harness/windows/shell_probe.py` (which shell runs a hook, and the `hooks.json` command in each shell) and `harness/run.py` with the shell tool the client offers (`MAISECRETS_HARNESS_SHELL_TOOL`) |
 
-2510 tests (`tests/test_*.py`), about 35 seconds on an M-series laptop. Without PyYAML, two tests of
+2525 tests (`tests/test_*.py`), about 35 seconds on an M-series laptop. Without PyYAML, two tests of
 `tests/test_measure_catalog_coverage.py` fail and the belief `manifest-every-frontmatter-parses-as-yaml` is
 skipped; CI installs it. A virtual environment with `pip install pyyaml` gives the full run locally. The GitHub matrix runs on
 Windows and macOS in two places. In a merge request, the GitLab job `windows_macos` pushes the commit

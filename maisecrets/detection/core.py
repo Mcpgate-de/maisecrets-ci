@@ -104,6 +104,9 @@ class _Lazy:
 
 @dataclass(frozen=True)
 class Rule:
+    """One rule of the detector. A caller makes one with user_rule() and reads the ones of Detector.rules(); it has no
+    stable constructor. Of its fields only id, type, keywords and secret_group are promised; the others belong to the
+    detector and can change in any version (docs/DETECTION.md, "The API")."""
     id: str
     type: str
     regex: _Lazy

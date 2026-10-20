@@ -383,6 +383,16 @@ def _name_ok(v: str) -> bool:
 # name before it. A service mailbox (noreply, a bot) names no person
 _NAME_MAIL_RE = re.compile(r"((?:[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ'’-]{1,30})(?: (?:[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ'’-]{1,30}|[A-Z]\.)){1,3})"
                            r"[ \t]{0,2}[<(\[]([\w.%+-]{1,64})@([\w-]{1,63}(?:\.[\w-]{1,63}){0,8})")
+# a name next to words that say it is a person (Nemotron-PII and Gretel, 2026-10-20): a declaration (I, <name>, hereby),
+# a self-introduction (my name is <name>), and a person's birth or residence right after the name (<name>, born on).
+# One primitive for the three: the cue is a short phrase, the value has the shape of a name and does not read as words
+_CUE_NAME = r"((?:" + _NAME_STEM + r")(?: (?:" + _NAME_STEM + r")){0,3})"
+_PERSON_CUE_RES = (
+    re.compile(r"(?<![\w,])I, " + _CUE_NAME + r", (?=(?:hereby|am|the undersigned|residing|currently|born|a resident"
+               r"|being|declare|certify|of legal age)\b)"),
+    re.compile(r"(?<![\w])(?i:my (?:full )?name is) " + _CUE_NAME + r"(?![\w'’-])"),
+    re.compile(_CUE_NAME + r", (?=(?:born on|born in|date of birth|a resident of|residing at|resides at|who resides"
+               r"|who lives|currently residing|currently resides)\b)"))
 _SERVICE_LOCAL_RE = re.compile(r"(?i)^(?:no-?reply|do-?not-?reply|notifications?|support|info|hello|contact|team"
                                r"|admin|root|git|bot|ci|build|release|deploy|security|alerts?|monitoring|postmaster"
                                r"|webmaster|mailer-daemon|bounces?|github-actions|actions|dependabot|renovate)"
@@ -851,6 +861,7 @@ FORMS = {
     "birth-date-vcard-compact": (BIRTH_DATE, "tool", "generic", "form"),
     "phone-after-phone-word": (PHONE, "tool", "generic", "label"),
     "name-single-after-label": (NAME, "tool", "generic", "label"),
+    "name-next-to-a-person-cue": (NAME, "tool", "generic", "label"),
     "address-street-after-label": (ADDRESS, "tool", "generic", "label"),
     "address-street-postcode-city": (ADDRESS, "tool", "generic", "form"),
     "md-table-personal-column": ("COLUMN", "tool", "generic", "label"),
@@ -990,9 +1001,13 @@ _NOT_AN_ADDRESS_RE = _lazy(r"(?i)\b(?:rack|row|slot|zone|version|build|schema|wi
 _SINGLE_NAME_LABELS = (r"first[ _-]?name|last[ _-]?name|given[ _-]?name|family[ _-]?name|middle[ _-]?name|surname"
                        r"|forename|vorname|nachname|familienname|rufname|pr[ée]nom|nom de famille|apellidos?"
                        r"|nombre de pila|cognome|sobrenome|voornaam|achternaam|f[öo]rnamn|efternamn")
-_SINGLE_NAME_RE = _lazy(r"(?i:(?<![a-z_./-])(?:" + _SINGLE_NAME_LABELS + r"))[\"']?[ \t]{0,3}[:=][ \t]{0,3}[\"']?"
+# the separator: `:`, `=`, or `is` in a sentence (your first name is <name>)
+_SINGLE_NAME_RE = _lazy(r"(?i:(?<![a-z_./-])(?:" + _SINGLE_NAME_LABELS + r"))[\"']?(?:[ \t]{0,3}[:=]|(?i: is))"
+                        r"[ \t]{0,3}[\"']?"
                         r"[ \t]{0,3}([" + _UP + "\u1e00-\u1eff" + r"]"
-                        r"[" + _LO + "\u1e00-\u1eff\u0300-\u036f" + r"'’-]{1,30})"
+                        r"[" + _LO + "\u1e00-\u1eff\u0300-\u036f" + r"'’-]{1,30}"
+                        # a double surname: a second part with its own capital after the hyphen
+                        r"(?:-[" + _UP + r"][" + _LO + r"\u1e00-\u1eff\u0300-\u036f'’]{1,30})?)"
                         r"(?![\w'’-])"   # Nguyễn, Ạnh, and a combining accent
                         r"(?![ \t]{1,2}[" + _UP + r"])")
 # a user name after a label that names one (`"username": "jdoe42"`, `user_name: jdoe42`): the label of a record, not
@@ -1126,10 +1141,19 @@ _PLACEHOLDER_NAME_WORDS = frozenset({"doe", "roe", "mustermann", "musterfrau", "
 # 2026-10-16: "street address: 4821 Maple Ridge Drive", "resides at 77 Harbour Lane"). The company check of the
 # address label holds: a company, an office or a public place on the line keeps the address text
 # a street name word: a capital word or an ordinal (123 5th Avenue)
+_STREET_DIRECTION = r"(?:N|S|E|W|NE|NW|SE|SW|North|South|East|West|Northeast|Northwest|Southeast|Southwest)"
+# the end of a street value: a separator, the end of the line or of a sentence, Markdown bold, or the place after it
+_STREET_VALUE_END = r"[ \t]*(?:$|[,;|\n)]|\.(?:\s|$)|\*\*| (?:in|and)\b)"
 _STREET_LINE = (r"(?:\d{1,6}[A-Za-z]?(?:-\d{1,4})? (?:(?:[A-Z][A-Za-z'.-]{0,30}|\d{1,3}(?:st|nd|rd|th)) ){1,4}"
                 r"(?:" + _STREET[3:-1]
                 + r"|Circle|Cir|Parkway|Pkwy|Trail|Trl|Loop|Pike|Alley|Grove|Gardens|Heights|Mews)\.?"
-                r"(?:,? (?:Apt|Apartment|Suite|Unit|Flat|#)\.? ?[A-Za-z0-9-]{1,6})?"
+                # a direction after the street type and a unit, also without a unit word (Main St SW, Oak Ave 12B,
+                # Elm Rd N Ste A): only where the value ends right after it, so a number of the sentence stays out
+                r"(?:(?: " + _STREET_DIRECTION + r")?"
+                r"(?:,? (?:Apt|Apartment|Suite|Ste|Unit|Flat|#)\.? ?[A-Za-z0-9-]{1,6}"
+                r"| (?:\d{1,5}[A-Z]?|[A-Z]\d{0,4}))(?=" + _STREET_VALUE_END + r")"
+                r"| " + _STREET_DIRECTION + r"(?=" + _STREET_VALUE_END + r")"
+                r"|,? (?:Apt|Apartment|Suite|Unit|Flat|#)\.? ?[A-Za-z0-9-]{1,6})?"
                 r"|[A-ZÄÖÜ][\wäöüß-]{1,40}(?:straße|strasse|str\.|weg|gasse|platz|allee|ring|damm) \d{1,4}[a-z]?"
                 r"|(?:Calle|Avenida|Via|Viale|Piazza|Rua|Carrer) (?:[A-ZÀ-Þ][\wà-ÿ'’-]{1,30} |d[aeio]l?l?[aeo]? |de "
                 r"|das? |dos? ){1,5}?\d{1,5}[A-Za-z]?)(?![\w-])")
@@ -1670,6 +1694,10 @@ def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> l
                     or low_v in _NOT_A_NAME_START or low_v in _NOT_A_NAME_WORD or low_v in _SHORT_EN \
                     or len(low_v) < 2 or _reads_as_words(_no_marks(v)) or _inflected_word(low_v):
                 continue
+            # a double surname is words when each part is a word (Self-Employed, Non-Applicable), as in name-after-label
+            parts = [w for w in _no_marks(v).split("-") if w]
+            if len(parts) > 1 and all(_reads_as_words(w) or _inflected_word(w.lower()) for w in parts):
+                continue
             found.append((m.start(1), m.end(1), "name-single-after-label", NAME))
         out += found
     if "username-after-label" in want and "name" in low:
@@ -1902,6 +1930,19 @@ def hits(text: str, channel: str, regions: tuple, company: list | None = None) -
                     v, words_only = cut, False
             if _name_ok(v) and not words_only:
                 out.append((m.start(3), m.start(3) + len(v), "name-after-label", NAME))
+    if "name-next-to-a-person-cue" in want and any(w in low for w in ("i, ", "name is", "born", "resid", "lives")):
+        for rx in _PERSON_CUE_RES:
+            for m in rx.finditer(text):
+                words, start = m.group(1).split(" "), m.start(1)
+                # a word before the name that is no part of it (Patient Dana Okafor, born on): drop it
+                while len(words) > 1 and _reads_as_words(words[0]) and words[0].lower() not in _GIVEN_NAME_WORDS:
+                    start += len(words.pop(0)) + 1
+                v = " ".join(words)
+                # two name words at least: one word next to the cue is as often a role or a place (The Applicant,
+                # Texas, born on) as a name
+                if not _name_ok(v) or _reads_as_words(v) or words[0].lower() in _PLACEHOLDER_NAME_WORDS:
+                    continue
+                out.append((start, start + len(v), "name-next-to-a-person-cue", NAME))
     if "name-before-email" in want and "@" in text:
         for m in _NAME_MAIL_RE.finditer(text):
             if _SERVICE_LOCAL_RE.match(m.group(2)) or not _name_ok(m.group(1)) or _reads_as_words(m.group(1)):
