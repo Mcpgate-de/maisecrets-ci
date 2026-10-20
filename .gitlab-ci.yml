@@ -160,6 +160,8 @@ unit:
     - pip install --quiet --disable-pip-version-check pyyaml==6.0.3
     - python -m unittest discover -s tests -v 2>&1 | tee unit.log
     - python scripts/no_unexpected_skips.py unit.log
+    # the wheel of the detection core, installed into a fresh venv (pip fetches the pinned hatchling)
+    - python scripts/wheel_smoke.py
 
 # the stock python3 of macOS is 3.9, and the hooks run with the first python3 on the PATH: the
 # oldest supported Python gets the whole suite too (a colleague's first prompt was blocked, 2026-09-28)
@@ -172,6 +174,7 @@ unit_python39:
     - pip install --quiet --disable-pip-version-check pyyaml==6.0.3
     - python -m unittest discover -s tests -v 2>&1 | tee unit.log
     - python scripts/no_unexpected_skips.py unit.log "tomllib is Python 3.11+"
+    - python scripts/wheel_smoke.py
 
 beliefs_can_fail_replay:
   stage: test

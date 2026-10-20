@@ -15,7 +15,7 @@ from bench import cases
 
 ROOT = Path(__file__).resolve().parent.parent
 BANK = ROOT / "bench" / "bank"
-DATASETS = ("nemotron", "gretel", "mendeley", "piilo")
+DATASETS = ("nemotron", "gretel", "mendeley", "piilo", "privy")
 SOURCES = ("bank",) + DATASETS + ("catalogs",)
 
 # the types of scripts/measure_datasets.py to the classes of the benchmark; SECRET by the dataset's own label
@@ -23,7 +23,7 @@ TYPE_CLASS = {"EMAIL": "pii.email", "PHONE": "pii.phone", "IP": "pii.ip", "IBAN"
               "US_SSN": "pii.national_id", "ABA_ROUTING_NUMBER": "pii.bank_account",
               "US_BANK_NUMBER": "pii.bank_account", "NAME": "pii.name", "ADDRESS": "pii.address",
               "BIRTH_DATE": "pii.birth_date", "ID_NUMBER": "pii.national_id", "USERNAME": "pii.username"}
-SECRET_LABEL = {"password": "secret.password"}
+SECRET_LABEL = {"password": "secret.password", "PASSWORD": "secret.password"}
 REGION_OF_LANG = {"en": "us", "de": "de", "fr": "fr", "es": "es", "it": "it", "nl": "nl", "sv": "se"}
 
 

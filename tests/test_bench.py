@@ -353,5 +353,92 @@ class AdapterOutputTests(unittest.TestCase):
         self.assertEqual(_proc.check("x", cs, [[[0, 2, "secret", "r"]], []]), [[(0, 2, "secret", "r")], []])
 
 
+class AdapterInventoryTests(unittest.TestCase):
+    """Each foreign scanner is pinned (a requirements file with every distribution at an exact version or commit) and
+    maps its findings only to classes of Benchmark V1 (docs/BENCHMARK-V2.md, reproducible scanner configurations)."""
+
+    def test_every_foreign_adapter_has_a_pinned_requirements_file(self):
+        import importlib
+        from bench import run
+        for name in run.ADAPTERS:
+            if name == "maisecrets":
+                continue
+            with self.subTest(adapter=name):
+                mod = importlib.import_module(f"bench.adapters.{name}")
+                for attr in ("NAME", "SCOPE", "describe", "scan"):
+                    self.assertTrue(hasattr(mod, attr), attr)
+                req = ROOT / "bench" / "adapters" / "requirements" / f"{mod.NAME}.txt"
+                lines = [ln for ln in req.read_text(encoding="utf-8").splitlines() if ln and not ln.startswith("#")]
+                self.assertTrue(lines)
+                for ln in lines:
+                    self.assertRegex(ln, r"==|@ (git\+)?https://", f"{req.name}: {ln} is not pinned")
+
+    def test_presidio_maps_only_to_benchmark_classes(self):
+        import re
+        from bench import cases
+        from bench.adapters import presidio
+        named = set(re.findall(r'"(pii\.[a-z_]+)"', presidio._WORKER))
+        self.assertTrue(named)
+        self.assertLessEqual(named, set(cases.CLASSES))
+
+
+class ReproducibilityTests(unittest.TestCase):
+    """Benchmark V2 writes its environment and a CSV of the report next to the results (docs/BENCHMARK-V2.md)."""
+
+    def test_the_manifest_names_the_trees_the_datasets_and_each_scanner_python(self):
+        from bench import manifest
+        m = manifest.manifest(ROOT, {"BENCH_PYTHON": sys.executable})
+        self.assertEqual(sorted(m), ["benchmark", "catalogs", "datasets", "date", "maisecrets", "platform",
+                                     "scanners"])
+        self.assertIn("privy", m["datasets"])
+        self.assertEqual(m["scanners"]["maisecrets"]["python"], sys.executable)
+        self.assertIsInstance(m["benchmark"]["dirty"], (bool, type(None)))
+
+    def test_the_csv_holds_one_row_per_claimed_group(self):
+        import csv
+        import tempfile
+        from bench import report
+        run = {"source": "bank", "split": "dev", "every": 1, "cases": 2, "cases_sha256": "x", "bench_commit": "y",
+               "scanner": {"scanner": "s", "version": "1", "scope": ["pii."]}, "timing": {"median_ms": 1.0},
+               "metrics": {"all": {}, "pii": {"spans": 3, "full": 2}, "pii.email": {"spans": 3, "full": 2},
+                           "secret": {"spans": 1}}}
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "r.csv"
+            report.write_csv([run], str(out))
+            rows = list(csv.DictReader(out.open(encoding="utf-8")))
+        self.assertEqual([r["group"] for r in rows], ["pii", "pii.email"])
+        self.assertEqual(rows[0]["full"], "2")
+
+
+class CompareBenchTests(unittest.TestCase):
+    """scripts/compare_bench.py lists what a reviewer must explain (docs/REGRESSION-POLICY.md)."""
+
+    def run_compare(self, base: dict, new: dict, fp_base=None, fp_new=None) -> list:
+        import tempfile
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import compare_bench
+        with tempfile.TemporaryDirectory() as d:
+            a, b = Path(d) / "a", Path(d) / "b"
+            for p, metrics, fp in ((a, base, fp_base), (b, new, fp_new)):
+                p.mkdir()
+                (p / "gretel-val-maisecrets.json").write_text(json.dumps({"metrics": metrics}), encoding="utf-8")
+                if fp is not None:
+                    (p / "fpbank-7trees.json").write_text(json.dumps(
+                        {"trees": {"t": {"rules": {f"tests|X|{r}": [n, n] for r, n in fp.items()}}}}),
+                        encoding="utf-8")
+            return compare_bench.compare(a, b)
+
+    def test_a_loss_on_val_a_new_partial_and_a_new_bank_hit_are_findings(self):
+        base = {"all": {"fp": 100}, "pii.name": {"spans": 1000, "full": 500, "partial": 10}}
+        new = {"all": {"fp": 100}, "pii.name": {"spans": 1000, "full": 490, "partial": 11}}
+        found = self.run_compare(base, new, {"email": 3}, {"email": 4})
+        self.assertEqual(len(found), 3, found)
+
+    def test_small_changes_inside_the_lines_are_no_finding(self):
+        base = {"all": {"fp": 1000}, "pii.name": {"spans": 1000, "full": 500, "partial": 10}}
+        new = {"all": {"fp": 1005}, "pii.name": {"spans": 1000, "full": 497, "partial": 9}}
+        self.assertEqual(self.run_compare(base, new, {"email": 3}, {"email": 3}), [])
+
+
 if __name__ == "__main__":
     unittest.main()

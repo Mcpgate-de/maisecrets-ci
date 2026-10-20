@@ -24,13 +24,14 @@ if [ -n "${BENCH_DETECT_SECRETS_PYTHON:-}" ]; then scanners="$scanners detect_se
 if [ -n "${BENCH_SECRET_SCAN_PYTHON:-}" ]; then scanners="$scanners secret_scan"; fi
 if [ -n "${BENCH_PII_ANON_PYTHON:-}" ]; then scanners="$scanners pii_anon"; fi
 if [ -n "${BENCH_PRESERVE_PYTHON:-}" ]; then scanners="$scanners preserve"; fi
+if [ -n "${BENCH_PRESIDIO_PYTHON:-}" ]; then scanners="$scanners presidio"; fi
 
 for s in $scanners; do
   for split in dev val; do
     run --scanner "$s" --source bank --split "$split" --out "$out/bank-$split-$s.json"
   done
   # every scanner on every dataset: its scope decides what counts (Gretel and Nemotron also label passwords and keys)
-  for d in nemotron gretel mendeley piilo; do
+  for d in nemotron gretel mendeley piilo privy; do
     run --scanner "$s" --source "$d" --split all --every "$every" --out "$out/$d-all-every$every-$s.json"
     if [ "$s" = maisecrets ]; then run --scanner "$s" --source "$d" --split all --out "$out/$d-all-$s.json"; fi
   done
@@ -39,5 +40,6 @@ for s in $scanners; do
       --out "$out/catalogs-all-every$every_catalogs-$s.json"
   fi
 done
-"$py" bench/report.py "$out"/*.json > "$out/report.md"
+"$py" bench/manifest.py "$out" "$ms"
+"$py" bench/report.py --csv "$out/report.csv" $(ls "$out"/*.json | grep -v '/environment.json$') > "$out/report.md"
 echo "report: $out/report.md"

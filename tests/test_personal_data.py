@@ -42,6 +42,21 @@ def values(text: str, channel: str = "tool", region: tuple = ALL_REGIONS) -> lis
     return [(m.kind, m.value) for m in scan(text, channel, region) if m.kind in personal.RULE_IDS]
 
 
+class DoubleNameTests(unittest.TestCase):
+    """A double name with a hyphen is masked whole after its label (Benchmark V1, Gretel dev: names found in part
+    811 to 55): the part after the hyphen may start with a capital."""
+
+    def test_the_whole_double_name(self):
+        for text, v in (("Customer name: " + J(["Maria Garcia", "-Lopez"]), J(["Maria Garcia", "-Lopez"])),
+                        ("Name: " + J(["Omar Al", "-Rashid"]), J(["Omar Al", "-Rashid"])),
+                        ("Name: " + J(["Jan Müller", "-Lüdenscheidt"]), J(["Jan Müller", "-Lüdenscheidt"]))):
+            with self.subTest(v=v[:6]):
+                self.assertIn(("name-after-label", v), values(text))
+
+    def test_a_role_with_a_hyphen_stays_text(self):
+        self.assertEqual([k for k, _v in values("Name: Front-Desk Team") if k == "name-after-label"], [])
+
+
 class NameTests(unittest.TestCase):
     def test_a_name_after_a_person_label_is_masked(self):
         for text, name in (("patient: Dorian K. Ashby", "Dorian K. Ashby"),

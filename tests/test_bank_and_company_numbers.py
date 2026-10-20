@@ -202,5 +202,26 @@ class AccountNumberWholeTests(unittest.TestCase):
                 self.assertNotIn("md-table-personal-column", [k for k, _ in self.hits(text)])
 
 
+class HyphenatedLicenseTests(unittest.TestCase):
+    """A driver license written in hyphenated groups is masked whole (Benchmark V1, Gretel dev: licenses found in part
+    118 to 4); a token that goes on after the groups keeps the hit it had."""
+    WI = "".join(["A123", "-4567", "-8901", "-23"])     # Wisconsin
+    IL = "".join(["B246", "-8135", "-7902"])            # Illinois
+
+    def us(self, text: str) -> list:
+        active = regions.Active(regions=("generic", "us"), languages=("en",), source="test")
+        with detect.Detector(regions=active).activate():
+            return [(m.kind.split("#")[0], m.value) for m in detect.scan(text, channel="tool")]
+
+    def test_a_hyphenated_license_is_masked_whole(self):
+        for v in (self.WI, self.IL):
+            with self.subTest(v=v[:4]):
+                self.assertIn(("us-license", v), self.us("Driver license: " + v))
+
+    def test_a_token_that_goes_on_keeps_its_old_hit(self):
+        hits = self.us("license " + "".join(["A123", "-2024", "-10", "-20", "-x"]))
+        self.assertEqual([v for k, v in hits if k == "us-license"], ["A123"])
+
+
 if __name__ == "__main__":
     unittest.main()

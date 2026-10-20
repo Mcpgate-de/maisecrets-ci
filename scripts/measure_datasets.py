@@ -108,6 +108,18 @@ SOURCES = {
         "archive": "https://www.kaggle.com/api/v1/datasets/download/lburleigh/piilo-dataset?datasetVersionNumber=2",
         "files": {"train.json": "8276cd44f3b2eb357dfb405b3c5d8e9f821388e984cbf66e92e7df03f1b13117"},
     },
+    # added for Benchmark V2 (2026-10-20) as a set nobody had read for tuning; its mapping below was fixed from the
+    # dataset card and the label inventory before the first run of any scanner (docs/BENCHMARK-V2.md)
+    "privy": {
+        "title": "Privy English (synthetic protocol traces: JSON, SQL, HTML, XML)",
+        "licence": "MIT", "attribution": "the Pixie authors (pixie-io/pixie, src/datagen/pii/privy)",
+        "url": "https://huggingface.co/datasets/beki/privy",
+        "repo": "beki/privy",
+        "revision": "dc137a6a976f6b5bb8768e9bb51ec58df930ccd1",
+        "archive_file": "privy-dataset.zip",
+        "archive_sha256": "ad4ffbc8f7102a92f01f8d8023ddf4f5244fea6b23c3f116641fe6bbd8cbbde4",
+        "files": {"test-small.json": "7ccbf2338f1b1d0f2192e5ad727e270f9cdf44dbe522a16af52d500f8c6c30f9"},
+    },
 }
 DATASETS = tuple(SOURCES)
 
@@ -158,6 +170,13 @@ LABELS = {
         "ID_NUM": "ID_NUMBER", "USERNAME": "USERNAME",
         **{k: _OOS for k in ("URL_PERSONAL",)},
     },
+    # LOC mixes cities, countries and street addresses: out of scope, as city and country are for Nemotron
+    "privy": {
+        "PER": "NAME", "CREDIT_CARD": "CARD", "US_BANK_NUMBER": "US_BANK_NUMBER", "US_DRIVER_LICENSE": "ID_NUMBER",
+        "US_PASSPORT": "ID_NUMBER", "US_ITIN": "ID_NUMBER", "PASSWORD": "SECRET",
+        **{k: _OOS for k in ("LOC", "DATE_TIME", "NRP", "TITLE", "FINANCIAL", "ORG", "US_LICENSE_PLATE", "IMEI",
+                             "AGE", "MAC_ADDRESS")},
+    },
 }
 TIER_OF = {t: tier for tier, types in TIERS.items() for t in types}
 
@@ -202,6 +221,17 @@ def fetch(name: str, data: Path) -> None:
     src = SOURCES[name]
     into = data / name
     into.mkdir(parents=True, exist_ok=True)
+    if name == "privy":
+        target = into / "test-small.json"
+        if not _verified(target, src["files"]["test-small.json"]):
+            archive = into / src["archive_file"]
+            if not _verified(archive, src["archive_sha256"]):
+                _get(HF.format(repo=src["repo"], revision=src["revision"], path=src["archive_file"]), archive)
+            _require(archive, src["archive_sha256"], name)
+            with zipfile.ZipFile(archive) as z, z.open("test-small.json") as zf, open(target, "wb") as fh:
+                shutil.copyfileobj(zf, fh, 1 << 20)
+        _require(target, src["files"]["test-small.json"], name)
+        return
     if name == "piilo":
         target = into / "train.json"
         if not _verified(target, src["files"]["train.json"]):
@@ -300,6 +330,16 @@ def nemotron_samples(records, stats: collections.Counter):
                "text": r["text"] or "",
                "spans": [{"start": s["start"], "end": s["end"], "label": s["label"], "expect": str(s.get("text", ""))}
                          for s in spans]}
+
+
+def privy_samples(records, stats: collections.Counter):
+    """One sample per record of test-small.json; `O` marks the text between the values and is no span."""
+    for i, r in enumerate(records):
+        stats["records"] += 1
+        yield {"id": f"test-small:{i}", "lang": "en", "tags": [f"template:{r.get('template_id')}"],
+               "text": r["full_text"],
+               "spans": [{"start": s["start_position"], "end": s["end_position"], "label": s["entity_type"],
+                          "expect": s.get("entity_value", "")} for s in r["spans"] if s["entity_type"] != "O"]}
 
 
 def _cp1252(lo: int, hi: int) -> str:
@@ -418,6 +458,10 @@ def load(name: str, data: Path, stats: collections.Counter):
             _require(d / f, SOURCES["mendeley"]["files"][f], name)
         return mendeley_samples(((Path(f).stem, read_xlsx(d / f)) for f in sorted(SOURCES["mendeley"]["files"])),
                                 stats)
+    if name == "privy":
+        _require(d / "test-small.json", SOURCES["privy"]["files"]["test-small.json"], name)
+        with open(d / "test-small.json", encoding="utf-8") as fh:
+            return privy_samples(json.load(fh), stats)
     if name == "piilo":
         _require(d / "train.json", SOURCES["piilo"]["files"]["train.json"], name)
         with open(d / "train.json", encoding="utf-8") as fh:

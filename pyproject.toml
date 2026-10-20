@@ -1,0 +1,34 @@
+# The detection core as a library (docs/DETECTION.md). The wheel holds maisecrets/__init__.py and
+# maisecrets/detection/ with its rule data, nothing of the plugin: a Detector built from it reads no home folder,
+# config or placeholder form of this computer. Not published to PyPI; scripts/wheel_smoke.py builds it and installs
+# it into a fresh venv.
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "maisecrets"
+dynamic = ["version"]
+description = "Find secrets and personal data in text: the detection core of the maisecrets plugin"
+readme = "docs/DETECTION.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE", "maisecrets/detection/rules/LICENSE-*"]
+dependencies = []
+
+[project.urls]
+Source = "https://github.com/Mcpgate-de/maisecrets"
+
+# the version is the plugin's: scripts/release.py writes it into the manifests, and the wheel reads it from there
+[tool.hatch.version]
+path = ".claude-plugin/plugin.json"
+pattern = "\"version\": \"(?P<version>[^\"]+)\""
+
+[tool.hatch.build.targets.wheel]
+only-include = ["maisecrets/__init__.py", "maisecrets/detection"]
+exclude = ["__pycache__", "*.pyc"]
+
+[tool.hatch.build.targets.sdist]
+only-include = ["maisecrets/__init__.py", "maisecrets/detection", ".claude-plugin/plugin.json", "docs/DETECTION.md",
+                "LICENSE", "NOTICE", "pyproject.toml"]
+exclude = ["__pycache__", "*.pyc"]

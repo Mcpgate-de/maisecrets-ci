@@ -107,8 +107,16 @@ class LauncherFailsClosedTests(unittest.TestCase):
             with self.subTest(event):
                 r = self.launch(event)
                 self.assertNotIn("dispatch.py ran", r.stderr)
-                self.assertIn(f"maisecrets needs Python 3.9 or newer on the PATH of the client (found: {found})",
-                              r.stdout + r.stderr)
+                said = r.stdout + r.stderr
+                if found == "none" and sys.platform == "win32" and " gave no answer in " in said:
+                    # Git Bash on a loaded windows-latest runner: twelve launches of a missing command passed the
+                    # 2 s budget, so the launcher named the candidate it was at (2026-10-19). The answer is the
+                    # same refusal; only the reason names a candidate instead of none
+                    self.assertRegex(said, r"needs Python 3\.9 or newer on the PATH of the client "
+                                           r"\(found: [\w. -]+ gave no answer in \d+ s\)")
+                else:
+                    self.assertIn(f"maisecrets needs Python 3.9 or newer on the PATH of the client (found: {found})",
+                                  said)
                 if event == "post-tool":
                     # Claude Code ignores exit 2 after a tool: the JSON itself must withhold
                     self.assertEqual(r.returncode, 0)

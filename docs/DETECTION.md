@@ -5,6 +5,18 @@ folder and no reference form of its own. The plugin gives those to it; a library
 
 ## Use it as a library
 
+`pyproject.toml` builds the core as a wheel. It holds `maisecrets/__init__.py` and `maisecrets/detection/` with its
+rule data, and no module of the plugin. It needs no other package and runs on Python 3.9 and later. It is not on PyPI:
+
+```bash
+python3 -m pip wheel --no-deps -w dist .        # dist/maisecrets-<version>-py3-none-any.whl
+python3 -m pip install dist/maisecrets-*.whl
+```
+
+The version is the plugin's version (`.claude-plugin/plugin.json`); a wheel from `main` or a tag has the released
+one. `importlib.metadata.version("maisecrets")` gives it. Without the plugin modules, each argument left `None` takes
+no config, no sources and no reference form: a detector from the wheel never reads the home folder.
+
 ```python
 from maisecrets.detection import Active, Detector, Host, NO_REFERENCES, NO_SOURCES
 

@@ -1999,6 +1999,12 @@ PRESIDIO_NO_DATE = frozenset({"us-bank"})
 # lines took 948 false alarms back for 25. It needs the card fix: before it, 681 Mendeley card numbers were found only
 # by this rule (docs/BENCHMARKS.md, "Rule changes measured with Benchmark V1")
 PRESIDIO_LABEL_BEFORE = {"us-bank": 60}
+# A driver license written in hyphenated groups (Wisconsin A123-4567-8901-23, Illinois A123-4567-8901): Presidio's
+# pattern ends at a word boundary, so it took the letter and the first digits and left the rest in the clear
+# (Benchmark V1, Gretel dev: 114 licenses with 11 of 15 characters unmasked). The hit takes up to four following
+# groups of digits when the token ends there
+PRESIDIO_HYPHEN_TAIL = frozenset({"us-license#0"})
+_HYPHEN_DIGITS_TAIL_RE = _LazyRx(r"(?:-\d{1,5}){1,4}(?![\w-])")
 # A us-bank match is the whole number or nothing: `\b[0-9]{8,17}\b` took the ten digits after the hyphen of an account
 # number written 482-3917265104, and that shorter hit won the overlap against the label rule that had the whole number,
 # so three digits reached the model. Benchmark V1, Nemotron: 2,197 account numbers found only in part. The same for the
@@ -4049,6 +4055,11 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
             if end <= start:
                 continue
             secret = m.group(g)
+            if rule.id in PRESIDIO_HYPHEN_TAIL:
+                tail = _HYPHEN_DIGITS_TAIL_RE.match(text, end)
+                if tail:
+                    end = tail.end()
+                    secret = text[start:end]
             if "cjk-head" in filters and _is_cjk(secret[0]):
                 # the address took the Japanese, Chinese or Korean words before it (\w holds their letters)
                 k = next((i for i, ch in enumerate(secret) if not _is_cjk(ch)), len(secret))

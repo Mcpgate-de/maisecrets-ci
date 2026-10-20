@@ -28,7 +28,7 @@ sys.path.insert(0, str(ROOT))
 from bench import cases as casefmt  # noqa: E402
 from bench import score, sources  # noqa: E402
 
-ADAPTERS = ("maisecrets", "detect_secrets", "secret_scan", "pii_anon", "preserve")
+ADAPTERS = ("maisecrets", "detect_secrets", "secret_scan", "pii_anon", "preserve", "presidio")
 HOLDOUT_LOG = ROOT / "bench" / "HOLDOUT-LOG.md"
 MANIFEST = ROOT / "bench" / "holdout.manifest"
 

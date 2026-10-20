@@ -1080,12 +1080,16 @@ class ReportTests(unittest.TestCase):
 class ConcurrencyTests(unittest.TestCase):
     def test_parallel_hook_processes_do_not_lose_the_index_or_each_other(self):
         _reset()
-        code = ("import sys; sys.path.insert(0, sys.argv[1]); from maisecrets.vault import Vault; "
+        # each child waits up to 60 s for the lock, not the 6 s of a hook: twelve processes on a loaded windows-latest
+        # runner queued past 6 s and failed with LockTimeout (2026-10-20). The test asks whether the lock loses
+        # nothing; whether one lock comes within a hook's deadline is asked by other tests
+        code = ("import sys; sys.path.insert(0, sys.argv[1]); from maisecrets.home import _Lock; "
+                "_Lock.LOCK_DEADLINE = 60.0; from maisecrets.vault import Vault; "
                 "e = Vault().put('parallel-value-' + sys.argv[2] + '-abcdef', 'SECRET', 'manual', session='S1'); "
                 "print(e.key)")
         procs = [subprocess.Popen([sys.executable, "-c", code, str(ROOT), str(i)], stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE, text=True, env=dict(os.environ)) for i in range(12)]
-        outs = [p.communicate(timeout=60) for p in procs]
+        outs = [p.communicate(timeout=120) for p in procs]
         errors = [err for _o, err in outs if err.strip()]
         self.assertEqual(errors, [], errors[:2])
         keys = sorted(o.strip() for o, _e in outs)
