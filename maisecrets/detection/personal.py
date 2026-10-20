@@ -781,6 +781,11 @@ _SINGLE_NAME_RE = _lazy(r"(?i:(?<![a-z_./-])(?:" + _SINGLE_NAME_LABELS + r"))[\"
 _USERNAME_LABEL_RE = _lazy(r"(?i)(?<![a-z_.-])(?:user[ _-]?name|benutzername|nutzername|login[ _-]?name)[\"']?"
                            r"([ \t]{0,3}[:=][ \t]{0,3})(?:\"([^\"\n]{1,64})\"|'([^'\n]{1,64})'"
                            r"|([^\s\"',;{}\[\]()<>]{1,64})(?=[\s,;}\])]|$))")
+# the label in a sentence ("the user name jdoe84", "your user name is j.harlow"): only a value with a digit, a dot or
+# an underscore, as a sentence goes on after the label with a word ("the user name field"). Benchmark V1, Nemotron
+# dev split: about 1,800 user names missed after these forms, 2026-10-20
+_USERNAME_PROSE_RE = _lazy(r"(?i)(?<![a-z_.-])(?:user[ _-]?name|username)(?:[ \t]+(?:is|was))?[ \t]+"
+                           r"([A-Za-z][\w.@+-]{1,62}[A-Za-z0-9])(?=[\s,;:!?)]|\.(?:\s|$)|$)")
 _EXAMPLE_KEY_RE = _lazy(r"(?i)[\"']?examples?[\"']?[ \t]{0,3}:[ \t]*(?:\{|\|)?")
 _USERNAME_SHAPE_RE = _lazy(r"[\w][\w.@+\\/-]{1,63}")
 # a name in code, not a value: `username = os.environ[...]`, `user_name: self.user.name`
@@ -1421,6 +1426,12 @@ def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> l
                 continue
             if _username_value_ok(m.group(g), g != 4, m.group(1)):
                 out.append((m.start(g), m.end(g), "username-after-label", USERNAME))
+        for m in _USERNAME_PROSE_RE.finditer(text):
+            v = m.group(1)
+            if (re.search(r"[\d._]", v) and "@" not in v and not _VERSION_RE.match(v)
+                    and not _under_example_key(text, m.start())
+                    and _username_value_ok(v, False, " ")):
+                out.append((m.start(1), m.end(1), "username-after-label", USERNAME))
     if "address-street-after-label" in want and any(w in low for w in _STREET_LABEL_WORDS):
         for m in _STREET_LABEL_RE.finditer(text):
             g = 1 if m.group(1) is not None else 2

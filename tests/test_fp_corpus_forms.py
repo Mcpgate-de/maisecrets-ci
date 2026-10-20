@@ -72,6 +72,8 @@ OWNER = {
     "password after and password": "secret-password-with-sign",
     "password that ends with a bang": "secret-password-with-sign",
     "password that starts with a hash": "secret-password-with-sign",
+    "user name after the label in a sentence": "username-after-label",
+    "user name after the label and is": "username-after-label",
 }
 
 

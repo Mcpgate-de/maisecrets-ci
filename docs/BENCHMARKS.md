@@ -226,6 +226,27 @@ Read on the `dev` split, decided on `val` and the false-alarm bank.
 | Mendeley, PIILO, bank dev and val | – | no change |
 | False-alarm bank, seven trees (`compare`) | – | +0 |
 
+### A user name after the label in a sentence, 2026-10-20
+
+Read on the `dev` split only (a classification first, not a hunt for the 12,951 misses), decided on `val` and the
+false-alarm bank.
+
+- **Classes of the dev misses (Nemotron, 7,695):** the label in a sentence ("the user name ...", "your user name is
+  ...", about 1,800); table rows under a `username` column (2,149, kept out on purpose: the column counts only next to
+  a column of a person, as a table of service accounts has one too); "user id ..." (an id, not clearly a user name);
+  "author", "prepared by", "dear" (mostly names). Only the first is changed.
+- **Fix:** `username-after-label` also reads the label in a sentence, with `is` or `was` or only a space, when the
+  value has a digit, a dot or an underscore. A word (`field`, `harlow`), a product or sign-in provider (`Okta`), a
+  version, an address, a variable and a call stay text; the label with a colon is unchanged.
+
+| Measure | Before (`next`, 15c4107c) | This change |
+|---|---|---|
+| Nemotron dev: user names whole, false positives, F1 | 1,680, 498, 0.6899 | 3,211, 500, 0.6961 |
+| Nemotron val: user names whole, false positives, F1 | 584, 185, 0.6918 | 1,124, 186, 0.6985 |
+| Gretel dev / val: user names whole | 71 / 24 | 72 / 25 (false positives unchanged) |
+| Mendeley, PIILO, bank dev and val | – | no change |
+| False-alarm bank, seven trees (`compare`) | – | +0 |
+
 ## CredData, results per release
 
 CredData line method, without repository `2ba83c6a` (23,667 rows: 10,106 credentials, 13,561 non-secrets),

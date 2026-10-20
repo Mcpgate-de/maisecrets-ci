@@ -325,6 +325,14 @@ FORMS_NO_HIT = [
     ("password word and a rule", "the password must be 12+ chars"),
     ("password word and a mask", "password ****1234! shown in the log"),
     ("password word and a pull request", "the password #PR-1234 merged, see #4711"),
+    # the user name label in a sentence and a word, a version, an address, a variable, a call after it
+    ("user name label and a word", "the user name field is required; enter your user name and password"),
+    ("user name label and a version", "username v2.1 schema, username V3.0.1 rollout"),
+    ("user name label and an address", "the username it-help1@mail.invalid"),
+    ("user name label and a call", "username str.lower() and the user name $USER1"),
+    # a name after the label that is no account: a product or a sign-in provider. Without a digit, a dot or an
+    # underscore the sentence form takes no value (the label with a colon still does)
+    ("user name label and a provider", "sign in with the user name Okta gives you, or the user name harlow"),
 ]
 
 FORMS_HIT = [
@@ -343,6 +351,9 @@ FORMS_HIT = [
     ("password after and password", "Sign in as lea.v and password " + "Bramble" + "wood@19", ["Bramble" + "wood@19"]),
     ("password that ends with a bang", "Use the password " + "Quill" + "ary99!" + " for the wifi.", ["Quill" + "ary99!"]),
     ("password that starts with a hash", "use the password " + "#Sec" + "ure123" + " here", ["#Sec" + "ure123"]),
+    ("user name after the label in a sentence", "Log in with the user name " + "kmor" + "itz84" + " today.",
+     ["kmor" + "itz84"]),
+    ("user name after the label and is", "Your user name is " + "j." + "harlow" + ".", ["j." + "harlow"]),
     ("username of two dictionary words", "username: " + "hunter" + ".king42", ["hunter" + ".king42"]),
     ("username after an unrelated example key", "example: ignored\nusername: " + "lvo" + "gel2026", ["lvo" + "gel2026"]),
     ("username in json", '{"id": 4711, "username": "' + "lea" + ".vogel87" + '", "active": true}', ["lea" + ".vogel87"]),
