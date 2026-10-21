@@ -1,0 +1,8 @@
+maisecrets+ner 0.7.3 on privy/all: 595 cases, spans 282, full 264, partial 2, missed 16, FP 1086, recall 0.9362, precision 0.1967, F1 0.3251, too wide 0
+  pii                          spans    265  full    250  partial     2  missed     13  FP  1084  R 0.9434
+  pii.card                     spans     10  full     10  partial     0  missed      0  FP     0  R -
+  pii.name                     spans    191  full    189  partial     2  missed      0  FP     0  R 0.9895
+  pii.national_id              spans     64  full     51  partial     0  missed     13  FP     0  R 0.7969
+  secret                       spans     17  full     14  partial     0  missed      3  FP     2  R -
+  secret.password              spans     17  full     14  partial     0  missed      3  FP     0  R -
+13:30 Chigh privy every50 done

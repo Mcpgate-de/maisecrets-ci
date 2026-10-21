@@ -1,0 +1,32 @@
+diff --git a/bench/adapters/preserve.py b/bench/adapters/preserve.py
+index fa9d0481..67e3d99c 100644
+--- a/bench/adapters/preserve.py
++++ b/bench/adapters/preserve.py
+@@ -13,7 +13,7 @@ from bench.adapters import _proc
+ 
+ NAME = "preserve"
+ SCOPE = ("secret.", "pii.")
+-COMMIT = "01dbd7710de79e21bef851aaa8b6cbfb4b1188ad"
++COMMIT = "298d1279c8f9969a4675bb59bc1cf6715bf22e68"
+ 
+ _WORKER = r'''
+ import json, sys, time
+diff --git a/bench/adapters/requirements/preserve.txt b/bench/adapters/requirements/preserve.txt
+index 595f57ea..77b03237 100644
+--- a/bench/adapters/requirements/preserve.txt
++++ b/bench/adapters/requirements/preserve.txt
+@@ -1,4 +1,4 @@
+-# preserve: every distribution of the measured environment (Python 3.15, macOS arm64), 2026-10-19.
++# preserve 0.6.2: the distributions of 2026-10-19 with Preserve at its current commit, 2026-10-21.
+ # pip install --no-deps -r bench/adapters/requirements/preserve.txt
+ annotated-types==0.8.0
+ anyio==4.15.1
+@@ -18,7 +18,7 @@ names-dataset==3.3.1
+ numpy==2.5.4
+ openai==3.35.1
+ phonenumbers==9.0.41
+-preserve-pii @ git+https://github.com/thirtysix/Preserve.git@01dbd7710de79e21bef851aaa8b6cbfb4b1188ad
++preserve-pii @ git+https://github.com/thirtysix/Preserve.git@298d1279c8f9969a4675bb59bc1cf6715bf22e68
+ pycountry==26.2.16
+ pydantic==2.14.1
+ pydantic_core==2.50.1

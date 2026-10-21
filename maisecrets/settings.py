@@ -154,9 +154,28 @@ def nested_program(payload: dict) -> str | None:
     return entry if payload.get("source") is None and entry.startswith(NESTED_ENTRYPOINTS) else None
 
 
+# a message of another Claude session (SendMessage) reaches a session as a prompt, wrapped by the client, and the hook
+# input names no origin (2.1.302: `source` is in the schema and not sent). A person can type the wrapper too, so it
+# only takes rights away: such a prompt is never the person's, and a block never touches the clipboard (2026-10-21)
+_PEER_RE = re.compile(r"\A\s*Another Claude session sent a message:\s*<cross-session-message\b([^>\n]{0,400})>")
+_PEER_NAME_RE = re.compile(r'\bfrom-name="([A-Za-z0-9 ._-]{1,40})"')
+
+
+def peer_sender(prompt) -> str | None:
+    """The name of the session that sent this prompt with SendMessage, \"another session\" when it gives none; None
+    for any other prompt."""
+    m = _PEER_RE.match(prompt) if isinstance(prompt, str) else None
+    if not m:
+        return None
+    name = _PEER_NAME_RE.search(m.group(1))
+    return name.group(1) if name else "another session"
+
+
 def typed_by_the_person(payload: dict) -> bool:
-    """The prompt counts as typed by the person: a `source` the person has, and no program started the client."""
-    return payload.get("source") in TYPED_SOURCES and nested_program(payload) is None
+    """The prompt counts as typed by the person: a `source` the person has, no program started the client, and no
+    other session sent it."""
+    return (payload.get("source") in TYPED_SOURCES and nested_program(payload) is None
+            and peer_sender(payload.get("prompt")) is None)
 
 
 def not_typed_reason(payload: dict) -> str:

@@ -1,0 +1,28 @@
+{
+ "nemotron": {
+  "PERSON for spaCy lg too (likely an unlabelled name)": 34,
+  "lower-case word": 5,
+  "all capitals": 4,
+  "a piece of a word (the span ends inside a word)": 2
+ },
+ "all": {
+  "PERSON for spaCy lg too (likely an unlabelled name)": 1820,
+  "lower-case word": 813,
+  "all capitals": 22,
+  "a piece of a word (the span ends inside a word)": 6
+ },
+ "gretel": {
+  "PERSON for spaCy lg too (likely an unlabelled name)": 1035,
+  "lower-case word": 806,
+  "all capitals": 17,
+  "a piece of a word (the span ends inside a word)": 4
+ },
+ "mendeley": {
+  "PERSON for spaCy lg too (likely an unlabelled name)": 712
+ },
+ "piilo": {
+  "PERSON for spaCy lg too (likely an unlabelled name)": 39,
+  "lower-case word": 2,
+  "all capitals": 1
+ }
+}

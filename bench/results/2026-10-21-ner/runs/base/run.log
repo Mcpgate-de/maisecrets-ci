@@ -1,0 +1,97 @@
+maisecrets 0.7.3 on nemotron/all: 1921 cases, spans 6700, full 3888, partial 13, missed 2799, FP 13, recall 0.5803, precision 0.9965, F1 0.7335, too wide 0
+  pii                          spans   6471  full   3787  partial    12  missed   2672  FP    13  R 0.5852
+  pii.address                  spans    344  full    136  partial     4  missed    204  FP     0  R 0.3953
+  pii.bank_account             spans    264  full    238  partial     0  missed     26  FP     0  R 0.9015
+  pii.birth_date               spans    343  full    307  partial     0  missed     36  FP     0  R 0.895
+  pii.card                     spans     16  full     16  partial     0  missed      0  FP     0  R -
+  pii.email                    spans   1007  full   1007  partial     0  missed      0  FP     0  R 1.0
+  pii.ip                       spans    189  full    189  partial     0  missed      0  FP     0  R 1.0
+  pii.name                     spans   2696  full    743  partial     0  missed   1953  FP     0  R 0.2756
+  pii.national_id              spans    725  full    610  partial     8  missed    107  FP     0  R 0.8414
+  pii.phone                    spans    567  full    459  partial     0  missed    108  FP     0  R 0.8095
+  pii.username                 spans    320  full     82  partial     0  missed    238  FP     0  R 0.2562
+  secret                       spans    229  full    101  partial     1  missed    127  FP     0  R 0.441
+  secret.generic               spans    100  full     27  partial     0  missed     73  FP     0  R 0.27
+  secret.password              spans    129  full     74  partial     1  missed     54  FP     0  R 0.5736
+11:34 base nemotron every50 done
+maisecrets 0.7.3 on nemotron/all: 100000 cases, spans 346688, full 203905, partial 382, missed 142401, FP 898, recall 0.5882, precision 0.9954, F1 0.7394, too wide 46
+  pii                          spans 335036  full 198625  partial   320  missed 136091  FP   865  R 0.5928
+  pii.address                  spans  16879  full   6252  partial    69  missed  10558  FP     0  R 0.3704
+  pii.bank_account             spans  12503  full  11521  partial     2  missed    980  FP     0  R 0.9215
+  pii.birth_date               spans  18079  full  16410  partial     0  missed   1669  FP     0  R 0.9077
+  pii.card                     spans   1527  full   1516  partial     0  missed     11  FP     0  R 0.9928
+  pii.email                    spans  53550  full  53549  partial     1  missed      0  FP     0  R 1.0
+  pii.iban                     spans      6  full      3  partial     2  missed      1  FP     0  R -
+  pii.ip                       spans   7971  full   7958  partial     0  missed     13  FP     0  R 0.9984
+  pii.name                     spans 143639  full  41959  partial     9  missed 101671  FP     0  R 0.2921
+  pii.national_id              spans  34842  full  29979  partial   183  missed   4680  FP     0  R 0.8604
+  pii.phone                    spans  30240  full  24000  partial    54  missed   6186  FP     0  R 0.7937
+  pii.username                 spans  15800  full   5478  partial     0  missed  10322  FP     0  R 0.3467
+  secret                       spans  11652  full   5280  partial    62  missed   6310  FP    33  R 0.4531
+  secret.generic               spans   4667  full   1362  partial    11  missed   3294  FP     0  R 0.2918
+  secret.password              spans   6985  full   3918  partial    51  missed   3016  FP     0  R 0.5609
+11:47 base nemotron every1 done
+maisecrets 0.7.3 on gretel/all: 837 cases, spans 2535, full 769, partial 12, missed 1754, FP 62, recall 0.3034, precision 0.926, F1 0.457, too wide 7
+  pii                          spans   2510  full    759  partial    12  missed   1739  FP    60  R 0.3024
+  pii.address                  spans    645  full    177  partial     7  missed    461  FP     0  R 0.2744
+  pii.bank_account             spans      1  full      0  partial     0  missed      1  FP     0  R -
+  pii.birth_date               spans     45  full     28  partial     0  missed     17  FP     0  R 0.6222
+  pii.card                     spans     12  full     11  partial     0  missed      1  FP     0  R -
+  pii.email                    spans    163  full    163  partial     0  missed      0  FP     0  R 1.0
+  pii.iban                     spans     21  full     21  partial     0  missed      0  FP     0  R -
+  pii.ip                       spans     50  full     50  partial     0  missed      0  FP     0  R 1.0
+  pii.name                     spans   1409  full    189  partial     2  missed   1218  FP     0  R 0.1341
+  pii.national_id              spans     61  full     47  partial     0  missed     14  FP     0  R 0.7705
+  pii.phone                    spans     91  full     67  partial     3  missed     21  FP     0  R 0.7363
+  pii.username                 spans     12  full      6  partial     0  missed      6  FP     0  R -
+  secret                       spans     25  full     10  partial     0  missed     15  FP     2  R -
+  secret.generic               spans     17  full      9  partial     0  missed      8  FP     0  R -
+  secret.password              spans      8  full      1  partial     0  missed      7  FP     0  R -
+11:47 base gretel every50 done
+maisecrets 0.7.3 on gretel/all: 41932 cases, spans 132633, full 37626, partial 727, missed 94280, FP 3862, recall 0.2837, precision 0.9082, F1 0.4323, too wide 326
+  pii                          spans 131222  full  37080  partial   722  missed  93420  FP  3767  R 0.2826
+  pii.address                  spans  31414  full   8585  partial   360  missed  22469  FP     0  R 0.2733
+  pii.bank_account             spans    129  full     55  partial     0  missed     74  FP     0  R 0.4264
+  pii.birth_date               spans   1912  full   1307  partial     0  missed    605  FP     0  R 0.6836
+  pii.card                     spans    501  full    438  partial     0  missed     63  FP     0  R 0.8743
+  pii.email                    spans   8556  full   8508  partial    43  missed      5  FP     0  R 0.9944
+  pii.iban                     spans   1185  full   1160  partial     0  missed     25  FP     0  R 0.9789
+  pii.ip                       spans   2073  full   1929  partial     0  missed    144  FP     0  R 0.9305
+  pii.name                     spans  77117  full   9801  partial   235  missed  67081  FP     0  R 0.1271
+  pii.national_id              spans   3047  full   1981  partial     4  missed   1062  FP     0  R 0.6501
+  pii.phone                    spans   4563  full   3172  partial    78  missed   1313  FP     0  R 0.6952
+  pii.username                 spans    725  full    144  partial     2  missed    579  FP     0  R 0.1986
+  secret                       spans   1411  full    546  partial     5  missed    860  FP    95  R 0.387
+  secret.generic               spans    748  full    378  partial     0  missed    370  FP     0  R 0.5053
+  secret.password              spans    663  full    168  partial     5  missed    490  FP     0  R 0.2534
+11:53 base gretel every1 done
+maisecrets 0.7.3 on mendeley/all: 872 cases, spans 5011, full 3429, partial 16, missed 1566, FP 46, recall 0.6843, precision 0.9868, F1 0.8082, too wide 0
+  pii                          spans   5011  full   3429  partial    16  missed   1566  FP    46  R 0.6843
+  pii.address                  spans    894  full    574  partial     1  missed    319  FP     0  R 0.6421
+  pii.card                     spans    769  full    769  partial     0  missed      0  FP     0  R 1.0
+  pii.name                     spans   1485  full    273  partial    15  missed   1197  FP     0  R 0.1838
+  pii.national_id              spans    991  full    991  partial     0  missed      0  FP     0  R 1.0
+  pii.phone                    spans    872  full    822  partial     0  missed     50  FP     0  R 0.9427
+11:53 base mendeley every50 done
+maisecrets 0.7.3 on mendeley/all: 45030 cases, spans 258835, full 177394, partial 742, missed 80699, FP 1859, recall 0.6854, precision 0.9897, F1 0.8099, too wide 0
+  pii                          spans 258835  full 177394  partial   742  missed  80699  FP  1859  R 0.6854
+  pii.address                  spans  46264  full  30121  partial   144  missed  15999  FP     0  R 0.6511
+  pii.card                     spans  39060  full  39060  partial     0  missed      0  FP     0  R 1.0
+  pii.name                     spans  77200  full  14748  partial   598  missed  61854  FP     0  R 0.191
+  pii.national_id              spans  51283  full  51283  partial     0  missed      0  FP     0  R 1.0
+  pii.phone                    spans  45028  full  42182  partial     0  missed   2846  FP     0  R 0.9368
+12:00 base mendeley every1 done
+maisecrets 0.7.3 on piilo/all: 132 cases, spans 15, full 2, partial 0, missed 13, FP 0, recall None, precision 1.0, F1 None, too wide 0
+  pii                          spans     15  full      2  partial     0  missed     13  FP     0  R -
+  pii.email                    spans      1  full      1  partial     0  missed      0  FP     0  R -
+  pii.name                     spans     14  full      1  partial     0  missed     13  FP     0  R -
+12:00 base piilo every50 done
+maisecrets 0.7.3 on piilo/all: 6807 cases, spans 1496, full 141, partial 0, missed 1355, FP 12, recall 0.0943, precision 0.9216, F1 0.1711, too wide 0
+  pii                          spans   1496  full    141  partial     0  missed   1355  FP    12  R 0.0943
+  pii.address                  spans      2  full      0  partial     0  missed      2  FP     0  R -
+  pii.email                    spans     39  full     39  partial     0  missed      0  FP     0  R 1.0
+  pii.name                     spans   1365  full     98  partial     0  missed   1267  FP     0  R 0.0718
+  pii.national_id              spans     78  full      0  partial     0  missed     78  FP     0  R 0.0
+  pii.phone                    spans      6  full      4  partial     0  missed      2  FP     0  R -
+  pii.username                 spans      6  full      0  partial     0  missed      6  FP     0  R -
+12:02 base piilo every1 done

@@ -1,0 +1,72 @@
+{
+ "nemotron": {
+  "capitalised, no entity for spaCy lg": 175,
+  "spaCy lg: MONEY": 40,
+  "spaCy lg: ORG": 33,
+  "all capitals": 10,
+  "PERSON for spaCy lg too (likely an unlabelled name)": 8,
+  "lower-case word": 7,
+  "spaCy lg: WORK_OF_ART": 2,
+  "spaCy lg: FAC": 1,
+  "spaCy lg: GPE": 1,
+  "spaCy lg: PRODUCT": 1
+ },
+ "all": {
+  "PERSON for spaCy lg too (likely an unlabelled name)": 1102,
+  "lower-case word": 967,
+  "capitalised, no entity for spaCy lg": 668,
+  "spaCy lg: ORG": 235,
+  "all capitals": 56,
+  "spaCy lg: GPE": 56,
+  "spaCy lg: MONEY": 44,
+  "spaCy lg: WORK_OF_ART": 18,
+  "spaCy lg: PRODUCT": 14,
+  "spaCy lg: NORP": 12,
+  "spaCy lg: FAC": 10,
+  "spaCy lg: DATE": 3,
+  "spaCy lg: EVENT": 2,
+  "spaCy lg: LAW": 2,
+  "spaCy lg: CARDINAL": 2,
+  "a piece of a word (the span ends inside a word)": 1,
+  "spaCy lg: PERCENT": 1,
+  "spaCy lg: LOC": 1
+ },
+ "gretel": {
+  "lower-case word": 956,
+  "PERSON for spaCy lg too (likely an unlabelled name)": 427,
+  "capitalised, no entity for spaCy lg": 404,
+  "spaCy lg: ORG": 166,
+  "spaCy lg: GPE": 53,
+  "all capitals": 42,
+  "spaCy lg: NORP": 11,
+  "spaCy lg: PRODUCT": 7,
+  "spaCy lg: MONEY": 4,
+  "spaCy lg: FAC": 4,
+  "spaCy lg: WORK_OF_ART": 3,
+  "spaCy lg: DATE": 3,
+  "spaCy lg: EVENT": 2,
+  "spaCy lg: LAW": 2,
+  "spaCy lg: CARDINAL": 2,
+  "a piece of a word (the span ends inside a word)": 1,
+  "spaCy lg: PERCENT": 1
+ },
+ "mendeley": {
+  "PERSON for spaCy lg too (likely an unlabelled name)": 634,
+  "capitalised, no entity for spaCy lg": 32,
+  "spaCy lg: ORG": 18,
+  "spaCy lg: FAC": 5,
+  "spaCy lg: PRODUCT": 4,
+  "spaCy lg: GPE": 2
+ },
+ "piilo": {
+  "capitalised, no entity for spaCy lg": 57,
+  "PERSON for spaCy lg too (likely an unlabelled name)": 33,
+  "spaCy lg: ORG": 18,
+  "spaCy lg: WORK_OF_ART": 13,
+  "lower-case word": 4,
+  "all capitals": 4,
+  "spaCy lg: PRODUCT": 2,
+  "spaCy lg: NORP": 1,
+  "spaCy lg: LOC": 1
+ }
+}

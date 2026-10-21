@@ -223,6 +223,12 @@ and only runs with the same case contents (the sha256 over id, text, channel, co
 benchmark commit share a table. A result from a modified benchmark or maisecrets tree is refused (`--allow-dirty`
 for a draft). The catalog source needs all six catalogs at their pinned commits, with no change.
 
+A published measurement point keeps its report in `bench/results/<date>-v<version>.md` and its raw results beside it
+in `bench/results/<date>-v<version>/`: each JSON gzip-compressed without a time stamp, the logs, `environment.json`
+(`bench/manifest.py`), local paths replaced, and `SHA256SUMS`. A later point is a new pair of files; an earlier one is
+not changed. `bench/history.py` compares two points of maisecrets per class, `bench/funnel.py` sorts what one point
+misses into the categories of the opportunity funnel.
+
 ## Repeat a measurement
 
 Each command runs from the root of a checkout of this repository. The data of the PII datasets and the catalogs come

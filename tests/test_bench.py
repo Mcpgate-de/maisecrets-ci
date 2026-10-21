@@ -361,7 +361,9 @@ class AdapterInventoryTests(unittest.TestCase):
         import importlib
         from bench import run
         for name in run.ADAPTERS:
-            if name == "maisecrets":
+            # maisecrets_ner is maisecrets plus the NER experiment's layer: its environments are pinned per backend
+            # (NerLayerTests)
+            if name in ("maisecrets", "maisecrets_ner"):
                 continue
             with self.subTest(adapter=name):
                 mod = importlib.import_module(f"bench.adapters.{name}")
@@ -433,6 +435,20 @@ class CompareBenchTests(unittest.TestCase):
         new = {"all": {"fp": 100}, "pii.name": {"spans": 1000, "full": 490, "partial": 11}}
         found = self.run_compare(base, new, {"email": 3}, {"email": 4})
         self.assertEqual(len(found), 3, found)
+
+    def test_a_result_file_in_place_of_its_directory_is_refused_not_compared_as_empty(self):
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import compare_bench
+        with tempfile.TemporaryDirectory() as d:
+            a = Path(d) / "a"
+            a.mkdir()
+            f = a / "gretel-val-maisecrets.json"
+            f.write_text(json.dumps({"metrics": {"all": {"fp": 1}}}), encoding="utf-8")
+            with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(2, compare_bench.main([str(f), str(f)]))
+                self.assertEqual(2, compare_bench.main([str(a), d]))
+                self.assertEqual(0, compare_bench.main([str(a), str(a)]))
+            self.assertIn("0 finding(s)", out.getvalue())
 
     def test_runs_on_different_cases_are_not_compared(self):
         import tempfile
@@ -650,6 +666,121 @@ class ReleaseCompareTests(unittest.TestCase):
         self.assertIn("gretel-val: pii.name full 100 → 120", text.split("## Largest gains")[1].split("##")[0])
         self.assertIn("gretel-val: pii.name partial 5 → 7", text.split("## Largest regressions")[1].split("##")[0])
         self.assertIn("partial spans 5 -> 7", text.split("compare_bench.py")[1])
+
+
+class HistoryTests(unittest.TestCase):
+    """bench/history.py: two runs on the same cases side by side, and runs on other cases left out."""
+
+    def test_the_change_per_class_and_group_and_no_comparison_of_other_cases(self):
+        from bench import history
+        with tempfile.TemporaryDirectory() as d:
+            for side, full, sha in (("a", 10, "x" * 64), ("b", 25, "x" * 64)):
+                p = Path(d) / side
+                p.mkdir()
+                metrics = {"pii": {"spans": 40, "full": full, "missed": 40 - full, "fp": 1, "precision": 0.9},
+                           "pii.name": {"spans": 40, "full": full, "missed": 40 - full}}
+                for name, h in (("nemotron-all-maisecrets.json", sha), ("gretel-all-maisecrets.json", side * 64)):
+                    (p / name).write_text(json.dumps({
+                        "scanner": {"version": side}, "cases_sha256": h, "source": name.split("-")[0], "split": "all",
+                        "every": 1, "cases": 4, "metrics": metrics}), encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                history.main([str(Path(d) / "a"), str(Path(d) / "b")])
+        text = out.getvalue()
+        self.assertIn("| pii.name | 40 | 10 → 25 (+15) |", text)
+        self.assertIn("| names | 40 | 10 → 25 (+15) |", text)
+        self.assertIn("gretel-all-maisecrets.json\n\nThe cases differ", text)
+        self.assertEqual(1, text.count("## nemotron"))
+
+
+class NerLayerTests(unittest.TestCase):
+    """The PERSON layer of the NER experiment (docs/NER-EXPERIMENT.md): it only adds, and it reads every part."""
+
+    @staticmethod
+    def worker():
+        sys.path.insert(0, str(ROOT / "bench" / "ner"))
+        import person_worker
+        return person_worker
+
+    def test_the_chunks_cover_the_text_in_order_and_none_is_too_long(self):
+        w = self.worker()
+        text = ("word " * 450 + "\n") + "short line\n" + ("x, " * 500)
+        chunks = w._chunks(text)
+        self.assertEqual(0, chunks[0][0])
+        self.assertTrue(all(a < b <= c for (a, b), (c, _) in zip(chunks, chunks[1:])))
+        self.assertTrue(all(len(w.TOKEN.findall(text[a:b])) <= w.GLINER_WORDS for a, b in chunks))
+        self.assertEqual(len(w.TOKEN.findall(text)), sum(len(w.TOKEN.findall(text[a:b])) for a, b in chunks))
+
+    def test_a_span_on_a_deterministic_finding_is_dropped_and_named(self):
+        w = self.worker()
+        text = "Ann Lee met Bo Kim at the office"
+        # 0-7 lies on the finding; 11-18 starts with a space; 12-14 lies on a kept span; 25-26 is only a space
+        keep, conflicts = w.disjoint(text, [(0, 7, 0.9), (11, 18, 0.8), (12, 14, 0.7), (25, 26, 0.5), (19, 21, 0.4)],
+                                     [[0, 3, "pii.email"]])
+        self.assertEqual([[12, 18, 0.8], [19, 21, 0.4]], keep)
+        self.assertEqual(["pii.email"], conflicts)
+
+    def test_both_environments_of_the_layer_are_pinned(self):
+        for env in ("ner-spacy", "ner-gliner"):
+            req = ROOT / "bench" / "adapters" / "requirements" / f"{env}.txt"
+            lines = [ln for ln in req.read_text(encoding="utf-8").splitlines() if ln and not ln.startswith("#")]
+            self.assertGreater(len(lines), 10, env)
+            for ln in lines:
+                self.assertRegex(ln, r"==|@ (git\+)?https://\S+#sha256=", f"{req.name}: {ln} is not pinned")
+
+    def test_each_false_positive_family_fixed_before_reading(self):
+        sys.path.insert(0, str(ROOT / "bench" / "ner"))
+        import analyze
+        from bench import funnel
+        from maisecrets.detection import personal
+        rows = [("| Full Name | Ann Lee |", "Ann Lee", "record field"),
+                ("ref usr_42 sent", "usr_42", "technical identifier"),
+                ("paid to Acme Bank yesterday", "Acme Bank", "company word"),
+                ("It rained. Later it", "Later", "one word at a sentence start"),
+                ("ask the Customer Manager now", "Customer Manager", "role or title words"),
+                ("we met Ann Lee there", "Ann Lee", "rest")]
+        for text, value, fam in rows:
+            with self.subTest(fam=fam):
+                s = text.index(value)
+                self.assertEqual(fam, analyze.family(funnel, personal, text, s, s + len(value)))
+
+    def test_the_layer_keeps_every_deterministic_finding_as_it_is(self):
+        from bench.adapters import maisecrets_ner as ner
+        cases = [{"id": "a", "text": "Ann Lee met Bo Kim"}, {"id": "b", "text": "nothing here"}]
+        det_found = [[(0, 7, "pii.name", "rule")], []]
+        out = json.dumps({"add": [[12, 18, 0.9]], "conflicts": []}) + "\n" + json.dumps({"add": [], "conflicts": []})
+
+        def fake_run(cmd, name, env, cwd, timeout=0):
+            Path(cmd[4]).write_text(out + "\n", encoding="utf-8")
+            return subprocess.CompletedProcess(cmd, 0, json.dumps({"times_s": [0.1, 0.1], "load_s": 1}), "")
+        with mock.patch.object(ner.det, "scan", return_value=(det_found, {"times_s": [0.2, 0.2]})), \
+                mock.patch.object(ner._proc, "run", side_effect=fake_run), \
+                mock.patch.dict(os.environ, {"BENCH_NER_PYTHON": "py", "BENCH_NER": "spacy:m"}):
+            found, timing = ner.scan(cases, Path("."))
+        self.assertEqual([(0, 7, "pii.name", "rule"), (12, 18, "pii.name", "ner:person")], found[0])
+        self.assertEqual([], found[1])
+        self.assertEqual([0.30000000000000004, 0.30000000000000004], timing["times_s"])
+
+
+class FunnelTests(unittest.TestCase):
+    """bench/funnel.py: each missed span gets one bucket by the text around it, and each bucket one category."""
+
+    def test_each_bucket_and_its_category(self):
+        from bench import funnel
+        from maisecrets.detection import personal
+        name, street = "Dana " + "Okafor", "12 Oak " + "Street"
+        rows = [("Address: " + street, street, "pii.address", "label-same", "A+B"),
+                ("| Full Name | " + name + " |", name, "pii.name", "record-field", "C"),
+                ("Dear " + name + ",", name, "pii.name", "person-cue", "A+B"),
+                ("We met " + name + " today.", name, "pii.name", "prose", "D"),
+                ("He lives at " + street + ".", street, "pii.address", "prose", "A+B"),
+                ("the pass is hunter2 now", "hunter2", "secret.password", "prose", "D"),
+                ("Ref: " + street, street, "pii.address", "label-other", "F"),
+                ("Name: John Doe", "John Doe", "pii.name", "placeholder", "E")]
+        for text, value, cls, bucket, cat in rows:
+            with self.subTest(bucket=bucket, cls=cls):
+                s = text.index(value)
+                got = funnel.bucket(personal, text, {"start": s, "end": s + len(value), "class": cls})
+                self.assertEqual((bucket, cat), (got, funnel.category(cls, got)))
 
 
 if __name__ == "__main__":

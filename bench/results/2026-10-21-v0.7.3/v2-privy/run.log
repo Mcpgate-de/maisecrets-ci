@@ -1,0 +1,15 @@
+maisecrets 0.7.3 on privy/all: 595 cases, spans 282, full 77, partial 1, missed 204, FP 61, recall 0.273, precision 0.5612, F1 0.3673, too wide 0
+  pii                          spans    265  full     69  partial     1  missed    195  FP    59  R 0.2604
+  pii.card                     spans     10  full     10  partial     0  missed      0  FP     0  R -
+  pii.name                     spans    191  full      8  partial     1  missed    182  FP     0  R 0.0419
+  pii.national_id              spans     64  full     51  partial     0  missed     13  FP     0  R 0.7969
+  secret                       spans     17  full      8  partial     0  missed      9  FP     2  R -
+  secret.password              spans     17  full      8  partial     0  missed      9  FP     0  R -
+maisecrets 0.7.3 on privy/all: 28843 cases, spans 12003, full 2983, partial 9, missed 9011, FP 3445, recall 0.2485, precision 0.4648, F1 0.3239, too wide 0
+  pii                          spans  11247  full   2701  partial     9  missed   8537  FP  3344  R 0.2402
+  pii.card                     spans    735  full    688  partial     0  missed     47  FP     0  R 0.9361
+  pii.iban                     spans      7  full      3  partial     0  missed      4  FP     0  R -
+  pii.name                     spans   8121  full    312  partial     9  missed   7800  FP     0  R 0.0384
+  pii.national_id              spans   2384  full   1698  partial     0  missed    686  FP     0  R 0.7122
+  secret                       spans    756  full    282  partial     0  missed    474  FP   101  R 0.373
+  secret.password              spans    756  full    282  partial     0  missed    474  FP     0  R 0.373

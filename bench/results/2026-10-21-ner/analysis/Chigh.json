@@ -1,0 +1,512 @@
+{
+ "gretel-all-every50-maisecrets.json": {
+  "added": {
+   "false positive": 1889,
+   "false positive, dev": 1889,
+   "false positive, region de": 138,
+   "false positive, region es": 150,
+   "false positive, region fr": 100,
+   "false positive, region it": 91,
+   "false positive, region nl": 129,
+   "false positive, region se": 110,
+   "false positive, region us": 1171,
+   "on a gold name": 846,
+   "on a gold span of another class": 33,
+   "on a neutral span": 133,
+   "other: pii.address": 27,
+   "other: pii.phone": 1,
+   "other: pii.username": 5
+  },
+  "cases": 837,
+  "conflicts": {
+   "pii.card": 1,
+   "pii.email": 39,
+   "pii.name": 174,
+   "pii.national_id": 1,
+   "pii.username": 7
+  },
+  "every": 50,
+  "fp_families": {
+   "company word": 48,
+   "one word at a sentence start": 240,
+   "record field": 49,
+   "rest": 1366,
+   "role or title words": 140,
+   "technical identifier": 46
+  },
+  "name": {
+   "full": [
+    189,
+    991
+   ],
+   "missed": [
+    1218,
+    371
+   ],
+   "partial": [
+    2,
+    47
+   ],
+   "recall_lenient": [
+    0.1356,
+    0.7367
+   ],
+   "recall_strict": [
+    0.1341,
+    0.7033
+   ],
+   "spans": [
+    1409,
+    1409
+   ]
+  },
+  "names_by_bucket": {
+   "label-other/base": 7,
+   "label-other/spans": 149,
+   "label-other/variant": 106,
+   "label-same/base": 121,
+   "label-same/spans": 192,
+   "label-same/variant": 168,
+   "person-cue/base": 19,
+   "person-cue/spans": 102,
+   "person-cue/variant": 85,
+   "placeholder/base": 0,
+   "placeholder/spans": 68,
+   "placeholder/variant": 64,
+   "prose/base": 30,
+   "prose/spans": 730,
+   "prose/variant": 487,
+   "record-field/base": 12,
+   "record-field/spans": 168,
+   "record-field/variant": 81
+  },
+  "names_by_region": {
+   "de/base": 11,
+   "de/spans": 170,
+   "de/variant": 112,
+   "es/base": 21,
+   "es/spans": 139,
+   "es/variant": 96,
+   "fr/base": 7,
+   "fr/spans": 65,
+   "fr/variant": 50,
+   "it/base": 17,
+   "it/spans": 132,
+   "it/variant": 97,
+   "nl/base": 18,
+   "nl/spans": 169,
+   "nl/variant": 75,
+   "se/base": 6,
+   "se/spans": 187,
+   "se/variant": 80,
+   "us/base": 109,
+   "us/spans": 547,
+   "us/variant": 481
+  },
+  "names_by_split": {
+   "dev/base": 189,
+   "dev/spans": 1409,
+   "dev/variant": 991
+  },
+  "ner_timing": {
+   "api": null,
+   "cold_start_ms": 14195.5,
+   "cold_start_s": 14.195546541013755,
+   "kb_per_s": 2.8,
+   "library": "gliner",
+   "library_version": "0.2.29",
+   "load_s": 13.775795250025112,
+   "max_rss_mb": 3477.5,
+   "median_ms": 441.345,
+   "model": "443d26d654e0324125a96bebd8e796c14ff2efe6",
+   "p95_ms": 697.332,
+   "threshold": 0.3,
+   "torch": "2.14.1",
+   "total_s": 375.1
+  },
+  "pii": {
+   "f1": [
+    0.4561,
+    0.5286
+   ],
+   "fp": [
+    60,
+    1949
+   ],
+   "full": [
+    759,
+    1570
+   ],
+   "precision": [
+    0.9274,
+    0.4577
+   ],
+   "recall_strict": [
+    0.3024,
+    0.6255
+   ],
+   "spans": [
+    2510,
+    2510
+   ]
+  },
+  "source": "gretel",
+  "worse": 0
+ },
+ "mendeley-all-every50-maisecrets.json": {
+  "added": {
+   "false positive": 1272,
+   "false positive, dev": 1272,
+   "false positive, region us": 1272,
+   "on a gold name": 1193,
+   "on a gold span of another class": 13,
+   "on a neutral span": 363,
+   "other: pii.address": 13
+  },
+  "cases": 872,
+  "conflicts": {
+   "pii.address": 4,
+   "pii.name": 294,
+   "pii.national_id": 7
+  },
+  "every": 50,
+  "fp_families": {
+   "one word at a sentence start": 147,
+   "rest": 1122,
+   "technical identifier": 3
+  },
+  "name": {
+   "full": [
+    273,
+    1466
+   ],
+   "missed": [
+    1197,
+    4
+   ],
+   "partial": [
+    15,
+    15
+   ],
+   "recall_lenient": [
+    0.1939,
+    0.9973
+   ],
+   "recall_strict": [
+    0.1838,
+    0.9872
+   ],
+   "spans": [
+    1485,
+    1485
+   ]
+  },
+  "names_by_bucket": {
+   "label-other/base": 0,
+   "label-other/spans": 25,
+   "label-other/variant": 25,
+   "person-cue/base": 273,
+   "person-cue/spans": 862,
+   "person-cue/variant": 848,
+   "prose/base": 0,
+   "prose/spans": 598,
+   "prose/variant": 593
+  },
+  "names_by_region": {
+   "us/base": 273,
+   "us/spans": 1485,
+   "us/variant": 1466
+  },
+  "names_by_split": {
+   "dev/base": 273,
+   "dev/spans": 1485,
+   "dev/variant": 1466
+  },
+  "ner_timing": {
+   "api": null,
+   "cold_start_ms": 14426.1,
+   "cold_start_s": 14.426098332973197,
+   "kb_per_s": 3.4,
+   "library": "gliner",
+   "library_version": "0.2.29",
+   "load_s": 14.17803070798982,
+   "max_rss_mb": 2747.1,
+   "median_ms": 192.397,
+   "model": "443d26d654e0324125a96bebd8e796c14ff2efe6",
+   "p95_ms": 1159.061,
+   "threshold": 0.3,
+   "torch": "2.14.1",
+   "total_s": 274.53
+  },
+  "pii": {
+   "f1": [
+    0.8082,
+    0.8448
+   ],
+   "fp": [
+    46,
+    1318
+   ],
+   "full": [
+    3429,
+    4622
+   ],
+   "precision": [
+    0.9868,
+    0.7792
+   ],
+   "recall_strict": [
+    0.6843,
+    0.9224
+   ],
+   "spans": [
+    5011,
+    5011
+   ]
+  },
+  "source": "mendeley",
+  "worse": 0
+ },
+ "nemotron-all-every50-maisecrets.json": {
+  "added": {
+   "false positive": 2010,
+   "false positive, dev": 2010,
+   "false positive, region us": 2010,
+   "on a gold name": 1146,
+   "on a gold span of another class": 247,
+   "on a neutral span": 734,
+   "other: pii.bank_account": 3,
+   "other: pii.national_id": 5,
+   "other: pii.phone": 3,
+   "other: pii.username": 225,
+   "other: secret.generic": 3,
+   "other: secret.password": 8
+  },
+  "cases": 1921,
+  "conflicts": {
+   "pii.birth_date": 2,
+   "pii.email": 654,
+   "pii.ip": 1,
+   "pii.name": 512,
+   "pii.national_id": 27,
+   "pii.username": 77,
+   "secret": 21
+  },
+  "every": 50,
+  "fp_families": {
+   "company word": 5,
+   "one word at a sentence start": 297,
+   "record field": 94,
+   "rest": 1177,
+   "role or title words": 419,
+   "technical identifier": 18
+  },
+  "name": {
+   "full": [
+    743,
+    2540
+   ],
+   "missed": [
+    1953,
+    155
+   ],
+   "partial": [
+    null,
+    1
+   ],
+   "recall_lenient": [
+    0.2756,
+    0.9425
+   ],
+   "recall_strict": [
+    0.2756,
+    0.9421
+   ],
+   "spans": [
+    2696,
+    2696
+   ]
+  },
+  "names_by_bucket": {
+   "label-other/base": 3,
+   "label-other/spans": 11,
+   "label-other/variant": 11,
+   "label-same/base": 248,
+   "label-same/spans": 297,
+   "label-same/variant": 295,
+   "person-cue/base": 23,
+   "person-cue/spans": 170,
+   "person-cue/variant": 162,
+   "placeholder/base": 0,
+   "placeholder/spans": 84,
+   "placeholder/variant": 80,
+   "prose/base": 467,
+   "prose/spans": 2007,
+   "prose/variant": 1865,
+   "record-field/base": 2,
+   "record-field/spans": 127,
+   "record-field/variant": 127
+  },
+  "names_by_region": {
+   "us/base": 743,
+   "us/spans": 2696,
+   "us/variant": 2540
+  },
+  "names_by_split": {
+   "dev/base": 743,
+   "dev/spans": 2696,
+   "dev/variant": 2540
+  },
+  "ner_timing": {
+   "api": null,
+   "cold_start_ms": 13171.2,
+   "cold_start_s": 13.17120199999772,
+   "kb_per_s": 2.8,
+   "library": "gliner",
+   "library_version": "0.2.29",
+   "load_s": 12.9381041250017,
+   "max_rss_mb": 3332.5,
+   "median_ms": 251.893,
+   "model": "443d26d654e0324125a96bebd8e796c14ff2efe6",
+   "p95_ms": 775.001,
+   "threshold": 0.3,
+   "torch": "2.14.1",
+   "total_s": 649.46
+  },
+  "pii": {
+   "f1": [
+    0.7373,
+    0.7941
+   ],
+   "fp": [
+    13,
+    2023
+   ],
+   "full": [
+    3787,
+    5821
+   ],
+   "precision": [
+    0.9964,
+    0.7108
+   ],
+   "recall_strict": [
+    0.5852,
+    0.8996
+   ],
+   "spans": [
+    6471,
+    6471
+   ]
+  },
+  "source": "nemotron",
+  "worse": 0
+ },
+ "piilo-all-every50-maisecrets.json": {
+  "added": {
+   "false positive": 2766,
+   "false positive, dev": 2766,
+   "false positive, region us": 2766,
+   "on a gold name": 12,
+   "on a neutral span": 1
+  },
+  "cases": 132,
+  "conflicts": {
+   "pii.name": 1
+  },
+  "every": 50,
+  "fp_families": {
+   "company word": 9,
+   "one word at a sentence start": 453,
+   "record field": 2,
+   "rest": 2164,
+   "role or title words": 128,
+   "technical identifier": 10
+  },
+  "name": {
+   "full": [
+    1,
+    13
+   ],
+   "missed": [
+    13,
+    1
+   ],
+   "partial": [
+    null,
+    null
+   ],
+   "recall_lenient": [
+    null,
+    null
+   ],
+   "recall_strict": [
+    null,
+    null
+   ],
+   "spans": [
+    14,
+    14
+   ]
+  },
+  "names_by_bucket": {
+   "prose/base": 1,
+   "prose/spans": 14,
+   "prose/variant": 13
+  },
+  "names_by_region": {
+   "us/base": 1,
+   "us/spans": 14,
+   "us/variant": 13
+  },
+  "names_by_split": {
+   "dev/base": 1,
+   "dev/spans": 14,
+   "dev/variant": 13
+  },
+  "ner_timing": {
+   "api": null,
+   "cold_start_ms": 16870.2,
+   "cold_start_s": 16.870225499995286,
+   "kb_per_s": 3.4,
+   "library": "gliner",
+   "library_version": "0.2.29",
+   "load_s": 14.59029283298878,
+   "max_rss_mb": 3050.8,
+   "median_ms": 955.923,
+   "model": "443d26d654e0324125a96bebd8e796c14ff2efe6",
+   "p95_ms": 1931.158,
+   "threshold": 0.3,
+   "torch": "2.14.1",
+   "total_s": 135.97
+  },
+  "pii": {
+   "f1": [
+    null,
+    null
+   ],
+   "fp": [
+    null,
+    2766
+   ],
+   "full": [
+    2,
+    14
+   ],
+   "precision": [
+    1.0,
+    0.005
+   ],
+   "recall_strict": [
+    null,
+    null
+   ],
+   "spans": [
+    15,
+    15
+   ]
+  },
+  "source": "piilo",
+  "worse": 0
+ }
+}

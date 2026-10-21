@@ -147,6 +147,12 @@ def main(argv) -> int:
     if len(argv) != 2:
         sys.stderr.write(__doc__)
         return 2
+    # a result file in place of its directory globbed nothing and printed "0 finding(s)", which reads as a clean
+    # comparison (2026-10-21, the 0.7.3 snapshot)
+    for d in map(Path, argv):
+        if not d.is_dir() or not any(d.glob("*-maisecrets.json")):
+            sys.stderr.write(f"{d}: no directory with *-maisecrets.json results; nothing would be compared\n")
+            return 2
     findings = compare(Path(argv[0]), Path(argv[1]))
     for f in findings:
         print(f)

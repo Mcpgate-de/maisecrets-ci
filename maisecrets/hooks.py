@@ -561,6 +561,19 @@ def block_notice(entries: list, rewritten: str, copied: bool, codex: bool, cfg: 
     return lines
 
 
+def peer_notice(entries: list, sender: str) -> list[str]:
+    """What the person reads when a message of another Claude session was blocked (the mod rewrites it where it runs):
+    who sent it, that the model did not get it, and what helps. Nothing to paste: the person did not write it."""
+    kinds = {e.type for e in entries}
+    secret = "SECRET" in kinds or not kinds
+    personal = bool(kinds - {"SECRET"})
+    what = ("a secret and personal data" if secret and personal else "a secret" if secret else "personal data")
+    return [f"maisecrets: a message from the Claude session {sender} held {what}. It was kept from the AI here, and "
+            "the AI did not get the message.", "",
+            "    The values are stored. Ask that session to send them as placeholders (⟦…⟧) or as shapes.", "",
+            "Something wrong? /maisecrets:report · maisecrets by mcpgate.de"]
+
+
 # A subagent's report reaches the session as a prompt (<task-notification>), and a prompt hook can only
 # block or pass it: a report that quoted a value of the right shape stopped the session until the person
 # pasted it again (2026-09-29, twice in one review). The text was written by a model of this session, so
@@ -1288,8 +1301,11 @@ def user_prompt(payload: dict) -> dict:
             return {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
                                            "additionalContext": primer(cfg, client_of(payload))}}
         return {}
-    copied = _clipboard(rewritten)
-    _save_pending(rewritten, session)
+    # a message of another session: nobody here sends it again, so the clipboard and /ms stay the person's own
+    peer = settings_mod.peer_sender(prompt) if client_of(payload) == "claude" else None
+    copied = False if peer else _clipboard(rewritten)
+    if not peer:
+        _save_pending(rewritten, session)
     if cfg.get("scrub_transcript", True):
         refs = [e.ref for e in entries] + [r for v, r in _resolved_values(vault, session) if v in values]
         # the inline scrub can hit an OLDER record of the same value; the record of this prompt
@@ -1297,12 +1313,13 @@ def user_prompt(payload: dict) -> dict:
         _scrub_transcript(payload.get("transcript_path", ""), values, refs)
         _scrub_transcript_later(payload.get("transcript_path", ""), values, refs)
     codex = client_of(payload) == "codex"
-    lines = block_notice(entries, rewritten, copied, codex, cfg, vault)
-    tip = None if codex else _check_tip(cfg)      # Codex: the session start names it (hooks/dispatch.py)
+    lines = peer_notice(entries, peer) if peer else block_notice(entries, rewritten, copied, codex, cfg, vault)
+    tip = None if codex or peer else _check_tip(cfg)      # Codex: the session start names it (hooks/dispatch.py)
     if tip:
         lines[-1:-1] = [tip, ""]
     from . import events
-    events.record("UserPromptSubmit", client_of(payload), entries)
+    events.record("UserPromptSubmit", client_of(payload), entries,
+                  **({"outcome": "blocked: a message of another session"} if peer else {}))
     reason = "\n".join(lines)
     if client_of(payload) == "codex":
         return {"decision": "block", "reason": reason}

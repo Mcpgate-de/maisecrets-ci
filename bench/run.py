@@ -28,7 +28,7 @@ sys.path.insert(0, str(ROOT))
 from bench import cases as casefmt  # noqa: E402
 from bench import score, sources  # noqa: E402
 
-ADAPTERS = ("maisecrets", "detect_secrets", "secret_scan", "pii_anon", "preserve", "presidio")
+ADAPTERS = ("maisecrets", "detect_secrets", "secret_scan", "pii_anon", "preserve", "presidio", "maisecrets_ner")
 HOLDOUT_LOG = ROOT / "bench" / "HOLDOUT-LOG.md"
 MANIFEST = ROOT / "bench" / "holdout.manifest"
 
@@ -117,9 +117,13 @@ def cases_hash(selected: list) -> str:
 def timing_summary(timing: dict, n_bytes: int) -> dict:
     t = sorted(timing.get("times_s") or [0.0])
     total = sum(t)
-    return {"api": timing.get("api"), "cold_start_ms": round(1000 * (timing.get("cold_start_s") or 0), 1),
-            "median_ms": round(1000 * statistics.median(t), 3), "p95_ms": round(1000 * t[int(0.95 * (len(t) - 1))], 3),
-            "total_s": round(total, 2), "kb_per_s": round(n_bytes / 1024 / total, 1) if total else None}
+    out = {"api": timing.get("api"), "cold_start_ms": round(1000 * (timing.get("cold_start_s") or 0), 1),
+           "median_ms": round(1000 * statistics.median(t), 3), "p95_ms": round(1000 * t[int(0.95 * (len(t) - 1))], 3),
+           "total_s": round(total, 2), "kb_per_s": round(n_bytes / 1024 / total, 1) if total else None}
+    if "ner" in timing:     # the NER experiment's layer alone (bench/adapters/maisecrets_ner.py)
+        out["ner"] = {**timing["ner"], **timing_summary({"times_s": timing["ner_times_s"],
+                                                         "cold_start_s": timing["ner"].get("cold_start_s")}, n_bytes)}
+    return out
 
 
 def main(argv=None) -> int:
@@ -159,7 +163,7 @@ def main(argv=None) -> int:
         selected = [c for c in sources.load(a.source, a.data, a.catalogs, a.limit, stats)
                     if (a.split == "all" or c["split"] == a.split) and in_sample(c["id"], a.every)]
     adapter = importlib.import_module(f"bench.adapters.{a.scanner}")
-    if a.scanner == "maisecrets":
+    if a.scanner in ("maisecrets", "maisecrets_ner"):
         desc = adapter.describe(a.maisecrets.resolve(), a.regions)
         found, timing = adapter.scan(selected, a.maisecrets.resolve(), a.regions)
     else:

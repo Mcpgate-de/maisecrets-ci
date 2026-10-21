@@ -154,6 +154,20 @@ class PhoneAfterWordTests(Base):
             with self.subTest(text=text):
                 self.assertNotIn("phone-after-phone-word", {m.kind for m in scan(text)})
 
+    def test_a_national_number_written_as_one_run_is_masked_after_a_phone_word(self):
+        # a German mobile number is often written without a space (a report from the gateway, 2026-10-21); one run
+        # counts only when it starts with the trunk 0 or with +
+        run = "0171" + "4829" + "173"
+        for text in ("Telefon: " + run, '{"telefon": "' + run + '"}', '{"phone": "' + run + '"}', "Tel. " + run,
+                     "Handy 0151" + "4829" + "1735"):
+            with self.subTest(text=text):
+                self.assertIn("phone-after-phone-word", {m.kind for m in scan(text, region=("de",))})
+        self.assertMasked("Telefon: " + run, run, region=("de",))
+        for text in ("Phone: 1712" + "345678", "phone: 0171" + "1111111", "Tel: 0123" + "4567" + "8901",
+                     "fax: 2026" + "1021" + "120000", "Telefon: 4829" + "173"):
+            with self.subTest(text=text):
+                self.assertNotIn("phone-after-phone-word", {m.kind for m in scan(text, region=("de",))})
+
     def test_a_typed_prompt_is_not_blocked_by_it(self):
         self.assertNotIn("phone-after-phone-word", {m.kind for m in scan("Phone number: " + US, "prompt")})
 

@@ -1,0 +1,46 @@
+{
+ "nemotron": {
+  "capitalised, no entity for spaCy lg": 15,
+  "all capitals": 5,
+  "PERSON for spaCy lg too (likely an unlabelled name)": 4,
+  "spaCy lg: GPE": 1
+ },
+ "all": {
+  "PERSON for spaCy lg too (likely an unlabelled name)": 751,
+  "capitalised, no entity for spaCy lg": 39,
+  "spaCy lg: ORG": 31,
+  "all capitals": 22,
+  "spaCy lg: PRODUCT": 9,
+  "spaCy lg: FAC": 8,
+  "spaCy lg: GPE": 4,
+  "spaCy lg: LOC": 1,
+  "spaCy lg: WORK_OF_ART": 1,
+  "spaCy lg: NORP": 1,
+  "spaCy lg: LAW": 1
+ },
+ "gretel": {
+  "capitalised, no entity for spaCy lg": 20,
+  "all capitals": 17,
+  "PERSON for spaCy lg too (likely an unlabelled name)": 15,
+  "spaCy lg: ORG": 6,
+  "spaCy lg: PRODUCT": 3,
+  "spaCy lg: LOC": 1,
+  "spaCy lg: WORK_OF_ART": 1
+ },
+ "mendeley": {
+  "PERSON for spaCy lg too (likely an unlabelled name)": 701,
+  "spaCy lg: ORG": 18,
+  "spaCy lg: FAC": 8,
+  "capitalised, no entity for spaCy lg": 4,
+  "spaCy lg: PRODUCT": 4,
+  "spaCy lg: GPE": 2,
+  "spaCy lg: NORP": 1
+ },
+ "piilo": {
+  "PERSON for spaCy lg too (likely an unlabelled name)": 31,
+  "spaCy lg: ORG": 7,
+  "spaCy lg: PRODUCT": 2,
+  "spaCy lg: LAW": 1,
+  "spaCy lg: GPE": 1
+ }
+}

@@ -1298,7 +1298,7 @@ _PHONE_LABEL_WORDS = (r"phone|telephone|tel|mobile?|mobil(?:e|nummer|telefon)?|c
 _PHONE_NUMBER_WORD = r"(?:[ _-]?(?:number|no\.?|nr\.?|nummer|num[ée]ro|n[úu]mero|numero|#))?"
 _PHONE_TIGHT_RE = _lazy(r"(?i)(?<![\w-])(?:" + _PHONE_LABEL_WORDS + r")" + _PHONE_NUMBER_WORD + r"(?![\w-])\.?[\"']?"
                         r"(?:[ \t]{0,3}(?:is|ist|est|es|è|é|:|=|-|–)[ \t]{0,3}|[ \t]{1,3})[\"']?[ \t]{0,2}"
-                        r"(\+?(?:\(\d{1,8}\)|\d{1,8})(?:[ .\-/]{1,2}(?:\(\d{1,8}\)|\d{1,8})){0,5})(?![\w+]|[.,/:-]\d)")
+                        r"(\+?(?:\(\d{1,8}\)|\d{1,15})(?:[ .\-/]{1,2}(?:\(\d{1,8}\)|\d{1,8})){0,5})(?![\w+]|[.,/:-]\d)")
 # the verbs of a call before a North American number: call, calling, dial, reach … at, contact … at, and contact right
 # before the number (Nemotron-PII, 2026-10-20: `by calling`, `contact the report coordinator at`, `please contact`)
 _PHONE_LOOSE_RE = _lazy(r"(?i)(?<![\w-])(?:" + _PHONE_LABEL_WORDS + r"|call(?:ed|ing)?|dial(?:ed|ing)?"
@@ -1330,7 +1330,13 @@ def _national_phone_ok(v: str) -> bool:
         return False
     if _ISO_DATE_RE.search(v) or (not v.startswith("+") and _COUNT_RE.fullmatch(v)):
         return False
-    if len(groups) == 1 and not 10 <= len(d) <= 12:
+    # one run of digits: a national number starts with its trunk 0 (0171…, 030…), an international one with + (E.164);
+    # a run without either is a timestamp, an order or a count (Telefon: 01714829173, 2026-10-21)
+    national, e164 = v.startswith("0") and 10 <= len(d) <= 12, v.startswith("+") and 11 <= len(d) <= 15
+    if len(groups) == 1 and not (national or e164):
+        return False
+    tail = d[-7:]   # the subscriber part of one run: 01711111111 and 012345678901 are specimens
+    if len(groups) == 1 and (len(set(tail)) <= 1 or tail in "0123456789" * 2 or tail in "9876543210" * 2):
         return False
     if len(groups) >= 3 and all(len(g) == 4 for g in groups) and not v.startswith(("+", "0")):
         return False   # Telefon 2024 2025 2026, Cell 1024 2048 4096: years and sizes (review, 2026-10-17)

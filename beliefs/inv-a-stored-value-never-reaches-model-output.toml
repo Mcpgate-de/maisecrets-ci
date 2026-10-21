@@ -48,8 +48,8 @@ replace = "return _deny(f\"maisecrets: this command {command} touches {matched},
 [[proof]]
 path = "the block notice shows the cleaned prompt"
 file = "maisecrets/hooks.py"
-find = "    lines = block_notice(entries, rewritten, copied, codex, cfg, vault)"
-replace = "    lines = block_notice(entries, prompt, copied, codex, cfg, vault)"
+find = "else block_notice(entries, rewritten, copied, codex, cfg, vault)"
+replace = "else block_notice(entries, prompt, copied, codex, cfg, vault)"
 
 [[proof]]
 path = "a stored value typed into a prompt"

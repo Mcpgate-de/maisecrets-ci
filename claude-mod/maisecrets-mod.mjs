@@ -9,8 +9,12 @@
 
 const MARK = 'mod-prompt'
 // a person's own prompt: typed or queued at the terminal, sent through Remote Control, or the turn of
-// claude -p. A subagent's report, a peer's or a channel's message stays with the settings hook (C19)
+// claude -p. A subagent's report or a channel's message stays with the settings hook (C19)
 const PERSON = new Set(['composer', 'bridge', 'sdk'])
+// a message of another Claude session (SendMessage): no person sends it again after a block, so a block lost it
+// without a word (2026-10-21: the sender saw it delivered, the model never saw it). It is rewritten as a prompt is;
+// it is never a check of a value, and its {{name}} markers stay text (the hook takes them only from a person)
+const PEER = new Set(['peer', 'peer-send-message'])
 // ms:(…): a check of a value. It is never rewritten and never sent: the mod drops it with the verdict of
 // dispatch.py mod-prompt (maisecrets/check_value.py), or with its own sentence when no verdict comes. A prompt that is
 // not a person's goes on to the settings hook, which blocks it as a check
@@ -69,7 +73,9 @@ async function ask($, prompt, session, cwd, origin) {
 
 export function register(on) {
   on('prompt.submit', async ($, e, next) => {
-    if (!PERSON.has(e.origin?.kind)) return next(e)
+    const person = PERSON.has(e.origin?.kind)
+    if (!person && !PEER.has(e.origin?.kind)) return next(e)
+    if (!person && CHECK.test(e.text)) return next(e)       // the settings hook blocks a peer's check
     if (CHECK.test(e.text)) {
       // a check of a value is never passed on: the verdict, or this sentence when Python gives none in time
       let verdict = null
