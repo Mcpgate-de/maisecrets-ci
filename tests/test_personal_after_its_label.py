@@ -131,6 +131,8 @@ class PhoneAfterWordTests(Base):
                     "Fax number for notice: ", "Phone number for payment: ", "Please contact the following number: "):
             with self.subTest(pre=pre):
                 self.assertMasked("Details\n" + pre + US + ". More text.\n", US, region=("us",))
+        # a contact label followed by a sentence that names the number itself (0.7.6 lost it, 2026-10-22)
+        self.assertMasked("| Escalation contact: Contact the coordinator at " + US + " |", US, region=("us",))
         # the contact label takes only the strict North American form
         for text in ("Contact: 2024-10-16", "Contact information: build 4.15.382", "Contact: 12 people"):
             with self.subTest(text=text):
@@ -471,8 +473,10 @@ class MarkdownTableTests(Base):
         first, last = NAME.split()
         # a first and a last name alone make no record; a form word is no name
         self.assertText("| Field | Value |\n|---|---|\n| First Name | " + first + " |\n| Last Name | " + last + " |\n")
-        self.assertText("| Field | Value |\n|---|---|\n| First Name | Required |\n| Last Name | Optional |\n"
-                        "| Date of Birth | " + BIRTH + " |\n")
+        # (the date of birth there is a person's and is masked; the form words stay text)
+        form = ("| Field | Value |\n|---|---|\n| First Name | Required |\n| Last Name | Optional |\n"
+                "| Date of Birth | " + BIRTH + " |\n")
+        self.assertNotIn("NAME", {m.type for m in scan(form)})
 
     def test_the_names_of_a_fixture_in_name_part_fields_stay_text(self):
         # seed data and API examples: fixture words, and a first and a last name that make a placeholder together
@@ -494,6 +498,45 @@ class MarkdownTableTests(Base):
                 # the same field in camel case in a JSON record
                 key = head.split()[0].lower() + "Name"
                 self.assertMasked('{"' + key + '": "' + NAME + '", "dateOfBirth": "' + BIRTH + '"}', NAME)
+
+    def test_the_fields_of_a_persons_address_and_ids_under_more_names(self):
+        # Benchmark V3 Phase C, 2026-10-22: one lexicon for every record format; a purpose before the address, the
+        # ids of a person and their names in one word
+        ident = "H48" + "2917354"
+        for field in ("Health Plan Beneficiary Number", "HealthPlanBeneficiaryNumber", "Certificate License Number",
+                      "Driver's License Number", "MedicalRecordNumber", "Patient ID"):
+            with self.subTest(field=field):
+                self.assertMasked("| Field | Value |\n|---|---|\n| Full Name | " + NAME + " |\n| " + field + " | "
+                                  + ident + " |\n", ident)
+        # the street rule often finds the address itself, so the column is checked in the lexicon
+        from maisecrets.detection import personal as personal_mod
+        for field in ("Property Address", "Billing Address", "Mailing Address", "shippingAddress"):
+            with self.subTest(field=field):
+                self.assertEqual("address", personal_mod._md_column(field))
+        # a user id is a weak column: alone it stays text (a table of accounts and roles)
+        self.assertIn("user_id", personal_mod._WEAK_COLS)
+        self.assertText("| User ID | Role |\n|---|---|\n| jdoe42 | admin |\n")
+
+    def test_a_date_of_birth_under_its_own_name_makes_the_row_a_person(self):
+        # Benchmark V3 Phase C, 2026-10-22: a row with a date of birth and no name cell stayed text
+        self.assertMasked("| User ID | Date of Birth |\n|---|---|\n| jdoe42 | " + BIRTH + " |\n", "jdoe42")
+        self.assertMasked("| Address | DOB |\n|---|---|\n| 12 Oak Lane, Springfield | " + BIRTH + " |\n",
+                          "12 Oak Lane, Springfield")
+        # a birthday of a release is no person, and a depot has an address and no birth date
+        self.assertText("| Name | Birthday | Version |\n|---|---|---|\n| Atlas | 2019-04-02 | 4.1 |\n")
+        self.assertText("| Depot | Address |\n|---|---|\n| North | 12 Harbour Lane, Dunmore |\n")
+
+    def test_a_table_of_software_and_a_fixture_account_are_no_person(self):
+        # codex Gate A, 2026-10-22: a product table names no person by an id or a date column; a test account is none
+        for text in ("| Product | Date of Birth | Version |\n|---|---|---|\n| WidgetOS | 2010-04-02 | 4.1 |\n",
+                     "| Product | Certificate License Number | Version |\n|---|---|---|\n"
+                     "| WidgetSDK | LIC-4821937 | 4.1 |\n"):
+            with self.subTest(text=text):
+                self.assertText(text)
+        self.assertNotIn("USERNAME", {m.type for m in scan("user_id,date_of_birth\nfixture_account," + BIRTH + "\n")})
+        from maisecrets.detection import personal as personal_mod
+        self.assertEqual("beneficiary_number", personal_mod._md_column("beneficiaryNumber"))
+        self.assertEqual("certificate_license_number", personal_mod._md_column("certificateLicenseNumber"))
 
     def test_a_table_of_fields_without_a_person_stays_text(self):
         for text in ("| Name | Value |\n|---|---|\n| Product Name | Widget Pro |\n| Version | 2.1 |\n",

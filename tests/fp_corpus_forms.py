@@ -432,6 +432,8 @@ FORMS_HIT = [
     ("vcard n fields", "BEGIN:VCARD\nN;CHARSET=UTF-8:" + "Okafor;Dana" + ";;;\nEND:VCARD", ["Okafor;Dana"]),
     ("us address on two lines", "Please send it to 4821 Harbor " + "Mission Apt. 5\nSpringfield, IL 62704 by Friday.",
      ["4821 Harbor " + "Mission Apt. 5\nSpringfield, IL 62704"]),
+    ("us address on one line", "Please send it to 4821 Harbor " + "Mission Apt. 5 Springfield, IL 62704 by Friday.",
+     ["4821 Harbor " + "Mission Apt. 5 Springfield, IL 62704"]),
     ("name in a declaration", "I, " + "Dana Okafor" + ", hereby declare that the above is true.", ["Dana Okafor"]),
     ("name before born on", "Patient " + "Dana Okafor" + ", born on 1984-03-12, was seen today.", ["Dana Okafor"]),
     ("name after my name is", "Hello, my name is " + "Dana Okafor" + " and I am writing about my claim.", ["Dana Okafor"]),

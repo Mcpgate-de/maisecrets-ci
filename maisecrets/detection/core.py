@@ -751,6 +751,31 @@ def _keylike(v: str) -> bool:
             and not _WORDS_RUN_RE.fullmatch(v))
 
 
+def _hex_of_text(v: str) -> bool:
+    """Hex of printable text: an encoded name or an encoded token, which the tool channel decodes and judges itself."""
+    if len(v) % 2 or not re.fullmatch(r"[0-9a-fA-F]+", v):
+        return False
+    raw = bytes.fromhex(v)
+    return all(32 <= b < 127 for b in raw)
+
+
+def _prose_key_value_ok(v: str) -> bool:
+    """A value after a key word in a sentence (label-prose-key): "Use the API key <value> for the call." The sentence
+    says less than `api_key=`, so only a random shape: a UUID, hex with a digit and a letter, or a value of letters
+    and digits with no run of words (_keylike, or entropy 3.5 and words cover less than half). Not a path, not a
+    template (YOUR_API_KEY has no digit), not a version or a dotted name."""
+    v = v.strip()
+    if _UUID_RE.fullmatch(v):
+        return len(set(v.replace("-", ""))) > 6
+    if not any(c.isdigit() for c in v) or not any(c.isalpha() for c in v) or _PATH_SEGMENT_RE.search(v):
+        return False
+    if _base64_of_text(v) or _hex_of_text(v):
+        return False   # base64 or hex of text: `id:key` of an Elasticsearch ApiKey in docs, an encoded name
+    if re.fullmatch(r"[0-9a-fA-F]+", v):   # 48 hex digits are left to secret-hex48-after-token-word (personal.py)
+        return 20 <= len(v) != 48 and len(set(v.lower())) > 6
+    return (_keylike(v) or shannon_entropy(v) >= 3.5) and _wordlike(v) < 0.5   # PaymentsServiceV2Prod is words
+
+
 # values in a list of secrets that are no key: a password hash, a name with a scheme (arn:aws:…, urn:…)
 # ($2b$…, $argon2id$…), an Ethereum address (0x and 40 hex), an id with a type prefix (pm_…, sess_…, cus_…). Hex
 # alone and base58 stay values here: every label of label-secret-list names secrets (a commit, an ObjectId or a
@@ -1413,6 +1438,7 @@ VALIDATORS = {
     "prose_value": _prose_value_ok,
     "sentence_value": _sentence_value_ok,
     "spaced_value": _spaced_value_ok,
+    "prose_key_value": _prose_key_value_ok,
     "de_tax_id": _de_tax_id_ok,
     "de_social_security": _de_social_security_ok,
     "de_social_security_spaced": lambda v: _de_social_security_ok(v.replace("\u00a0", " ")),
@@ -1634,6 +1660,22 @@ OWN_RULES: list[dict] = [
               r"(?:[ \t]*(?:->|=>|\u2192|\u2013|\u2014)[ \t]*|[ \t]+-{1,2}[ \t]+|[ \t]+\(?[ \t]*)"
               + _SENTENCE_VALUE,
      "languages": True},
+    # three more forms of a typed sentence (benchmark V3, Nemotron dev: about 540 passwords in the clear). An
+    # apposition, "the password, <value>, works": the value check after a space, as a list of words follows a comma
+    # too. "the password for <account> is <value>": up to five words between the password word and the copula,
+    # English only. "use <value> as the password": the value before the word, after a verb that hands it over, with
+    # the check after a space (no ticket id: "use PBE-3403 as the password ticket")
+    {"id": "label-password-apposition", "type": "SECRET", "secret_group": 1, "validator": "spaced_value",
+     "regex": r"(?i)(?<![\w-])" + _PW_COMPOUND + r"(?:{words})(?![\w-])[ \t]*,[ \t]+" + _SENTENCE_VALUE,
+     "languages": True},
+    {"id": "label-password-for-is", "type": "SECRET", "secret_group": 1, "validator": "sentence_value",
+     "regex": r"(?i)(?<![\w-])(?:password|passphrase|passcode)[ \t]+(?:for|of|on|to)[ \t]+(?:[\w.@'-]+[ \t]+){1,5}?"
+              r"(?:is|was)[ \t]*:?[ \t]+" + _SENTENCE_VALUE},
+    {"id": "label-password-use-as", "type": "SECRET", "secret_group": 1, "validator": "spaced_value",
+     "regex": r"(?i)(?<![\w-])(?:use|using|enter|type|set|with)[ \t]+(?:\*\*|[\"'`„“])?"
+              r"([^\s\"'`“”]{4,255}?)(?:\*\*|[\"'`“”])?[ \t]+as[ \t]+"
+              r"(?:(?:the|your|my|a|an|its|their|our)[ \t]+)?(?:(?:new|temporary|initial|default|admin|root)[ \t]+)?"
+              r"(?:password|passphrase|passcode)(?![\w-])"},
     # each quoted value of a list after a label that names secrets: `"api_keys": ["<v1>", "<v2>"]`,
     # `passwords = ['<v1>']`, Go `Secrets: []string{"<v1>"}`. The label rules took no value that starts with a
     # bracket, so a whole list of keys stayed in the clear. Only a label that names secrets and nothing else: a bare
@@ -1777,6 +1819,15 @@ FALLBACK_RULES: list[dict] = [
               r"(?=[A-Za-z0-9_-]{0,200}?[A-Za-z0-9]{16})[A-Za-z0-9_-]{20,}"},
     {"id": "slack-token-relaxed", "type": "SECRET",
      "regex": r"(?<![\w-])(?:xoxb-|xoxp-|xoxa-|xoxr-)\d{2,}-[A-Za-z0-9-]{12,}"},
+    # a key in a sentence: "Use the API key <value> for the call", "the access token is <value>", "the API key,
+    # <value>, expires". No `:` or `=` tells that a value follows, so the value must look random (prose_key_value)
+    # and have 16 characters at least. A bare `token` is the word of a tokenizer too; its values (a number, a word)
+    # fail the value check. After the vendored rules: a key of a known format keeps its rule id
+    {"id": "label-prose-key", "type": "SECRET", "secret_group": 1, "validator": "prose_key_value",
+     "regex": r"(?i)(?<![\w-])(?:api[ _-](?:key|token|secret)|access[ _-]?(?:token|key)|auth(?:entication)?[ _-]?"
+              r"(?:token|key)|bearer[ _-]?token|secret[ _-]?key|client[ _-]?secret|(?:personal[ _-]?access|private)"
+              r"[ _-]?token|token)s?(?:[ \t]+(?:is|was))?[ \t]*[:,(]?[ \t]+[`\"'„“]?"
+              r"([A-Za-z0-9_+/=.-]{15,511}[A-Za-z0-9_+/=])[`\"'“”]?(?=[.,;:!?)]?(?:\s|$))"},
 ]
 
 
@@ -2305,7 +2356,8 @@ _CAPITALISED_WORD_RE = _LazyRx(r"(?:[A-Z][a-z]+)+")
 # the stops of a sentence after an unquoted value (the regex never ends a value on a comma)
 _SENTENCE_STOP = ".;"
 # rules whose value check is cheap and refuses most candidates: it runs before the checks of the code around a value
-_VALIDATE_FIRST = frozenset({"label-password-after-word", "label-password-after-space"})
+_VALIDATE_FIRST = frozenset({"label-password-after-word", "label-password-after-space", "label-password-apposition",
+                             "label-password-for-is", "label-password-use-as"})
 
 
 def _load_detect_secrets(languages: tuple[str, ...] = ("en",)) -> list[Rule]:
@@ -2443,7 +2495,8 @@ def _rule_sources(active) -> list:
         ("detect-secrets", _load_detect_secrets(active.languages)),
         ("betterleaks", _load_betterleaks()),
         ("own-json", _load_own_secret_rules()),
-        ("fallback", [Rule(id=d["id"], type=d["type"], regex=_Lazy(d["regex"])) for d in FALLBACK_RULES]),
+        ("fallback", [Rule(id=d["id"], type=d["type"], regex=_Lazy(d["regex"]), secret_group=d.get("secret_group", 0),
+                           validator=d.get("validator")) for d in FALLBACK_RULES]),
         ("regional", _load_regional(active.regions)),
         ("presidio", _load_presidio(active.regions)),
         ("own-pii", [r for r in own[:n_own] if r.type != "SECRET"]),
@@ -4139,7 +4192,8 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
                     and re.fullmatch(r"[A-Za-z]+(?:[_-][A-Za-z]+)+", secret)):
                 continue   # words, not a token: Bearer test_access_token
             if "derived-label" in filters and (
-                    (_UUID_RE.fullmatch(secret.strip("\"'` ")) and not _SECRET_LABEL_RE.search(
+                    (_UUID_RE.fullmatch(secret.strip("\"'` ")) and rule.id != "label-prose-key"   # its words name a key
+                     and not _SECRET_LABEL_RE.search(
                         text, max(_line_start(text, start), start - 60), start))
                     or (_ELISION_RE.search(secret) and len(secret.rstrip(".\u2026")) < 20)
                     or _DERIVED_LABEL_RE.search(text, max(_line_start(text, start), start - 60), start)):

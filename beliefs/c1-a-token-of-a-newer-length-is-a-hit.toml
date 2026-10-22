@@ -6,7 +6,8 @@ runner = ["tests/test_rules_from_the_catalogs.py::SessionFormTests::test_openai_
 
 [proof]
 file = "maisecrets/detection/core.py"
-find = '''        ("fallback", [Rule(id=d["id"], type=d["type"], regex=_Lazy(d["regex"])) for d in FALLBACK_RULES]),
+find = '''        ("fallback", [Rule(id=d["id"], type=d["type"], regex=_Lazy(d["regex"]), secret_group=d.get("secret_group", 0),
+                           validator=d.get("validator")) for d in FALLBACK_RULES]),
 '''
 replace = '''        ("fallback", []),
 '''

@@ -133,6 +133,26 @@ against 0.7.3, in full: Nemotron `dev` 70, `val` 37 and holdout split 32 spans m
 no span worse, no false positive more, and the other sources, Privy and the catalogs without a change. The
 difference is the phone number written as one run of digits (0.7.4).
 
+### maisecrets 0.7.6, the release, in full (2026-10-22)
+
+The same run on `v0.7.6` (`bef132cf`), with the record fields of 0.7.5 and the phone rules of 0.7.6
+(`bench/results/2026-10-22-v3-0.7.6/`). PII recall strict against 0.7.4, every split in full:
+
+| Source | `dev` | `val` | public `holdout` split |
+|---|---|---|---|
+| Nemotron | 0.593 → 0.603 | 0.597 → 0.607 | 0.590 → 0.599 |
+| Gretel finance | 0.287 → 0.290 | 0.277 → 0.280 | 0.275 → 0.278 |
+| Mendeley, PIILO | unchanged | unchanged | unchanged |
+| Privy (no splits) | 0.240, 4 spans more whole | | |
+
+Per span: Nemotron 2,059, 621 and 643 spans missed to whole, Gretel 220, 72 and 88; false positives Nemotron +4 / +1 /
+0, Gretel +228 / +60 / +63 (people's data the dataset does not label in those rows: the first and last names of
+customer tables, phone numbers after `Teléfono:`). One span got worse: a phone number in a sentence after a contact
+label (`Escalation contact: Contact the coordinator at …`) that 0.7.6's contact rule took and refused; fixed on
+`next` after the release.
+
+Holdout V2 on 0.7.6: the same as on 0.7.4 (recall 0.626, precision 0.9955, 3 false positives).
+
 ### All scanners on the same salted samples (2026-10-21)
 
 The same run (`bench/run_all_v3.sh`, clean benchmark commits `704db2a0` to `a5fd1ff3`; between them only the NER
@@ -167,6 +187,19 @@ The first run of the independent holdout (872 cases, written by an agent that sa
 Its weak classes (totals of the class only): names 5 of 48 whole, connection strings and URL credentials masked in
 part only (48 of 48 and 37 of 42 partial; the holdout is not read, so which part stays open), tax ids 24 of 42, user
 names 18 of 36, passwords 24 of 48. Tokens and private keys are whole in all 108 spans.
+
+**A partial connection string is the intended behaviour, not a gap** (the maintainer's decision, 2026-10-22).
+maisecrets masks the credential of `postgres://user:password@host/db` and keeps the scheme, the user, the host and the
+database, so the model can still work with the connection: `postgres://user:<placeholder>@host/db`. Strict recall
+counts that as partial, because the gold span is the whole string. A partial span here is a difference of policy and
+scoring, not a leak, as long as no sensitive part stays in plain text; maisecrets is not tuned to mask the whole
+string for strict recall.
+
+A metric for this, as a proposal and not yet part of the method: **leak-safe coverage**, the share of gold spans whose
+sensitive component (the password, the token, the key, the value of a personal field) is masked, whatever the span
+masks around it. It needs a second annotation per class (which part of a span is the sensitive component: the
+password of a URL, all of a token), so it is noted here and not built. Lenient recall (any overlap) is an upper bound
+of it today; on Holdout V2 it is 0.864 for secrets against a strict 0.588.
 
 ### Which public statements hold
 

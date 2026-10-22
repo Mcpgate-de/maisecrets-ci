@@ -47,6 +47,7 @@ OWNER = {
     "name cjk": "name-non-latin-after-label", "name latin ext": "name-after-label",
     "name in a declaration": "name-next-to-a-person-cue", "name before born on": "name-next-to-a-person-cue",
     "name after my name is": "name-next-to-a-person-cue", "us address on two lines": "address-us-two-lines",
+    "us address on one line": "address-us-one-line",
     "phone encoded": "phone-url-encoded", "phone wrapped": "phone-wrapped-line",
     "encoded mail sent to": "email-percent-encoded", "encoded mail csv cell": "email-percent-encoded",
     "card in groups": "credit-card", "card after pan": "credit-card", "card after a swedish word": "credit-card",

@@ -831,6 +831,34 @@ company's `we can help you at` and an id after `Contact:` stay text):
 The new false positives on Gretel `dev`, read by rule and shape (no value printed), are phone numbers after
 `Teléfono:`, `phone number` and `contact number` that the dataset does not label.
 
+### A person's address and ids under more field names, and a date of birth as the person of a record, 2026-10-22
+
+On `dev` of Nemotron and Gretel, the record fields that 0.7.6 left text were mostly field names the lexicon did not
+know (`Property Address`, `Health Plan Beneficiary Number`, `Certificate License Number`, `User ID`) and rows whose
+only sign of a person was a date of birth. Two changes to the one lexicon that every record format reads (Markdown
+tables and field-value tables, CSV, JSON, XML, SQL):
+
+- **More field names.** An address under its purpose (`Property`, `Billing`, `Shipping`, `Mailing`, `Residential`,
+  `Postal`, `Permanent`, `Current` address) is an address; the ids of a person (`Health Plan Beneficiary Number`,
+  `Beneficiary Number`, `Certificate License Number`, `Driver License Number`, `Patient ID`, and their spellings in
+  one word) are strong columns; `User ID` is a weak column beside them.
+- **A date of birth as the person.** A date of birth under its own name (`Date of Birth`, `DOB`, `Birth Date`, not
+  `Birthday`) makes a row a person's record when its year lies 12 years back or more, so a release table's date stays
+  text.
+
+After codex Gate A, a table of software with one personal column (`| Product | Certificate License Number | Version |`)
+gets no person from the new ids or from a date of birth, and a test account (`fixture_account`) in a user column stays
+text; the anchors the formats had before keep their role.
+
+Against the detection code of 0.7.6 (missed to whole, `dev` / `val`): Nemotron 559 / 154 (ids 325, dates of birth
+112, names 73, addresses 38 on `dev`), Gretel 43 / 15, the traces 143 / 36; no span worse; false positives
+Nemotron `dev` +1, Gretel `dev` +13 (ids under `driver_license_number` and `patient_id` that the dataset does not
+label there), `val` unchanged; the false-alarm bank unchanged. A first version of the software rule held back every
+anchor of such a table and lost 100 spans of the traces (order records with a `sku` and a customer); measured and
+narrowed before this merge. User names in tables without a field only a person has
+(`| User name | Role |`) and in role columns (`Assigned to`, `Author`) stay text: a list of accounts or a task tracker
+in developer text has the same form.
+
 ## CredData, results per release
 
 CredData line method, without repository `2ba83c6a` (23,667 rows: 10,106 credentials, 13,561 non-secrets),

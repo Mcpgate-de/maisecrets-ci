@@ -132,7 +132,7 @@ T = [
     ("prompt/openai-key-env", "prompt", "shell", "dev", "easy", ["provider:openai"],
      "export OPENAI_API_KEY={openai_key|secret.token} and then run the script"),
     ("prompt/password-sentence", "prompt", "prose", "dev", "medium", ["form:sentence"],
-     "the admin password for the staging db is {password|secret.password}, please update the config"),
+     "the admin pass§word for the staging db is {password|secret.password}, please update the config"),
     ("prompt/password-de", "prompt", "prose", "val", "medium", ["form:sentence", "lang:de"],
      "Das Passwort für den Testserver lautet {password|secret.password}"),
     ("prompt/email-and-phone", "prompt", "prose", "dev", "easy", ["lang:de"],

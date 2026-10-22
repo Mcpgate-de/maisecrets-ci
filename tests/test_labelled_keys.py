@@ -147,5 +147,33 @@ class ApiKeySchemeTests(unittest.TestCase):
                 self.assertEqual(values(text), [])
 
 
+class ProseKeyTests(unittest.TestCase):
+    """label-prose-key: a key that a sentence names, with no `:` or `=` before it (benchmark V3, Nemotron dev: about
+    1,300 keys in the clear)."""
+
+    def test_a_random_key_after_a_key_word_in_a_sentence_is_a_hit(self):
+        alnum = "".join(RNG.choice(ALNUM) for _ in range(32))
+        uuid = "-".join(hexkey("prose-uuid")[a:b] for a, b in ((0, 8), (8, 12), (12, 16), (16, 20), (20, 32)))
+        for v in (alnum, hexkey("prose-hex", 32), uuid, b64key("prose-b64", 40)):
+            for text in (f"Use the API key {v} for the call.", f"The API key is {v}.",
+                         f"Please rotate the API key, {v}, today.", f"Here is the access token {v} for staging."):
+                with self.subTest(text=text[:30], n=len(v)):
+                    self.assertEqual(values(text), [v])
+
+    def test_a_key_of_a_known_format_keeps_its_rule(self):
+        v = "glpat-" + b64key("prose-glpat", 20)
+        self.assertEqual([m.kind for m in detect.scan(f"Use the token {v} for the job.")], ["gitlab-pat"])
+
+    def test_words_numbers_and_templates_after_a_key_word_are_no_hit(self):
+        for text in ("The token count is 50256 for this model.", "Set the API key YOUR_API_KEY_HERE first.",
+                     "the token PaymentsServiceV2Prod is the name of the service",
+                     "The API key, which we rotate every month, lives in the vault.",
+                     "the access token /run/secrets/api_token_v2 is mounted",
+                     "Use the API key " + es_key("doc-id", "doc-key") + " from the docs.",
+                     "the API key 1.2.3-beta.4 version"):
+            with self.subTest(text=text[:30]):
+                self.assertEqual(values(text), [])
+
+
 if __name__ == "__main__":
     unittest.main()

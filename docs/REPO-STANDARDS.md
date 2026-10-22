@@ -108,6 +108,26 @@ and OpenAI plugin directories.
 
 ## Versions and releases (now)
 
+- **The release gate runs before every release merge request** (`scripts/release_gate.py CANDIDATE OUT`, on a clean
+  checkout of the head of `next`). It answers from the diff since the last `v*` tag whether the candidate needs to be
+  measured again: a change of `maisecrets/detection/` runs Benchmark V3 for maisecrets on the candidate (about 40
+  minutes, `bench/run_all_v3.sh`) and compares every span with the last release's results in `bench/results/`
+  (`*-v3-<version>`); with `--holdout`, Holdout V2 runs too and its recall may not fall. A span the candidate masks
+  worse stops the release until it is explained or fixed. A change of the other runtime files (hooks, mod, settings)
+  asks for the harness and a live test between two sessions with `--plugin-dir`. Docs, bench and CI need nothing.
+  The gate's report (`OUT/release-gate.md`) goes into the release merge request. It runs locally: the datasets are
+  too large for CI.
+- **The gate's measurement is the next baseline.** The release commit changes only the version, so a second run of
+  Benchmark V3 on the tag measures the same code. With `--keep` the gate writes its results to
+  `bench/results/<date>-v3-<next version>`, with `measured.json` (the commit and the git tree of each runtime
+  directory); that directory goes to `next` before the release merge request, so the baseline is in the repository
+  when the release is. After the release, `python3 scripts/release_gate.py --verify-tag v<version>` checks in a second
+  that the runtime directories of the tag are the measured trees. If one differs, the results are no baseline and the
+  gate runs again on the tag. Why: until 0.7.6 the baseline was measured again after the release, 40 minutes for the
+  same code, and the repository had it one release late (2026-10-22).
+  Why: 0.7.6 lost a phone number on Nemotron's holdout split that a measurement of `dev` and `val` before the
+  merge could not see; Benchmark V3 on the release found it (2026-10-22).
+
 - Claude Code fetches a plugin update only when the `version` string in
   `.claude-plugin/plugin.json` changes (manifest reference, "version"). The
   bump is therefore the release, and it is never typed by hand.
