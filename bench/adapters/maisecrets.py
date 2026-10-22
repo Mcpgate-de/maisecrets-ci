@@ -16,7 +16,9 @@ SCOPE = ("secret.", "pii.")
 WORKER = Path(__file__).with_name("maisecrets_worker.py")
 _HOME_VAR = "MAISECRETS" + "_HOME"
 _PII = {"EMAIL": "pii.email", "PHONE": "pii.phone", "IBAN": "pii.iban", "CARD": "pii.card", "IP": "pii.ip",
-        "NAME": "pii.name", "ADDRESS": "pii.address", "BIRTH_DATE": "pii.birth_date", "USERNAME": "pii.username"}
+        "NAME": "pii.name", "ADDRESS": "pii.address", "BIRTH_DATE": "pii.birth_date", "USERNAME": "pii.username",
+        # a bank account is no national id (Benchmark V3: the per-class tables put us-bank under the wrong class)
+        "US_BANK_NUMBER": "pii.bank_account", "ABA_ROUTING_NUMBER": "pii.bank_account"}
 
 
 def cls_of(placeholder_type: str) -> str:

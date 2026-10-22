@@ -243,12 +243,12 @@ windows_macos:
     # a release merge request always runs it, so the release reuses that run of the same tree
     - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"
     - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_LABELS =~ /(^|,)public-ci(,|$)/
-    # a merge request into next runs it only where Windows or macOS can behave differently: the hooks, the
-    # launchers, the store and its backends, the locale lookup, the client paths. The detection core, the
-    # docs, the benchmark and the beliefs are the same on every platform; Linux tests them, and the
-    # release merge request runs the matrix before anything ships (each waited up to 20 minutes, 2026-10-20)
+    # a merge request into next runs it unless it changes documentation alone: the matrix runs the whole unit suite,
+    # and a test imports the plugin, the detection core, the benchmark and the scripts. The first list (2026-10-21)
+    # named platform paths only, and a test that imported a POSIX-only module reached next untested on Windows (!194)
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
+        - maisecrets/**/*
         - hooks/**/*
         - harness/**/*
         - claude-mod/**/*
@@ -257,18 +257,11 @@ windows_macos:
         - .claude-plugin/**/*
         - .codex-plugin/**/*
         - .github/**/*
-        - maisecrets/*
-        - maisecrets/rules/**/*
-        - maisecrets/detection/regions.py
-        - tests/_*.py
-        - tests/test_platform_*.py
-        - tests/test_*hook*.py
-        - tests/test_windows_*.py
-        - tests/test_vault_config_path.py
-        - scripts/github_matrix.py
-        - scripts/wait_for_github_checks.py
-        - scripts/lint_plugin.py
-        - scripts/windows_e2e.py
+        - tests/**/*
+        - bench/**/*
+        - scripts/**/*
+        - beliefs/**/*
+        - examples/**/*
         - pyproject.toml
         - .gitlab-ci.yml
   variables:

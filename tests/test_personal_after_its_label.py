@@ -421,6 +421,43 @@ class MarkdownTableTests(Base):
                 expected = text.replace(NAME, "•").replace(BIRTH, "•").replace(street, "•")
                 self.assertEqual(expected, masked(text))
 
+    def test_a_first_or_last_name_field_of_a_record_is_a_name(self):
+        first, last = NAME.split()
+        for text in ("| Field | Value |\n|---|---|\n| First Name | " + first + " |\n| Last Name | " + last
+                     + " |\n| Date of Birth | " + BIRTH + " |\n",
+                     "first_name,last_name,dob\n" + first + "," + last + "," + BIRTH + "\n"):
+            with self.subTest(text=text):
+                self.assertMasked(text, first)
+                self.assertMasked(text, last)
+
+    def test_a_name_part_field_without_a_person_or_with_a_form_word_stays_text(self):
+        first, last = NAME.split()
+        # a first and a last name alone make no record; a form word is no name
+        self.assertText("| Field | Value |\n|---|---|\n| First Name | " + first + " |\n| Last Name | " + last + " |\n")
+        self.assertText("| Field | Value |\n|---|---|\n| First Name | Required |\n| Last Name | Optional |\n"
+                        "| Date of Birth | " + BIRTH + " |\n")
+
+    def test_the_names_of_a_fixture_in_name_part_fields_stay_text(self):
+        # seed data and API examples: fixture words, and a first and a last name that make a placeholder together
+        for text in ("first_name,last_name,dob\nFoo,Bar,1999-12-31\nTest,User,2000-01-01\n",
+                     '{"first_name": "Jane", "last_name": "Doe", "date_of_birth": "1990-01-01"}',
+                     "| Field | Value |\n|---|---|\n| First Name | John |\n| Last Name | Doe |\n"
+                     "| Date of Birth | " + BIRTH + " |\n"):
+            with self.subTest(text=text):
+                self.assertNotIn("NAME", {m.type for m in scan(text)})
+
+    def test_the_name_column_of_a_person_in_a_role_counts_beside_a_strong_column(self):
+        for head in ("Candidate Name", "Client Name", "Player Name", "Recipient Name", "Applicant Name", "Student Name",
+                     "Member Name", "Contact Name", "Passenger Name", "Beneficiary Name", "Tenant Name"):
+            with self.subTest(head=head):
+                self.assertMasked("| " + head + " | Date of Birth |\n|---|---|\n| " + NAME + " | " + BIRTH + " |\n",
+                                  NAME)
+                # without a strong column a list of names is no record (a score board)
+                self.assertText("| " + head + " | Score |\n|---|---|\n| " + NAME + " | 88 |\n")
+                # the same field in camel case in a JSON record
+                key = head.split()[0].lower() + "Name"
+                self.assertMasked('{"' + key + '": "' + NAME + '", "dateOfBirth": "' + BIRTH + '"}', NAME)
+
     def test_a_table_of_fields_without_a_person_stays_text(self):
         for text in ("| Name | Value |\n|---|---|\n| Product Name | Widget Pro |\n| Version | 2.1 |\n",
                      "| Setting | Value |\n|---|---|\n| Name | build-runner |\n"

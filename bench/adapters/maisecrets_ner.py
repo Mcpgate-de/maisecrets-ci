@@ -31,9 +31,9 @@ def _python() -> str:
 
 def _backend() -> str:
     b = os.environ.get("BENCH_NER", "")
-    if not b.startswith(("spacy:", "gliner:", "hf:")):
-        raise _proc.AdapterError("maisecrets_ner: BENCH_NER must be spacy:<model>, gliner:<dir>:<threshold> or "
-                                 "hf:<dir>")
+    if not b.startswith(("spacy:", "gliner:", "hf:", "onnx:")):
+        raise _proc.AdapterError("maisecrets_ner: BENCH_NER must be spacy:<model>, gliner:<dir>:<threshold>, "
+                                 "hf:<dir> or onnx:<dir>[::int8]")
     return b
 
 

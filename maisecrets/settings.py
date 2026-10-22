@@ -156,8 +156,10 @@ def nested_program(payload: dict) -> str | None:
 
 # a message of another Claude session (SendMessage) reaches a session as a prompt, wrapped by the client, and the hook
 # input names no origin (2.1.302: `source` is in the schema and not sent). A person can type the wrapper too, so it
-# only takes rights away: such a prompt is never the person's, and a block never touches the clipboard (2026-10-21)
-_PEER_RE = re.compile(r"\A\s*Another Claude session sent a message:\s*<cross-session-message\b([^>\n]{0,400})>")
+# only takes rights away: such a prompt is never the person's, and a block never touches the clipboard (2026-10-21).
+# The hook gets the wrapper without the line "Another Claude session sent a message:" that the transcript shows
+# (2.1.307, measured 2026-10-22 with a probe hook), so the line is optional
+_PEER_RE = re.compile(r"\A\s*(?:Another Claude session sent a message:\s*)?<cross-session-message\b([^>\n]{0,400})>")
 _PEER_NAME_RE = re.compile(r'\bfrom-name="([A-Za-z0-9 ._-]{1,40})"')
 
 

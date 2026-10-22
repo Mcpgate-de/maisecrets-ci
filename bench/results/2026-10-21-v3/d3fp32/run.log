@@ -1,0 +1,126 @@
+maisecrets+ner 0.7.3 on nemotron/val: 834 cases, spans 2899, full 2394, partial 7, missed 498, FP 15, recall 0.8258, precision 0.9927, F1 0.9016, too wide 0
+  pii                          spans   2781  full   2348  partial     7  missed    426  FP    15  R 0.8443
+  pii.address                  spans    140  full     52  partial     5  missed     83  FP     0  R 0.3714
+  pii.bank_account             spans    110  full    108  partial     0  missed      2  FP     0  R 0.9818
+  pii.birth_date               spans    145  full    124  partial     0  missed     21  FP     0  R 0.8552
+  pii.card                     spans      9  full      9  partial     0  missed      0  FP     0  R -
+  pii.email                    spans    436  full    436  partial     0  missed      0  FP     0  R 1.0
+  pii.ip                       spans     83  full     83  partial     0  missed      0  FP     0  R 1.0
+  pii.name                     spans   1159  full   1043  partial     0  missed    116  FP     0  R 0.8999
+  pii.national_id              spans    281  full    230  partial     0  missed     51  FP     0  R 0.8185
+  pii.phone                    spans    272  full    212  partial     1  missed     59  FP     0  R 0.7794
+  pii.username                 spans    146  full     51  partial     1  missed     94  FP     0  R 0.3493
+  secret                       spans    118  full     46  partial     0  missed     72  FP     0  R 0.3898
+  secret.generic               spans     53  full     16  partial     0  missed     37  FP     0  R 0.3019
+  secret.password              spans     65  full     30  partial     0  missed     35  FP     0  R 0.4615
+Traceback (most recent call last):
+  File "<checkouts>/ms-bv3/bench/run.py", line 223, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "<checkouts>/ms-bv3/bench/run.py", line 174, in main
+    found, timing = adapter.scan(selected, a.maisecrets.resolve(), a.regions)
+                    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<checkouts>/ms-bv3/bench/adapters/maisecrets_ner.py", line 65, in scan
+    raise _proc.AdapterError(f"maisecrets_ner: the NER worker failed with exit code {p.returncode}")
+bench.adapters._proc.AdapterError: maisecrets_ner: the NER worker failed with exit code 1
+maisecrets+ner 0.7.3 on gretel/val: 334 cases, spans 1153, full 568, partial 118, missed 467, FP 71, recall 0.4926, precision 0.9109, F1 0.6394, too wide 5
+  pii                          spans   1141  full    565  partial   118  missed    458  FP    70  R 0.4952
+  pii.address                  spans    260  full     76  partial    34  missed    150  FP     0  R 0.2923
+  pii.birth_date               spans     31  full     15  partial     0  missed     16  FP     0  R 0.4839
+  pii.card                     spans      8  full      8  partial     0  missed      0  FP     0  R -
+  pii.email                    spans     80  full     80  partial     0  missed      0  FP     0  R 1.0
+  pii.iban                     spans      8  full      8  partial     0  missed      0  FP     0  R -
+  pii.ip                       spans     17  full     17  partial     0  missed      0  FP     0  R -
+  pii.name                     spans    668  full    313  partial    84  missed    271  FP     0  R 0.4686
+  pii.national_id              spans     15  full     10  partial     0  missed      5  FP     0  R -
+  pii.phone                    spans     50  full     36  partial     0  missed     14  FP     0  R 0.72
+  pii.username                 spans      4  full      2  partial     0  missed      2  FP     0  R -
+  secret                       spans     12  full      3  partial     0  missed      9  FP     1  R -
+  secret.generic               spans      5  full      2  partial     0  missed      3  FP     0  R -
+  secret.password              spans      7  full      1  partial     0  missed      6  FP     0  R -
+maisecrets+ner 0.7.3 on gretel/holdout: 336 cases, spans 1018, full 464, partial 113, missed 441, FP 48, recall 0.4558, precision 0.9285, F1 0.6114, too wide 4
+  pii                          spans   1009  full    462  partial   113  missed    434  FP    48  R 0.4579
+  pii.address                  spans    213  full     60  partial    26  missed    127  FP     0  R 0.2817
+  pii.birth_date               spans     13  full     12  partial     0  missed      1  FP     0  R -
+  pii.card                     spans      1  full      1  partial     0  missed      0  FP     0  R -
+  pii.email                    spans     80  full     80  partial     0  missed      0  FP     0  R 1.0
+  pii.iban                     spans      5  full      5  partial     0  missed      0  FP     0  R -
+  pii.ip                       spans     19  full     19  partial     0  missed      0  FP     0  R -
+  pii.name                     spans    620  full    251  partial    87  missed    282  FP     0  R 0.4048
+  pii.national_id              spans     30  full     19  partial     0  missed     11  FP     0  R 0.6333
+  pii.phone                    spans     25  full     13  partial     0  missed     12  FP     0  R -
+  pii.username                 spans      3  full      2  partial     0  missed      1  FP     0  R -
+  secret                       spans      9  full      2  partial     0  missed      7  FP     0  R -
+  secret.generic               spans      3  full      1  partial     0  missed      2  FP     0  R -
+  secret.password              spans      6  full      1  partial     0  missed      5  FP     0  R -
+maisecrets+ner 0.7.3 on mendeley/val: 362 cases, spans 2084, full 1917, partial 41, missed 126, FP 331, recall 0.9199, precision 0.8557, F1 0.8866, too wide 0
+  pii                          spans   2084  full   1917  partial    41  missed    126  FP   331  R 0.9199
+  pii.address                  spans    352  full    237  partial    26  missed     89  FP     0  R 0.6733
+  pii.card                     spans    321  full    321  partial     0  missed      0  FP     0  R 1.0
+  pii.name                     spans    633  full    605  partial    15  missed     13  FP     0  R 0.9558
+  pii.national_id              spans    413  full    413  partial     0  missed      0  FP     0  R 1.0
+  pii.phone                    spans    365  full    341  partial     0  missed     24  FP     0  R 0.9342
+maisecrets+ner 0.7.3 on mendeley/holdout: 398 cases, spans 2360, full 2154, partial 73, missed 133, FP 352, recall 0.9127, precision 0.864, F1 0.8877, too wide 0
+  pii                          spans   2360  full   2154  partial    73  missed    133  FP   352  R 0.9127
+  pii.address                  spans    412  full    276  partial    38  missed     98  FP     0  R 0.6699
+  pii.card                     spans    350  full    350  partial     0  missed      0  FP     0  R 1.0
+  pii.name                     spans    726  full    679  partial    35  missed     12  FP     0  R 0.9353
+  pii.national_id              spans    468  full    468  partial     0  missed      0  FP     0  R 1.0
+  pii.phone                    spans    404  full    381  partial     0  missed     23  FP     0  R 0.9431
+maisecrets+ner 0.7.3 on piilo/val: 55 cases, spans 8, full 6, partial 0, missed 2, FP 7, recall None, precision 0.4615, F1 None, too wide 0
+  pii                          spans      8  full      6  partial     0  missed      2  FP     7  R -
+  pii.name                     spans      8  full      6  partial     0  missed      2  FP     0  R -
+maisecrets+ner 0.7.3 on piilo/holdout: 46 cases, spans 8, full 7, partial 0, missed 1, FP 17, recall None, precision 0.2917, F1 None, too wide 0
+  pii                          spans      8  full      7  partial     0  missed      1  FP    17  R -
+  pii.name                     spans      8  full      7  partial     0  missed      1  FP     0  R -
+maisecrets+ner 0.7.3 on privy/all: 2816 cases, spans 1166, full 746, partial 14, missed 406, FP 390, recall 0.6398, precision 0.6609, F1 0.6502, too wide 0
+  pii                          spans   1076  full    714  partial    14  missed    348  FP   385  R 0.6636
+  pii.card                     spans     64  full     61  partial     0  missed      3  FP     0  R 0.9531
+  pii.name                     spans    796  full    507  partial    14  missed    275  FP     0  R 0.6369
+  pii.national_id              spans    216  full    146  partial     0  missed     70  FP     0  R 0.6759
+  secret                       spans     90  full     32  partial     0  missed     58  FP     5  R 0.3556
+  secret.password              spans     90  full     32  partial     0  missed     58  FP     0  R 0.3556
+maisecrets+ner 0.7.3 on privy/all: 28843 cases, spans 12003, full 7828, partial 119, missed 4056, FP 3858, recall 0.6522, precision 0.6737, F1 0.6628, too wide 0
+  pii                          spans  11247  full   7546  partial   119  missed   3582  FP  3757  R 0.6709
+  pii.card                     spans    735  full    688  partial     0  missed     47  FP     0  R 0.9361
+  pii.iban                     spans      7  full      3  partial     0  missed      4  FP     0  R -
+  pii.name                     spans   8121  full   5157  partial   119  missed   2845  FP     0  R 0.635
+  pii.national_id              spans   2384  full   1698  partial     0  missed    686  FP     0  R 0.7122
+  secret                       spans    756  full    282  partial     0  missed    474  FP   101  R 0.373
+  secret.password              spans    756  full    282  partial     0  missed    474  FP     0  R 0.373
+d3fp32 done
+Traceback (most recent call last):
+  File "<checkouts>/ms-bv3/bench/run.py", line 223, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "<checkouts>/ms-bv3/bench/run.py", line 174, in main
+    found, timing = adapter.scan(selected, a.maisecrets.resolve(), a.regions)
+                    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<checkouts>/ms-bv3/bench/adapters/maisecrets_ner.py", line 65, in scan
+    raise _proc.AdapterError(f"maisecrets_ner: the NER worker failed with exit code {p.returncode}")
+bench.adapters._proc.AdapterError: maisecrets_ner: the NER worker failed with exit code 1
+d3fp32 done
+maisecrets+ner 0.7.3 on nemotron/holdout: 816 cases, spans 3001, full 2578, partial 9, missed 414, FP 19, recall 0.859, precision 0.9914, F1 0.9205, too wide 0
+  pii                          spans   2909  full   2530  partial     9  missed    370  FP    19  R 0.8697
+  pii.address                  spans    141  full     43  partial     4  missed     94  FP     0  R 0.305
+  pii.bank_account             spans     81  full     73  partial     0  missed      8  FP     0  R 0.9012
+  pii.birth_date               spans    146  full    134  partial     0  missed     12  FP     0  R 0.9178
+  pii.card                     spans     10  full     10  partial     0  missed      0  FP     0  R -
+  pii.email                    spans    443  full    443  partial     0  missed      0  FP     0  R 1.0
+  pii.ip                       spans     65  full     65  partial     0  missed      0  FP     0  R 1.0
+  pii.name                     spans   1293  full   1201  partial     0  missed     92  FP     0  R 0.9288
+  pii.national_id              spans    308  full    270  partial     2  missed     36  FP     0  R 0.8766
+  pii.phone                    spans    276  full    216  partial     0  missed     60  FP     0  R 0.7826
+  pii.username                 spans    146  full     75  partial     3  missed     68  FP     0  R 0.5137
+  secret                       spans     92  full     48  partial     0  missed     44  FP     0  R 0.5217
+  secret.generic               spans     33  full     12  partial     0  missed     21  FP     0  R 0.3636
+  secret.password              spans     59  full     36  partial     0  missed     23  FP     0  R 0.6102
+maisecrets+ner 0.7.3 on privy/all: 28843 cases, spans 12003, full 7828, partial 119, missed 4056, FP 3858, recall 0.6522, precision 0.6737, F1 0.6628, too wide 0
+  pii                          spans  11247  full   7546  partial   119  missed   3582  FP  3757  R 0.6709
+  pii.card                     spans    735  full    688  partial     0  missed     47  FP     0  R 0.9361
+  pii.iban                     spans      7  full      3  partial     0  missed      4  FP     0  R -
+  pii.name                     spans   8121  full   5157  partial   119  missed   2845  FP     0  R 0.635
+  pii.national_id              spans   2384  full   1698  partial     0  missed    686  FP     0  R 0.7122
+  secret                       spans    756  full    282  partial     0  missed    474  FP   101  R 0.373
+  secret.password              spans    756  full    282  partial     0  missed    474  FP     0  R 0.373
+d3fp32 done

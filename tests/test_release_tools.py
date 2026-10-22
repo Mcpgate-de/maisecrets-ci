@@ -215,10 +215,12 @@ class ListingManifestTests(unittest.TestCase):
                       "git merge-base --is-ancestor HEAD origin/main", "tag and manifest version differ"):
             self.assertIn(check, vr, check)
 
-    def test_the_matrix_runs_in_a_release_merge_request_and_where_a_platform_can_differ(self):
-        """windows_macos runs in every merge request into main and, into next, only when a path changes that can
-        behave differently on Windows or macOS. A pattern that names no file never starts the job, so each one
-        must still name a file; the detection core outside the locale lookup starts none."""
+    def test_the_matrix_runs_in_a_release_merge_request_and_wherever_the_tests_read_code(self):
+        """windows_macos runs in every merge request into main and, into next, for every change outside the
+        documentation: the matrix runs the whole unit suite, so every file a test reads must start it. A pattern that
+        names no file never starts the job, so each one must name a file (the first rule named platform paths only,
+        and a test with a POSIX-only import reached next untested on Windows, !194)."""
+        import ast
         ci = (ROOT / ".gitlab-ci.yml").read_text(encoding="utf-8")
         job = ci[ci.index("\nwindows_macos:"):]
         job = job[:job.index("\n  variables:")]
@@ -232,10 +234,20 @@ class ListingManifestTests(unittest.TestCase):
             files = {f.relative_to(ROOT).as_posix() for f in ROOT.glob(p) if f.is_file()}
             self.assertTrue(files, f"{p} names no file, so it never starts the job")
             matched |= files
-        self.assertIn("maisecrets/detection/regions.py", matched)
-        self.assertIn("hooks/run.sh", matched)
-        core = {f for f in matched if f.startswith("maisecrets/detection/")}
-        self.assertEqual({"maisecrets/detection/regions.py"}, core)
+        # every top folder a test imports from or names, and every test itself
+        tops = set()
+        for f in sorted((ROOT / "tests").glob("test_*.py")):
+            self.assertIn(f.relative_to(ROOT).as_posix(), matched)
+            for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+                if isinstance(node, (ast.Import, ast.ImportFrom)):
+                    for name in ([node.module] if isinstance(node, ast.ImportFrom) and node.module else
+                                 [a.name for a in node.names]):
+                        if name and (ROOT / name.split(".")[0]).is_dir():
+                            tops.add(name.split(".")[0])
+        self.assertGreaterEqual(tops, {"maisecrets", "bench"}, "the premise: tests import the core and the bench")
+        for top in tops | {"hooks", "scripts", "harness", "beliefs"}:
+            self.assertTrue(any(m.startswith(top + "/") for m in matched), f"{top}/ starts no matrix run")
+        self.assertFalse(any(m.startswith("docs/") for m in matched), "documentation alone needs no matrix run")
 
     def test_the_codex_manifest_mirrors_the_claude_one(self):
         for key in ("name", "version", "description", "author", "homepage", "repository", "license", "keywords"):

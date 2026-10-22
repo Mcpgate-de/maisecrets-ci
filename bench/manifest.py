@@ -20,7 +20,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCANNER_ENVS = {"maisecrets": "BENCH_PYTHON", "detect-secrets": "BENCH_DETECT_SECRETS_PYTHON",
                 "secret-scan": "BENCH_SECRET_SCAN_PYTHON", "pii-anon": "BENCH_PII_ANON_PYTHON",
-                "preserve": "BENCH_PRESERVE_PYTHON", "presidio": "BENCH_PRESIDIO_PYTHON"}
+                "preserve": "BENCH_PRESERVE_PYTHON", "presidio": "BENCH_PRESIDIO_PYTHON",
+                "ai-gateway": "BENCH_GATEWAY_PYTHON"}
 
 
 def _git(repo: Path, *args: str) -> str:

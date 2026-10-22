@@ -1,6 +1,7 @@
 """Benchmark V1 (docs/BENCHMARK-V1.md): the case format, the marks of the bank and the span metric."""
 from __future__ import annotations
 
+import collections
 import contextlib
 import io
 import json
@@ -8,6 +9,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -363,7 +365,8 @@ class AdapterInventoryTests(unittest.TestCase):
         for name in run.ADAPTERS:
             # maisecrets_ner is maisecrets plus the NER experiment's layer: its environments are pinned per backend
             # (NerLayerTests)
-            if name in ("maisecrets", "maisecrets_ner"):
+            # ai_gateway is a consumer measured from its own checkout at a commit (bench/adapters/ai_gateway.py)
+            if name in ("maisecrets", "maisecrets_ner", "ai_gateway"):
                 continue
             with self.subTest(adapter=name):
                 mod = importlib.import_module(f"bench.adapters.{name}")
@@ -759,6 +762,212 @@ class NerLayerTests(unittest.TestCase):
         self.assertEqual([(0, 7, "pii.name", "rule"), (12, 18, "pii.name", "ner:person")], found[0])
         self.assertEqual([], found[1])
         self.assertEqual([0.30000000000000004, 0.30000000000000004], timing["times_s"])
+
+
+class BenchmarkV3Tests(unittest.TestCase):
+    """bench/v3.py: precision counts a false positive only where the source labels its class (docs/BENCHMARK-V3.md)."""
+
+    def test_the_committed_scope_is_the_one_the_label_mapping_gives(self):
+        from bench import v3
+        committed = json.loads((ROOT / "bench" / "v3_scope.json").read_text(encoding="utf-8"))
+        self.assertEqual(json.loads(json.dumps(v3.inventory())), committed)
+        self.assertNotIn("pii.email", committed["privy"]["scored"])
+        self.assertNotIn("pii.iban", committed["privy"]["scored"])      # reached only by retyping
+        self.assertIn("pii.name", committed["privy"]["scored"])
+
+    def test_a_false_positive_counts_only_in_a_class_and_shape_the_source_labels(self):
+        from bench import v3
+        scope = v3.inventory()
+        ssn = "-".join(("536", "22", "8726"))
+        self.assertFalse(v3.scored("privy", scope, "pii.email", "a@example.com"))
+        self.assertFalse(v3.scored("privy", scope, "pii.national_id", ssn))
+        self.assertFalse(v3.scored("privy", scope, "pii.national_id", "SSN: " + ssn))   # a span with its label
+        self.assertTrue(v3.scored("privy", scope, "pii.national_id", "1" + ssn.replace("-", "") + "9"))
+        self.assertTrue(v3.scored("privy", scope, "pii.national_id", "X1234567"))
+        self.assertTrue(v3.scored("privy", scope, "secret.token", "abc"))      # Privy labels passwords: secrets count
+        self.assertFalse(v3.scored("mendeley", scope, "secret.token", "abc"))  # Mendeley labels no secret
+        self.assertTrue(v3.scored("bank", scope, "pii.email", "a@example.com"))  # written here: every class
+
+    def test_the_v3_sample_does_not_follow_the_split_and_the_old_one_does(self):
+        # V1 and V2 took sha256(id) % 50 and the split takes the same hash % 10: every old sample was `dev` alone
+        from bench import run
+        old, new = collections.Counter(), collections.Counter()
+        for i in range(20000):
+            split = cases.split_of("nemotron", str(i))
+            old[split] += run.in_sample(f"nemotron/{i}", 50)
+            new[split] += run.in_sample(f"nemotron/{i}", 50, "v3/")
+        self.assertEqual(0, old["val"] + old["holdout"])
+        self.assertGreater(old["dev"], 0)
+        self.assertGreater(new["val"], 0)
+        self.assertGreater(new["holdout"], 0)
+
+    def test_the_public_holdout_split_of_a_dataset_is_no_run_of_the_private_holdout(self):
+        # `--split holdout` on a dataset wrote to the holdout log and dropped the outcomes per case (2026-10-21)
+        from bench import run, sources
+        c = {"id": "nemotron/1", "text": "mail a@example.org", "channel": "tool", "context": "doc", "path": None,
+             "spans": [{"start": 5, "end": 18, "class": "pii.email"}], "split": "holdout", "source": {"name": "x"}}
+        with tempfile.TemporaryDirectory() as d:
+            log = Path(d) / "log.md"
+            log.write_text("", encoding="utf-8")
+            with mock.patch.object(sources, "load", return_value=iter([c])), \
+                    mock.patch.object(run, "HOLDOUT_LOG", log), \
+                    mock.patch("bench.adapters.detect_secrets.scan", return_value=([[]], {"times_s": [0.0]})), \
+                    mock.patch("bench.adapters.detect_secrets.describe", return_value={"scanner": "x"}), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                run.main(["--scanner", "detect_secrets", "--source", "nemotron", "--split", "holdout",
+                          "--out", str(Path(d) / "r.json")])
+            out = json.loads((Path(d) / "r.json").read_text(encoding="utf-8"))
+            self.assertIn("per_case", out)
+            self.assertIn("v3", out)
+            self.assertEqual("", log.read_text(encoding="utf-8"))
+
+    def test_a_sample_without_a_salt_gets_no_v3_block_and_no_v3_report(self):
+        # an unsalted sample of 1 in 25 follows the split hash, so it is no V3 sample (codex Gate A, 2026-10-22)
+        from bench import report_v3, run, sources
+        c = {"id": "nemotron/1", "text": "mail a@example.org", "channel": "tool", "context": "doc", "path": None,
+             "spans": [{"start": 5, "end": 18, "class": "pii.email"}], "split": "val", "source": {"name": "x"}}
+        with tempfile.TemporaryDirectory() as d:
+            for name, salt in (("plain", []), ("salted", ["--sample-salt", "v3/"])):
+                with mock.patch.object(sources, "load", return_value=iter([c])), \
+                        mock.patch.object(run, "in_sample", return_value=True), \
+                        mock.patch("bench.adapters.detect_secrets.scan", return_value=([[]], {"times_s": [0.0]})), \
+                        mock.patch("bench.adapters.detect_secrets.describe", return_value={"scanner": "x"}), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    run.main(["--scanner", "detect_secrets", "--source", "nemotron", "--split", "val", "--every",
+                              "25", *salt, "--out", str(Path(d) / f"{name}.json")])
+            self.assertNotIn("v3", json.loads((Path(d) / "plain.json").read_text(encoding="utf-8")))
+            self.assertIn("v3", json.loads((Path(d) / "salted.json").read_text(encoding="utf-8")))
+            # an older result with a v3 block and no salt is left out of the report
+            old = json.loads((Path(d) / "salted.json").read_text(encoding="utf-8"))
+            old.pop("sample_salt")
+            (Path(d) / "salted.json").write_text(json.dumps(old), encoding="utf-8")
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                report_v3.main([d])
+            self.assertIn("Left out", buf.getvalue())
+            self.assertNotIn("## nemotron", buf.getvalue())
+
+    def test_the_gateway_adapter_refuses_a_checkout_with_an_untracked_file(self):
+        from bench.adapters import ai_gateway
+        with tempfile.TemporaryDirectory() as d:
+            git = ["git", "-C", d, "-c", "user.name=t", "-c", "user.email=t@example.com"]
+            subprocess.run(["git", "init", "-q", d], check=True)
+            (Path(d) / "a.py").write_text("x = 1\n", encoding="utf-8")
+            subprocess.run(git + ["add", "a.py"], check=True)
+            subprocess.run(git + ["commit", "-q", "-m", "a"], check=True)
+            self.assertFalse(ai_gateway._dirty(d))
+            (Path(d) / "b.py").write_text("y = 2\n", encoding="utf-8")
+            self.assertTrue(ai_gateway._dirty(d))
+
+    def test_the_v3_block_splits_the_false_positives_and_keeps_the_hits(self):
+        from bench import v3
+        text = "mail a@example.com and name Ann Lee"
+        sc = {"on_target": {"pii": 1}, "fp_found": [(5, 18, "pii.email"), (28, 35, "pii.name")]}
+        m = v3.metrics("privy", [({"text": text}, sc)])
+        self.assertEqual({"on_target": 1, "fp": 1, "out_of_scope": {"pii.email": 1}, "precision": 0.5}, m["pii"])
+        self.assertEqual(1, m["all"]["fp"])
+
+
+@unittest.skipUnless(hasattr(__import__("socket"), "AF_UNIX"), "the experiment's service uses a Unix socket")
+class NerHookLayerTests(unittest.TestCase):
+    """bench/ner/hook_layer.py: the deterministic findings first and unchanged; the layer only adds, and every failure
+    of its service leaves the deterministic result."""
+
+    def setUp(self):
+        sys.path.insert(0, str(ROOT / "bench" / "ner"))
+        import hook_layer
+        self.hl = hook_layer
+        self.addCleanup(hook_layer.uninstall)
+        self.dir = tempfile.mkdtemp(prefix="ms-ner-sock-")
+        self.addCleanup(__import__("shutil").rmtree, self.dir, True)
+        self.sock = os.path.join(self.dir, "s")
+        self.text = "token " + "glpat-" + "Q7w8E9r0T1y2U3i4O5p6" + " sent by Ann Lee today"
+        self.det = [(m.start, m.end, m.type) for m in self.hl._ORIGINAL(self.text, channel="tool")]
+
+    def serve(self, answer: bytes, delay: float = 0.0):
+        import socket
+        import threading
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        srv.bind(self.sock)
+        srv.listen(1)
+        self.addCleanup(srv.close)
+
+        def once():
+            conn, _ = srv.accept()
+            with conn:
+                conn.recv(65536)
+                __import__("time").sleep(delay)
+                try:
+                    conn.sendall(answer)
+                except OSError:
+                    pass
+        threading.Thread(target=once, daemon=True).start()
+
+    def scan(self):
+        return [(m.start, m.end, m.type) for m in self.hl.layered_scan(self.text, channel="tool")]
+
+    def test_the_layer_adds_only_where_no_finding_lies(self):
+        s = self.text.index("Ann")
+        on_token = [self.det[0][0], self.det[0][1], 0.9]
+        self.serve(json.dumps({"add": [on_token, [s, s + 7, 0.9]]}).encode() + b"\n")
+        self.hl.install(self.sock, budget_ms=2000)
+        got = self.scan()
+        self.assertEqual(self.det, [g for g in got if g[2] != "NAME"])
+        self.assertIn((s, s + 7, "NAME"), got)
+
+    def test_a_slow_dead_or_garbled_service_leaves_the_deterministic_result(self):
+        self.hl.install(self.sock, budget_ms=200)
+        self.assertEqual(self.det, self.scan())                      # no service at all
+        self.serve(b'{"add": [[1, 2, 0.5]]}\n', delay=1.0)           # slower than the budget
+        self.assertEqual(self.det, self.scan())
+        self.assertGreaterEqual(self.hl.STATE["timeouts"] + self.hl.STATE["errors"], 2)
+
+    def test_all_scans_of_one_hook_call_share_one_budget_without_the_callers_help(self):
+        # install() wraps the hook entry points; a caller that never calls begin_call() still gets one budget per call
+        # (codex Gate A, 2026-10-22: the experiment called it by hand, so the real hook would wait per scan)
+        import types
+        core = self.hl.core
+        hooks = types.SimpleNamespace(post_tool=lambda p: [core.scan(p, channel="tool") for _ in range(4)])
+        import socket
+        import threading
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)        # accepts every request and never answers
+        srv.bind(self.sock)
+        srv.listen(8)
+        held: list = []
+        self.addCleanup(lambda: [c.close() for c in held] and None)
+        self.addCleanup(srv.close)
+
+        def hold():
+            while True:
+                try:
+                    held.append(srv.accept()[0])
+                except OSError:
+                    return
+        threading.Thread(target=hold, daemon=True).start()
+        self.hl.install(self.sock, budget_ms=300, hooks=hooks)
+        t = time.monotonic()
+        hooks.post_tool(self.text)
+        self.assertLess(time.monotonic() - t, 0.7)                     # four budgets would be 1.2 s
+        self.assertEqual(4, self.hl.STATE["timeouts"])                  # each scan waited, none was refused
+        self.assertNotIn("call_deadline", self.hl.STATE)               # the budget ends with the call
+
+    def test_the_hook_experiment_fails_on_each_broken_promise(self):
+        import hook_experiment
+        ok = {"identical_to_off": 3, "of": 3, "off_placeholders_kept": True, "more_deterministic_hits_left_than_off": 0}
+        report = {"inactive_byte_identical": True, **{k: dict(ok) for k in ("on", "slow", "dies", "nonsense")}}
+        self.assertEqual([], hook_experiment.violations(report))
+        for key, field, bad in (("inactive", "inactive_byte_identical", False), ("on", "off_placeholders_kept", False),
+                                ("dies", "more_deterministic_hits_left_than_off", 1),
+                                ("slow", "identical_to_off", 2), ("nonsense", "identical_to_off", 2)):
+            with self.subTest(key=key, field=field):
+                broken = json.loads(json.dumps(report))
+                (broken if key == "inactive" else broken[key])[field] = bad
+                self.assertEqual(1, len(hook_experiment.violations(broken)))
+
+    def test_installed_and_switched_off_it_answers_as_without_it(self):
+        self.hl.install(self.sock, budget_ms=200, active=False)
+        self.assertEqual(self.det, self.scan())
+        self.assertEqual(0, self.hl.STATE["asked"])
 
 
 class FunnelTests(unittest.TestCase):

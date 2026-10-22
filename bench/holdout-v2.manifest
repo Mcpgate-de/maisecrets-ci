@@ -1,0 +1,33 @@
+{
+ "author_role": "independent Claude agent session (no access to maisecrets miss lists, results or detector code)",
+ "cases": 872,
+ "files": {
+  "cases.jsonl": "4eaac4e5ce0d85d5c3fa20b0c160ca3e6b90e6e2d925500f90d847917b76cbc5"
+ },
+ "negative_cases": 44,
+ "runs": "release candidates only (bench/run.py --source holdout-v2 --release-candidate)",
+ "sealed": "2026-10-21",
+ "seed_sha256": "5843a41cbcdc3dce4337d18ddd40cfb5e32ce8b697cff0dbbac5a09c40bc6a76",
+ "spans_by_class": {
+  "pii.address": 42,
+  "pii.bank_account": 36,
+  "pii.birth_date": 42,
+  "pii.card": 36,
+  "pii.email": 42,
+  "pii.iban": 42,
+  "pii.ip": 36,
+  "pii.name": 48,
+  "pii.national_id": 48,
+  "pii.phone": 48,
+  "pii.tax_id": 42,
+  "pii.username": 36,
+  "secret.connection_string": 48,
+  "secret.generic": 42,
+  "secret.password": 48,
+  "secret.private_key": 42,
+  "secret.token": 66,
+  "secret.url_credential": 42,
+  "secret.webhook": 42
+ },
+ "templates_sha256": "655066521adf59917257cb9ebc5f185e093b3fd611155d6d7171630dd9f3edac"
+}

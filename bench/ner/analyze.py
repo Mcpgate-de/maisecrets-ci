@@ -76,11 +76,13 @@ def main(argv: list) -> int:
         rv = json.loads((a.variant / fname).read_text(encoding="utf-8"))
         if rb["cases_sha256"] != rv["cases_sha256"]:
             raise SystemExit(f"{fname}: the two runs saw different cases")
-        key = (rv["source"], rv["every"])
+        # a V3 result names its split and its sample salt (bench/run.py); a V1 result has neither
+        split, salt = rv.get("split", "all"), rv.get("sample_salt") or ""
+        key = (rv["source"], rv["every"], split, salt)
         if key not in loaded:
             loaded.clear()
             loaded[key] = [c for c in sources.load(rv["source"], None, None, 0, collections.Counter())
-                           if run.in_sample(c["id"], rv["every"])]
+                           if (split == "all" or c["split"] == split) and run.in_sample(c["id"], rv["every"], salt)]
         cases = loaded[key]
         if run.cases_hash(cases) != rv["cases_sha256"]:
             raise SystemExit(f"{fname}: the cases differ from the result file")

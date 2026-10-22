@@ -51,7 +51,7 @@ def score_case(case: dict, findings, scope) -> dict:
         outcomes.append({"class": sp["class"], "outcome": "full" if full else "partial" if got else "missed",
                          "chars": n, "covered": got, "family_right": full and _full(same, sp)[0]})
     allowed = [(_label_start(case["text"], s["start"]), s["end"]) for s in case["spans"]]
-    fp, too_wide = 0, 0
+    fp, too_wide, fp_found = 0, 0, []
     on_target, fp_family = collections.Counter(), collections.Counter()
     for s, e, c in found:
         hits = [sp for sp in spans if s < sp["end"] and e > sp["start"]]
@@ -68,7 +68,9 @@ def score_case(case: dict, findings, scope) -> dict:
         else:
             fp += 1
             fp_family[family(c)] += 1
+            fp_found.append((s, e, c))
     return {"spans": outcomes, "fp": fp, "fp_family": dict(fp_family), "on_target": dict(on_target),
+            "fp_found": fp_found,   # the false positives themselves, for the scope of Benchmark V3 (bench/v3.py)
             "too_wide": too_wide, "negative": not spans,   # no span to find after scope and neutral removal
             "bytes": len(case["text"].encode("utf-8")), "lines": case["text"].count("\n") + 1}
 

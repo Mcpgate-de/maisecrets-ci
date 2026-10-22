@@ -267,6 +267,190 @@ optional. Operationally it is not yet acceptable as a feature: the cost inside a
 packaging are open (answer 10). So: experimental, with a product prototype as the next step, if the maintainer
 wants one.
 
+## Product feasibility (Phase B, 2026-10-21)
+
+The questions of answer 9 and 10, measured on D3. Nothing here is in the product: the layer is a bench module
+(`bench/ner/`), and the hook proofs patch a checkout of 0.7.3 in a test process.
+
+### B1: D3 without torch (ONNX, fp32 and int8)
+
+`bench/ner/export_onnx.py` exports D3 at `d421f57d` to ONNX; `bench/ner/person_worker.py` (backend `onnx:<dir>`,
+`onnx:<dir>::int8`) runs it with onnxruntime, tokenizers and numpy and rebuilds the whole-word aggregation (snap) of
+the transformers pipeline. The model files and their sha256 are written next to the export (`SHA256SUMS`).
+
+| | fp32 ONNX | int8 ONNX (dynamic quantisation) |
+|---|---|---|
+| Model on disk | 539 MB | 135 MB |
+| Same PERSON spans as D3 with torch, 300 documents of the samples | 300 of 300 documents | 232 of 300 documents (606 spans the same, 42 lost, 74 new) |
+
+fp32 ONNX is D3: every later number of D3 holds for it. int8 is a different model in effect and is measured on its
+own below.
+
+### B2: accuracy on the V3 data
+
+The salted V3 samples (docs/BENCHMARK-V3.md): `val` and the public holdout split 1 in 25, Privy 1 in 10, maisecrets
+`v0.7.3` with and without the layer, the same cases (`cases_sha256`). `bench/ner/analyze.py` per file; PII precision
+as V3 counts it.
+
+| Data | Names whole: 0.7.3 | + D3 fp32 ONNX | + D3 int8 ONNX | PII precision (V3): 0.7.3 / fp32 / int8 |
+|---|---:|---:|---:|---|
+| Privy, 1 in 10 (796 names) | 35 | 507 | 508 | 0.992 / 0.932 / 0.935 |
+| Nemotron `val` (1,159) | 338 | 1,043 | 1,042 | 0.996 / 0.993 / 0.991 |
+| Nemotron holdout split (1,293) | 353 | 1,201 | 1,207 | 0.996 / 0.991 / 0.993 |
+| Gretel `val` (668) | 83 | 313 | 321 | 0.913 / 0.912 / 0.919 |
+| Gretel holdout split (620) | 86 | 251 | 257 | 0.915 / 0.928 / 0.924 |
+| Mendeley `val` (633) | 126 | 605 | 611 | 0.990 / 0.856 / 0.856 |
+| Mendeley holdout split (726) | 120 | 679 | 683 | 0.989 / 0.864 / 0.864 |
+
+- **No span got worse** in any file, with either model.
+- **Privy's PII recall** goes from 0.225 to 0.664 (fp32) and 0.665 (int8). Names whole: 4.4 % to 63.7 %, the same as
+  the full Privy run of the first experiment (63.5 %), on a sample that is independent of its split.
+- **int8 costs no accuracy here:** it finds as many names as fp32 and its precision is within 0.004.
+- **Mendeley:** the layer adds about 330 false positives per split. In the first experiment 738 of D3's 868 such false
+  positives on Mendeley were a PERSON for spaCy too: names the dataset does not label.
+- Nemotron's holdout split: the first runs of both models failed on one document of 528 word pieces (the model reads
+  512). The worker now cuts such a piece (`a5fd1ff3`), and the row above is the run after the fix.
+- **Privy in full** (8,121 names, totals only): fp32 ONNX 5,157 names whole, the same number as D3 with torch; int8
+  5,161. PII recall 0.671 for both; precision (V3) 0.941 (fp32) and 0.952 (int8), against 0.992 without the layer.
+
+### B3: developer text (the false-alarm bank)
+
+`bench/ner/devtext.py` cuts the developer bank (`scripts/measure_fp_bank.py`'s trees and the tickets) into the
+categories below and counts each PERSON span the layer adds beyond the deterministic result, with a coarse label of
+its context. Counts only; no span is printed. D3 as fp32 and as int8 ONNX:
+
+| Category | Added spans, fp32 | Added spans, int8 | Most of them (fp32) |
+|---|---:|---:|---|
+| Python code (2.2 MB) | 49 | 45 | identifiers 16, comments 12, prose 12, author lines 9 |
+| JS/TS code | 16 | 17 | author or copyright lines 15 |
+| Tests and examples | 19 | 15 | identifiers, paths or literals 19 |
+| Configuration (2.3 MB) | 3 | 7 | |
+| Logs (2 MB) | 0 | 5 | |
+| Stack traces | 22 | 22 | prose of the message 21 |
+| Tickets | 6 | 6 | |
+| Technical documentation (2 MB) | 120 | 111 | comments 56, identifiers 36, prose 16, handles or URLs 11 |
+| All | 235 | 228 | |
+
+An author or copyright line names a real person, so a mask there is right for the layer and harmless for the code.
+The rest are false positives: capitalised identifiers and words in docstrings. int8 adds about as many (228 against
+235), but 5 of them in log lines, where fp32 adds none.
+
+### B4: cost in a service
+
+The layer runs as a service of its own (`bench/ner/sidecar.py`, a Unix socket, the model loaded once); the hook
+asks it over the socket. `bench/ner/perf_service.py` measures it from the client side on 300 Nemotron documents
+(272 KB). Measured twice: on 2026-10-22 at a load average of 2 to 4 (the machine without benchmark runs), and on
+2026-10-21 at 4 to 6 (other benchmark runs) in brackets:
+
+| | int8 ONNX | fp32 ONNX |
+|---|---:|---:|
+| Start to ready (model files in the page cache), and a restart | 0.27 s, 0.18 s (0.23, 0.23) | 0.30 s, 0.28 s (0.31, 0.36) |
+| First request | 12 ms (13) | 13 ms (14) |
+| Per document, median / 95th percentile | 16 / 42 ms (22 / 62) | 18 / 49 ms (30 / 75) |
+| 1,000 short requests in a row, median / 95th | 1.8 / 2.0 ms (2.2 / 2.3) | 2.8 / 3.5 ms (3.8 / 9.7) |
+| 2 / 4 / 8 clients at once, median per request | 32 / 72 / 156 ms (46 / 105 / 224) | 39 / 87 / 194 ms (58 / 125 / 268) |
+| Throughput with several clients | 54 documents/s (37) | 43 documents/s (31) |
+| A request after 60 s idle | 37 ms (23) | 49 ms (25) |
+| One input of 1 MB | 22 s (29) | 25 s (36) |
+| Memory: after the run / highest seen | 327 / 431 MB (341 / 431) | 714 / 1,341 MB (723 / 1,342) |
+
+The service answers one request at a time, so parallel hook calls wait in line; it keeps its speed over 1,000
+requests and after an idle minute. A 1 MB tool result takes half a minute, so a product needs a size limit per hook
+call (the budget of B5 already returns the deterministic result when time runs out).
+
+### B5: the real hook path
+
+`bench/ner/hook_layer.py` wraps the detector of a real checkout (`core.scan`; `detect` is the same module) so that
+the deterministic result comes first and the layer may only add a PERSON span where no finding lies.
+`bench/ner/hook_experiment.py` sends 395 tool results (the bank's dev cases, 200 Nemotron val cases of the V3 sample,
+120 developer texts; 669 KB) through the real PostToolUse hook of 0.7.3, each run in a new temp home. One time budget
+of 300 ms per hook call, not per scan: a hook call scans about five texts (the output, its parts, the name
+check), and a budget per scan let one call wait 1.6 s.
+
+| Proof | Result (int8, under load) |
+|---|---|
+| The layer installed and switched off answers byte for byte as without it | yes, 395 of 395 |
+| The service 2 s slow: every answer as without the layer | 395 of 395; the slowest call 339 ms |
+| The service dies after 20 requests: every answer as without it, no error text | 395 of 395; the slowest call 107 ms |
+| The service answers nonsense | 395 of 395 |
+| The layer on: every placeholder type of the answer without the layer is still there | yes, in all 395 |
+| The layer on: a value of a deterministic hit in the text the model gets that the answer without the layer does not show in plain text | 0. A count of hits gave 1 (`de-tax-id`): that tax id is in plain text in both answers (the hook of 0.7.3 leaves it in that test home), and a rule with a context word finds it next to a new placeholder only. The experiment now compares the values, in memory |
+| The layer on: names added | 48, with 557 of 1,975 scans out of time under the load |
+| The same run at a load average of 2 to 5 | 94 names added, no scan out of time; a hook call takes 39 to 55 ms median, 152 to 210 ms p95, 235 ms at most in two runs (6 to 8 ms median without the layer); the other proofs as above |
+
+So the layer cannot make a finding worse, a slow, failing or broken service changes nothing, and switched off it is
+invisible. `bench/ner/hook_experiment.py` exits with 1 when any of these promises fails (codex Gate A asked for it:
+the first version only wrote the numbers). Since codex Gate A, `install()` also gives each real hook call its one
+budget; before, the experiment set it by hand. The cost multiplier is the number of scans per hook call (about five), which a product would cut to one
+request per call.
+
+### B6: packaging
+
+A second environment (no package goes into the plugin folder), measured with a fresh venv per Python:
+
+- onnxruntime 1.31 needs Python 3.11 or newer; it has wheels for macOS arm64, Linux x86_64 and aarch64 (glibc 2.28)
+  and Windows amd64 and arm64. No 1.31 wheel for macOS x86_64.
+- Python 3.9 gets onnxruntime 1.19.2, which runs the model. Python 3.15 has no wheel yet.
+- The environment is about 175 MB, plus 135 MB for the int8 model.
+- Offline: a run with the network blocked in the process made 0 network attempts on 3.9, 3.11 and 3.14.
+
+## The decision (Phase D, 2026-10-21)
+
+### The matrix
+
+Recall and precision: Privy, V3 sample 1 in 10 (B2). Developer FP: added PERSON spans on the developer text of B3
+(about 12 MB); the deterministic core's own false alarms are on another bank (`scripts/measure_fp_bank.py`) and are not
+the same unit. RAM and latency: one model process; the times of the torch models are from the idle machine of
+"Cost", the ONNX times from B4 (the service, at a load average of 2 to 4).
+
+| Option | Recall (Privy names whole / PII) | Precision (Privy PII, V3) | Developer FP | RAM | Latency per document | Install size | Complexity | Recommendation |
+|---|---|---|---|---|---|---|---|---|
+| Deterministic only (0.7.3) | 4.4 % / 0.225 | 0.992 | – (the rules' own bank) | the hook process | 0.25–9.8 ms | the plugin, standard library | low | the default, unchanged |
+| + D3 (torch) | 63.5 % (full Privy) | as fp32 ONNX | as fp32 ONNX (the same spans) | 0.7 GB | 33 ms median, 88 ms p95 | about 1.4 GB (torch 587 MB) | high | no: ONNX gives the same spans without torch |
+| + D3 ONNX fp32 | 63.7 % / 0.664 (full: 63.5 % / 0.671) | 0.932 (full: 0.941) | 235 | 1.3 GB peak | 18 ms median, 49 ms p95 | about 175 MB + 539 MB | medium | no: int8 is as accurate at a quarter of the model |
+| + D3 ONNX int8 | 63.8 % / 0.665 (full: 63.6 % / 0.671) | 0.935 (full: 0.952) | 228 (5 in logs) | 0.43 GB peak | 16 ms median, 42 ms p95, start 0.27 s | about 175 MB + 135 MB | medium | **opt-in prototype** |
+| + GLiNER (high recall) | 96.2 % (full Privy) | – | not measured | 3.5 GB | 152 ms median, 411 ms p95 | about 2 GB | high | not now: 75 times D3's false positives on Privy |
+
+### The answers
+
+1. **Does the core generalise?** Yes, within its scope. The rules of 0.6.40 to 0.7.3 were written from `dev` and hold
+   on `val` and on the public holdout split within two points (docs/BENCHMARK-V3.md). On the independent Holdout V2,
+   0.7.4 has recall 0.626 and precision 0.9955. Its weak classes there: names (5 of 48), connection strings and URL
+   credentials (masked in part), passwords, user names and tax ids (half).
+2. **How reliable is V3?** Reliable for the comparison of releases and of splits: salted samples, a fixed scope per
+   dataset, case hashes, and a holdout written without a miss list. Its limits: samples of 300 to 800 documents per
+   split; the public holdout split was read once (2026-10-19); Privy's labels are not exhaustive; Holdout V2 has one
+   run and is template text.
+3. **D3 on independent data:** Privy names whole from 4.4 % to 63.7 %, PII recall 0.225 to 0.664, precision (V3)
+   0.992 to 0.932. No span got worse.
+4. **Is ONNX/int8 usable?** Yes. fp32 ONNX gives the spans of the torch model; int8 is as accurate on V3 (508 against
+   507 names on Privy) with a 135 MB model and no torch.
+5. **Developer false positives:** about 230 added spans in 12 MB of developer text, most in documentation (comments,
+   identifiers) and author lines; 5 in log lines with int8. Acceptable for a layer a person switches on, not for a
+   default: a capitalised identifier in pasted code would become a placeholder.
+6. **The cost in the real hook:** the layer cannot make a result worse, and a slow, failing or broken service changes
+   nothing (B5). At a moderate load a hook call takes 39 to 55 ms median and 152 to 210 ms p95 with the layer, against 6 to 8 ms
+   without it, and no scan runs out of the 300 ms budget; under heavy load 557 of 1,975 scans did, and the hook then
+   answers as without the layer. A hook call scans about five texts, so a product should ask the service once per
+   call.
+7. **Is a simple local install realistic?** Yes, as an opt-in step: one second environment of about 310 MB (int8),
+   pinned wheels and model sha256, offline after the install, Python 3.9 to 3.14 on macOS arm64, Linux and Windows.
+   Gaps: no onnxruntime 1.31 wheel for Intel Macs and none yet for Python 3.15.
+8. **Reject, experimental, opt-in prototype or high-recall mode?** An **opt-in prototype** with D3 int8. Not on by
+   default; a high-recall mode (GLiNER) is not worth its false positives now.
+9. **The next block:** the opt-in prototype outside the public API: the sidecar of B5 as an installable extra, one
+   request per hook call, an install command with the pinned model, and the quiet cost measurement. The record layer
+   (category C) continues as small measured rule changes beside it.
+10. **The 0.8 decision:** 0.8 makes the detection contract explicit and additive (`docs/DETECTION-CONTRACT-PROPOSAL.md`):
+    a published type vocabulary, an optional `fields` argument for structured context, a JSON entry point with the
+    conformance runner on it, offsets defined as code points, and the announced deprecations. No NER seam in the
+    public API in 0.8: the contract's optional `confidence` and `provenance.layer` already leave room for a model
+    layer, so the prototype of answer 9 needs no API change.
+
+### Open after this block
+
+- B4 on Windows and Linux.
+
 ## Repeat
 
 ```bash

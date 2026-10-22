@@ -448,7 +448,12 @@ _STRONG_COLS = frozenset({"address", "street", "street_address", "home_address",
 _WEAK_COLS = frozenset({"name", "full_name", "fullname", "first_name", "last_name", "firstname", "lastname",
                         "given_name", "family_name", "surname", "customer", "customer_name", "employee",
                         "employee_name", "emp_name", "patient", "patient_name", "nome", "nombre", "nom", "vorname",
-                        "nachname", "username", "user_name"})
+                        "nachname", "username", "user_name",
+                        # the name of a person in a role (Benchmark V3 Phase C, 2026-10-21: candidate, player, client,
+                        # recipient name columns of Nemotron dev stayed text); weak, so only beside a strong column
+                        "candidate_name", "client_name", "player_name", "recipient_name", "applicant_name",
+                        "student_name", "member_name", "contact_name", "passenger_name", "beneficiary_name",
+                        "tenant_name"})
 _CSV_ROWS = 10000   # rows read under one header; a larger table is read in its first rows only
 _CSV_CELL_RE = {sep: re.compile(r'"[^"\n]{0,512}"|[^' + sep + r'\n]{0,512}') for sep in (",", ";", "\t")}
 _NOT_A_CELL = frozenset({"", "null", "none", "n/a", "na", "-", "true", "false", "nan"})
@@ -474,8 +479,26 @@ def _column_type(col: str) -> str:
     return ID_NUMBER
 
 
-def _cell_ok(v: str, typ: str) -> bool:
+# a field that names one part of a name holds one word (| First Name | X |): a record with a person in it says so
+# (Benchmark V3 Phase C, 2026-10-21: 1,272 first and last names alone in field-value tables of Nemotron dev stayed text)
+_NAME_PART_COLS = frozenset({"first_name", "last_name", "firstname", "lastname", "given_name", "family_name",
+                             "surname", "vorname", "nachname"})
+_NAME_PART_RE = re.compile(_NAME_STEM)
+_NOT_A_NAME_PART = frozenset({"required", "optional", "unknown", "none", "redacted", "pending", "mandatory",
+                              "string", "text", "varchar", "first", "last", "name", "value", "field", "example",
+                              "sample", "test",
+                              # the words of fixtures and seed data (first_name,last_name / Foo,Bar)
+                              "foo", "bar", "baz", "qux", "quux", "user", "demo", "dummy", "fake", "placeholder",
+                              "lorem", "ipsum", "guest", "anonymous"})
+_FIRST_PART_COLS = frozenset({"first_name", "firstname", "given_name", "vorname"})
+
+
+def _cell_ok(v: str, typ: str, col: str = "") -> bool:
     """The cell holds what its column names: a desk extension is no phone, `Front Desk` no name."""
+    if typ == NAME and col in _NAME_PART_COLS and " " not in v.strip():
+        w = v.strip()
+        return bool(_NAME_PART_RE.fullmatch(w)) and w.lower() not in _NOT_A_NAME_PART \
+            and w.lower() not in PLACEHOLDER_NAMES and w.lower() not in _NOT_A_NAME_WORD
     digits = sum(c.isdigit() for c in v)
     if typ == PHONE:
         return digits >= 7
@@ -549,7 +572,12 @@ _MD_ALIASES = {"telephone_number": "telephone", "mobile_number": "mobile", "cell
                # streetaddress) and camel case written as one word
                "address_line1": "street", "address_line_1": "street", "address1": "street", "addressline1": "street",
                "streetaddress": "street_address", "dateofbirth": "date_of_birth", "phonenumber": "phone_number",
-               "mobilephone": "mobile_phone",
+               "mobilephone": "mobile_phone", "givenname": "given_name", "familyname": "family_name",
+               # the name column of a role in camel case (candidateName)
+               "candidatename": "candidate_name", "clientname": "client_name", "playername": "player_name",
+               "recipientname": "recipient_name", "applicantname": "applicant_name", "studentname": "student_name",
+               "membername": "member_name", "contactname": "contact_name", "passengername": "passenger_name",
+               "beneficiaryname": "beneficiary_name", "tenantname": "tenant_name",
                # the same columns in the languages of the regions (de, fr, es, it, nl, sv, pt): each maps to a name the
                # lists above already hold, so the policy stays one
                "straße": "strasse", "telefonnummer": "telephone", "handynummer": "mobile",
@@ -678,8 +706,14 @@ def _grid_hits(text: str, names: list, rows, kind: str, anchors=(NAME, ID_NUMBER
                 out.append((s0, s0 + len(v), kind, ID_NUMBER))
             if col in cols:
                 typ = _column_type(names[col])
-                if v.lower() not in _NOT_A_CELL and len(v) >= 2 and _cell_ok(v, typ):
+                if v.lower() not in _NOT_A_CELL and len(v) >= 2 and _cell_ok(v, typ, names[col]):
                     row.append((s0, s0 + len(v), kind, typ, col))
+        # a first and a last name that together make a placeholder (Jane, Doe) are a fixture, not a person
+        first = [h for h in row if names[h[4]] in _FIRST_PART_COLS and h[3] == NAME]
+        last = [h for h in row if names[h[4]] in _NAME_PART_COLS - _FIRST_PART_COLS and h[3] == NAME]
+        if first and last and (text[first[0][0]:first[0][1]] + " " + text[last[0][0]:last[0][1]]).lower() \
+                in PLACEHOLDER_NAMES:
+            row = [h for h in row if h not in first and h not in last]
         if any(c in strong for *_, c in row) and any(h[3] in anchors for h in row):
             out += [h[:4] for h in row]
     return out

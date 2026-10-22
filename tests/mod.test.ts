@@ -81,29 +81,18 @@ test('a person\'s prompt from Remote Control and from claude -p is rewritten too
   expect((await submit($, 'sdk')).text).toBe(REWRITTEN)
 })
 
-test('a prompt that is not a person\'s or a peer\'s goes on unchanged and the launcher does not run', async ($, on) => {
+test('a prompt that is not a person\'s goes on unchanged and the launcher does not run', async ($, on) => {
   let runs = 0
   common(on, () => {
     runs += 1
     return { value: { exitCode: 0, stderr: '', stdout: JSON.stringify({ maisecrets: 'mod-prompt', text: REWRITTEN }) } }
   })
-  for (const kind of ['task-notification', 'channel', 'scheduled-trigger', 'unclassified']) {
+  // a message of another session too: the client gives the model its own copy, so a rewrite left the value in it
+  // and hid it from the settings hook, which blocks it when it sees it unchanged (0.7.4, measured 2026-10-22)
+  for (const kind of ['task-notification', 'channel', 'scheduled-trigger', 'unclassified', 'peer', 'peer-send-message']) {
     expect((await submit($, kind)).text).toBe(TYPED)
   }
   expect(runs).toBe(0)
-})
-
-test('a message of another session is rewritten, and the launcher learns it came from a peer', async ($, on) => {
-  // a block lost such a message without a word: no person sends it again (2026-10-21)
-  const seen = []
-  common(on, ($, e) => {
-    seen.push(JSON.parse(e.init.stdin).origin)
-    return { value: { exitCode: 0, stderr: '', stdout: JSON.stringify({ maisecrets: 'mod-prompt', text: REWRITTEN }) } }
-  })
-  for (const kind of ['peer', 'peer-send-message']) {
-    expect((await submit($, kind)).text).toBe(REWRITTEN)
-  }
-  expect(seen).toEqual(['peer', 'peer-send-message'])
 })
 
 const CHECKS = ['ms:(TOKENWORD)', '  Ms:(TOKENWORD', 'MS:(a)b)', '\nms:(x', 'ms: (TOKENWORD)', 'ms：（TOKENWORD）']

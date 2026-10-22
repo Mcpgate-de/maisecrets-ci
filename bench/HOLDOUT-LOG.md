@@ -19,3 +19,4 @@ while V1 was set up. A holdout V2 will be written and sealed after the current r
 | 2026-10-19 | maisecrets 0.6.30 305a3747ae9a37d12d50fbce255132edbd8ff142 | holdout | 80 | 0.875 | 1.0 | 0 |
 | 2026-10-19 | maisecrets 0.6.30 af36b94b6ec834c6f6e3bbefaabd5c4ff4f55765 | holdout | 80 | 0.875 | 1.0 | 0 |
 | 2026-10-19 | maisecrets 0.6.30 69d99234af19ab7cbc458ddbf9fd4d721b15bdd9 | holdout | 80 | 0.875 | 1.0 | 0 |
+| 2026-10-21 | maisecrets 0.7.4 4be44e6063cc2fc1174310473d849ce71d51105b | holdout-v2 | 872 | 0.6256 | 0.9955 | 3 |

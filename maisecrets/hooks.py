@@ -1285,14 +1285,17 @@ def user_prompt(payload: dict) -> dict:
         return {"decision": "block", "reason": reason,
                 "hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "suppressOriginalPrompt": True}}
 
-    # 2. references the human typed or pasted: this session may resolve them from now on
+    # 2. references the human typed or pasted: this session may resolve them from now on. A message of another session
+    # or a subagent's prompt admits none: a session another one controls could name a reference it never saw and let
+    # this session resolve it (C4; codex Gate A, 2026-10-22)
     typed = find_refs(prompt)
     matches = _prompt_hits(prompt)
     vault = None
     if typed or matches or _has_live(cfg):
         vault = Vault(cfg)
-        for key, _s, _e in typed:
-            vault.admit(key, session)
+        if settings_mod.peer_sender(prompt) is None and not payload.get("agent_id"):
+            for key, _s, _e in typed:
+                vault.admit(key, session)
     rewritten, entries, values, stored, matches = _take_values_out(prompt, matches, cfg, vault, session)
     if not matches and not stored["n"]:
         if typed:
