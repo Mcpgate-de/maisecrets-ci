@@ -125,6 +125,43 @@ class PhoneAfterWordTests(Base):
             with self.subTest(text=text):
                 self.assertNotIn("phone-after-phone-word", {m.kind for m in scan(text, region=("us",))})
 
+    def test_a_number_after_a_contact_label_or_a_phone_word_with_its_purpose_is_masked(self):
+        # Benchmark V3, dev, 2026-10-22: a contact label before its colon and "Fax number for notice:" left the number
+        for pre in ("Contact: ", "- Contact information: ", "- Primary contact: ", "Emergency contact details: ",
+                    "Fax number for notice: ", "Phone number for payment: ", "Please contact the following number: "):
+            with self.subTest(pre=pre):
+                self.assertMasked("Details\n" + pre + US + ". More text.\n", US, region=("us",))
+        # the contact label takes only the strict North American form
+        for text in ("Contact: 2024-10-16", "Contact information: build 4.15.382", "Contact: 12 people"):
+            with self.subTest(text=text):
+                self.assertNotIn("phone-after-phone-word", {m.kind for m in scan(text, region=("us",))})
+
+    def test_a_persons_own_number_in_a_sentence_is_masked_and_a_companys_stays_text(self):
+        # a person's number needs no phone word: reach out to me at, my number is (2026-10-22); a company's line in the
+        # same sentence stays text, as in a table of depots
+        for text in ("Feel free to reach out to me at " + US + ".", "You can reach him directly at " + US + ".",
+                     "Send it to her at " + US + ".", "My number is " + US + ".", "My direct line is " + US + ".",
+                     "Get me directly on " + US + ".", "Contact: **" + US + "**"):
+            with self.subTest(text=text):
+                self.assertMasked(text, US, region=("us",))
+        for text in ("Feel free to reach out to us at " + US + ".", "Our support team is available at " + US + ".",
+                     "The line is " + US + " long", "We can help you at " + US + ".", "Contact: build " + US,
+                     "Contact information: ticket " + US):
+            with self.subTest(text=text):
+                self.assertNotIn("phone-after-phone-word", {m.kind for m in scan(text, region=("us",))})
+
+    def test_four_counting_digits_at_the_end_are_no_placeholder_and_a_long_count_is(self):
+        # a real number ends in …4567 once in about 400; a run of six digits or more is a specimen (2026-10-22)
+        # a North American number went to its own rule before too; a national one of another country did not
+        self.assertMasked("Phone number: 312-846-" + "4567", "312-846-" + "4567", region=("us",))
+        for value in ("0221 482 " + "4567", "06-" + "4829" + "6543", "0412 739 " + "6789"):
+            with self.subTest(value=value):
+                self.assertMasked("Telefon: " + value, value, region=("de",))
+        # 0123 456 789 is a valid national form whose only fault is that it counts
+        for text in ("Telefon: 030 " + "12345678", "Mobile: 0151 " + "987654", "Telefon: 0123 456 " + "789"):
+            with self.subTest(text=text):
+                self.assertNotIn("phone-after-phone-word", {m.kind for m in scan(text, region=("de", "us"))})
+
     def test_a_national_number_after_a_phone_word_is_masked(self):
         for text, value in (
                 ("Phone number: " + US, US),

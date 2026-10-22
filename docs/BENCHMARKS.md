@@ -803,6 +803,34 @@ Left as they are: a name in a script outside the Latin ranges of the name rules 
 stays text in a record, as it does in every other name form of `personal.py`; a single placeholder first name
 beside a birth date (`Jane` alone) is masked, since it is also a real name.
 
+### A phone number after a contact label, with its purpose, or in a person's own sentence, 2026-10-22
+
+On Nemotron and Gretel `dev`, 0.7.4 left 593 phone numbers text although a phone or contact label stood before
+them. 102 use the fictional 555 exchange and stay text on purpose. The rest had three causes: a contact label before
+its colon (`Contact:`, `Contact information:`, `Emergency contact:`) was no phone label; a phone word with its purpose
+(`Fax number for notice:`) broke the rule; and a subscriber number that ended in four counting digits (`…-4567`) was
+taken for a placeholder. Now a contact label takes a North American number in its strict form; the words after a
+phone word may name its purpose; and only a counting run of six digits or more (`12345678`) is a placeholder. A
+person's own number in a sentence also counts without a phone word (`reach out to me at`, `call him directly at`,
+`my number is`); on the datasets this adds only a few numbers, since most numbers in a sentence there are a
+company's. A company's or an office's number in a sentence (`reach out to us at`, `our support team at`)
+stays text, as in a table of depots: the datasets label these, maisecrets does not by design.
+
+All changes together against `next` (the same detection code as 0.7.5), after codex Gate A narrowed two of them (a
+company's `we can help you at` and an id after `Contact:` stay text):
+
+| Measure | Result |
+|---|---|
+| Nemotron `dev` / `val`: missed to whole | 327 / 113 |
+| Nemotron false positives, `dev` / `val` | 508 → 512 / 187 → 188 |
+| Gretel `dev` / `val`: missed to whole | 21 / 14 |
+| Gretel false positives, `dev` / `val` | 2,497 → 2,535 / 858 → 869 |
+| Mendeley, PIILO, the bank, the traces, the false-alarm bank | no change |
+| Spans made worse | 0 |
+
+The new false positives on Gretel `dev`, read by rule and shape (no value printed), are phone numbers after
+`Teléfono:`, `phone number` and `contact number` that the dataset does not label.
+
 ## CredData, results per release
 
 CredData line method, without repository `2ba83c6a` (23,667 rows: 10,106 credentials, 13,561 non-secrets),
