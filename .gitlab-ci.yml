@@ -310,6 +310,18 @@ renovate:
   script:
     - renovate
 
+# The daily watch of the public token-format lists that Renovate does not cover (scripts/watch_formats.py): the
+# GitHub secret scanning types, trufflehog's detectors, betterleaks on main and Google's Veles plugins. A new entry
+# turns the job red, and the failed schedule is the notice; whoever looks adds a rule or updates the snapshot.
+format_watch:
+  stage: validate
+  interruptible: false
+  allow_failure: false
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script:
+    - python3 scripts/watch_formats.py check
+
 release:
   stage: release
   image: alpine:3.20

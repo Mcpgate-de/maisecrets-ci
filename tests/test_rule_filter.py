@@ -173,6 +173,10 @@ class BetterleaksRuleTests(unittest.TestCase):
             "twilio-api-key.legacy": "SK" + tok(32, hexd),
             "codecov-access-token.legacy": "codecov: " + tok(32, low),
         }
+        # the signature rules of the research (0.7.9) get a token from their researched pattern
+        import test_researched_formats as researched
+        own_ids = {r.id for r in detect._load_own_secret_rules()}
+        samples.update({rid: researched.token(rid) for rid in researched.SOURCES if rid in own_ids})
         kept = [r for r in detect._load_own_secret_rules() if r.id != "generic-api-key"]
         self.assertEqual(sorted(r.id for r in kept), sorted(samples), "the premise: one sample per kept rule")
         full = detect.rules()

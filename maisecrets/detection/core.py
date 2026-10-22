@@ -2402,7 +2402,12 @@ def _load_detect_secrets(languages: tuple[str, ...] = ("en",)) -> list[Rule]:
 
 def _load_prefixes() -> list[Rule]:
     """Bare token prefixes newer than the vendored rulesets: maisecrets/detection/rules/prefixes.txt, one
-    per line `id  regex`, extended by pull request. The whole match is the secret."""
+    per line `id  regex`, extended by pull request. The whole match is the secret. The release tree for the
+    directory ships the same rules as prefixes.json (scripts/build_release_tree.py), which is read when it is there."""
+    shipped = RULES_DIR / "prefixes.json"
+    if shipped.is_file():
+        return [Rule(id=d["id"], type="SECRET", regex=_Lazy(d["regex"]))
+                for d in json.loads(shipped.read_text(encoding="utf-8"))]
     out: list[Rule] = []
     for line in (RULES_DIR / "prefixes.txt").read_text(encoding="utf-8").splitlines():
         line = line.strip()

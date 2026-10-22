@@ -20,6 +20,12 @@ The hooks on `main` are one program for bash and PowerShell, and they block when
 folder of an open session. The directory flavor names one program per hook, and gives up two things: a hook
 without Git Bash on Windows (Claude Code), and the block after a synced update removed the folder. A marketplace
 install, as the directory makes it, keeps the old version folder for 14 days.
+
+Two more files differ from `main` (0.7.9). The directory blocked 0.7.7 and 0.7.8 with SECRET_IN_SCRIPT in README.md
+and in maisecrets/detection/rules/prefixes.txt, and named no line. The release tree ships `docs/DIRECTORY-README.md`
+as its README.md: what the plugin, its hooks and its mod do, with no example value; the full README stays on `main`.
+It ships the prefix rules as `prefixes.json` (`directory_prefixes`), in the form of the other rule files, which the
+directory passed; the loader reads that file when it is there.
 """
 from __future__ import annotations
 
@@ -39,7 +45,10 @@ RUNTIME = (".claude-plugin/", "hooks/", "claude-mod/", "maisecrets/", "commands/
 
 
 def _git(*args: str, env: dict | None = None, text: bool = True) -> str:
-    r = subprocess.run(["git", *args], capture_output=True, text=text, env=env)
+    # UTF-8 both ways: in text mode Windows decodes with its code page, and the release README's placeholder brackets
+    # (U+27E6, U+27E7) came out wrong there (the release tree test on windows-latest, MR !218)
+    r = subprocess.run(["git", *args], capture_output=True, text=text, env=env,
+                       encoding="utf-8" if text else None)
     if r.returncode != 0:
         raise SystemExit(f"git {' '.join(args[:2])} failed: {r.stderr.strip()[:300]}")
     return r.stdout
@@ -51,10 +60,14 @@ def paths(ref: str = "HEAD") -> list[str]:
             if any(p == r or (r.endswith("/") and p.startswith(r)) for r in RUNTIME) and "__pycache__" not in p
             # a skill's Codex metadata names its icon images, which the directory flags the same way
             and not (p.startswith("skills/") and "/agents/" in p and p.endswith("openai.yaml"))]
-    return sorted(keep)
+    return sorted(PREFIXES_JSON if p == PREFIXES_TXT else p for p in keep)   # see directory_prefixes
 
 
 HOOKS = "hooks/hooks.json"
+README = "README.md"
+DIRECTORY_README = "docs/DIRECTORY-README.md"
+PREFIXES_TXT = "maisecrets/detection/rules/prefixes.txt"
+PREFIXES_JSON = "maisecrets/detection/rules/prefixes.json"
 
 
 def directory_hooks(text: str) -> str:
@@ -70,6 +83,24 @@ def directory_hooks(text: str) -> str:
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
+def directory_prefixes(text: str) -> str:
+    """The rules of prefixes.txt (`id  regex` per line) as a JSON list of {"id", "regex"}, in the same order."""
+    rules = []
+    for line in text.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            rule_id, regex = line.split(None, 1)
+            rules.append({"id": rule_id, "regex": regex.strip()})
+    return json.dumps(rules, indent=1, ensure_ascii=False) + "\n"
+
+
+# the files the release tree replaces: path -> (source of the content on <ref>, transform)
+def _replaced(ref: str) -> dict:
+    return {HOOKS: directory_hooks(_git("show", f"{ref}:{HOOKS}")),
+            README: _git("show", f"{ref}:{DIRECTORY_README}"),
+            PREFIXES_JSON: directory_prefixes(_git("show", f"{ref}:{PREFIXES_TXT}"))}
+
+
 def commit(ref: str, parent: str | None, message: str) -> str:
     with tempfile.TemporaryDirectory() as d:
         env = dict(os.environ, GIT_INDEX_FILE=os.path.join(d, "index"))
@@ -78,12 +109,14 @@ def commit(ref: str, parent: str | None, message: str) -> str:
         # then reads paths that end in a carriage return (the release tree test on windows-latest)
         rows = subprocess.run(["git", "ls-tree", "-r", "-z", ref], capture_output=True, check=True).stdout
         wanted = {p.encode() for p in paths(ref)}
+        replaced = _replaced(ref)
+        dropped = {p.encode() for p in replaced} | {PREFIXES_TXT.encode()}
         info = b"".join(row + b"\0" for row in rows.split(b"\0") if row and row.split(b"\t", 1)[1] in wanted
-                        and row.split(b"\t", 1)[1] != HOOKS.encode())
-        hooks = directory_hooks(_git("show", f"{ref}:{HOOKS}"))
-        blob = subprocess.run(["git", "hash-object", "-w", "--stdin"], input=hooks.encode("utf-8"),
-                              capture_output=True, check=True).stdout.decode().strip()
-        info += f"100644 {blob}\t{HOOKS}".encode() + b"\0"
+                        and row.split(b"\t", 1)[1] not in dropped)
+        for path, content in replaced.items():
+            blob = subprocess.run(["git", "hash-object", "-w", "--stdin"], input=content.encode("utf-8"),
+                                  capture_output=True, check=True).stdout.decode().strip()
+            info += f"100644 {blob}\t{path}".encode() + b"\0"
         r = subprocess.run(["git", "update-index", "-z", "--index-info"], input=info, env=env, capture_output=True)
         if r.returncode != 0:
             raise SystemExit(f"git update-index failed: {r.stderr.decode(errors='replace').strip()[:300]}")

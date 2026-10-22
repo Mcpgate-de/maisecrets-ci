@@ -74,14 +74,18 @@ class ReleaseTreeTests(unittest.TestCase):
                       "docs/DETECTION-SPEC-DRAFT.md", "docs/DETECTION-CONTRACT-PROPOSAL.md",
                       "docs/rule-limits.json", "docs/ratchet-exceptions.json",
                       "docs/REGRESSION-POLICY.md",
-                      "renovate.json"}
+                      "renovate.json", "docs/format-watch.txt",
+                      # shipped as the tree's README.md (build_release_tree.py, the directory flavor)
+                      "docs/DIRECTORY-README.md"}
 
     def test_every_tracked_file_ships_unless_it_is_named_developer_only(self):
         # the files of the commit the tree was built from; `git ls-files` also lists what is only
         # staged, and a pre-commit run then compared two different sets
         tracked = subprocess.run(["git", "ls-tree", "-r", "--name-only", "HEAD"], capture_output=True, text=True,
                                  check=True, cwd=ROOT).stdout.split("\n")
-        want = sorted(p for p in tracked if p and not p.startswith(self.DEV_ONLY_PREFIXES)
+        # prefixes.txt ships as prefixes.json (build_release_tree.directory_prefixes)
+        want = sorted(self.mod.PREFIXES_JSON if p == self.mod.PREFIXES_TXT else p
+                      for p in tracked if p and not p.startswith(self.DEV_ONLY_PREFIXES)
                       and p not in self.DEV_ONLY_FILES and not p.endswith("/agents/openai.yaml"))
         self.assertEqual(sorted(self.files), want)
 
@@ -126,6 +130,30 @@ class ReleaseTreeTests(unittest.TestCase):
             self.assertNotIn(token, r.stdout)
         finally:
             shutil.rmtree(home, ignore_errors=True)
+
+    def test_the_tree_ships_the_short_readme_and_the_prefix_rules_as_json(self):
+        # the directory blocked 0.7.7 and 0.7.8 with SECRET_IN_SCRIPT in README.md and prefixes.txt (no line named)
+        self.assertEqual((self.tree / "README.md").read_text(encoding="utf-8"),
+                         (ROOT / "docs" / "DIRECTORY-README.md").read_text(encoding="utf-8"))
+        self.assertNotIn(self.mod.PREFIXES_TXT, self.files)
+        shipped = json.loads((self.tree / self.mod.PREFIXES_JSON).read_text(encoding="utf-8"))
+        lines = [ln.split(None, 1) for ln in (ROOT / self.mod.PREFIXES_TXT).read_text(encoding="utf-8").splitlines()
+                 if ln.strip() and not ln.startswith("#")]
+        self.assertEqual([(d["id"], d["regex"]) for d in shipped], [(i, r.strip()) for i, r in lines])
+        self.assertGreater(len(shipped), 40)
+
+    def test_the_tree_loads_its_prefix_rules_from_the_json(self):
+        # a runner token of rules/prefixes.txt is found by the detector of the tree alone, which has no prefixes.txt
+        token = "glr" + "t-" + "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(24))
+        code = ("import sys; sys.path.insert(0, sys.argv[1]);"
+                "from maisecrets.detection import NO_REFERENCES, NO_SOURCES, Active, Detector, Host;"
+                "d = Detector(regions=Active(regions=('generic',), languages=('en',), source='t'), sources=NO_SOURCES,"
+                " references=NO_REFERENCES, host=Host(user='t', year=2026));"
+                "print(','.join(m.kind for m in d.findings(sys.stdin.read(), channel='tool', path='')))")
+        r = subprocess.run([sys.executable, "-I", "-c", code, str(self.tree)], input=f"runner {token} here",
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "gitlab-runner-token")
 
     def test_each_directory_hook_names_one_program_and_nothing_computed(self):
         # the directory refused 0.5.15 and 0.5.16 (UNPINNED_NPX): no variable but the plugin root, no command

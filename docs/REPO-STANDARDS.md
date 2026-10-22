@@ -117,6 +117,12 @@ and OpenAI plugin directories.
   asks for the harness and a live test between two sessions with `--plugin-dir`. Docs, bench and CI need nothing.
   The gate's report (`OUT/release-gate.md`) goes into the release merge request. It runs locally: the datasets are
   too large for CI.
+- **New token formats are watched daily.** Renovate keeps the vendored rule sets current; the scheduled job
+  `format_watch` (`scripts/watch_formats.py check`) compares the GitHub secret scanning types, trufflehog's
+  detectors, betterleaks on `main` and Google's Veles plugins with `docs/format-watch.txt`, and turns red on a new
+  entry. Whoever looks writes a prefix rule with a test when the format has a fixed prefix, then runs
+  `python3 scripts/watch_formats.py update` and commits the snapshot. Why: the Storyblok token `sb_pat_` was in no
+  vendored set, and 97 prefixed formats of the other catalogs were found only after a label (2026-10-22).
 - **The gate's measurement is the next baseline.** The release commit changes only the version, so a second run of
   Benchmark V3 on the tag measures the same code. With `--keep` the gate writes its results to
   `bench/results/<date>-v3-<next version>`, with `measured.json` (the commit and the git tree of each runtime

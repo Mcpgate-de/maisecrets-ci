@@ -106,8 +106,8 @@ You ask Claude to set up a deploy script and it reads your `.env`:
 
 ```
 $ cat .env                          # what the command printed
-DB_PASSWORD=example-hunter2-9Qz
-STRIPE_KEY=sk_live_example…
+DB_PASSWORD=<the real password>
+STRIPE_KEY=<the real Stripe key>
 
                                     # what the model received
 DB_PASSWORD=⟦SECRET_c1⟧
@@ -1518,7 +1518,7 @@ Four sources, one scanner (`maisecrets/detection/core.py`):
   and an exchange start with 2 to 9; the fictional 555 exchange stays text).
 - Three token forms with a tail shorter than the vendored rules want (0.6.21): an OpenAI or
   Anthropic key (`sk-proj-`, `sk-ant-`, `sk-svcacct-`, `sk-admin-`; the tail needs a digit, a capital
-  and a run of 16 letters and digits, so a CSS class such as `sk-admin-sidebar-item2X` stays text),
+  and a run of 16 letters and digits, so a CSS class such as `sk-admin-` and a long name stays text),
   a Slack token (`xoxb-`, `xoxp-`, `xoxa-`, `xoxr-` with digits and a hyphen first), and a Twilio
   Account SID (`AC` and 32 hex digits) next to its name; a counted fixture (`AC0123456789abcdef…`)
   stays text.
