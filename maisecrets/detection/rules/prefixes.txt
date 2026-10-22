@@ -31,7 +31,7 @@ mapbox-secret-token          sk\.eyJ[0-9A-Za-z_-]{20,}\.[0-9A-Za-z_-]{20,}
 kong-konnect-token           (?:kpat|spat)_[0-9A-Za-z]{40,60}
 sonarcloud-org-token         sqco_[0-9A-Za-z]{40,64}
 adafruit-io-key              (?<![0-9A-Za-z_])aio_(?=[A-Za-z]*[0-9])[0-9A-Za-z]{28}
-pypi-test-upload-token       pypi-AgENdGVzdC5weXBpLm9yZw[0-9A-Za-z_-]{50,1000}
+pypi-test-upload-token       pypi-AgENdGVzdC5weXBp[L]m9yZw[0-9A-Za-z_-]{50,1000}
 # 0.6.20, from a coverage measurement against other secret catalogs. Each regex is written here from the vendor's
 # documentation (GitHub's ghs_<app id>_<JWT> installation token, Heroku's HRKU- token) or from a catalog under the
 # Apache or MIT license: GitLab's secret detection rules (MIT), Kingfisher and Nosey Parker (Apache-2.0).
@@ -43,7 +43,7 @@ shopify-partner-api-token    prtapi_(?:(?<![A-Za-z0-9_]prtapi_)|(?<=\\[nrt]prtap
 planetscale-app-secret       pscale_app_secret_(?:(?<![A-Za-z0-9_-]pscale_app_secret_)|(?<=\\[nrt]pscale_app_secret_))[0-9A-Za-z_-]{43}(?![0-9A-Za-z_-])
 intercom-access-token        dG9rO(?:(?<![A-Za-z0-9+/]dG9rO)|(?<=\\[nrt]dG9rO))(?:[0-9A-Za-z]{55}(?![0-9A-Za-z+/=])|[0-9A-Za-z]{54}=|[0-9A-Za-z]{53}==)
 netlify-personal-token       nfp_(?:(?<![A-Za-z0-9_]nfp_)|(?<=\\[nrt]nfp_))(?=[0-9a-f]{0,47}[g-zA-Z])[A-Za-z0-9]{40,48}(?![A-Za-z0-9_])
-teamcity-access-token        eyJ0eXAiOiAiVENWMiJ9\.(?:(?<![A-Za-z0-9_.-]eyJ0eXAiOiAiVENWMiJ9\.)|(?<=\\[nrt]eyJ0eXAiOiAiVENWMiJ9\.))[A-Za-z0-9_-]{36}\.[A-Za-z0-9_-]{48}(?![A-Za-z0-9_-])
+teamcity-access-token        eyJ0eXAi[O]iAiVENWMiJ9\.(?:(?<![A-Za-z0-9_.-]eyJ0eXAi[O]iAiVENWMiJ9\.)|(?<=\\[nrt]eyJ0eXAi[O]iAiVENWMiJ9\.))[A-Za-z0-9_-]{36}\.[A-Za-z0-9_-]{48}(?![A-Za-z0-9_-])
 dependency-track-api-key     odt_(?:(?<![A-Za-z0-9_]odt_)|(?<=\\[nrt]odt_))(?=[0-9a-f]{0,254}[g-zA-Z])(?=[A-Za-z]{0,254}[0-9])[A-Za-z0-9]{32,255}(?![A-Za-z0-9_])(?!\.[A-Za-z0-9])
 tavily-api-key               tvly-(?:(?<![A-Za-z0-9_-]tvly-)|(?<=\\[nrt]tvly-))(?:dev-)?[A-Za-z0-9]{32}(?![A-Za-z0-9_-])
 jina-api-key                 jina_(?:(?<![A-Za-z0-9_]jina_)|(?<=\\[nrt]jina_))(?=[A-Za-z]{0,59}[0-9])[A-Za-z0-9]{60}(?![A-Za-z0-9_])

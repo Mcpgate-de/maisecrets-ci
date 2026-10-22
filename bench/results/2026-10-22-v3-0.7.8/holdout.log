@@ -1,0 +1,22 @@
+maisecrets 0.7.2 on holdout-v2/holdout: 872 cases, spans 828, full 518, partial 117, missed 193, FP 3, recall 0.6256, precision 0.9955, F1 0.7683, too wide 16
+  pii                          spans    498  full    324  partial    26  missed    148  FP     2  R 0.6506
+  pii.address                  spans     42  full     11  partial    11  missed     20  FP     0  R 0.2619
+  pii.bank_account             spans     36  full     24  partial    12  missed      0  FP     0  R 0.6667
+  pii.birth_date               spans     42  full     18  partial     0  missed     24  FP     0  R 0.4286
+  pii.card                     spans     36  full     35  partial     0  missed      1  FP     0  R 0.9722
+  pii.email                    spans     42  full     42  partial     0  missed      0  FP     0  R 1.0
+  pii.iban                     spans     42  full     39  partial     3  missed      0  FP     0  R 0.9286
+  pii.ip                       spans     36  full     30  partial     0  missed      6  FP     0  R 0.8333
+  pii.name                     spans     48  full      5  partial     0  missed     43  FP     0  R 0.1042
+  pii.national_id              spans     48  full     42  partial     0  missed      6  FP     0  R 0.875
+  pii.phone                    spans     48  full     36  partial     0  missed     12  FP     0  R 0.75
+  pii.tax_id                   spans     42  full     24  partial     0  missed     18  FP     0  R 0.5714
+  pii.username                 spans     36  full     18  partial     0  missed     18  FP     0  R 0.5
+  secret                       spans    330  full    194  partial    91  missed     45  FP     1  R 0.5879
+  secret.connection_string     spans     48  full      0  partial    48  missed      0  FP     0  R 0.0
+  secret.generic               spans     42  full     32  partial     0  missed     10  FP     0  R 0.7619
+  secret.password              spans     48  full     24  partial     0  missed     24  FP     0  R 0.5
+  secret.private_key           spans     42  full     42  partial     0  missed      0  FP     0  R 1.0
+  secret.token                 spans     66  full     66  partial     0  missed      0  FP     0  R 1.0
+  secret.url_credential        spans     42  full      0  partial    37  missed      5  FP     0  R 0.0
+  secret.webhook               spans     42  full     30  partial     6  missed      6  FP     0  R 0.7143

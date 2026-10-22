@@ -118,7 +118,7 @@ Claude writes the deploy command with the placeholder. Claude Code's permission
 prompt, if your rules ask for one, shows this, and only this:
 
 ```
-curl -u "app:⟦SECRET_c1⟧" https://db.example.internal/migrate
+printf '%s' ⟦SECRET_c1⟧ | ./migrate --password-stdin --host db.example.internal
 ```
 
 At execution the placeholder is read once from your keychain, the request
@@ -129,7 +129,7 @@ or the model's context.
 You paste a token into the prompt by accident:
 
 ```
-> please check why glpat-EXAMPLEEXAMPLE1234567 fails in CI
+> please check why my GitLab token glpat-… fails in CI
 maisecrets: a secret was found and kept from the AI.
 
     ⌘V  pastes the cleaned prompt. Then send it, or type /ms to send it at once.
