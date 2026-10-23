@@ -5,6 +5,6 @@ statement = "A random key of 16 characters or more after a sentence that owns an
 runner = ["tests/test_prose_forms.py::OwnedKeyTests::test_a_key_that_the_sentence_owns_and_names_is_a_hit"]
 
 [proof]
-file = "maisecrets/detection/core.py"
+file = "maisecrets/detection/own_rules.py"
 find = '''    {"id": "label-prose-key-owned", "type": "SECRET", "secret_group": 1, "validator": "prose_key_value",'''
 replace = '''    {"id": "label-prose-key-owned", "type": "SECRET", "secret_group": 1, "validator": "de_bsnr",'''

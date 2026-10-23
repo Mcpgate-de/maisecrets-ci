@@ -58,6 +58,12 @@ for m in d.findings(text, channel="tool", path="notes.txt"):
 
 The rule tables and the helpers of `core.py` are no API: they change with the rules.
 
+`core.py` keeps four parts in modules of their own, so that each file stays readable: `value_checks.py` (the
+checks of a value), `own_rules.py` (`OWN_RULES`, `FALLBACK_RULES`), `text_index.py` (the index of a text and the
+test-code check) and `encoded_mail.py` (an address with its @ as %40). `core.py` imports each of their names, so
+`core.<name>` is the same object. A patch of such a name on the core does not reach the functions of the part:
+patch the module that defines the name.
+
 ## The API: the decision of 2026-10-20
 
 The wheel (`pyproject.toml`) makes the core usable without the plugin, so its names carry a promise. Decided by the

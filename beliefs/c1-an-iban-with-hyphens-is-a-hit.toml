@@ -5,6 +5,6 @@ statement = "An IBAN with hyphens between its groups is an IBAN hit when its che
 runner = ["tests/test_bank_and_company_numbers.py::IbanFormTests::test_an_iban_with_hyphens_between_its_groups_is_found"]
 
 [proof]
-file = "maisecrets/detection/core.py"
+file = "maisecrets/detection/value_checks.py"
 find = '''    s = raw.replace(" ", "").replace("-", "").upper()'''
 replace = '''    s = raw.replace(" ", "").upper()'''

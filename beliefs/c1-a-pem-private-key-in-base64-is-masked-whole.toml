@@ -5,6 +5,6 @@ statement = "A PEM private key in base64 (the tls.key or ssh-privatekey of a Kub
 runner = ["tests/test_rules_from_the_catalogs.py::Base64PemTests::test_a_private_key_in_a_kubernetes_secret_is_masked_whole"]
 
 [proof]
-file = "maisecrets/detection/core.py"
+file = "maisecrets/detection/own_rules.py"
 find = '''"regex": r"(?<![A-Za-z0-9+/])(?:77u/)?LS0tLS1CRUdJTi'''
 replace = '''"regex": r"(?!)(?<![A-Za-z0-9+/])(?:77u/)?LS0tLS1CRUdJTi'''

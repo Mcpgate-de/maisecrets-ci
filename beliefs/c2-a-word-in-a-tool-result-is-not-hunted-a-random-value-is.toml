@@ -26,7 +26,7 @@ replace = "            out, ents = _replace(s, matches, vault, session)"
 
 [[proof]]
 path = "every value of letters counts as a word, a random one too"
-file = "maisecrets/detection/core.py"
+file = "maisecrets/detection/value_checks.py"
 find = "    return sum(q not in common for q in pairs) <= 0.1 * len(pairs)"
 replace = "    return True"
 

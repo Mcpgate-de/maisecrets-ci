@@ -5,6 +5,6 @@ statement = "A run in lower case that passes the IBAN checksum is an IBAN only w
 runner = ["tests/test_bank_and_company_numbers.py::IbanFormTests::test_a_lower_case_iban_needs_its_countrys_length"]
 
 [proof]
-file = "maisecrets/detection/core.py"
+file = "maisecrets/detection/value_checks.py"
 find = '''    if raw != raw.upper() and IBAN_LENGTH.get(s[:2]) != len(s):'''
 replace = '''    if False:'''

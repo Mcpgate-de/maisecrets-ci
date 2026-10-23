@@ -7,6 +7,16 @@ back into a command or a tool argument only at execution, where your rules allow
 This is the short README of the plugin as the directory ships it. The full documentation, the threat model and the
 benchmarks are at https://github.com/Mcpgate-de/maisecrets.
 
+## Security summary
+
+- The mod reads the prompt you send, the session id, the working directory and the origin of the prompt.
+- It gives them only to the plugin's own `hooks/dispatch.py`, on standard input of a local Python child process.
+- It starts only one of three fixed local commands, with no shell: `python3 hooks/dispatch.py mod-prompt`,
+  `py -3 hooks/dispatch.py mod-prompt` or `python hooks/dispatch.py mod-prompt`.
+- No program name and no argument comes from the prompt, the model, the environment or a setting.
+- The mod opens no network connection. It sends no prompt, no session data and no local data to the publisher or to
+  any other server.
+
 ## What the hooks do
 
 All hooks run `hooks/run.sh` (or `hooks/run.cmd` on Windows), which starts this computer's Python 3 with
@@ -25,15 +35,33 @@ download, no package install, no dependency outside the Python standard library.
 `claude-mod/maisecrets-mod.mjs` is a mod for Claude Code 2.1.287 and later. It lets a prompt with a value go through
 with placeholders, instead of the block of the `UserPromptSubmit` hook.
 
-- **What it reads:** the text of a prompt that you typed (or sent with Remote Control or `claude -p`), the session
-  id, the working directory (`session.cwd`) and the origin of the prompt. It does not read other messages, files or
-  settings.
-- **What it runs:** one program, written as fixed text at the call: this computer's Python 3 with the plugin's own
-  `hooks/dispatch.py` and the argument `mod-prompt`, in the plugin folder. It tries `python3`, then `py -3`, then
-  `python`, because the name of Python differs between macOS, Linux and Windows. It passes the prompt on standard
-  input and gets the prompt with placeholders back. That is the same detection the hooks use.
-- **What it sends, and where:** nothing leaves the machine. The prompt goes only to that local Python process on
-  standard input, and the rewritten prompt goes back to Claude Code. The mod opens no network connection.
+- **What it reads, and why:** it does not read other messages, files or settings.
+
+  | Data | Why `hooks/dispatch.py` needs it |
+  |---|---|
+  | the prompt you typed (or sent with Remote Control or `claude -p`) | to find the values and write the prompt with placeholders |
+  | the session id | a placeholder resolves only in the session that made it, and the transcript clean-up finds the session by it |
+  | the working directory (`session.cwd`) | to judge an `@file` mention or a relative path in the prompt |
+  | the origin of the prompt | a `{{Name}}` marker counts only in a prompt that a person typed (`composer`, `bridge`) |
+
+- **What it runs:** exactly one of these three commands. Each one is a fixed argument list in the source
+  (`claude-mod/maisecrets-mod.mjs`, the functions `runPython3`, `runPyLauncher` and `runPython`), not built at run
+  time and not run through a shell:
+
+  ```
+  python3 hooks/dispatch.py mod-prompt
+  py -3 hooks/dispatch.py mod-prompt
+  python hooks/dispatch.py mod-prompt
+  ```
+
+  It tries them in this order, because the name of Python differs between macOS, Linux and Windows, and stops at the
+  first that answers. Each one runs in the plugin folder, with `PYTHONUTF8=1` so that Windows reads the prompt as
+  UTF-8, and all three together get at most 8 seconds. `hooks/dispatch.py` is readable source in the plugin folder and
+  uses the same detection as the hooks.
+- **What it sends, and where:** `$.process.run` starts a local child process on the same machine; it is not a network
+  call. The mod writes the four values above as JSON to the standard input of that process and reads the prompt with
+  placeholders from its standard output. It opens no socket, no URL and no HTTP request, and it starts no remote
+  process.
 - **When it fails:** the prompt goes on unchanged, and the `UserPromptSubmit` hook blocks it as without the mod.
 
 ## Programs the plugin starts
@@ -46,8 +74,11 @@ with placeholders, instead of the block of the `UserPromptSubmit` hook.
 
 ## Credentials and network
 
-maisecrets has no server, no account and no telemetry. It asks you for no credential and needs none.
+maisecrets has no server, no account, no API key and no telemetry. It needs no credential for itself.
 
+- It does use credentials of yours: the values it took out of your prompts and tool results. It keeps them in the
+  store above and reads one back only to put it into a tool call on this machine where your rules allow it. They are
+  your values, not a login to maisecrets, and they never go to the publisher.
 - The values it finds stay on your machine, in the store above, and expire (24 hours by default).
 - It reads no credential of yours to send it anywhere. Where the source reads a token, an environment variable or a
   header, it does so to detect a value and mask it, or to recognise a server token that one of your own MCP servers

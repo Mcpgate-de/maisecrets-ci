@@ -21,7 +21,9 @@ SKILL = ROOT / "skills" / "secret-hygiene"
 # the detection core without personal.py, the names of maisecrets.* that the skill scripts import (the same module
 # objects), and the placeholder form of the plugin
 DETECTOR = ("maisecrets/__init__.py", "maisecrets/detection/__init__.py", "maisecrets/detection/checksums.py",
-            "maisecrets/detection/core.py", "maisecrets/detection/lazy_regex.py", "maisecrets/detection/normalise.py",
+            "maisecrets/detection/core.py", "maisecrets/detection/value_checks.py", "maisecrets/detection/own_rules.py",
+            "maisecrets/detection/text_index.py", "maisecrets/detection/encoded_mail.py",
+            "maisecrets/detection/lazy_regex.py", "maisecrets/detection/normalise.py",
             "maisecrets/detection/regions.py", "maisecrets/detection/registry.py",
             "maisecrets/detection/rule_filter.py", "maisecrets/detection/rulespec.py",
             "maisecrets/detect.py", "maisecrets/checksums.py", "maisecrets/lazy_regex.py", "maisecrets/normalise.py",

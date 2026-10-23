@@ -5,6 +5,6 @@ statement = "The value of X-Amz-Security-Token (100 to 4096 characters, in a pre
 runner = ["tests/test_literal_values.py::AwsSessionTokenTests::test_the_session_token_of_a_presigned_url_and_a_header_is_a_hit"]
 
 [proof]
-file = "maisecrets/detection/core.py"
+file = "maisecrets/detection/own_rules.py"
 find = '''"regex": r"(?i)(?<![\w-])x-amz-security-token'''
 replace = '''"regex": r"(?!)(?i)(?<![\w-])x-amz-security-token'''

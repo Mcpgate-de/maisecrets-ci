@@ -5,6 +5,6 @@ statement = "A placeholder word (fake, dummy, sample, example, bogus) inside a r
 runner = ["tests/test_detect_rules.py::PlaceholderValueTests::test_a_placeholder_word_inside_a_random_token_is_chance_not_a_placeholder"]
 
 [proof]
-file = "maisecrets/detection/core.py"
+file = "maisecrets/detection/value_checks.py"
 find = "bool(_PLACEHOLDER_PART_RE.search(low))"
 replace = "any(p in low for p in PLACEHOLDER_PARTS)"

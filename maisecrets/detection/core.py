@@ -16,7 +16,7 @@ Three rule sources, one scanner:
    pattern recognizers, MIT, version in `rules/PRESIDIO_VERSION`): country
    and generic PII shapes with scores and context words. Regions are
    opt-in (`pii_regions`, default `generic` + `de`). Checksum validators for
-   the generic and the German types are ported below; the others keep
+   the generic and the German types are ported in `value_checks.py`; the others keep
    their pattern score and need a context word. Refresh with
    `scripts/sync_presidio.py`.
 3. **detect-secrets** (`rules/detect_secrets.json`, derived from Yelp
@@ -24,7 +24,7 @@ Three rule sources, one scanner:
    in `rules/DETECT_SECRETS_VERSION`): credentials recognised by position
    (`password = …`, `api_key: "…"`, `user:pass@host`). Their heuristic
    filters (templated, indirect, sequential, dollar-prefixed) are ported.
-4. **Own rules** (`OWN_RULES` below): what none of the three covers. Email
+4. **Own rules** (`OWN_RULES` in `own_rules.py`): what none of the three covers. Email
    stays ours (a bounded regex; the unbounded one took 11 s on an 80 KB
    dotted run), phone with a country code, `Bearer …` outside curl,
    `?api_key=…` in a URL, full-length GitLab runner and deploy tokens.
@@ -32,28 +32,67 @@ Three rule sources, one scanner:
 One detector, shared by every hook and every direction. Two detectors with
 slightly different rules is how a redaction leaks.
 """
+
 from __future__ import annotations
 
-import base64 as _b64
 import bisect
 import contextvars
 import itertools
 import hashlib
-import ipaddress
 import json
-import math
 import re
 import sys
 import threading
 import time
 import warnings
-from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
 from . import checksums
 from .lazy_regex import LazyRx as _LazyRx
 from . import registry as _registry
+# The value checks, the own rules and the text index live in modules of their own, so that each file stays readable.
+# The core imports each of their names: `core.<name>` stays the same object. A patch must go to the module that
+# defines it.
+from .text_index import (  # noqa: F401
+    _NL_RE, _TEXT_INDEX, _text_index, _newlines, _line_start, _line_end, _positions, LABEL_RULES, KEYWORD_RULES,
+    _TEST_PATH_RE, _REAL_VALUE_FILE_RE, _TEST_MARKER_RE, _TEST_METHOD_RE, _CLASS_LINE_RE, _TEST_CLASS_LINE_RE,
+    _DIFF_FILE_RE, _GREP_PATH_RE, _TEST_LOOKBACK_LINES, is_test_path, in_test_code,
+)
+from .own_rules import (  # noqa: F401
+    _CJK, _CJK_RANGES, _NOT_CJK_WORD, _CJK_CHAR_RE, _has_cjk, _without_cjk, _is_cjk, _PW_COMPOUND, _SENTENCE_VALUE,
+    OWN_RULES, FALLBACK_RULES,
+)
+from .value_checks import (  # noqa: F401
+    _re2_to_python, _POSIX_CLASSES, shannon_entropy, ENTROPY_BY_ALPHABET, ENTROPY_BY_ALPHABET_RULES, _B62, _ALPHABETS,
+    alphabet_of, _base64_of_text, _entropy_ok, _luhn_ok, IBAN_LENGTH, _iban_ok, _RESOLVER_IPS, _public_ip,
+    _de_tax_id_ok, _de_social_security_ok, _de_health_insurance_ok, _de_lanr_ok, _de_vat_id_ok, _B64_PEM_PRIVATE_RE,
+    _OPENSSH_MAGIC, _pem_body_ok, _B64_LINE_RE, _B64_PEM_STARTS, _b64_needles, _PRIVATE_KEY_NEEDLES, _PEM_END_RE,
+    _pem_ended, _base64_wrapped_end, _base64_pem_ok, _us_ssn_ok, _DS_TEMPLATED, _DS_INDIRECT, _DS_REFERENCE,
+    _FORMAT_ONLY_RE, _SHORT_WORDS, _CAMEL_RE, _LABEL_SHAPE, _NAME_LABEL_RE, _GENERIC_TYPE, _VERSION_RE,
+    _PART_TEMPLATE_RE, _SHELL_EXPANSION_RE, _ANCHOR_OR_TAG_RE, _PATH_IN_VALUE_RE, _ESCAPED_TAIL_RE, _SUBSCRIPT_RE,
+    _GLOB_RE, _NUMBER_RE, _PRIVATE_NAME_RE, _EMAIL_VALUE_RE, _UUID_RE, _FIXTURE_WORD, _LEET, _deleet, _FIXTURE_PARTS,
+    _names_itself, _IDENT_WORDS, _short_word, _LOWER_WORDS_RE, _MARKER_RE, _LABEL_NOT_A_VALUE_RE, _label_value_ok,
+    _PROSE_LAST, _VERSION_PART_RE, _ALGORITHM_PARTS, _prose_word, _EXAMPLE_PASSWORD_RE, _PW_WORD_EXAMPLES,
+    _example_password, _COMPOUND_PROSE_RE, _MD_ESCAPE_RE, _WORD_NUMBER_ANY_RE, _TICKET_ID_RE, _RULE_SIGNS_RE,
+    _DIGEST_PREFIX_RE, _WORDS_RUN_RE, _keylike, _hex_of_text, _prose_key_value_ok, _LIST_NOT_A_KEY_RE,
+    _PATH_SEGMENT_RE, _WORD_PART_RE, _VOWEL_RE, _word_shaped, _apikey_value_ok, _WORDS_FILE, _WORDS, _PW_TRANSLATIONS,
+    _EXTRA_WORDS, _word_set, _WORDS_OK, _COVER_CACHE, _cover, _WORD_RUN_RE, _wordlike, _charset,
+    _LITERAL_PLACEHOLDER_RE, _DOTTED_RE, _CLOSED_TEMPLATE_RE, _CAMEL_SPLIT_RE, _norm_label, _PW_LAST, _PW_LAST_OF,
+    _PASS_NEG_PREV, _LABEL_NEG_WORDS, _sequential, _MEASURE_VALUE_RE, _ABBREVIATION_RE, _PATH_REFERENCE_RE,
+    _ISO_DURATION_RE, _WORD_NUMBER_RE, _random_evidence, _is_sign, _case_flips, _scripts_mix, _random_letters,
+    _pw_strong_evidence, _LIT_WRAP, _LIT_LABEL, _LIT_QUOTED, _LIT_FORMS, _LIT_SQL, _LIT_PS, _LIT_NOTE, _LIT_ENV_ENTRY,
+    _LIT_TF, _LIT_BOUND, _BACKSLASH_ESCAPE_RE, _ESCAPED_CHAR, _unquote, _read_quoted, _SECRET_TAIL_RE, _WEAK_TAIL_RE,
+    _WEAK_NEG_WORDS, _OTP_WORDS, _OTP_SEED_RE, _alphabet_size, _norm_entropy, _REGEX_LIKE_RE, _looks_like_regex,
+    _pw_words_of, _COMMON_PAIRS, _common_pairs, reads_as_word, english_words, _Literal, LITERAL_RULES, _LITERAL_IDS,
+    _env_key_ok, _laravel_key_ok, _config_key_value_ok, _random_hex, _RESERVED_MAIL_DOMAINS, _RESERVED_MAIL_TLDS,
+    _reserved_domain, _SERVICE_MAILBOXES, _SYSTEM_USERS, PLACEHOLDER_VALUES, PLACEHOLDER_PARTS, _TEMPLATE_NAME,
+    _PARTS, _PLACEHOLDER_PART_RE, looks_like_placeholder,
+)
+from .encoded_mail import (  # noqa: F401
+    _ENCODED_MAIL_CONTEXT_RE, _ENCODED_MAIL_TO_RE, _encoded_mail_expected, _MAIL_COLUMN_RE, _OWNER_WORDS,
+    _OWNER_PAIRS, _OWNER_TAILS, _FILE_EXTENSIONS, _names_a_mail_column,
+)
 
 RULES_DIR = Path(__file__).resolve().parent / "rules"
 
@@ -130,420 +169,9 @@ class Rule:
     phase: int = 0                     # registry.PHASES: 1 the built-in rules, 3 the rules of your own; set by rules()
 
 
-# ----------------------------------------------------------------- helpers --
-def _re2_to_python(rx: str) -> str:
-    """betterleaks (and gitleaks) regexes are RE2. Python differs in two spots we hit."""
-    flags = ""
-    if "(?i)" in rx:
-        rx = rx.replace("(?i)", "")
-        flags = "(?i)"
-    for posix, chars in _POSIX_CLASSES.items():   # [[:alnum:]]: Python reads it as a set of the letters ":alnum"
-        rx = rx.replace(posix, chars)
-    return flags + rx.replace(r"\z", r"\Z")
-
-
-_POSIX_CLASSES = {"[:alnum:]": "A-Za-z0-9", "[:alpha:]": "A-Za-z", "[:digit:]": "0-9", "[:xdigit:]": "0-9A-Fa-f",
-                  "[:upper:]": "A-Z", "[:lower:]": "a-z", "[:word:]": "0-9A-Za-z_"}
-
-
-def shannon_entropy(s: str) -> float:
-    if not s:
-        return 0.0
-    n = len(s)
-    return -sum(c / n * math.log2(c / n) for c in Counter(s).values())
-
-
-# The entropy of a value rises with its alphabet, so one floor of 3.5 judges a hex value and a base64 value alike:
-# generic-api-key gets one floor per alphabet (the smallest of hex, base32, base62, base64, base64url that holds the
-# value, else printable). From a fork (danszymkowiak/maisecrets 795b411, Apache-2.0, floors chosen on its bench);
-# measured on CredData for 0.6.24 (docs/BENCHMARKS.md, "Rule classes"). Hex keeps 3.5: the fork's 3.449 caught only
-# cipher test vectors of the left-out repository and one key, and it took a 32-digit revoked token in developer text
-# A floor never rises above the old 3.5 (base32 and printable: a higher floor lost two Nemotron-PII secrets), and
-# base64url keeps 3.5: kebab-case names with a digit read as keys under 3.426 (review of 0.6.24)
-ENTROPY_BY_ALPHABET = {"hex": 3.5, "base32": 3.5, "base62": 3.322, "base64": 3.252, "base64url": 3.5,
-                       "printable": 3.5}
-ENTROPY_BY_ALPHABET_RULES = frozenset({"generic-api-key"})
-_B62 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-_ALPHABETS = (("hex", frozenset("0123456789abcdefABCDEF")), ("base32", frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567=")),
-              ("base62", frozenset(_B62)), ("base64", frozenset(_B62 + "+/=")), ("base64url", frozenset(_B62 + "-_=")))
-
-
-def alphabet_of(value: str) -> str:
-    """The smallest of hex, base32, base62, base64, base64url that holds the value, else printable."""
-    chars = set(value)
-    return next((name for name, alpha in _ALPHABETS if chars <= alpha), "printable")
-
-
-def _base64_of_text(v: str) -> bool:
-    """base64 of printable text (`staging-user`, the `Password:` challenge of a mail server's AUTH LOGIN after
-    `authentication failed:`), padded or not: an encoded word or name, not a key."""
-    if len(v) % 4 == 1 or len(v) < 8:
-        return False
-    try:
-        raw = _b64.b64decode(v + "=" * (-len(v) % 4), validate=True)
-    except (ValueError, TypeError):
-        return False
-    return bool(raw) and all(32 <= b < 127 for b in raw)
-
-
-def _entropy_ok(rule: Rule, secret: str, channel: str = "prompt") -> bool:
-    if rule.id in ENTROPY_BY_ALPHABET_RULES:
-        e = shannon_entropy(secret)
-        if e >= 3.5:
-            return True    # the old floor: a value it took stays a hit
-        if channel != "tool":
-            return False   # a typed prompt keeps 3.5: an identifier with a digit there is blocked, not masked
-        return e >= ENTROPY_BY_ALPHABET[alphabet_of(secret)] and not _base64_of_text(secret)
-    return not rule.entropy or shannon_entropy(secret) >= rule.entropy
-
-
-def _luhn_ok(digits: str) -> bool:
-    total, alt = 0, False
-    for ch in reversed(digits):
-        d = ord(ch) - 48
-        if alt:
-            d *= 2
-            if d > 9:
-                d -= 9
-        total += d
-        alt = not alt
-    return total % 10 == 0
-
-
-# IBAN length per country (SWIFT IBAN registry). Only an IBAN in lower case is held to it: a hex digest in lower case
-# such as `de12…` passes mod 97 one time in 97; an IBAN in capitals keeps the vendored check alone
-IBAN_LENGTH = {
-    "AD": 24, "AE": 23, "AL": 28, "AT": 20, "AZ": 28, "BA": 20, "BE": 16, "BG": 22, "BH": 22, "BI": 27, "BR": 29,
-    "BY": 28, "CH": 21, "CR": 22, "CY": 28, "CZ": 24, "DE": 22, "DJ": 27, "DK": 18, "DO": 28, "EE": 20, "EG": 29,
-    "ES": 24, "FI": 18, "FK": 18, "FO": 18, "FR": 27, "GB": 22, "GE": 22, "GI": 23, "GL": 18, "GR": 27, "GT": 28,
-    "HN": 28, "HR": 21, "HU": 28, "IE": 22, "IL": 23, "IQ": 23, "IS": 26, "IT": 27, "JO": 30, "KW": 30, "KZ": 20,
-    "LB": 28, "LC": 32, "LI": 21, "LT": 20, "LU": 20, "LV": 21, "LY": 25, "MC": 27, "MD": 24, "ME": 22, "MK": 19,
-    "MN": 20, "MR": 27, "MT": 31, "MU": 30, "NI": 28, "NL": 18, "NO": 15, "OM": 23, "PK": 24, "PL": 28, "PS": 29,
-    "PT": 25, "QA": 29, "RO": 24, "RS": 22, "RU": 33, "SA": 24, "SC": 31, "SD": 18, "SE": 24, "SI": 19, "SK": 24,
-    "SM": 27, "SO": 23, "ST": 25, "SV": 28, "TL": 23, "TN": 24, "TR": 26, "UA": 29, "VA": 22, "VG": 24, "XK": 20,
-    "YE": 30,
-}
-
-
-def _iban_ok(raw: str) -> bool:
-    s = raw.replace(" ", "").replace("-", "").upper()   # the vendored pattern takes a space or a hyphen between groups
-    if not 15 <= len(s) <= 34 or not s.isalnum():
-        return False
-    if raw != raw.upper() and IBAN_LENGTH.get(s[:2]) != len(s):
-        return False
-    rearranged = s[4:] + s[:4]
-    return int("".join(str(ord(c) - 55) if c.isalpha() else c for c in rearranged)) % 97 == 1
-
-
-# public resolvers: a server every network uses, never a person's address
-_RESOLVER_IPS = frozenset({"8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1", "9.9.9.9", "149.112.112.112",
-                           "208.67.222.222", "208.67.220.220", "2001:4860:4860::8888", "2001:4860:4860::8844",
-                           "2606:4700:4700::1111", "2606:4700:4700::1001"})
-
-
-def _public_ip(ip: str) -> bool:
-    """An address that can name a person: global unicast. Private, loopback, link-local, shared (100.64/10), the
-    documentation ranges (192.0.2.0/24, 2001:db8::/32 …), reserved, broadcast and multicast are not; the
-    Python standard library's own docs and tests held 666 of them (measured 2026-09-29)."""
-    if ":" in ip:
-        if not (re.fullmatch(r"[0-9A-Fa-f:.]{7,45}", ip) and ip.count(":") >= 2):
-            return False
-    elif not re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", ip):
-        return False   # e.g. a CIDR tail the upstream regex swallowed
-    if ":" not in ip:
-        ip = ".".join(str(int(o)) for o in ip.split("."))   # 085.214.132.005 (final review, 2026-09-30)
-    try:
-        addr = ipaddress.ip_address(ip)
-    except ValueError:
-        return False
-    inner = getattr(addr, "sixtofour", None)
-    if inner is not None:
-        addr = inner    # 2002:55d6:8405::1 carries 85.214.132.5
-    return addr.is_global and not addr.is_multicast and str(addr) not in _RESOLVER_IPS
-
-
-def _de_tax_id_ok(v: str) -> bool:
-    """Steuer-ID (IdNr, § 139b AO): eleven digits, the first never 0. In the first ten, exactly one digit occurs twice
-    or three times and every other digit once at most; a digit that occurs three times never stands at three places
-    in a row. The eleventh is the check digit, ISO 7064 MOD 11,10. Source: ITZBund, "KONZEPT Steueridentifikationsnummer
-    (IdNr) nach § 139b AO", version 2.3 of 2016-03-01, section 1, and ELSTER, "Prüfung der Steuer- und
-    Steueridentifikationsnummer", 2026-09-02, section 2.2. Presidio's "no digit more than three times" passed 8.7 % of
-    random numbers; this rule passes 0.4 % (0.6.19)."""
-    if len(v) != 11 or not v.isdigit() or v[0] == "0":
-        return False
-    digits = [int(d) for d in v]
-    repeated = [(d, n) for d, n in Counter(digits[:10]).items() if n > 1]
-    if len(repeated) != 1 or repeated[0][1] not in (2, 3):
-        return False
-    if repeated[0][1] == 3 and any(digits[i] == digits[i + 1] == digits[i + 2] for i in range(8)):
-        return False
-    product = 10
-    for i in range(10):
-        total = (digits[i] + product) % 10 or 10
-        product = (total * 2) % 11
-    check = 11 - product
-    return (0 if check == 10 else check) == digits[10]
-
-
-def _de_social_security_ok(v: str) -> bool:
-    """Rentenversicherungsnummer, VKVV § 4 checksum plus birth-date ranges."""
-    v = v.upper().replace(" ", "")
-    if not re.fullmatch(r"\d{8}[A-Z]\d{3}", v):
-        return False
-    day, month = int(v[2:4]), int(v[4:6])
-    if not (1 <= day <= 31 or 51 <= day <= 81) or not 1 <= month <= 12:
-        return False
-    letter = str(ord(v[8]) - ord("A") + 1).zfill(2)
-    effective = v[:8] + letter + v[9:11]
-    weights = [2, 1, 2, 5, 7, 1, 2, 1, 2, 1, 2, 1]
-    total = 0
-    for ch, w in zip(effective, weights):
-        prod = int(ch) * w
-        total += prod // 10 + prod % 10
-    return total % 10 == int(v[11])
-
-
-def _de_health_insurance_ok(v: str) -> bool:
-    v = v.upper().strip()
-    if not re.fullmatch(r"[A-Z]\d{9}", v):
-        return False
-    effective = str(ord(v[0]) - ord("A") + 1).zfill(2) + v[1:9]
-    total = 0
-    for ch, f in zip(effective, (1, 2) * 5):
-        prod = int(ch) * f
-        total += prod // 10 + prod % 10 if prod >= 10 else prod
-    return total % 10 == int(v[9])
-
-
-def _de_lanr_ok(v: str) -> bool:
-    v = v.strip()
-    if len(v) != 9 or not v.isdigit():
-        return False
-    total = sum(int(d) * w for d, w in zip(v[:6], (4, 9, 4, 9, 4, 9)))
-    return int(v[6]) == (10 - total % 10) % 10
-
-
-def _de_vat_id_ok(v: str) -> bool:
-    n = re.sub(r"[\s.\-]", "", v.upper())
-    return len(n) == 11 and n.startswith("DE") and n[2:].isdigit()
-
-
-# the decoded head of a PEM private key: the header, optional armour or encryption headers (PGP's Version:, the
-# Proc-Type: and DEK-Info: of a legacy encrypted key), then base64 body characters (as many as the head holds, up to
-# 16). A byte order mark may stand before the header
-_B64_PEM_PRIVATE_RE = _LazyRx(rb"(?:\xef\xbb\xbf)?-----BEGIN (?P<kind>[A-Z0-9 ]{0,40})PRIVATE KEY(?: BLOCK)?"
-                                 rb"-----\r?\n"
-                                 rb"(?P<hdrs>(?:[A-Za-z][A-Za-z0-9-]{0,30}: [^\r\n]{0,200}\r?\n)*)(?:\r?\n)?"
-                                 rb"(?P<body>[A-Za-z0-9+/]{16}|[A-Za-z0-9+/]{1,15}\Z)")
-_OPENSSH_MAGIC = b"b3BlbnNzaC1rZXktdjE"   # base64 of "openssh-key-v1"
-
-
-def _pem_body_ok(m) -> bool:
-    """The body starts as a key does: DER (a SEQUENCE: "M"), the OpenSSH magic, a PGP packet (a tag byte of 0x80 or
-    more), or anything after encryption headers (Proc-Type, a PGP armour header). Prose after a banner is no key
-    (codex Gate A of 0.6.20)."""
-    body, kind = m.group("body"), m.group("kind")
-    if m.group("hdrs"):
-        return True
-    if kind.startswith(b"OPENSSH"):
-        return _OPENSSH_MAGIC.startswith(body[:19]) if len(body) < 19 else body.startswith(_OPENSSH_MAGIC[:16])
-    if kind.startswith(b"PGP"):
-        return body[:1] in b"ghijklmnopqrstuvwxyz0123456789+/"
-    return body[:1] == b"M"
-
-
-# a further line of a wrapped base64 value: after a line break, or after an escaped one (\n in a JSON string)
-_B64_LINE_RE = _LazyRx(r"(?:\r?\n|(?:\\r)?\\n)([ \t]*)([A-Za-z0-9+/]+={0,2})(?=[ \t]*(?:\r?\n|$)|[\"',;]|\\[rn])")
-_B64_PEM_STARTS = ("LS0tLS1CRUdJTi", "77u/LS0tLS1CRUdJTi")
-
-
-def _b64_needles(raw: bytes) -> tuple:
-    """The base64 text of `raw` at each of the three byte alignments, cut to the characters that `raw` alone decides."""
-    import base64
-    out = []
-    for k in range(3):
-        enc = base64.b64encode(b"\0" * k + raw + b"\0\0").decode()
-        out.append(enc[-(-8 * k // 6):8 * (k + len(raw)) // 6])
-    return tuple(out)
-
-
-_PRIVATE_KEY_NEEDLES = _b64_needles(b"PRIVATE KEY-----")   # a key later in a bundle (certificate, chain, key)
-
-
-_PEM_END_RE = _LazyRx(rb"-----END [A-Z0-9 ]{1,60}-----\r?\n?\Z")
-
-
-def _pem_ended(lines: list) -> bool:
-    """Whether the base64 lines so far (each of a width that is a multiple of 4) decode to the end of a PEM block."""
-    import base64
-    try:
-        return _PEM_END_RE.search(base64.b64decode("".join(lines[-2:]), validate=True)) is not None
-    except ValueError:
-        return False
-
-
-def _base64_wrapped_end(text: str, start: int, end: int) -> int:
-    """The end of a base64 value that `base64` or openssl wrapped at a fixed width. text[start:end] is its first
-    line; each further line holds base64 alone and has the width of the first, the last may be shorter. A line of
-    another width, a line that starts a new value, or any other text ends the value, and so does a full line that
-    decodes to the end of a PEM block (a shorter line after it is the next text: codex Gate A of 0.6.20). A first
-    line longer than 120 characters is no wrapped line (the tools wrap at 64 or 76), and one that ends in padding is
-    the whole value."""
-    width = end - start
-    if width > 120 or text[end - 1] == "=":
-        return end
-    lines = [text[start:end]]   # the last two lines only: a value can be megabytes long
-    while True:
-        m = _B64_LINE_RE.match(text, end)
-        if not m or len(m.group(2)) > width or m.group(2).startswith(_B64_PEM_STARTS):
-            return end
-        if len(m.group(2)) < width and width % 4 == 0 and _pem_ended(lines):
-            return end
-        end = m.end(2)
-        lines = [lines[-1], m.group(2)]
-        if len(m.group(2)) < width or m.group(2).endswith("="):
-            return end
-
-
-def _base64_pem_ok(v: str) -> bool:
-    """A base64 value whose decoded start is the header of a PEM private key and its first body characters (a
-    Kubernetes Secret's tls.key or ssh-privatekey), or a bundle that holds one later. Only the first 400 characters
-    are decoded: the value can be megabytes long."""
-    import base64
-    flat = "".join(v.replace("\\r", "").replace("\\n", "").split())
-    head = flat[:400]
-    try:
-        raw = base64.b64decode(head[:len(head) // 4 * 4], validate=True)
-    except ValueError:
-        return False
-    m = _B64_PEM_PRIVATE_RE.match(raw)
-    if m:
-        return _pem_body_ok(m)
-    if raw.startswith(b"\xef\xbb\xbf"):
-        raw = raw[3:]   # a byte order mark before a bundle (codex Gate A of 0.6.20)
-    if not raw.startswith(b"-----BEGIN "):
-        return False
-    for needle in _PRIVATE_KEY_NEEDLES:   # a bundle: decode around each "PRIVATE KEY-----" (the footer has one too)
-        i, seen = flat.find(needle), 0
-        while i >= 0 and seen < 50:
-            a = max(0, i // 4 * 4 - 80)
-            window = flat[a:a + 320]   # room for Proc-Type and DEK-Info before the body (Gate B, round 2)
-            try:
-                inner = _B64_PEM_PRIVATE_RE.search(base64.b64decode(window[:len(window) // 4 * 4], validate=True))
-                if inner and _pem_body_ok(inner):
-                    return True
-            except ValueError:
-                pass
-            i, seen = flat.find(needle, i + 1), seen + 1
-    return False
-
-
-def _us_ssn_ok(v: str) -> bool:
-    """Presidio's UsSsnRecognizer.invalidate_result (microsoft/presidio 8c98180a46, the last change of
-    us_ssn_recognizer.py on main as of 2026-10-11), ported: mixed delimiters,
-    one digit repeated, a group of zeros, area 000 or 666, or one of the published sample numbers is no SSN. The
-    vendored rule had no validator, so `000-00-0000` in a form was a hit (public benchmark, 2026-10-11)."""
-    if len({c for c in v if c in ".- "}) > 1:
-        return False
-    d = "".join(c for c in v if c.isdigit())
-    if not d or len(set(d)) == 1:
-        return False
-    if d[3:5] == "00" or d[5:] == "0000" or d[:3] in ("000", "666"):
-        return False
-    return d not in ("1234" + "56789", "9876" + "54320", "0780" + "51120")
-
-
-_DS_TEMPLATED = _LazyRx(r"^(\{\{.*\}\}|\$\{.*\}|<.*>|%.*%|\$[A-Za-z_][A-Za-z0-9_]*)$")
-_DS_INDIRECT = _LazyRx(r"^[A-Za-z_][A-Za-z0-9_.]*\s*(\(.*\)|\[.*\])$")
-# words joined by `.`, `_` or `-`, optionally ending where the regex cut the line (`:` of a
-# condition, `;` of a statement, `[` before a quoted key): `settings.API_KEY`, `self._password`,
-# `os.environ[`, `confirm_password:` were taken for values (false-positive corpus, 2026-09-27)
-_DS_REFERENCE = _LazyRx(r"_*[A-Za-z]+(?:(?:\?\.|[._/:-]+)#?[A-Za-z]+)+_*\??[:;\[]?")
-_FORMAT_ONLY_RE = _LazyRx(r"(?:%[-+ #0]*\d*(?:\.\d+)?[sdifxXeEgGrcoba%]|\{[^{}]*\}|[^A-Za-z0-9%{])+")
-
-
-# a short glued value that is a type or a keyword of code or config, or a camelCase identifier:
-# password:string, {token:number}, secret=config, api_key=apiKey, auth_token=Bearer (final review,
-# 2026-09-28: the 6-character floor for glued values took these for secrets)
-_SHORT_WORDS = frozenset({
-    "string", "number", "boolean", "object", "integer", "bigint", "symbol", "unknown", "config", "bearer", "secret",
-    "tokens", "hidden", "masked", "optional", "default", "require", "undefined", "double", "decimal", "varchar",
-    "binary", "buffer", "array", "values", "string[]", "never", "nullable", "boolean[]", "option", "settings",
-    "private", "public", "enabled", "disabled", "secretstr", "secretbytes", "securestring"})
-_CAMEL_RE = _LazyRx(r"^[a-z]+(?:[A-Z][a-z0-9]*)+$")
-# the review of 2026-09-29 (679 snippets of normal work): the next label taken for the value (`DB_PASSWORD=` then
-# `API_KEY=`), a generic type (`Option<String>`), a UUID, and a fixture that names itself (`testpass`, `secret123`,
-# `Passw0rd!`: letters after undoing the digits and symbols people use for them)
-_LABEL_SHAPE = _LazyRx(r"[A-Za-z_][\w.-]*[:=]")
-_NAME_LABEL_RE = _LazyRx(r"(?:[A-Z][A-Z0-9_]*|[a-z][a-z0-9_]*|[A-Z][a-z]+(?:[ _-][A-Za-z][a-z]+)*"
-                            r"|[a-z]{2,}(?:[A-Z][a-z]{2,})+|[A-Za-z][a-z0-9]+(?:[A-Z][a-z0-9]{2,})*(?:[A-Z][a-z0-9]{2,}|[A-Z]{2,}|[A-Z][a-z0-9]))[.-]?[:=]")
-_GENERIC_TYPE = _LazyRx(r"<[A-Za-z_][\w, ]*>")
-_VERSION_RE = _LazyRx(r"v?\d+(?:\.\d+){1,3}(?:[-+.]?[A-Za-z0-9]+)?")
-_PART_TEMPLATE_RE = _LazyRx(r"\{[A-Za-z_][\w.]*(?:\[[^\]]*\]?)?\}?$|\{[A-Za-z_][\w.]*\}")
-_SHELL_EXPANSION_RE = _LazyRx(r"[?:+=-]{1,2}[A-Z_][A-Z0-9_]*")
-# the names of anchors and tags are lower case (&creds_2024, &gitlab_token_fields, !vault, !!str); a value with
-# capitals after & or ! is a password (&Xk9v2Qm7…, !Passw0rd…; review of b4a7c54)
-_ANCHOR_OR_TAG_RE = _LazyRx(r"[&*][a-z_][a-z0-9_-]*|!!?[a-z][a-z0-9_/-]*")
-_PATH_IN_VALUE_RE = _LazyRx(r"(?:^|\s)(?:~|\.{1,2})?/[\w.-]+/[\w.-]+")
-_ESCAPED_TAIL_RE = _LazyRx(r"(?:\\[nrt])+$")
-_SUBSCRIPT_RE = _LazyRx(r"[A-Za-z_][\w.]*\[[\w.,\s]*\]?")
-_GLOB_RE = _LazyRx(r"[:/._-]\*$|^\*\.\w+$|/\*[/.]")   # token:*, *.py, logs/*.txt; a star inside a value stays
-_NUMBER_RE = _LazyRx(r"\d{1,3}(?:_\d{3})+|\d+(?:_\d+)+")
-_PRIVATE_NAME_RE = _LazyRx(r"_[A-Za-z][A-Za-z_]*")
-_EMAIL_VALUE_RE = _LazyRx(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
-_UUID_RE = _LazyRx(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
-_FIXTURE_WORD = _LazyRx(r"passwor[dt]|passw|pass(?![a-z])|(?<![a-z])pass|secret|token|test|geheim|kennwort")
-_LEET = str.maketrans({"0": "o", "3": "e", "4": "a", "5": "s", "$": "s", "@": "a", "1": "i", "!": "i", "|": "l",
-                       "7": "t"})
-
-
-def _deleet(v: str) -> str:
-    return v.lower().translate(_LEET)
-
-
-# the words a fixture is made of around its fixture word: mypassword, wrongpassword, SuperSecret1, rootpass,
-# sk_test_123. Longest first, so that `password` is taken before `pass`
-_FIXTURE_PARTS = _LazyRx("|".join(sorted((
-    "password", "passwort", "passwd", "passw", "pass", "secret", "token", "testing", "test", "geheim", "kennwort",
-    "key", "my", "new", "old", "wrong", "bad", "top", "super", "very", "not", "so", "dummy", "fake", "default",
-    "admin", "user", "root", "db", "dev", "local", "sample", "example", "secure", "strong", "weak", "correct",
-    "valid", "invalid", "other", "some", "your", "the", "sk", "pk", "cs", "rk", "tok", "api", "app", "mock",
-    "demo"), key=len, reverse=True)))
-
-
-def _names_itself(v: str) -> bool:
-    """testpass, secret123, Passw0rd!, wrongpassword, SuperSecret1: a fixture word, the words a fixture is made of,
-    and at most one other letter. A real password that holds a fixture word keeps a word of its own: Contest-Winter,
-    Passion, Latest, Geheimnis, Passatwagen (review, 2026-09-29). Only letters of the value count, not the letters
-    that undoing 0, 1, 3 gave."""
-    d = _deleet(v)
-    if not _FIXTURE_WORD.search(d):
-        return False
-    covered = [False] * len(d)
-    for m in _FIXTURE_PARTS.finditer(d):
-        for i in range(m.start(), m.end()):
-            covered[i] = True
-    return sum(1 for i, c in enumerate(v) if c.isalpha() and not covered[i]) <= 1
-
-
-_IDENT_WORDS = frozenset({"password", "passwort", "token", "secret", "key", "value", "default", "config", "env",
-                          "setting", "settings", "credential", "credentials", "auth", "api", "get", "set", "new", "old",
-                          "user", "admin", "current", "stored", "hashed", "encrypted", "load", "read", "fetch",
-                          "extract", "parse", "resolve", "build", "create", "from", "to", "with", "vault", "request",
-                          "header", "environment", "variable", "store"})
-
-
-def _short_word(v: str) -> bool:
-    w = v.strip().rstrip(",;})]")
-    if w.lower() in _SHORT_WORDS:
-        return True
-    if not _CAMEL_RE.match(w):
-        return False
-    words = [x.lower() for x in re.findall(r"[A-Z]?[a-z0-9]+", w)]
-    # correctHorseBatteryStaple is a passphrase (final review, 2026-09-30)
-    return len(words) <= 3 or any(x in _IDENT_WORDS for x in words)
-
-
+# ----------------------------------------------------- value checks that read the detector --
+# The other value checks are in value_checks.py. These stay here: they ask the detector of the scan (_det,
+# _references, active_regions), which this module holds.
 def _ds_value_ok(v: str, min_len: int = 8) -> bool:
     """Port of detect-secrets' heuristic filters for keyword hits."""
     v = v.strip()
@@ -609,25 +237,6 @@ def _ds_value_ok(v: str, min_len: int = 8) -> bool:
     return True
 
 
-_LOWER_WORDS_RE = _LazyRx(r"[a-z0-9]+(?:[-_.][a-z0-9]+)*")
-
-
-_MARKER_RE = _LazyRx(r"\[[^\]]*\]|<[^>]*>|\{[^}]*\}")
-# values the new label paths of 0.6.15 read that hold no password (release review of 0.6.15, Gate B): a date or a
-# timestamp (passwordLastChanged, AUTH 2024-10-13), a file a tool reads (--password @/run/secrets/pw), a template
-# variable a build fills (-p@MYSQL_PWD@), a placeholder to replace (CHANGE_ME_2024). The ds rules keep their own filter
-_LABEL_NOT_A_VALUE_RE = _LazyRx(
-    r"\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?"
-    r"|@[~.]?/[^\s]*|@[A-Za-z_][A-Za-z0-9_]*@"
-    r"|(?i:change[_-]?me)(?:[_-]?[A-Za-z0-9]+)*")
-
-
-def _label_value_ok(v: str) -> bool:
-    # the whole value, its last character too: `2024-10-13!` is a password, no date (codex, verification of 0.6.15).
-    # The prose rule ends its value before the punctuation of the sentence, so it needs no strip here
-    return not _LABEL_NOT_A_VALUE_RE.fullmatch(v.strip())
-
-
 def _word_value_ok(v: str, min_len: int = 8, prose_punct: bool = False) -> bool:
     """A value after a label with no `=` or `:` (a CLI flag, Redis AUTH, netrc): as _ds_value_ok, and not letters
     only. Docs write `--password argument`, `AUTH LOGIN`, `--password PASSWORD`; a password of letters alone after such
@@ -644,34 +253,6 @@ def _word_value_ok(v: str, min_len: int = 8, prose_punct: bool = False) -> bool:
     return _ds_value_ok(v, min_len=min_len) and not core.isalpha()
 
 
-# prose about a password, not one: a hyphen compound whose last part says what was done to it (SHA256-hashed,
-# AES-256-encrypted, 1Password-managed, OWASP-ASVS-4.0-compliant), and names of algorithms, encodings and standards
-# with their numbers and versions (PBKDF2-SHA256, ISO-8859-1, UTF-16LE, WPA2-PSK, Argon2id-v19, RFC-7617, ARGON2ID).
-# A compound with a word of its own stays a value: Xk9-q2-secret, Winter-2024-berlin, Sha256-2024! (round 2)
-_PROSE_LAST = frozenset({
-    "hashed", "encrypted", "encoded", "decoded", "managed", "protected", "enabled", "disabled", "signed", "salted",
-    "compliant", "based", "derived", "generated", "stored", "secured", "wrapped", "rotated", "required", "enforced",
-    "backed", "verified", "validated", "compatible", "formatted", "only", "free", "safe", "aware", "style", "format",
-    "encryption", "hashing", "encoding"})
-_VERSION_PART_RE = _LazyRx(r"v?\d+(?:\.\d+)*")
-_ALGORITHM_PARTS = frozenset({
-    "md5", "sha1", "sha2", "sha3", "sha224", "sha256", "sha384", "sha512", "pbkdf2", "bcrypt", "scrypt", "argon2",
-    "argon2i", "argon2d", "argon2id", "aes", "aes128", "aes192", "aes256", "gcm", "cbc", "ctr", "rsa", "hmac", "des",
-    "3des", "blake2b", "blake2s", "blake3", "sha", "crypt", "ntlm", "ntlmv2", "chacha20", "poly1305", "ecdsa",
-    "ed25519", "x25519", "pkcs1", "pkcs5", "pkcs8", "pkcs12", "oaep", "pss",
-    "iso", "utf", "utf8", "utf16", "utf16le", "utf16be", "utf32", "16le", "16be", "latin1", "cp1252", "ascii",
-    "base64", "base32", "hex", "wpa", "wpa2", "wpa3", "psk", "sae", "eap", "tls", "ssl", "rfc", "owasp", "asvs", "nist",
-    "fips", "scram", "chap", "totp", "hotp", "kerberos", "x509", "plus", "jwt", "jwe", "jws", "oauth", "oauth2"})
-
-
-def _prose_word(v: str) -> bool:
-    parts = v.lower().split("-")
-    if len(parts) >= 2 and parts[-1] in _PROSE_LAST:
-        return True
-    names = [x for x in parts if not _VERSION_PART_RE.fullmatch(x)]
-    return bool(names) and all(x in _ALGORITHM_PARTS for x in names)
-
-
 def _prose_value_ok(v: str) -> bool:
     """`my password is <value>`: no word of a sentence. A letter and a digit must be in it, and a capital or a
     symbol beyond - _ .: `incorrect`, `base64-encoded`, `hunter2`, `valid.\\n@param` (an escaped line break in
@@ -679,35 +260,6 @@ def _prose_value_ok(v: str) -> bool:
     v = v.strip()
     return (_word_value_ok(v) and not _LOWER_WORDS_RE.fullmatch(v) and "\\" not in v and not _prose_word(v)
             and any(c.isdigit() for c in v) and any(c.isalpha() for c in v))
-
-
-# one word, a number and at most one sign: the example of a weak password that docs and prompts write in a sentence
-# ("The password is Hunter2!", "Das Passwort ist Sommer2024!", tests/fp_corpus.py). After `:` or `=` the label rules
-# still take it (_pw_literal_ok); in a sentence it stays text. Two words or a word of no list (Hafen7Kran) are values
-_EXAMPLE_PASSWORD_RE = _LazyRx(r"([^\W\d_]{3,})\d{1,4}[^\w\s]?")
-# the word for password itself before a number (Passwort1, Salasana1, Haslo2024) is an example in every language, and
-# so are the German words of example passwords that the English list lacks (Willkommen1, Hallo123!, Init1234)
-_PW_WORD_EXAMPLES = frozenset({"willkommen", "hallo", "init", "start", "geheim", "passwort", "kennwort", "salasana",
-                               "hasło", "haslo", "heslo", "senha", "wachtwoord",
-                               "passord", "lösenord", "losenord", "adgangskode", "kodeord", "şifre", "sifre",
-                               "parola", "contraseña", "contrasena"})
-
-
-def _example_password(v: str) -> bool:
-    m = _EXAMPLE_PASSWORD_RE.fullmatch(v)
-    if not m:
-        return False
-    word = m.group(1).lower()
-    return word in _PW_WORD_EXAMPLES or (word.isascii() and word in _word_set())
-
-
-# a participle or a noun of any language after a name and a number: SHA256-gehasht, Base64-kodiert, AES256-cifrada,
-# 2FA-geschützt, SHA256-hash. The parts before it are names with digits or capitals; the last part is a small word
-_COMPOUND_PROSE_RE = _LazyRx(r"(?:[A-Za-z]*\d{2,}|\d*[A-Z]{2,}\d*)(?:-(?:[A-Za-z]*\d{2,}|\d*[A-Z]{2,}\d*))*"
-                                r"-[^\W\d_A-Z][^\W\d_]{2,}")
-
-
-_MD_ESCAPE_RE = _LazyRx(r"\\(?=[^\w\s])")
 
 
 def _sentence_value_ok(v: str) -> bool:
@@ -719,20 +271,6 @@ def _sentence_value_ok(v: str) -> bool:
             and not _COMPOUND_PROSE_RE.fullmatch(v))
 
 
-# one word of any language and a short number: Version2, Schritt2, Kapitel4, Mandant3, Kerberos5 after a space
-# (Mausi1234 and Bergsee1987! are passwords)
-_WORD_NUMBER_ANY_RE = _LazyRx(r"[^\W\d_][^\W\d_A-Z\u00c4\u00d6\u00dc]{2,}\d{1,2}")
-
-
-# an id or a reference: a ticket (PBE-3403, #PR-1234), a CVE, a standard and its year (BSI-C5:2020, A07:2021,
-# NIST-800-63B, OWASP-ASVS4), a character class (A-Za-z0-9)
-_TICKET_ID_RE = _LazyRx(r"#?(?:[A-Za-z][A-Za-z0-9]{1,9}-\d{1,7}|[A-Z]{2,}\d*(?:-(?:[A-Z0-9]+|[A-Z][a-z]{0,3}\d+))+"
-                           r"(?::\d{4})?|[A-Z]{2,}\d+"
-                           r"|[A-Z]\d{1,3}:\d{4})|(?:.*(?:a-z|A-Z|0-9)){2}.*")
-# signs that a sentence after a password word uses for a rule, a range or a pattern: /, >=, ≥, ≤, [, ^, $
-_RULE_SIGNS_RE = _LazyRx(r"[/<>\u2264\u2265\[\]^$]")
-
-
 def _spaced_value_ok(v: str) -> bool:
     """A value after a password word and only a space, an arrow, a dash or a parenthesis (label-password-after-space):
     as after a copula, it starts with a letter or a digit, and it is no run of English words, no id and no rule.
@@ -741,63 +279,6 @@ def _spaced_value_ok(v: str) -> bool:
     v = v.strip()
     return (_sentence_value_ok(v) and v[:1].isalnum() and not _TICKET_ID_RE.fullmatch(v)
             and not _WORD_NUMBER_ANY_RE.fullmatch(v) and not _RULE_SIGNS_RE.search(v) and _wordlike(v) < 0.6)
-
-
-_DIGEST_PREFIX_RE = _LazyRx(r"(?i)(?:sha\d*|md5|blake\w*|h1)[-:]")
-# words and numbers run together: ProdDbPassword2024Rotated, Authentication123, SECRET_NAME_2024. A word has two
-# letters at least; a random key has a lone letter (a capital before a digit, a small letter between digits) in it
-_WORDS_RUN_RE = _LazyRx(r"(?:[A-Z][a-z]+|[a-z]{2,}|[A-Z]{2,}(?![a-z])|\d+|[_.-])+")
-
-
-def _keylike(v: str) -> bool:
-    """A capital, a small letter and a digit, and not words run together."""
-    return (any(c.isupper() for c in v) and any(c.islower() for c in v) and any(c.isdigit() for c in v)
-            and not _WORDS_RUN_RE.fullmatch(v))
-
-
-def _hex_of_text(v: str) -> bool:
-    """Hex of printable text: an encoded name or an encoded token, which the tool channel decodes and judges itself."""
-    if len(v) % 2 or not re.fullmatch(r"[0-9a-fA-F]+", v):
-        return False
-    raw = bytes.fromhex(v)
-    return all(32 <= b < 127 for b in raw)
-
-
-def _prose_key_value_ok(v: str) -> bool:
-    """A value after a key word in a sentence (label-prose-key): "Use the API key <value> for the call." The sentence
-    says less than `api_key=`, so only a random shape: a UUID, hex with a digit and a letter, or a value of letters
-    and digits with no run of words (_keylike, or entropy 3.5 and words cover less than half). Not a path, not a
-    template (YOUR_API_KEY has no digit), not a version or a dotted name."""
-    v = v.strip()
-    if _UUID_RE.fullmatch(v):
-        return len(set(v.replace("-", ""))) > 6
-    if not any(c.isdigit() for c in v) or not any(c.isalpha() for c in v) or _PATH_SEGMENT_RE.search(v):
-        return False
-    if _base64_of_text(v) or _hex_of_text(v):
-        return False   # base64 or hex of text: `id:key` of an Elasticsearch ApiKey in docs, an encoded name
-    if re.fullmatch(r"[0-9a-fA-F]+", v):   # 48 hex digits are left to secret-hex48-after-token-word (personal.py)
-        return 20 <= len(v) != 48 and len(set(v.lower())) > 6
-    return (_keylike(v) or shannon_entropy(v) >= 3.5) and _wordlike(v) < 0.5   # PaymentsServiceV2Prod is words
-
-
-# values in a list of secrets that are no key: a password hash, a name with a scheme (arn:aws:…, urn:…)
-# ($2b$…, $argon2id$…), an Ethereum address (0x and 40 hex), an id with a type prefix (pm_…, sess_…, cus_…). Hex
-# alone and base58 stay values here: every label of label-secret-list names secrets (a commit, an ObjectId or a
-# Solana mint sits in a list of tokens or ids, which the rule does not read; a base58 check lost 12 % of random keys)
-_LIST_NOT_A_KEY_RE = _LazyRx(r"\$[\w-]+\$.*|[a-z][\w+.-]*:.*|0x[0-9a-fA-F]+|[a-z]{2,6}_[A-Za-z0-9_-]+")
-# a path has a segment of small letters between slashes (base64 has a slash too, but rarely a word between two)
-_PATH_SEGMENT_RE = _LazyRx(r"(?:^|/)[a-z][a-z_.-]{2,}/")
-# a word part: two small letters or more after an optional capital, or three capitals or more; it counts as a word
-# when it has a vowel (and three letters, unless all small)
-_WORD_PART_RE = _LazyRx(r"[A-Z]?[a-z]{2,}|[A-Z]{3,}")
-_VOWEL_RE = _LazyRx(r"[aeiouyAEIOUY]")
-
-
-def _word_shaped(v: str) -> bool:
-    """Words make up 60 % of the value or more: TokenizerPiece2024X, iPhone15ProMax, convertToUTF8String. Measured on
-    random keys of 16 to 64 characters (base64): 2.6 % are word-shaped by this test."""
-    words = (w for w in _WORD_PART_RE.findall(v) if _VOWEL_RE.search(w) and (len(w) >= 3 or w.islower()))
-    return sum(len(w) for w in words) >= 0.6 * len(v)
 
 
 def _list_value_ok(v: str) -> bool:
@@ -819,180 +300,6 @@ def _list_value_ok(v: str) -> bool:
     return ok and _ds_value_ok(v, min_len=16)
 
 
-def _apikey_value_ok(v: str) -> bool:
-    """The value after `Authorization: ApiKey`: base64 or base64url (Elasticsearch, Kibana) that decodes to `id:key`,
-    both parts not empty and printable. Docs write `ApiKey <base64-encoded id:key>`, `ApiKey ${ES_API_KEY}` and
-    `ApiKey YOUR_ENCODED_API_KEY`, which decode to nothing of that form."""
-    import base64
-    import binascii
-    raw = v.strip()
-    padded = raw + "=" * (-len(raw) % 4)
-    for alt in (None, b"-_"):
-        try:
-            dec = base64.b64decode(padded, altchars=alt, validate=True)
-        except (binascii.Error, ValueError):
-            continue
-        try:
-            txt = dec.decode("utf-8")
-        except UnicodeDecodeError:
-            continue
-        ident, sep, key = txt.partition(":")
-        if sep and ident and key and txt.isprintable() and " " not in txt:
-            return True
-    return False
-
-
-# ------------------------------------------------------- label and literal value --
-# A password label and a literal value that is no word: `db_password = "<value>"`, `<password><value></password>`,
-# `?pwd=<value>`, `IDENTIFIED BY '<value>'`, `ConvertTo-SecureString '<value>'`. The label is read from a frozen list
-# of label words; the value must be no word of English or of developer text after undoing leet (P4ssw0rd is a word),
-# which keeps `password = "changeme"`, `password: hunter`, `password = os.environ[...]` and `password: ${DB_PASS}`
-# text. Word-likeness and the label word classes follow Dan Szymkowiak's backlog ideas (TASK-11.22, TASK-11.23).
-# Measured on CredData without repository 2ba83c6a (split by repository: discovery half, validation half).
-_WORDS_FILE = "words_en.txt"   # SCOWL en_US 60, 4 to 8 letters (rules/LICENSE-scowl, scripts/sync_words.py)
-_WORDS: list = []
-# words that the English list lacks: short words, code identifiers, algorithm names, German words of developer prose
-# "password" in other languages: the whole value of a locale key (`"password": "Senha"`) is a label text, not a
-# password (Opus Gate B of 0.6.17). An exact value only: as words they made Senha123 a word with a number, and 0.6.16
-# took it (Gate B round 2)
-_PW_TRANSLATIONS = frozenset({
-    "senha", "heslo", "geslo", "lozinka", "sifre", "haslo", "parola", "parool", "salasana", "jelszo", "losenord",
-    "passord", "adgangskode", "wachtwoord", "kennwort", "passwort", "contrasena", "motdepasse", "sifra", "parole"})
-_EXTRA_WORDS = frozenset({
-    "api", "key", "id", "db", "url", "uri", "app", "dev", "prod", "test", "user", "pass", "pwd", "sql", "web",
-    "admin", "root", "my", "new", "old", "the", "and", "for", "get", "set", "put", "add", "max", "min", "log",
-    "tmp", "env", "var", "val", "str", "int", "num", "src", "dst", "cfg", "conf", "auth", "oauth", "jwt", "aws",
-    "gcp", "ssh", "rsa", "pem", "http", "https", "www", "com", "org", "net", "io", "js", "py", "go", "is", "on",
-    "of", "to", "in", "at", "by", "no", "ok", "yes", "let", "me", "foo", "bar", "baz", "abc", "xyz", "qwerty", "pw",
-    "secret", "token", "hello", "world", "demo", "mock", "fake", "dummy", "sample", "example", "default",
-    "kwargs", "args", "argv", "self", "this", "opts", "params", "nil", "none", "null", "undefined",
-    "md5", "sha1", "sha2", "sha3", "sha224", "sha256", "sha384", "sha512", "pbkdf2", "bcrypt", "scrypt", "argon2",
-    "argon2i", "argon2d", "argon2id", "aes", "aes128", "aes192", "aes256", "gcm", "cbc", "ctr", "hmac", "des",
-    "blake2b", "blake2s", "blake3", "sha", "crypt", "ntlm", "ntlmv2", "chacha20", "poly1305", "ecdsa", "ed25519",
-    "x25519", "pkcs1", "pkcs5", "pkcs8", "pkcs12", "oaep", "pss", "utf8", "utf16", "latin1", "ascii", "base64",
-    "base32", "hex", "wpa", "wpa2", "psk", "tls", "ssl", "totp", "hotp", "jwe", "jws", "oauth2", "varchar",
-    "bigint", "secretstr", "securestring", "bool", "float", "char", "byte", "bytes", "uuid", "json",
-    "yaml", "html", "xml", "csv", "ldap", "smtp", "imap", "ftp", "sftp", "redis", "mysql", "postgres",
-    "psql", "mongo", "mongodb", "sqlite", "oracle", "guest", "anon", "localhost",
-    "siehe", "geheim", "kennwort", "passwort", "benutzer", "zugang", "zugangsdaten", "anmeldung", "nutzer", "wird",
-    "nicht", "oder", "und", "mit", "ohne", "bitte", "hier", "dort", "neu", "alt", "leer", "fehlt", "falsch",
-    "richtig", "geheimnis", "schluessel", "sommer", "winter", "herbst", "fruehling", "schl\u00fcssel",
-    "fr\u00fchling",
-})
-
-
-def _word_set() -> frozenset:
-    """The word list, read on the first password label (about 3 ms). A file that is missing, unreadable, not UTF-8 or
-    not a list of words (fewer than 1,000 entries of small ASCII letters, or more than 1 % other lines) counts as no
-    list: _WORDS_OK turns false, and the password rule then takes no value of letters only (_pw_literal_ok)."""
-    if not _WORDS:
-        words: set = set()
-        ok = True
-        try:
-            entries = (RULES_DIR / _WORDS_FILE).read_text(encoding="utf-8").split()
-            words = {w for w in entries if w.isascii() and w.isalpha() and w.islower() and len(w) <= 20}
-            ok = len(words) >= 1000 and len(entries) - len(words) <= len(entries) // 100
-        except (OSError, UnicodeError, ValueError):
-            ok = False
-        if not ok:
-            words = set()
-        _WORDS_OK[:] = [ok]
-        _WORDS.append(frozenset(words | _EXTRA_WORDS))
-    return _WORDS[0]
-
-
-_WORDS_OK: list = [True]
-
-
-_COVER_CACHE: dict = {}
-
-
-def _cover(run: str) -> int:
-    """The most letters of `run` that words of the list cover (dynamic programming over words of 2 to 20 letters)."""
-    got = _COVER_CACHE.get(run)
-    if got is None:
-        words = _word_set()
-        n = len(run)
-        best = [0] * (n + 1)
-        for i in range(1, n + 1):
-            best[i] = best[i - 1]
-            for j in range(max(0, i - 20), i - 1):
-                if run[j:i] in words:
-                    best[i] = max(best[i], best[j] + (i - j))
-        got = best[n]
-        if len(_COVER_CACHE) > 20000:
-            _COVER_CACHE.clear()
-        _COVER_CACHE[run] = got
-    return got
-
-
-_WORD_RUN_RE = _LazyRx(r"[A-Z\u00c4\u00d6\u00dc]?[a-z\u00e4\u00f6\u00fc\u00df]+|[A-Z\u00c4\u00d6\u00dc]+"
-                          r"(?![a-z\u00e4\u00f6\u00fc\u00df])|[0-9]+")
-
-
-def _wordlike(v: str) -> float:
-    """The share of the letters of `v` that words cover, after an identifier split (0 to 1)."""
-    letters = sum(c.isalpha() for c in v)
-    if not letters:
-        return 0.0
-    words = _word_set()
-    covered = 0
-    for part in _WORD_RUN_RE.findall(v):
-        if part.isalpha():
-            low = part.lower()
-            covered += len(low) if low in words else _cover(low)
-    return covered / letters
-
-
-def _charset(v: str) -> str:
-    if v.isdigit() and v.isascii():
-        return "digits"
-    if re.fullmatch(r"[0-9a-f]+|[0-9A-F]+", v):
-        return "hex"
-    if re.fullmatch(r"[A-Za-z]+", v):
-        return "alpha"
-    if re.fullmatch(r"[A-Za-z0-9]+", v):
-        return "alnum"
-    return "other"
-
-
-# a value that says it is no value: a mask, a template, a reference, a word of a form
-_LITERAL_PLACEHOLDER_RE = _LazyRx(
-    r"(?i)x{3,}|\*{3,}|\.{3}|<[^>]*>|\{\{|\}\}|\$\{|%\(|%s|\$[A-Za-z_]|your[_-]?|example|sample|dummy|placeholder|"
-    r"changeme|change_me|redacted|replace|insert|enter[_-]|todo|fixme|foobar|lorem|secret_here|here$|^test|test$|"
-    r"^fake|^mock|^none$|^null$|^true$|^false$|^undefined$|^password$|^secret$|^token$|^string$|^empty$|^default$")
-_DOTTED_RE = _LazyRx(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+")
-_CLOSED_TEMPLATE_RE = _LazyRx(r"\{[A-Za-z_][\w.]*(?:\[[^\]{}]*\])?\}")   # {pw}, {cfg.pw}, {row['pw']}; not a lone {
-_CAMEL_SPLIT_RE = _LazyRx(r"(?<=[a-z0-9])(?=[A-Z])")
-
-
-def _norm_label(name: str) -> list:
-    """`dbPassword`, `DB_PASSWORD`, `db.password`, `db-password`, `db:Password` -> ["db", "password"]."""
-    name = _CAMEL_SPLIT_RE.sub("_", name.lstrip("$@-"))
-    return [t for t in re.split(r"[._:\-]+", name.lower()) if t]
-
-
-# the last word of a password label, and the words before it that make the label name something else
-_PW_LAST = frozenset({"password", "passwd", "passphrase", "passwort", "pwd", "userpwd", "pass", "pw", "passcode",
-                      "passw", "pword", "pswd", "psw"})
-# the label words of a language that is on (regions.py): Kennwort is a label only with German on, as for the keyword
-# rules; passwort counts always, as the English `pass` label allows letters after it
-_PW_LAST_OF = {"de": frozenset({"kennwort"})}
-_PASS_NEG_PREV = frozenset({"two", "one", "single", "multi", "first", "second", "third", "by", "no", "skip", "sur",
-                            "over", "under", "compass", "render", "shader", "high", "low", "band", "all", "each",
-                            "next", "last", "test", "tests"})
-_LABEL_NEG_WORDS = frozenset({
-    "hint", "label", "title", "text", "message", "msg", "error", "err", "prompt", "placeholder", "field", "policy",
-    "length", "len", "min", "max", "required", "confirm", "confirmation", "reset", "forgot", "invalid", "incorrect",
-    "wrong", "strength", "rule", "rules", "regex", "pattern", "hash", "hashed", "salt", "file", "path", "env", "var",
-    "type", "mode", "enabled", "expire", "expires", "expiry", "changed", "change", "validation", "valid", "show",
-    "hide", "toggle", "visible", "icon", "button", "btn", "no", "without", "skip", "ask", "input", "form", "dialog",
-    "tooltip", "description", "desc", "help", "name", "id", "count", "cmd", "command", "url", "uri", "key", "column",
-    "col", "header", "param", "arg", "option", "opt", "flag", "set", "get", "update", "lbl", "str", "string", "i18n",
-    "translation", "not", "missing", "empty", "format", "fmt", "encoder", "encoded", "encrypted", "digest",
-    "algorithm", "manager", "provider", "store", "storage", "service", "handler", "callback", "validator", "widget"})
-
-
 def _pw_label(toks: list) -> bool:
     if not toks:
         return False
@@ -1002,85 +309,6 @@ def _pw_label(toks: list) -> bool:
     if last in ("pass", "pw") and len(toks) > 1 and toks[-2] in _PASS_NEG_PREV:
         return False
     return not any(t in _LABEL_NEG_WORDS for t in toks[:-1])
-
-
-def _sequential(low: str) -> bool:
-    return len(low) > 2 and (all(ord(low[i + 1]) - ord(low[i]) == 1 for i in range(len(low) - 1))
-                             or all(ord(low[i]) - ord(low[i + 1]) == 1 for i in range(len(low) - 1)))
-
-
-# what a value after a password label is when it is no password: a number, a ratio, a percentage, a range, a time, a
-# duration or a size with its unit (95.2%, 118/124, 8-64, 12:30, ~30d, 24h/7d, 14C/27, 2025/26), a section (§3.2), a
-# dotted abbreviation (s.o., z.B.), and a word with a number (Seite#3, Gate-12)
-_MEASURE_VALUE_RE = _LazyRx(r"[~<>=+\u00a7#-]?\d+(?:[.,:/-]\d+)*(?:[a-z]{1,3}|[A-Z]{1,2})?"
-                               r"(?:[/ -]\d+(?:[.,:]\d+)*(?:[a-z]{1,3}|[A-Z]{1,2})?)*%?")
-_ABBREVIATION_RE = _LazyRx(r"(?:[A-Za-z\u00c0-\u024f]{1,4}\.)+[A-Za-z\u00c0-\u024f]{0,4}")
-# a path or a reference after a password label names where the password lives: /run/secrets/db, ../x/y, ~/.pw,
-# C:\keys\db.pw, \\server\share, file:///etc/pw, vault:secret/db#pw, env:DB_PASSWORD
-_PATH_REFERENCE_RE = _LazyRx(r"(?:[/~]|\.{1,2}[/\\]|[A-Za-z]:[/\\]|\\\\)\S*"
-                                r"|[A-Za-z][A-Za-z0-9+.-]{2,15}:(?://|[A-Za-z_$])\S*")
-_ISO_DURATION_RE = _LazyRx(r"P(?:\d+[YMWD])*(?:T(?:\d+[HMS])+)?")   # P90D, PT15M
-_WORD_NUMBER_RE = _LazyRx(r"[A-Za-z\u00c0-\u024f]{2,}[#_. :/-]\d{1,4}|\d{1,4}[#_. :/-][A-Za-z\u00c0-\u024f]{2,}")
-
-
-def _random_evidence(v: str, tool: bool = False) -> bool:
-    """A value that no word covers is a password only with evidence of chance (codex and Opus Gate A/B of 0.6.16): a
-    letter, and a digit or a sign beside it, or (letters only) few vowels or a mix of cases that no word boundary
-    explains. A word of another language (senhaAtual, wachtwoord) and a measure (95.2%, 12:30, ~30d) stay text."""
-    if not any(c.isalpha() for c in v):
-        return False
-    if (_MEASURE_VALUE_RE.fullmatch(v) or _ABBREVIATION_RE.fullmatch(v) or _WORD_NUMBER_RE.fullmatch(v)
-            or _ISO_DURATION_RE.fullmatch(v)):
-        return False
-    if any(c.isdigit() for c in v) or any(_is_sign(c) and c not in "_-." for c in v):
-        return True   # a digit, or a sign that no identifier uses (_ - . join the words of a name: senha_atual)
-    parts = [part for part in re.split(r"[_.-]+", v) if part]
-    if not v.isascii():
-        # another script or accents: a word (a UI string) unless scripts mix or the cases change at random
-        return _scripts_mix(v) or any(_case_flips(part) >= 2 for part in parts)
-    if tool:
-        return True   # a tool result or a file: ASCII letters that no word covers are a password there
-    # ASCII letters joined at most by _ - .: one part with a mix of cases that no word boundary explains
-    return any(_random_letters(part) for part in parts)
-
-
-def _is_sign(c: str) -> bool:
-    """Punctuation or a symbol. A combining vowel sign of Devanagari or Thai is part of a word, not a sign."""
-    import unicodedata
-    return unicodedata.category(c)[0] in "PS"
-
-
-def _case_flips(v: str) -> int:
-    """How often a small letter is followed by a capital: once in a camelCase name, often in a random value."""
-    return sum(1 for x, y in zip(v, v[1:]) if x.islower() and y.isupper())
-
-
-def _scripts_mix(v: str) -> bool:
-    """Letters of two scripts with case in one value (Latin and Cyrillic, Greek and Latin): no word is written so.
-    Scripts without case mix in ordinary words (Japanese kanji and kana) and do not count."""
-    import unicodedata
-    scripts = {unicodedata.name(c, "?").split(" ")[0].split("-")[0]
-               for c in v if c.isalpha() and c.upper() != c.lower()}
-    return len(scripts) > 1
-
-
-def _random_letters(v: str) -> bool:
-    """ASCII letters that no word explains: capitals inside short runs (xKqTzLmP)."""
-    # a long run of letters with few vowels (a keyboard run, xkcdqwrtzp), counted per word of a camelCase or snake_case
-    # name: ctxPtr, grpcSrv and the words of other languages (Pflicht, Svensk) are short or have more vowels
-    if len(v) >= 9 and sum(c in "aeiouyAEIOUY" for c in v) < 0.15 * len(v) and v.isalpha() and v[1:].islower():
-        return True
-    upper = sum(c.isupper() for c in v)
-    parts = _WORD_RUN_RE.findall(v)
-    return upper >= 2 and len(v) - upper >= 2 and len(parts) >= 3 and len(v) <= 3 * len(parts)
-
-
-def _pw_strong_evidence(v: str) -> bool:
-    """After the weak label `pass` (a boarding pass, a test pass, a season pass): 8 characters and more of three of
-    the four classes (small, capital, digit, sign)."""
-    classes = (any(c.islower() for c in v) + any(c.isupper() for c in v) + any(c.isdigit() for c in v)
-               + any(not c.isalnum() for c in v))
-    return len(v) >= 8 and classes >= 3
 
 
 def _pw_literal_ok(v: str, channel: str = "prompt") -> bool:
@@ -1113,136 +341,6 @@ def _pw_literal_ok(v: str, channel: str = "prompt") -> bool:
             and _ds_value_ok(v))
 
 
-# the forms of label and literal value. A label, then = => := == : , or ( and a quoted value (also inside a wrapper
-# such as SecretStr("…")); a label, then = or : and an unquoted value to the end of the line; a query parameter; an
-# XML element; SQL's IDENTIFIED BY '…' and PowerShell's ConvertTo-SecureString '…'
-_LIT_WRAP = (r"(?:(?:Some|Ok|String::from|str|bytes|SecretString::new|Secret::new|SecretStr|SecretBytes|Optional\.of"
-             r"|Box::new|Sensitive|new[ \t]+String)[ \t]*\([ \t]*)?")
-# a label starts after no word character, no path or flag part and no `=`: `--password-file=/etc/app/pw` holds no
-# label pw, and `pw=pw=pw=…` (1 MB took 5.5 s) starts one label only
-_LIT_LABEL = r"(?<![\w.\-$@/\\=])([A-Za-z_$@][\w.\-]{0,60})[\"'\]]?[ \t]*"
-# the quoted forms end at the opening quote: _read_quoted reads the literal to its real closing quote
-_LIT_QUOTED = _LazyRx(_LIT_LABEL + r"(?<![=!<>])(?:=>|:=|=(?!=)|:|,|\()[ \t]*" + _LIT_WRAP + r"([\"'`])")
-_LIT_FORMS = (
-    (_LazyRx(r"(?m)" + _LIT_LABEL + r"(?:=|:)[ \t]*([^\s\"'`,()\[\]{}<>]{3,299}[^\s\"'`,;()\[\]{}<>]);?"
-                r"(?:[ \t]+(?:#|//|;).*|[ \t]*(?:#|//).*)?[ \t]*$"), 1, 2),
-    (_LazyRx(r"[?&;]([\w.\-\[\]]{1,60})=([^&\s\"'#<>]{4,400})"), 1, 2),
-    (_LazyRx(r"<([\w:.-]{1,60})(?:\s[^<>]{0,200})?>([^<>\s]{4,400})</"), 1, 2),
-)
-# SQL's IDENTIFIED BY '…' (a doubled quote and MySQL's backslash escape are part of the value) and PowerShell's
-# ConvertTo-SecureString '…' (single quotes: a doubled quote; double quotes: a doubled quote and the backtick escape)
-_LIT_SQL = _LazyRx(r"(?i)\bidentified[ \t]+(?:with[ \t]+\w+[ \t]+)?by[ \t]*(?:password[ \t]*)?([\"'])")
-_LIT_PS = _LazyRx(r"(?i)ConvertTo-SecureString[ \t]+(?:-String[ \t]+)?([\"'])")
-# a password label and its value in a note, where a line goes on after them (CredSweeper's doc samples, Benchmark V3
-# dev): `host (pw:<value>)`, `(ID/PW:<value>)`, `<host>/pw:<value>`, `-pwd:<value>`. Only a password label counts
-# here (_literal_hits keeps label-pw-literal alone): a key word in parentheses is code more often
-_LIT_NOTE = (
-    _LazyRx(r"\((?:[A-Za-z]{1,10}[/&])?([A-Za-z_][\w.\-]{0,60})[ \t]*[:=][ \t]*"
-            r"([^\s\"'`,()\[\]{}<>]{3,299}[^\s\"'`,;()\[\]{}<>])[ \t]*\)"),
-    _LazyRx(r"(?:(?<=[\w)}\]]/)|(?<![^\s])-)((?i:pw|pwd|passwd|password))[ \t]*:[ \t]*"
-            r"([^\s\"'`,()\[\]{}<>]{3,299}[^\s\"'`,;.()\[\]{}<>])(?=[\s)]|$)"),
-)
-# a Kubernetes or Compose env entry whose name is the label of its value: `- name: DB_PASSWORD` and on the next line
-# `value: "<value>"` (Benchmark V3, aparte dev). The label rules saw only `value`
-_LIT_ENV_ENTRY = _LazyRx(r"(?m)^[ \t]*-[ \t]+name:[ \t]*[\"']?([A-Za-z_][\w.-]{0,60})[\"']?[ \t]*\r?\n"
-                         r"[ \t]+value:[ \t]*([\"'])")
-# a Terraform variable whose name is the label of its default: `variable "aws_secret_key" { default = "…" }`. The
-# label rules saw only `default` (Benchmark V3, llmredactor and aparte dev: 36 keys and passwords in the clear). The
-# block up to its default holds no brace (type, description and sensitive come before it)
-_LIT_TF = _LazyRx(r"(?<![\w-])variable[ \t]+\"([A-Za-z_][\w-]{0,60})\"[ \t]*\{[^{}]{0,400}?"
-                  r"(?<![\w-])default[ \t]*=[ \t]*\"")
-_LIT_BOUND = 300   # a literal longer than this, or one that its line ends, is taken to the bound: never a prefix
-_BACKSLASH_ESCAPE_RE = _LazyRx(r"\\(?:u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|(.))", re.S)
-_ESCAPED_CHAR = {"n": "\n", "t": "\t", "r": "\r", "0": "\0"}
-
-
-def _unquote(raw: str, quote: str, backslash: bool, backtick: bool) -> str:
-    """The value a literal stands for, for the judgement only (the span stays the raw text): `\u00fc` is ü, `\"` is ",
-    a doubled quote is one quote, PowerShell's backtick escapes the next character."""
-    v = raw.replace(quote + quote, quote)
-    if backslash and "\\" in v:
-        v = _BACKSLASH_ESCAPE_RE.sub(lambda m: chr(int(m.group(1) or m.group(2), 16)) if (m.group(1) or m.group(2))
-                                     else _ESCAPED_CHAR.get(m.group(3), m.group(3)), v)
-    if backtick and "`" in v:
-        v = re.sub(r"`(.)", lambda m: _ESCAPED_CHAR.get(m.group(1), m.group(1)), v, flags=re.S)
-    return v
-
-
-def _read_quoted(text: str, i: int, quote: str, backslash: bool = True, backtick: bool = False) -> tuple:
-    """Read a quoted literal whose content starts at `i`: (end of the content, closed). A backslash (C, Python, JSON,
-    JavaScript, MySQL) or a backtick (PowerShell) escapes the next character, and a doubled quote (SQL, PowerShell, YAML
-    single quotes) is one quote of the content, so an escaped quote never ends the value early. Without a closing quote
-    on the line within _LIT_BOUND characters the content runs to the line end or the bound."""
-    n = len(text)
-    stop = min(n, i + _LIT_BOUND)
-    j = i
-    while j < stop:
-        c = text[j]
-        if c == "\n" or c == "\r":
-            return j, False
-        if (backslash and c == "\\") or (backtick and c == "`"):
-            j += 2
-            continue
-        if c == quote:
-            if j + 1 < n and text[j + 1] == quote:
-                j += 2   # a doubled quote is one quote of the value, also as its first character
-                continue
-            return j, True
-        j += 1
-    return min(j, stop), False
-
-
-# a label that names a secret by its whole tail (`client_secret`, `apiKey`, `x-auth-token`), and a weak label that may
-# name one (`key`, `hmac`, `session`, `cookie`). A word before the tail can make it name something else: password_hint,
-# public_key, cache_key, primary_key, csrf_token, next_page_token
-_SECRET_TAIL_RE = _LazyRx(r"(?:^|_)(?:secret|token|apikey|api_key|access_key|secret_key|private_key|client_secret"
-                             r"|auth_token|access_token|refresh_token|session_token|bearer|credentials?|app_secret"
-                             r"|consumer_secret|signing_key|encryption_key|master_key|auth_key)$")
-_WEAK_TAIL_RE = _LazyRx(r"(?:^|_)(?:key|auth|salt|seed|otp|totp|cred|cookie|session|hmac|psk)$")
-_WEAK_NEG_WORDS = frozenset({
-    "public", "pub", "primary", "foreign", "sort", "partition", "cache", "idempotency", "row", "map", "lookup",
-    "cursor", "object", "s3", "dedup", "dedupe", "routing", "shard", "group", "sequence", "index", "composite",
-    "unique", "natural", "surrogate", "react", "list", "item", "translation", "i18n", "locale", "storage", "redis",
-    "memcache", "query", "license", "licence", "product", "registry", "gpg", "pgp", "ssh", "host", "known",
-    "fingerprint", "csrf", "xsrf", "anti", "forgery", "verification", "page", "next", "continuation", "pagination",
-    "sync", "lexer", "tokenizer", "parser", "cancellation", "captcha", "recaptcha"})
-
-
-# a TOTP or HOTP seed: base32 of 10 to 40 bytes after a one-time-password label (otpauth://… carries it as secret=)
-_OTP_WORDS = frozenset({"totp", "hotp", "otp", "mfa", "2fa", "otpauth", "authenticator"})
-_OTP_SEED_RE = _LazyRx(r"[A-Z2-7]{16,64}={0,6}")
-
-
-def _alphabet_size(v: str) -> int:
-    if v.isdigit():
-        return 10
-    if re.fullmatch(r"[0-9a-f]+|[0-9A-F]+", v):
-        return 16
-    size = 26 * (any(c.islower() for c in v) + any(c.isupper() for c in v)) + 10 * any(c.isdigit() for c in v)
-    if any(not c.isalnum() for c in v):
-        size += 2 if re.fullmatch(r"[A-Za-z0-9+/=_-]+", v) else 32
-    return max(size, 2)
-
-
-def _norm_entropy(v: str) -> float:
-    """Shannon entropy over the most the value's alphabet and length allow (0 to 1): a charset-normalised entropy
-    after Dan Szymkowiak's backlog idea (TASK-11.21)."""
-    return shannon_entropy(v) / math.log2(max(2, min(_alphabet_size(v), len(v))))
-
-
-# a value that is a pattern, not a key: a character class with a quantifier, a counted repeat, an escape class, a group
-# (`token: '[A-Za-z0-9_-]{20,}'`, `secret: '[a-f0-9]{64}'`, `^\d{6}$`; Opus verification of 0.6.16)
-_REGEX_LIKE_RE = _LazyRx(r"\[[^\]]{1,60}\](?:[*+?]|\{\d+(?:,\d*)?\})|\{\d+(?:,\d*)?\}|\\[dwsDWSbB]"
-                            r"|\(\?[:=!<]|\.[*+]")
-
-
-def _looks_like_regex(v: str) -> bool:
-    """The whole value is a pattern: it starts with ^ [ ( or \\ , ends with $ ] ) } or a quantifier, and holds a
-    pattern part. A password with \\d or .* inside it is no pattern (codex, final round of 0.6.16)."""
-    return (len(v) >= 3 and v[0] in "^[(\\" and (v[-1] in "$])}*+?" or v[-2:] in ("\\b", "\\B"))
-            and _REGEX_LIKE_RE.search(v) is not None)
-
-
 def _key_literal_ok(v: str, lo: int, hi: int, words: float, entropy: float) -> bool:
     """A key after a secret or a weak label: ASCII, no space, no placeholder, few word letters, a high normalised
     entropy, and detect-secrets' filters (templates, references, sequences)."""
@@ -1251,10 +349,6 @@ def _key_literal_ok(v: str, lo: int, hi: int, words: float, entropy: float) -> b
     if not lo <= len(v) <= hi or not v.isascii() or any(c.isspace() for c in v) or _LITERAL_PLACEHOLDER_RE.search(v):
         return False   # a key is ASCII: a value with § or an umlaut is a split test value or a word
     return _norm_entropy(v) >= entropy and _ds_value_ok(v, 4) and _wordlike(_deleet(v)) < words
-
-
-def _pw_words_of(languages) -> frozenset:
-    return _PW_LAST.union(*(_PW_LAST_OF.get(lang, ()) for lang in languages))
 
 
 def _pw_words(d: "Detector") -> frozenset:
@@ -1293,48 +387,6 @@ def _label_class(label: str) -> tuple:
             cache.clear()
         cache[label] = got
     return got
-
-
-_COMMON_PAIRS: list = []
-
-
-def _common_pairs() -> frozenset:
-    """The letter pairs that occur 20 times or more in the word list (about 370 of 676). Empty without a word list."""
-    if not _COMMON_PAIRS:
-        count: dict = {}
-        if _word_set() and _WORDS_OK[0]:
-            for w in _WORDS[0]:
-                for i in range(len(w) - 1):
-                    count[w[i:i + 2]] = count.get(w[i:i + 2], 0) + 1
-        _COMMON_PAIRS.append(frozenset(p for p, n in count.items() if n >= 20))
-    return _COMMON_PAIRS[0]
-
-
-def reads_as_word(value: str) -> bool:
-    """Whether a value reads as a word of some language: letters only (parts joined by _ - .), no evidence of chance,
-    and in ASCII at most one rare letter pair in ten. Wartungsfenster, senha_atual and Пароль are words; xqzvbnmq,
-    Kx7QpZr9 and qwmzpl are not. The store keeps a word that a label rule took in a tool result quiet (vault.is_quiet):
-    masked in later tool results, never looked for in a typed prompt, where it would block every prompt that uses
-    the word (field report, 2026-10-14)."""
-    parts = [p for p in re.split(r"[_.-]+", value) if p]
-    if not parts or not all(p.isalpha() for p in parts) or _random_evidence(value):
-        return False
-    if not value.isascii():
-        return True   # another script or accents, and no mix of scripts or cases (_random_evidence)
-    common = _common_pairs()
-    if not common:
-        return False   # no word list: hunt the value, as 0.6.16 did
-    pairs = [p[i:i + 2] for p in (x.lower() for x in parts) for i in range(len(p) - 1)]
-    if not pairs:
-        return False   # single letters: no evidence of a word
-    return sum(q not in common for q in pairs) <= 0.1 * len(pairs)
-
-
-def english_words() -> frozenset:
-    """The word list of the detector: rules/words_en.txt and the built-in developer, code and German words
-    (_EXTRA_WORDS). Empty when the file is missing or holds no list of words."""
-    words = _word_set()
-    return words if words and _WORDS_OK[0] else frozenset()
 
 
 def _judge_literal(label: str, v: str, quoted: bool = True, channel: str = "prompt") -> str:
@@ -1419,85 +471,10 @@ def _literal_hits(text: str, channel: str = "prompt") -> list:
     return cache[key]
 
 
-class _Literal:
-    """A match of a label and literal rule: group 0 runs from the label to the end of the value, group 1 is the
-    value."""
-    __slots__ = ("_text", "_a", "_s", "_e")
-
-    def __init__(self, text: str, a: int, s: int, e: int) -> None:
-        self._text, self._a, self._s, self._e = text, a, s, e
-
-    def group(self, i: int = 0):
-        return self._text[self._a if i == 0 else self._s:self._e]
-
-    def start(self, i: int = 0) -> int:
-        return self._a if i == 0 else self._s
-
-    def end(self, i: int = 0) -> int:
-        return self._e
-
-
 def _literal_matches(rule_id: str, text: str, channel: str = "prompt"):
     for rid, a, s, e in _literal_hits(text, channel):
         if rid == rule_id:
             yield _Literal(text, a, s, e)
-
-
-# the rules that read labels and literal values; they run after every other rule and take only a span no other rule
-# took. The keywords skip a text without the label words
-LITERAL_RULES = (
-    {"id": "label-pw-literal", "keywords": ("pass", "pw", "pwd", "kennwort", "psw", "identified", "securestring")},
-    {"id": "label-secret-literal", "keywords": ("secret", "token", "key", "bearer", "credential")},
-    {"id": "label-otp-seed", "keywords": ("otp", "mfa", "2fa", "authenticator")},
-    {"id": "label-weak-key", "keywords": ("key", "auth", "salt", "seed", "otp", "cred", "cookie", "session", "hmac",
-                                          "psk")},
-)
-_LITERAL_IDS = frozenset(d["id"] for d in LITERAL_RULES)
-
-
-def _env_key_ok(v: str) -> bool:
-    """A key of Strapi's APP_KEYS: base64 of 16 bytes or more with an entropy of random bytes; the placeholders of
-    .env.example (toBeModified1) are short and words."""
-    try:
-        raw = _b64.b64decode(v + "=" * (-len(v) % 4), validate=True)
-    except ValueError:   # binascii.Error is a ValueError
-        return False
-    return len(raw) >= 16 and shannon_entropy(v) >= 3.5 and not _word_shaped(v)
-
-
-def _laravel_key_ok(v: str) -> bool:
-    """Laravel's APP_KEY: base64: and the base64 of a 16- or 32-byte key (AES-128 or AES-256), random."""
-    body = v[len("base64:"):] if v.startswith("base64:") else ""
-    try:
-        raw = _b64.b64decode(body, validate=True)
-    except ValueError:
-        return False
-    return len(raw) in (16, 32) and len(set(raw)) > 8
-
-
-def _config_key_value_ok(v: str) -> bool:
-    """A key or a salt that a config constant assigns (label-php-define-key, label-terraform-default): the
-    WordPress salts of wp-config.php are 64 printable signs, and ( ) | ` < > $ are part of them, so the literal
-    checks (_key_literal_ok, _ds_value_ok) refuse them as code. ASCII with no space, 16 characters or more, a high
-    normalised entropy, no run of words, and no fixture or placeholder: "put your unique phrase here" has spaces."""
-    v = v.strip()
-    if not 16 <= len(v) <= 256 or not v.isascii() or any(c.isspace() for c in v) or "\\" in v:
-        return False
-    if _names_itself(v) or looks_like_placeholder(v) or re.search(r"(?i)your|example|sample|changeme|dummy", v):
-        return False
-    return _norm_entropy(v) >= 0.8 and _wordlike(_deleet(v)) < 0.5
-
-
-def _random_hex(v: str) -> bool:
-    """A hex id that is no counted fixture: AC0123456789abcdef… or one repeated digit is a test value."""
-    h = v[2:].lower()
-    if not h or any(c not in "0123456789abcdef" for c in h):
-        return False
-    run = best = 1
-    for a, b in zip(h, h[1:]):
-        run = run + 1 if int(b, 16) == (int(a, 16) + 1) % 16 else 1
-        best = max(best, run)
-    return best < 8 and len(set(h)) > 4
 
 
 VALIDATORS = {
@@ -1556,395 +533,6 @@ VALIDATORS = {
     # a token of a short public prefix (cio, oy2, AVNS_) whose body reads as words is an identifier
     "token_not_words": lambda v: _wordlike(v[3:]) < 0.5,
 }
-
-
-_RESERVED_MAIL_DOMAINS = ("example.com", "example.net", "example.org")
-_RESERVED_MAIL_TLDS = ("test", "example", "invalid", "localhost", "local", "internal")
-
-
-def _reserved_domain(v: str) -> bool:
-    """example.com/.net/.org, the TLDs .test .example .invalid .localhost (RFC 2606, RFC 6761), .local (RFC 6762)
-    and .internal (ICANN, 2024): no mailbox of a person on the internet is there. Every README, git fixture and
-    test used them (review, 2026-09-29)."""
-    local, _, d = v.rpartition("@")
-    d = d.lower()
-    tld = d.rsplit(".", 1)[-1]
-    if tld in ("local", "internal"):
-        # hans.mueller@firma.local, jdoe@corp.internal: an Active Directory mailbox names a person (reviews,
-        # 2026-09-29); only a system account there is no person
-        # a bot or a pipeline is no person either: a CI file that names renovate@repo.local was blocked in Codex,
-        # which cannot rewrite a prompt (2026-10-06)
-        local = local.lower()
-        return (local in _SYSTEM_USERS or local in _SERVICE_MAILBOXES
-                or local.endswith(("-bot", "_bot")))
-    return (d in _RESERVED_MAIL_DOMAINS or d.endswith(tuple("." + x for x in _RESERVED_MAIL_DOMAINS))
-            or tld in _RESERVED_MAIL_TLDS)
-
-
-_SERVICE_MAILBOXES = frozenset({"alerts", "alert", "monitoring", "backup", "ci", "bot", "renovate", "dependabot",
-                                "release", "deploy", "build", "jenkins", "gitlab-runner", "github-actions"})
-_SYSTEM_USERS = frozenset({"git", "root", "ubuntu", "ec2-user", "admin", "noreply", "no-reply", "postmaster",
-                           "hostmaster", "webmaster", "mailer-daemon", "bounce", "bounces"})
-
-
-# --------------------------------------------------------------- own rules --
-# The letters of Chinese, Japanese and Korean script. Python's \w includes them, and these scripts put no space
-# between words: in `メールはta@example.jpまで` the boundaries (?<![\w...]) and (?![\w-]) of the e-mail and phone rules
-# never hold, so the address was missed or its span took the words around it. Those rules end a value at a word
-# character that is no CJK letter (_NOT_CJK_WORD), and scan() cuts CJK letters off the front of an address (filter
-# cjk-head). Ranges: Hangul Jamo, CJK punctuation and kana, Extension A and the base block of the ideographs, Hangul
-# syllables, compatibility ideographs and the fullwidth forms. Each class costs about 0.5 ms to compile in every hook
-# process, so the rules hold one each (review of 0.6.24).
-_CJK = ("\u1100-\u11ff\u3000-\u30ff\u3130-\u318f\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff"
-        "\uff00-\uffef")
-_CJK_RANGES = ((0x1100, 0x11ff), (0x3000, 0x30ff), (0x3130, 0x318f), (0x3400, 0x4dbf), (0x4e00, 0x9fff),
-               (0xac00, 0xd7af), (0xf900, 0xfaff), (0xff00, 0xffef))
-_NOT_CJK_WORD = "(?![" + _CJK + "])\\w"
-
-
-_CJK_CHAR_RE = _LazyRx("[" + _CJK + "]")
-
-
-def _has_cjk(text: str) -> bool:
-    return not text.isascii() and _CJK_CHAR_RE.search(text) is not None
-
-
-def _without_cjk(pattern: str) -> str | None:
-    """The form of a pattern for a text without a CJK letter: each use of the class _CJK goes. None when a use is
-    left that this cannot remove, so the rule keeps its one form."""
-    plain = (pattern.replace(_NOT_CJK_WORD, r"\w").replace("(?<=[" + _CJK + "])|", "")
-             .replace("[" + _CJK + "]", "(?!)").replace(_CJK, ""))
-    return None if "[]" in plain or "[^]" in plain else plain
-
-
-def _is_cjk(ch: str) -> bool:
-    o = ord(ch)
-    return any(lo <= o <= hi for lo, hi in _CJK_RANGES)
-
-
-# the value of a password in a sentence: optional quotes, no stop of the sentence at its end (`!` stays), and a stop,
-# a space, a quote or the end after it
-# a word before the password word that names whose password it is: WLAN-Passwort, Root-Passwort, wifi-password with a
-# hyphen; joined without one only a few German words (Adminpasswort). Other words end in a password word by chance:
-# deşifre (decipher), resenha (review)
-_PW_COMPOUND = (r"(?:[^\W\d_]{2,20}-|(?:admin|root|master|haupt|einmal|start|initial|wlan|benutzer|nutzer)"
-                r"(?=pass|kenn))?")
-# a value of Markdown inline code or in bold (`<value>`, **<value>**), or in the corner brackets of Chinese and Japanese
-# (「<value>」), is the value without the marks. The value is the shortest run that a space, a quote, the end or the
-# stops of a sentence (. , ; : ? ) 。 …) follow: a `*`, `!`, `<` or `\` inside or at the end stays part of it (Abc*12x!,
-# Gretel: a password with a Markdown escape)
-_SENTENCE_VALUE = (r"(?:\*\*|[\"'`\u201e\u201c\u201a\u2018\u00ab\u00bb\u300c\u300e])?"
-                   r"(?=[^\s\d]{0,255}\d)"   # a digit is in it (the checks need one): a word is refused at once
-                   r"([^\s\"'`\u201c\u201d\u201e\u201a\u2018\u2019\u00ab\u00bb\u300c-\u300f]{0,255}?"
-                   r"[^\s\"'`\u201c\u201d\u201e\u201a\u2018\u2019\u00ab\u00bb.,;:?)\u3002\u2026" + _CJK + r"])"
-                   r"(?:\*\*|[\"'`\u201c\u201d\u2018\u2019\u00ab\u00bb\u300d\u300f])?"
-                   r"(?=[.,;:?)\u3002\u2026]*(?:[\s\"'`\u201c\u201d\u2018\u2019\u00ab\u00bb" + _CJK + r"]|$))")
-
-
-OWN_RULES: list[dict] = [
-    # ?token=… / &api_key=… in a URL
-    {"id": "url-query-secret", "type": "SECRET", "secret_group": 2,
-     "regex": r"(?i)[?&]((?:access_?)?token|api[_-]?key|apikey|secret|password|sig|signature)=([^&\s#\"']{8,})"},
-    {"id": "email", "type": "EMAIL", "validator": "person_email",
-     # the last label is alphabetic: `lodash@4.17.21`, `checkout@v4.1.1` and Homebrew's
-     # `python@3.14/3.14.7` are version pins, not addresses (review, 2026-09-26)
-     # a look ahead for the @ first: a text without an address is passed at once. A CJK letter ends the address
-     # (_NOT_CJK_WORD) and scan() cuts CJK letters off its front (cjk-head): an address next to Japanese text
-     "regex": r"(?=[\w.+-]{0,64}@|(?<![\w.+-])[\w.+-]{65,}@)"
-              r"(?:\b[\w.+-]{1,64}|(?<![\w.+-])[\w.+-]{64,}|[\w.+-]{64})"
-              r"@[\w-]{1,63}(?:\.[\w-]{1,63})*\.[A-Za-z]{2,63}(?!-|" + _NOT_CJK_WORD + r")"},
-    # an IBAN in lower case, plain or in groups of four; its validator also wants the country's length
-    {"id": "iban-lowercase", "type": "IBAN", "validator": "iban",
-     # also after an MT940 subfield code (?31), as PRESIDIO_LEFT_SUBFIELD
-     "regex": r"(?:(?<![A-Za-z0-9])|(?<=\?[0-9]{2}))[a-z]{2}[0-9]{2}"
-              r"(?:[a-z0-9]{11,30}|(?:[ -][a-z0-9]{4}){2,7}(?:[ -][a-z0-9]{1,3})?)"
-              r"(?![A-Za-z0-9])"},
-    {"id": "email-percent-encoded", "type": "EMAIL", "validator": "person_email_encoded",
-     # the @ as %40 in a query string, a form body, an access log (public benchmark, 2026-10-11: 7 addresses
-     # passed); scan() keeps it only where an address is expected (_ENCODED_MAIL_CONTEXT_RE)
-     "regex": r"(?:(?<![\w.+%-])|(?<=(?i:mailto%3a))|(?<=%3[Dd]))[\w.+-]{1,64}%40"
-              r"[\w-]{1,63}(?:\.[\w-]{1,63})*\.[A-Za-z]{2,63}(?![\w-])"},
-    {"id": "phone", "type": "PHONE",
-     # a CJK letter before or after the number is a boundary, as in the e-mail rule
-     "regex": r"(?:(?<=[" + _CJK + r"])|(?<!\w))(?<!\+)\+(?!0)\d{1,3}[ \-]?(?:\(?\d{1,5}\)?[ \-]?)\d{2,5}"
-              r"(?:[ \-]?\d{2,5}){1,4}(?![\w.](?<![xX])\d|" + _NOT_CJK_WORD + r")"},
-    # bare token prefixes newer than the vendored rulesets live in rules/prefixes.txt (see _load_prefixes)
-    {"id": "auth-scheme", "type": "SECRET", "secret_group": 3,
-     "regex": r"(?<![\w-])(Bearer|Basic)([ \t]+)([A-Za-z0-9._~+/=-]{16,})"},
-    # a password with no user in a URL: redis://:pw@host, the form Redis and some brokers use. ds-basic-auth needs a
-    # user before the colon; same characters and the same value filter otherwise (corpus of 0.6.7)
-    {"id": "url-password-no-user", "type": "SECRET", "secret_group": 1, "validator": "ds_value",
-     "regex": r"://:([^:/?#\[\]@!$&'()*+,;=\s]+)@"},
-    # the secret half of an AWS key pair has no prefix of its own; the console, a CSV export
-    # and a chat paste show it within a few lines after the AKIA… id (field report, 2026-09-26). Each line part is
-    # bounded at 400 characters: unbounded, each id scanned the rest of its line, and a line of ids took O(n^2)
-    # (32K: 2.3 s, 256K: 97 s, past the client's timeout). The longest field form, the console's credentials CSV
-    # row (user, password, id, secret, console link), puts about 150 characters around the secret.
-    {"id": "aws-secret-after-access-key", "type": "SECRET", "secret_group": 1,
-     "regex": r"(?<![A-Z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}(?![A-Z0-9])(?:[^\n]{0,400}\n){0,4}?[^\n]{0,400}?"
-              r"(?<![A-Za-z0-9/+=])([A-Za-z0-9/+]{40})(?![A-Za-z0-9/+=])"},
-    # a password with no shape where no `=` or `:` stands between label and value (public benchmark holdout v7,
-    # 2026-10-12: all ten leaked passwords had one of these five forms). They are label rules (LABEL_RULES): the
-    # keyword filters of scan() and the test-code rule apply as to `password=<value>`.
-    # `pg_dump --password '<value>'`, `--db-password <value>`, PowerShell `-Password <value>`; the `=` form is
-    # ds-keyword-equal-signs. A flag before a space, so `--password-stdin` and `--password-file` stay options
-    {"id": "label-cli-password", "type": "SECRET", "secret_group": 2, "validator": "flag_value",
-     "regex": r"(?<![\w-])--?(?!(?i:no|ask|skip|prompt|without|one|two|single|multi|first|second)[-_])"
-              r"(?:[A-Za-z][A-Za-z0-9]*[-_])*"
-              r"(?i:password|passwd|passphrase|pass|pwd)[ \t]+"
-              r"(['\"]?)(?!-|(?:file|env|fd):|stdin(?![\w-]))(?:pass:)?([^\s'\"<>]{1,256}?)\1(?=$|[\s;|&)\]\\])"},
-    # `mysql -u app -p'<value>' db`: the value glued to -p (a space after -p asks for it; -P is the port)
-    {"id": "label-mysql-p", "type": "SECRET", "secret_group": 2, "validator": "glued_value",
-     "regex": r"(?<![\w-])(?:mysql|mysqldump|mysqladmin|mysqlimport|mysqlshow|mysqlcheck|mysqlpump|mariadb"
-              r"|mariadb-dump|mariadb-admin)(?:\.exe)?(?![\w-])[^\n|;&]{0,400}?[ \t]-p(['\"]?)([^\s'\"<>]{1,256}?)\1"
-              r"(?=$|[\s;|&)\]])"},
-    # redis-cli: `127.0.0.1:6379> AUTH <value>` (or AUTH <user> <value>) at a prompt or the start of a line, and
-    # `redis-cli -a <value>`. AUTH in capitals, as Redis documents it; `auth token expired` is prose
-    {"id": "label-redis-auth", "type": "SECRET", "secret_group": 2, "validator": "word_value",
-     "regex": r"(?m)(?:^[ \t]*|>[ \t]?)AUTH[ \t]+(?![=:]|LOGIN[ \t])(?:[^\s'\"]+[ \t]+)?"
-              r"(?!(?:CRAM-MD5|DIGEST-MD5|SCRAM-SHA-[0-9]+(?:-PLUS)?|XOAUTH2|OAUTHBEARER|GSSAPI|NTLM|EXTERNAL"
-              r"|ANONYMOUS|PLAIN|LOGIN)[ \t]*$)"   # an SMTP or IMAP AUTH names a SASL mechanism (Gate B of 0.6.15)
-              r"(['\"]?)([^\s'\"<>]{1,256})\1[ \t]*$"},
-    {"id": "label-redis-cli-a", "type": "SECRET", "secret_group": 2, "validator": "word_value",
-     "regex": r"(?<![\w-])redis-cli(?![\w-])[^\n|;&]{0,400}?[ \t]-a[ \t]+"
-              r"(['\"]?)([^\s'\"<>]{1,256}?)\1(?=$|[\s;|&)\]])"},
-    # .netrc: `machine <host> login <user> password <value>`, on one line or on several. The host has a dot, a colon
-    # or a digit (or is localhost): "on my dev machine the password changed" is prose. `default` starts an entry at a
-    # line start, or anywhere before `login` (a second entry on the line, a grep prefix); "the default password
-    # policy_v2" is prose (round 2 of 0.6.15)
-    {"id": "label-netrc-password", "type": "SECRET", "secret_group": 1, "validator": "word_value",
-     "regex": r"(?:(?<![\w-])machine[ \t]+(?:[^\s]*[.:0-9][^\s]*|localhost)"
-              r"|(?<![^\n])[ \t]*default|(?<![\w-])default(?=[ \t]+login[ \t]))"
-              r"(?:\s+(?:login|account|port)[ \t]+[^\s]+)*"
-              r"\s+password[ \t]+([^\s]{1,256})"},
-    # prose: "my password is <value>". Only a value that is no word of a sentence: it holds a capital or a symbol
-    # beyond - _ . and a digit or a symbol ("the password is incorrect" stays prose). English only: the German
-    # sentence of tests/fp_corpus.py (`Das Passwort ist` and a season and a year) is kept silent
-    {"id": "label-prose-password", "type": "SECRET", "secret_group": 1, "validator": "prose_value_bang",
-     "regex": r"(?i)(?<![\w-])(?:password|passwd|passphrase)[ \t]+(?:is|was)(?:[ \t]*:[ \t]+|[ \t]+)"
-              r"[\"'„“]?([^\s\"'“”]{0,255}[^\s\"'“”.,;:!?)]!{0,8})[\"'“”]?(?=[.,;:!?)]*(?:[\s\"'<\\]|$))"},
-    # a typed sentence with no `:` or `=` after the password word (field report, 2026-10-16: Codex sent the value of
-    # "Passwort <value>." in the clear). The words of each label language that is on (_PW_WORDS_OF). With a copula
-    # ("Kennwort ist <value>", "mot de passe est <value>") the value check of the prose rule above: a digit and a
-    # letter, and a capital or a sign beyond - _ . ("Passwort ist geheim" stays text). With only a space, an arrow,
-    # a dash or a parenthesis ("Passwort <value>.", "password -> <value>") the sentence says less, so the value must
-    # also be no run of English words (SHA256-Hash, iPhone15, JDK21-Update) and no ticket id (PBE-3403). A stop of
-    # the sentence after the value is no part of it; `!` is, as passwords end with it
-    {"id": "label-password-after-word", "type": "SECRET", "secret_group": 1, "validator": "sentence_value",
-     "regex": r"(?i)(?:(?<![\w-])" + _PW_COMPOUND + r"(?:{pairs})(?:[ \t]*:[ \t]+|[ \t]+)|{cjk_pairs})"
-              + _SENTENCE_VALUE,
-     "languages": True},
-    {"id": "label-password-after-space", "type": "SECRET", "secret_group": 1, "validator": "spaced_value",
-     "regex": r"(?i)(?:(?<![\w-])" + _PW_COMPOUND + r"(?:{words})|{cjk_words})(?![\w-])"
-              r"(?:[ \t]*(?:->|=>|\u2192|\u2013|\u2014)[ \t]*|[ \t]+-{1,2}[ \t]+|[ \t]+\([ \t]*|[ \t]+)"
-              + _SENTENCE_VALUE,
-     "languages": True},
-    # three more forms of a typed sentence (benchmark V3, Nemotron dev: about 540 passwords in the clear). An
-    # apposition, "the password, <value>, works": the value check after a space, as a list of words follows a comma
-    # too. "the password for <account> is <value>": up to five words between the password word and the copula,
-    # English only. "use <value> as the password": the value before the word, after a verb that hands it over, with
-    # the check after a space (no ticket id: "use PBE-3403 as the password ticket")
-    {"id": "label-password-apposition", "type": "SECRET", "secret_group": 1, "validator": "spaced_value",
-     "regex": r"(?i)(?<![\w-])" + _PW_COMPOUND + r"(?:{words})(?![\w-])[ \t]*,[ \t]+" + _SENTENCE_VALUE,
-     "languages": True},
-    {"id": "label-password-for-is", "type": "SECRET", "secret_group": 1, "validator": "sentence_value",
-     "regex": r"(?i)(?<![\w-])(?:password|passphrase|passcode)[ \t]+(?:for|of|on|to)[ \t]+(?:[\w.@'-]+[ \t]+){1,5}?"
-              r"(?:is|was)(?:[ \t]*:[ \t]+|[ \t]+)" + _SENTENCE_VALUE},
-    # the same with other words between the password word and the copula: "the wifi password here is <value>", "the
-    # VPN password I use for it is <value>" (Benchmark V3, aparte dev). One to four words, none of them a copula, and
-    # the value check of a sentence
-    {"id": "label-password-words-is", "type": "SECRET", "secret_group": 1, "validator": "sentence_value",
-     "regex": r"(?i)(?<![\w-])(?:password|passphrase|passcode)[ \t]+(?!(?:for|of|on|to)[ \t])"
-              r"(?:(?!(?:is|was)[ \t])[\w.@'-]+[ \t]+){1,4}?(?:is|was)(?:[ \t]*:[ \t]+|[ \t]+)" + _SENTENCE_VALUE},
-    {"id": "label-password-use-as", "type": "SECRET", "secret_group": 1, "validator": "spaced_value",
-     "regex": r"(?i)(?<![\w-])(?:use|using|enter|type|set|with)[ \t]+(?:\*\*|[\"'`„“])?"
-              r"([^\s\"'`“”]{4,255}?)(?:\*\*|[\"'`“”])?[ \t]+as[ \t]+"
-              r"(?:(?:the|your|my|a|an|its|their|our)[ \t]+)?(?:(?:new|temporary|initial|default|admin|root)[ \t]+)?"
-              r"(?:password|passphrase|passcode)(?![\w-])"},
-    # each quoted value of a list after a label that names secrets: `"api_keys": ["<v1>", "<v2>"]`,
-    # `passwords = ['<v1>']`, Go `Secrets: []string{"<v1>"}`. The label rules took no value that starts with a
-    # bracket, so a whole list of keys stayed in the clear. Only a label that names secrets and nothing else: a bare
-    # `tokens` is the output of a tokenizer, and code_tokens, cache_tokens or revokedTokens name no secret (Gate B of
-    # 0.6.16: 30 false alarms in developer text). The regex finds the label and the opening bracket; _list_matches
-    # reads the values and keeps only those that look like a key (_list_value_ok). No tuple: the Elasticsearch client
-    # takes api_key=("<id>", "<key>"), and the id is public
-    {"id": "label-secret-list", "type": "SECRET", "secret_group": 2,
-     "regex": r"(?i)(?<![\w$.-])[\"']?(passwords?|passwd|secrets?|api[_-]?(?:keys?|tokens?|secrets?)"
-              r"|(?:access|auth|refresh|bearer)[_-]?tokens?|client[_-]?secrets?|private[_-]?keys?|secret[_-]?keys?"
-              r"|credentials)[\"']?[ \t]*(?::=|=>|[:=])[ \t]*(\[\][\w.]*[ \t]*\{|[\w.]*\[\][ \t]*\{|\[)"},
-    # four token formats with a public prefix and no rule in the vendored sets (0.6.16). The third NTLMSSP message in
-    # base64 (`Authorization: NTLM TlRMTVNTUAAD…`: its response is derived from the password hash; the negotiate and
-    # challenge messages carry none); a
-    # NATS nkey seed (S, the key type, 56 base32 characters; the public key starts with N, U, A … and stays text);
-    # a PASERK secret, local or wrapped key (k1. to k4.; k4.public., k4.lid. and the other ids stay text); a PASETO
-    # token (v1. to v4., local or public: a bearer token as a JWT is one)
-    {"id": "ntlmssp-message", "type": "SECRET",
-     "regex": r"(?<![A-Za-z0-9+/])TlRMTVNTUAAD[A-Za-z0-9+/]{30,}={0,2}"},
-    {"id": "nats-nkey-seed", "type": "SECRET",
-     "regex": r"(?<![A-Za-z0-9])S[UNOACXP][A-Z2-7]{56}(?![A-Za-z0-9])"},
-    {"id": "paserk-secret-key", "type": "SECRET",
-     "regex": r"(?<![\w.])k[1-4]\.(?:local|secret|local-wrap|secret-wrap|local-pw|secret-pw|seal)\."
-              r"(?:[A-Za-z0-9_-]+\.){0,3}[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])"},   # dot-separated parts, no end dot
-    {"id": "paseto-token", "type": "SECRET",
-     "regex": r"(?<![\w.])v[1-4]\.(?:local|public)\.[A-Za-z0-9_-]{30,}(?:\.[A-Za-z0-9_-]+)?"},
-    # the STS session token of temporary AWS credentials: a presigned URL carries it as the query parameter
-    # X-Amz-Security-Token (percent-encoded), a request as the header of that name. The other X-Amz- parameters (the
-    # key id in X-Amz-Credential, X-Amz-Signature, X-Amz-Date) stay text; the session token grants access until it
-    # expires. 100 to 4096 characters: real tokens have several hundred
-    {"id": "label-aws-session-token", "type": "SECRET", "secret_group": 1,
-     "regex": r"(?i)(?<![\w-])x-amz-security-token(?:[\"']?[ \t]*[:=][ \t]*[\"']?)([A-Za-z0-9%+/=_-]{100,4096})"
-              r"(?![A-Za-z0-9%+/=_-])"},
-    # Elasticsearch's API key in an Authorization header: `Authorization: ApiKey <base64 of id:key>`, as a header
-    # line, in curl -H, or as the key of a header object (`authorization: 'ApiKey <value>'`). Only after the header
-    # name: prose names the scheme ("send ApiKey followed by …", Gate B of 0.6.16)
-    # crypto wallet secrets (0.6.19): each is found by its checksum and needs no label. A Bitcoin private key in Wallet
-    # Import Format (Base58Check, version 0x80: 51 characters from 5, or 52 from K or L for a compressed key; on testnet
-    # 0xEF, from 9 or c), and a BIP32 extended private key (xprv, and the yprv, zprv, Yprv, Zprv, tprv, uprv, vprv,
-    # Uprv, Vprv of SLIP-0132). The public forms (an address, an xpub) are no secret and stay text
-    {"id": "crypto-wif-private-key", "type": "SECRET", "validator": "wif",
-     "regex": r"(?<![1-9A-HJ-NP-Za-km-z])(?:[59][1-9A-HJ-NP-Za-km-z]{50}|[KLc][1-9A-HJ-NP-Za-km-z]{51})"
-              r"(?![1-9A-HJ-NP-Za-km-z])"},
-    {"id": "crypto-extended-private-key", "type": "SECRET", "validator": "xprv",
-     "regex": r"(?<![1-9A-HJ-NP-Za-km-z])[xyztuvYZUV]prv[1-9A-HJ-NP-Za-km-z]{100,108}"
-              r"(?![1-9A-HJ-NP-Za-km-z])"},
-    # three token formats with no literal prefix, so not in rules/prefixes.txt (0.6.19). A Telegram bot token: the
-    # bot's id, a colon and 34 or 35 characters starting with A (the Bot API documentation's example has 34), alone
-    # or in the API URL .../bot<token>/sendMessage (Gate B of 0.6.19). A Mailchimp API key: 32 hex digits and the
-    # data centre (-us1 …). A Discord bot token: three base64url parts, the first the bot's user id in base64, which
-    # the validator decodes: a random three-part value is not a run of 17 to 20 digits there
-    {"id": "telegram-bot-token", "type": "SECRET",
-     "regex": r"(?:(?<=/bot)|(?<![0-9A-Za-z_:-]))[0-9]{5,16}:A[0-9A-Za-z_-]{33,34}"
-              r"(?![0-9A-Za-z_-])"},
-    {"id": "mailchimp-api-key", "type": "SECRET",
-     "regex": r"(?<![0-9A-Za-z])[0-9a-f]{32}-us[0-9]{1,2}(?![0-9A-Za-z])"},
-    {"id": "discord-bot-token", "type": "SECRET", "validator": "discord_bot_token",
-     "regex": r"(?<![0-9A-Za-z_.-])[MNO][0-9A-Za-z_-]{23,27}\.[0-9A-Za-z_-]{6}\.[0-9A-Za-z_-]{27,38}"
-              r"(?![0-9A-Za-z_.-])"},
-    # a BIP39 seed phrase: 12 to 24 words of the English list whose checksum holds (checksums.bip39_spans; the regex is
-    # never run). Twelve words carry a checksum of 4 bits, so one list of ordinary words in 16 passes ("client connect
-    # system process input output error return result update file edit", Gate A of 0.6.19): a phrase of 12 needs a word
-    # such as seed, mnemonic or wallet in the 200 characters before it or on its line; 15 and more (5 to 8 bits) stand
-    # alone
-    {"id": "crypto-seed-phrase", "type": "SECRET", "regex": r"(?!)"},
-    # a Twilio Account SID (AC and 32 hex digits) next to its name: the SID and the auth token together log in, and
-    # the holdout sets of the public benchmark (2026-10-14) leaked three. Without the name, AC and 32 hex digits are
-    # also hashes and ids
-    {"id": "twilio-account-sid-labelled", "type": "SECRET", "secret_group": 1, "validator": "random_hex",
-     "regex": r"(?i:twilio|account_?sid|(?<![a-z])sid(?![a-z]))[^\n]{0,40}?(?<![A-Za-z0-9])(AC[0-9a-f]{32})"
-              r"(?![A-Za-z0-9])"},
-    {"id": "auth-scheme-apikey", "type": "SECRET", "secret_group": 1, "validator": "apikey_value",
-     "regex": r"(?i:authorization)[\"']?\]?[ \t]*[:=][ \t]*[\"'`]?ApiKey[ \t]+([A-Za-z0-9+/_-]{8,1024}={0,2})"
-              r"(?![\w+/=-])"},
-    # a PEM private key in base64: the tls.key or ssh-privatekey of a Kubernetes Secret, a CI variable, a Helm value.
-    # The run starts with the base64 of "-----BEGIN"; the validator decodes its first 400 characters and keeps it only
-    # if the header names a PRIVATE KEY and base64 body follows, or if a bundle holds one later (a certificate alone
-    # stays text). The whole value is the secret, also when `base64` or openssl wrapped it at a fixed width, with
-    # real or escaped line breaks (_base64_wrapped_end).
-    # In 0.6.19 no rule found it, also not after a label (a catalog survey, 2026-10-14)
-    {"id": "private-key-base64", "type": "SECRET", "validator": "base64_pem",
-     "regex": r"(?<![A-Za-z0-9+/])(?:77u/)?LS0tLS1CRUdJTi[A-Za-z0-9+/]{16,}={0,2}"},
-    # token formats whose literal prefix is shorter than four characters, so not in rules/prefixes.txt (0.6.20). The
-    # character after the prefix is checked by a lookbehind written after the prefix, so the regex still starts with
-    # its literal and the engine skips a text without it. Sources: crates.io and NuGet from Nosey Parker (Apache-2.0),
-    # Dropbox, Firecrawl and ElevenLabs from Kingfisher (Apache-2.0); each regex is written here. A crates.io or NuGet
-    # key needs one digit, and its body must not read as words: an identifier such as cioServiceConfiguration… is no
-    # key. ElevenLabs: exactly 48 hex digits after sk_ (Stripe's sk_live_ and sk_test_ have an underscore there).
-    # Firecrawl and ElevenLabs keys are hex by design, so a digest after fc- or sk_ is taken too (no hit in the
-    # developer texts or in CredData's code files, 0.6.20)
-    {"id": "crates-io-api-token", "type": "SECRET", "validator": "token_not_words",
-     "regex": r"cio(?:(?<![A-Za-z0-9_]cio)|(?<=\\[nrt]cio))(?=[A-Za-z]{0,31}[0-9])[A-Za-z0-9]{32}(?![A-Za-z0-9_])"},
-    {"id": "nuget-api-key", "type": "SECRET", "validator": "token_not_words",
-     "regex": r"oy2(?:(?<![A-Za-z0-9_]oy2)|(?<=\\[nrt]oy2))(?=[a-z]{0,42}[0-9])[a-z0-9]{43}(?![A-Za-z0-9_])"},
-    {"id": "dropbox-short-lived-token", "type": "SECRET",
-     "regex": r"sl\.(?:(?<![A-Za-z0-9_.-]sl\.)|(?<=\\[nrt]sl\.))"
-              r"(?:u\.)?(?=[A-Za-z_-]{0,2047}[0-9])[A-Za-z0-9_-]{130,2048}(?![A-Za-z0-9_-])(?!\.[A-Za-z0-9_-])"},
-    {"id": "firecrawl-api-key", "type": "SECRET",
-     "regex": r"fc-(?:(?<![A-Za-z0-9_-]fc-)|(?<=\\[nrt]fc-))[a-f0-9]{32}(?![A-Za-z0-9_-])(?!\.[A-Za-z0-9]|\{)"},
-    {"id": "elevenlabs-api-key-bare", "type": "SECRET",
-     "regex": r"sk_(?:(?<![A-Za-z0-9_]sk_)|(?<=\\[nrt]sk_))[0-9a-f]{48}(?![A-Za-z0-9_])(?!\.[A-Za-z0-9]|\{)"},
-    # an Aiven service password (GitLab's rule, MIT): AVNS_ and 15 to 123 characters. A name of words after the prefix
-    # (AVNS_Configuration01) is no password (codex Gate A of 0.6.20)
-    {"id": "aiven-service-password", "type": "SECRET", "validator": "token_not_words",
-     "regex": r"AVNS_(?:(?<![A-Za-z0-9_]AVNS_)|(?<=\\[nrt]AVNS_))[0-9A-Za-z_-]{15,123}(?![0-9A-Za-z_-])"},
-    # SonarQube's analysis tokens (GitLab's rules, MIT): sqa_ (global) and sqp_ (project) and 40 hex digits, the shape
-    # of a git commit id after a word such as "sqa" (software quality assurance), so only with "sonar" near it (Gate B
-    # of 0.6.20). The user token squ_ stands alone (rules/prefixes.txt)
-    {"id": "sonarqube-analysis-token", "type": "SECRET", "context": ("sonar", "sonarqube", "sonarcloud"),
-     "require_context": True,
-     "regex": r"sq[ap]_(?:(?<![A-Za-z0-9_]sq[ap]_)|(?<=\\[nrt]sq[ap]_))[0-9a-f]{40}(?![A-Za-z0-9_])"},
-]
-
-
-# Fallbacks that run after the vendored rules (0.6.20): forms of a key whose vendored rule fixes one length, so the
-# standard form keeps its vendored rule id. Found in a measurement on real session transcripts (values not kept):
-# OpenAI project keys of other lengths around T3BlbkFJ (the base64 of "OpenAI"; the vendored rule takes 20, 58 or 74
-# characters on each side) and Anthropic API keys of other lengths (the vendored rule takes exactly 93 characters
-# before AA). Each also takes a key before a full stop, which the vendored terminators refuse. The vendored rule of
-# such a key matches whole or not at all; GitLab's trigger and job tokens are in rules/prefixes.txt, as the vendored
-# rule there takes the first part of a longer token (codex Gate A)
-FALLBACK_RULES: list[dict] = [
-    {"id": "openai-api-key-any", "type": "SECRET",
-     "regex": r"sk-(?:(?<![A-Za-z0-9_-]sk-)|(?<=\\[nrt]sk-))"
-              r"(?:proj|svcacct|admin)-[A-Za-z0-9_-]{8,400}?T3BlbkFJ[A-Za-z0-9_-]{8,400}(?![A-Za-z0-9_-])"},
-    {"id": "anthropic-api-key-any", "type": "SECRET",
-     "regex": r"sk-ant-(?:(?<![A-Za-z0-9_-]sk-ant-)|(?<=\\[nrt]sk-ant-))(?:api03|admin01)-[A-Za-z0-9_-]{60,140}AA"
-              r"(?![A-Za-z0-9_-])"},
-    # 0.6.21, from the values that leaked in the public benchmark's holdout sets: an OpenAI or Anthropic key and a
-    # Slack token with a shorter tail and no marker of the forms above. The sk- tail needs a digit, a capital and a run
-    # of 16 letters and digits; the Slack tail starts with digits and a hyphen, as Slack writes it:
-    # sk-admin-sidebar-navigation-item2X and xoxb-background-worker-release-2024 are names. A key that a rule above
-    # takes (T3BlbkFJ inside, api03- and AA at the end) is left to it
-    {"id": "openai-anthropic-key-relaxed", "type": "SECRET",
-     "regex": r"(?<![\w-])sk-(?:proj|ant|svcacct|admin)-"
-              r"(?![A-Za-z0-9_-]{0,400}T3BlbkFJ)"
-              r"(?!(?:api03|admin01)-[A-Za-z0-9_-]{60,140}AA"
-              r"(?![A-Za-z0-9_-]))"
-              r"(?=[A-Za-z0-9_-]{0,200}[0-9])"
-              r"(?=[A-Za-z0-9_-]{0,200}[A-Z])"
-              r"(?=[A-Za-z0-9_-]{0,200}?[A-Za-z0-9]{16})[A-Za-z0-9_-]{20,}"},
-    {"id": "slack-token-relaxed", "type": "SECRET",
-     "regex": r"(?<![\w-])(?:xoxb-|xoxp-|xoxa-|xoxr-)\d{2,}-[A-Za-z0-9-]{12,}"},
-    # the password of a URL with a sign that RFC 3986 reserves (! $ & + , ; = *; an @ after it stays in it): a database
-    # URL as people write it, unescaped (postgres://app:<value>@db:5432). ds-basic-auth stops at these signs and the
-    # e-mail rule took `<rest>@host` (Benchmark V3, aparte and llmredactor dev). Only the password, as there: the user
-    # stays text. A template (${DB_PASSWORD}, $(cat …)) fails the value check
-    {"id": "url-password-signs", "type": "SECRET", "secret_group": 1, "validator": "ds_value",
-     "regex": r"(?<![\w+.-])[A-Za-z][A-Za-z0-9+.-]{1,15}://[^\s:/?#\[\]@'\"`<>]{1,64}:"
-              r"(?=[^\s/@'\"`<>]{0,127}[!$&*+,;=])((?:[^\s/@'\"`<>]|@(?=[^\s/@'\"`<>]*@)){3,128})"
-              r"@(?=[A-Za-z0-9\[_])"},
-    # the application keys of two frameworks in an .env file (Benchmark V3, aparte dev: 11 keys in the clear). Laravel's
-    # APP_KEY=base64:<the base64 of 32 bytes>: `key` alone is a weak label, which the literal rules take only quoted.
-    # Strapi's APP_KEYS=<k1>,<k2>,…: each key of the unquoted list (_list_matches reads them)
-    {"id": "label-laravel-app-key", "type": "SECRET", "secret_group": 1, "validator": "laravel_key",
-     "regex": r"(?m)^[ \t]*(?:export[ \t]+)?APP_KEY[ \t]*=[ \t]*[\"']?(base64:[A-Za-z0-9+/]{20,44}={0,2})(?![\w+/=])"},
-    {"id": "label-env-key-list", "type": "SECRET", "secret_group": 2,
-     "regex": r"(?m)^[ \t]*(?:export[ \t]+)?(APP_KEYS)[ \t]*=[ \t]*([\"']?)"},
-    # a key that a sentence owns and names: "my stripe key is <value>", "our google api key for the map widget is
-    # <value>", "the session JWT is <value>" (Benchmark V3, aparte dev). label-prose-key wants the key word right before
-    # the value; here a possessive or an article starts it, up to two words name the service, and up to four words
-    # after for/of/on/in name the use. The value check of label-prose-key: a random shape of 16 characters or more. A
-    # public or publishable key (Stripe's pk_) is no secret
-    {"id": "label-prose-key-owned", "type": "SECRET", "secret_group": 1, "validator": "prose_key_value",
-     "regex": r"(?i)(?<![\w-])(?:my|our|your|the|his|her|their)[ \t]+(?:(?!public|publishable)[\w.-]+[ \t]+){0,2}?"
-              r"(?:key|token|secret|jwt)(?:[ \t]+(?:for|of|on|in)(?:[ \t]+[\w.@'-]+){1,4}?)?[ \t]+(?:is|was)"
-              r"(?:[ \t]*:[ \t]+|[ \t]+)[`\"'„“]?(?!pk_)([A-Za-z0-9_+/=.-]{15,511}[A-Za-z0-9_+/=])[`\"'“”]?"
-              r"(?=[.,;:!?)]?(?:\s|$))"},
-    # a key or a salt of PHP's define() (wp-config.php: AUTH_KEY, NONCE_SALT): the WordPress salts hold ( ) | ` and
-    # the literal rules took them for code (Benchmark V3, aparte dev: 16 salts in the clear). Only a name that ends in
-    # KEY, SALT, SECRET or TOKEN; a password is label-pw-literal's
-    {"id": "label-php-define-key", "type": "SECRET", "secret_group": 3, "validator": "config_key_value",
-     "regex": r"(?<![\w$>:])define[ \t]*\([ \t]*(['\"])(?:[A-Z][A-Z0-9]*_)*(?:KEY|SALT|SECRET|TOKEN)\1[ \t]*,[ \t]*"
-              r"(['\"])((?:(?!\2)[^\\\n]){16,256})\2[ \t]*\)"},
-    # a key in a sentence: "Use the API key <value> for the call", "the access token is <value>", "the API key,
-    # <value>, expires". No `:` or `=` tells that a value follows, so the value must look random (prose_key_value)
-    # and have 16 characters at least. A bare `token` is the word of a tokenizer too; its values (a number, a word)
-    # fail the value check. After the vendored rules: a key of a known format keeps its rule id
-    {"id": "label-prose-key", "type": "SECRET", "secret_group": 1, "validator": "prose_key_value",
-     "regex": r"(?i)(?<![\w-])(?:api[ _-](?:key|token|secret)|access[ _-]?(?:token|key)|auth(?:entication)?[ _-]?"
-              r"(?:token|key)|bearer[ _-]?token|secret[ _-]?key|client[ _-]?secret|(?:personal[ _-]?access|private)"
-              r"[ _-]?token|token)s?(?:[ \t]+(?:is|was))?[ \t]*[:,(]?[ \t]+[`\"'„“]?"
-              r"([A-Za-z0-9_+/=.-]{15,511}[A-Za-z0-9_+/=])[`\"'“”]?(?=[.,;:!?)]?(?:\s|$))"},
-]
 
 
 # ------------------------------------------------------------- rule loading --
@@ -3238,111 +1826,12 @@ def _pii_regions() -> tuple[str, ...]:
 
 
 SECRET_TYPES = frozenset({"SECRET"})
-# a value that is obviously a placeholder is never a secret, whichever rule matched it
-PLACEHOLDER_VALUES = frozenset({"changeme", "change_me", "password", "placeholder", "example", "redacted",
-                                "secret", "your_api_key", "xxxxxxxx", "todo", "none", "null"})
-PLACEHOLDER_PARTS = ("your_", "your-", "bogus", "dummy", "example", "sample", "placeholder", "changeme",
-                     "xxxxxxxx", "test-token", "secure-token", "<redacted", "fake")
-_TEMPLATE_NAME = _LazyRx(r"^[A-Z]+(?:_[A-Z]+)+$")   # YOUR_PORTKEY_API_KEY: words joined by underscores, no digits
-
-
-# a placeholder word counts at the start of the value, after a character that is not a letter or a
-# digit (ghp_fake…, sk-dummy-key, <redacted>), or at the end (the AWS documentation key ends in
-# EXAMPLE). Inside a run of letters and digits it is chance: a random GitHub token holds "fAKe" or
-# "DuMmy" about once in 20,000, and it was then let through as a placeholder (found by a random
-# test token on windows-latest, 2026-09-27)
-_PARTS = "|".join(re.escape(p) for p in PLACEHOLDER_PARTS)
-_PLACEHOLDER_PART_RE = _LazyRx(f"(?<![a-z0-9])(?:{_PARTS})|(?:{_PARTS})(?:key)?$")
+# the placeholder values and looks_like_placeholder() are in value_checks.py
 
 
 _PUBLIC_TEST_VALUES: list = []
-# an encoded address is an address after `=` (email=, to=, login=), after mailto%3A, or after a mail word; elsewhere
-# name%40version.com is a package, a git ref or an asset name (codex review)
-_ENCODED_MAIL_CONTEXT_RE = _LazyRx(
-    r"(?i)(?:=|%3d|mailto(?::|%3a)"
-    r"|\b(?:to|from|cc|bcc)[ \t]*[:=][ \t]*"   # `to` and `from` alone are paths and imports: path/to/pkg%40v.com
-    r"|\b(?:e-?mail|mail|sender|recipient|bounce|reply-to|contact|login|users?|username)[ \t]*[:=/]?[ \t]*)$")
+# the check of an address with its @ as %40 (_encoded_mail_expected) is in encoded_mail.py
 _DIGITS_ONLY_RE = _LazyRx(r"\+?[\d\s().-]+")
-# `sent to name%40host` in prose: `to` and spaces, not `path/to/` or `import x to`
-_ENCODED_MAIL_TO_RE = _LazyRx(r"(?i)(?<![/\w])(?:sent|send|mailed|forwarded|reply|replied|receipt|invoice|copy)"
-                                 r"[^\n/]{0,20}?(?<![/\w])to[ \t]+$")
-
-
-def _encoded_mail_expected(text: str, start: int, end: int) -> bool:
-    """Where an address with its @ as %40 is an address: after a mail word or `=` (_ENCODED_MAIL_CONTEXT_RE), after
-    `sent to` in prose, or as a whole cell of a CSV row (a column of a roster export, holdout 2026-10-15)."""
-    line = _line_start(text, start)
-    if _ENCODED_MAIL_CONTEXT_RE.search(text, max(line, start - 40), start) or _ENCODED_MAIL_TO_RE.search(
-            text, max(line, start - 40), start):
-        return True
-    value = text[start:end]
-    # a cell may have spaces around it (`Dana, name%40host.de`) and quotes ("name%40host.de"), in that order
-    while start > line and text[start - 1] == " ":
-        start -= 1
-    while text[end:end + 1] == " ":
-        end += 1
-    if text[start - 1:start] == '"' and text[end:end + 1] == '"':
-        start, end = start - 1, end + 1   # a quoted cell: "name%40host.de"
-        while start > line and text[start - 1] == " ":
-            start -= 1
-        while text[end:end + 1] == " ":
-            end += 1
-    before, after = text[start - 1:start] if start > line else "", text[end:end + 1]
-    if before not in ("", ",", ";", "\t") or after not in ("", "\n", "\r", ",", ";", "\t") or start - line > 4000:
-        return False
-    # the column's header names a mail address: a CSV header in the first five lines (a file, an export, a query
-    # result with a line before it); a row without such a header stays text (review of 0.6.24)
-    sep = before or (after if after in (",", ";", "\t") else ",")
-    if not before and not after:
-        return False   # a value alone on its line is no cell of a row
-    labels = value.rsplit("%40", 1)[-1].lower().split(".")
-    if labels[-1] in _FILE_EXTENSIONS or sum(x.isdigit() for x in labels) >= 2:
-        return False   # logo%402x.png is an asset at twice the size, pkg%401.0.0-beta.rc a version
-    import csv   # here: the hooks pay for every module at import
-    col = len(next(csv.reader([text[line:start + 1]], delimiter=sep), [""])) - 1
-    # the first five lines of the text, and up to 20 lines above the row within 4,000 characters: a header after a
-    # preamble of an export (review of 0.6.25)
-    above = text[max(0, line - 4000):max(0, line - 1)].split("\n")[-20:]
-    for head in text[:4000].split("\n")[:5] + above[::-1]:
-        cells = next(csv.reader([head], delimiter=sep), [])
-        # a header holds names, not values: a row with an address in it is data, even with mailbox.org in it. Each
-        # line counts on its own: a title line above the header (`Report for user list, 2026-10-01`) does not hide it
-        if (len(cells) > col and "%40" not in head and "@" not in head and text.find(head) < line
-                and _names_a_mail_column(cells[col])):
-            return True
-    return False
-
-
-# a header cell of a column of addresses: a mail word in a few languages, or a word that names who an address
-# belongs to (contact, login, user, recipient). Before 0.6.25 only "mail" counted, and an encoded address under a
-# header such as `contact` or `login` passed. `to` and `from` are left out: a migration table has them as columns
-_MAIL_COLUMN_RE = _LazyRx(r"(?i)mail|courriel|correo|e-?post(?![a-z])|s\u00e4hk\u00f6posti")
-# the owner word must be the last word of the header: login_user and user are addresses, end_user_id and
-# contact_asset are an id and a file (review of 0.6.25)
-_OWNER_WORDS = frozenset({"contact", "contacts", "login", "logins", "user", "users", "username", "usernames",
-                          "sender", "recipient", "recipients", "upn", "benutzer", "benutzername", "kontakt",
-                          "empf\u00e4nger", "absender", "destinataire", "exp\u00e9diteur", "utilisateur"})
-_OWNER_PAIRS = (["user", "name"], ["reply", "to"], ["principal", "name"])
-# an owner word before one of these is the same column: Recipient Address, Login Name, sender_addr
-_OWNER_TAILS = frozenset({"address", "addr", "name", "adresse"})
-# the extension of a file that an asset name ends in: name%402x.png is an image at twice the size
-_FILE_EXTENSIONS = frozenset({"png", "jpg", "jpeg", "gif", "svg", "webp", "avif", "ico", "bmp", "tif", "tiff", "js",
-                              "mjs", "cjs", "ts", "css", "map", "json", "html", "htm", "xml", "txt", "pdf",
-                              "woff", "woff2", "ttf", "otf", "mp3", "mp4", "webm", "wasm", "gz", "tgz", "jar",
-                              "heic", "heif", "lottie", "scss", "sass", "less", "jsx", "tsx", "csv", "yaml", "yml",
-                              "toml", "lock", "wav", "ogg", "mov", "zip", "md", "mdx", "vue", "svelte", "rst",
-                              "adoc", "ipynb"})
-
-
-def _names_a_mail_column(cell: str) -> bool:
-    cell = cell.strip().strip("\"'")
-    if _MAIL_COLUMN_RE.search(cell):
-        return True
-    words = [w.lower() for w in re.findall(r"[^\W\d_]+", re.sub(r"([^\W\d_])(?<=[a-z\u00df-\u00ff])([A-Z])", r"\1 \2",
-                                                                  cell))]
-    if words and words[-1] in _OWNER_TAILS and len(words) >= 2 and words[-2] in _OWNER_WORDS:
-        return True
-    return bool(words) and (words[-1] in _OWNER_WORDS or words[-2:] in _OWNER_PAIRS)
 
 
 def is_public_test_value(value: str, kind: str) -> bool:
@@ -3364,83 +1853,8 @@ def is_public_test_value(value: str, kind: str) -> bool:
     return (kind, hashlib.sha256(v.encode("utf-8")).hexdigest()) in _PUBLIC_TEST_VALUES[0]
 
 
-def looks_like_placeholder(value: str) -> bool:
-    v = value.strip("\"'` ")
-    low = v.lower()
-    return low in PLACEHOLDER_VALUES or bool(_PLACEHOLDER_PART_RE.search(low)) or bool(_TEMPLATE_NAME.match(v))
-
-
 # ------------------------------------------------------------- test fixtures --
-# A label rule finds a value by its label alone, so a test password looks like a real one: `PASSWD = '<word>'` in the
-# tests of the Python standard library (2026-09-29). In test code the value is a fixture, and a
-# block or a placeholder there only stops the work. A token shape (glpat-, AKIA, a PEM key) and personal data stay
-# hits in test code too: a real token or a copy of customer data in a test is a leak.
-# The id prefixes of the label rules and of the keyword rules (the detect-secrets ones and maisecrets' own label rules
-# with no `=` or `:`) live in maisecrets/detection/registry.py; a rule carries its form (Rule.form), a stored kind is
-# read with
-# registry.is_label. The names stay for the scripts and tests that read them.
-LABEL_RULES = _registry.LABEL_PREFIXES
-KEYWORD_RULES = _registry.KEYWORD_PREFIXES
-_TEST_PATH_RE = _LazyRx(r"(?:^|[/\\])(?i:tests?|__tests__|spec|testdata|test_data|e2e)[/\\]"
-                           r"|(?:^|[/\\]|[a-z])Tests?\.\w+$"
-                           r"|(?:^|[/\\])[^/\\]*[._-]e2e[._-][^/\\]*$"
-                           r"|(?:^|[/\\])(?:test_[^/\\]*|[^/\\]*_test\.\w+|[^/\\]*\.(?:test|spec)\.\w+|conftest\.py)$")
-# a file of real values even under tests/: an .env, a recorded HTTP cassette (review, 2026-09-29)
-_REAL_VALUE_FILE_RE = _LazyRx(r"(?i)(?:^|[/\\])(?:\.env[^/\\]*|[^/\\]*\.env(?:\.[^/\\]*)?|[^/\\]*\.har"
-                                 r"|[^/\\]*\.har\.\w+|(?:cassettes?|(?:__)?recordings?(?:__)?|recorded|tapes|vcr"
-                                 r"|__nock-fixtures__)[/\\].*)$")
-_TEST_MARKER_RE = _LazyRx(
-    r"(?m)^(?:(?:async[ \t]+)?def[ \t]+test_?\w*[ \t]*\(|[ \t]*class[ \t]+Tests?(?:[A-Z_(:]|$)|[ \t]*@pytest\."
-    r"|[ \t]*@Test\b|[ \t]*#\[test\]"
-    r"|[ \t]*(?:import|from)[ \t]+(?:pytest|unittest)\b|[ \t]*func[ \t]+Test\w*\("
-    r"|[ \t]*(?:describe|it|test|beforeEach)[ \t]*\()")
-_TEST_METHOD_RE = _LazyRx(r"(?m)^[ \t+-]+(?:async[ \t]+)?def[ \t]+test_?\w*[ \t]*\([ \t]*self\b")
-_CLASS_LINE_RE = _LazyRx(r"(?m)^[ \t+-]*class[ \t]+\w|^@@[^\n]*\bclass[ \t]+\w")
-_TEST_CLASS_LINE_RE = _LazyRx(r"[ \t+-]*class[ \t]+Tests?(?:[A-Z_(:]|$)|@@[^\n]*\bclass[ \t]+Tests?(?:[A-Z_(:]|\b)")
-# `assert` alone is no marker: production code asserts too (review, 2026-09-29). A diff starts a new file here
-_DIFF_FILE_RE = _LazyRx(r"(?m)^(?:diff --git |\+\+\+ |--- a/)")
-_GREP_PATH_RE = _LazyRx(r"((?:[A-Za-z]:)?[^\s:]+):\d+[:-]")
-_TEST_LOOKBACK_LINES = 40
-
-
-def is_test_path(path: str) -> bool:
-    return bool(path) and bool(_TEST_PATH_RE.search(path)) and not _REAL_VALUE_FILE_RE.search(path)
-
-
-def in_test_code(text: str, start: int, path: str = "") -> bool:
-    """Whether the hit at `start` sits in test code: the file is a test file, a grep line names one, or a test
-    marker (`def test_`, `assert`, `describe(` …) stands in its line or in the 40 lines before it."""
-    if is_test_path(path):
-        return True
-    line_start = _line_start(text, start)
-    m = _GREP_PATH_RE.match(text, line_start)
-    if m and is_test_path(m.group(1)):
-        return True
-    nl = _newlines(text)
-    i = bisect.bisect_left(nl, line_start)       # the line of the hit is line i
-    begin = nl[i - _TEST_LOOKBACK_LINES - 1] + 1 if i > _TEST_LOOKBACK_LINES else 0
-    diffs = _positions(text, "diff", _DIFF_FILE_RE)
-    j = bisect.bisect_left(diffs, line_start)
-    if j and diffs[j - 1] >= begin:
-        begin = diffs[j - 1]      # a marker of another file in the same diff does not count
-    end = _line_end(text, start)
-    markers = _positions(text, "marker", _TEST_MARKER_RE)
-    k = bisect.bisect_left(markers, begin)
-    if k < len(markers) and markers[k] < end:
-        return True
-    # an indented `def test_…(self` counts when no class other than a test class stands nearer above it: a test
-    # method in a diff hunk or a paste, but not `def test_connection(self)` in class Db (reviews, 2026-09-30)
-    defs = _positions(text, "defs", _TEST_METHOD_RE)
-    k = bisect.bisect_left(defs, end) - 1
-    if k < 0 or defs[k] < begin:
-        return False
-    classes = _positions(text, "classes", _CLASS_LINE_RE)
-    c = bisect.bisect_left(classes, end) - 1   # the class nearest above the hit, also one after the method
-    if c < 0 or classes[c] < begin:
-        return True
-    return bool(_TEST_CLASS_LINE_RE.match(text, classes[c]))
-
-
+# in_test_code() and the patterns of test code are in text_index.py
 def is_fixture(m: "Match", text: str, path: str = "") -> bool:
     """A label-rule hit in test code: not a secret the person typed (see LABEL_RULES). The first rule to claim a
     span wins, and the label rules run before the shape rules: `token = "<a JWT>"` got the kind of a label rule and
@@ -3508,39 +1922,7 @@ def code_words() -> frozenset:
     return _CODE_WORDS | _MESSAGE_WORDS
 
 
-_NL_RE = _LazyRx("\n")
-# the last text and its index (line breaks, lines, positions, literal hits), one per thread: scan() and is_fixture()
-# ask about one text, and two scans in two threads must not read the index of each other's text
-_TEXT_INDEX = threading.local()
-
-
-def _text_index(text: str) -> dict:
-    """The index of `text` in this thread, made at the first question about it."""
-    t = _TEXT_INDEX
-    if getattr(t, "text", None) is not text:
-        t.text, t.cache = text, {"nl": [m.start() for m in _NL_RE.finditer(text)]}
-    return t.cache
-
-
-def _newlines(text: str) -> list:
-    """The offsets of the line breaks of `text`, computed once per text. A search for the start or the end of a line
-    at each keyword hit was one pass over the line, and a one-line text of 2 MB took 14.5 s (review of 3e5d53e,
-    2026-09-30)."""
-    return _text_index(text)["nl"]
-
-
-def _line_start(text: str, pos: int) -> int:
-    nl = _newlines(text)
-    i = bisect.bisect_left(nl, pos)
-    return nl[i - 1] + 1 if i else 0
-
-
-def _line_end(text: str, pos: int) -> int:
-    nl = _newlines(text)
-    i = bisect.bisect_left(nl, pos)
-    return nl[i] if i < len(nl) else len(text)
-
-
+# the index of a text (_text_index, _newlines, _line_start, _line_end, _positions) is in text_index.py
 def _split_lines(text: str) -> tuple:
     """The lines of `text` and of its lower-case form, split once per text: the seven keyword rules each split a
     megabyte again (review of 3e5d53e, 2026-09-30)."""
@@ -3548,14 +1930,6 @@ def _split_lines(text: str) -> tuple:
     if "lines" not in cache:
         cache["lines"] = (text.split("\n"), _lower(text).split("\n"))
     return cache["lines"]
-
-
-def _positions(text: str, name: str, rx: re.Pattern) -> list:
-    """The start offsets of the matches of `rx` in `text`, computed once per text (see _newlines)."""
-    cache = _text_index(text)
-    if name not in cache:
-        cache[name] = [m.start() for m in rx.finditer(text)]
-    return cache[name]
 
 
 _IDENT_RE = _LazyRx(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -4861,4 +3235,3 @@ def bare_value_is_a_credential(v: str) -> bool:
     return (shannon_entropy(v) >= ENTROPY_BY_ALPHABET[alphabet_of(v)]
             and not _base64_of_text(v) and not reads_as_word(v)
             and _wordlike(_deleet(v)) < 0.3 and _ds_value_ok(v))
-

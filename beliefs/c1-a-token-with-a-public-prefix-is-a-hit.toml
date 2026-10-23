@@ -5,6 +5,6 @@ statement = "An NTLMSSP message in base64, a NATS nkey seed, a PASERK secret, lo
 runner = ["tests/test_literal_values.py::TokenFormatTests::test_each_format_is_a_hit_by_its_rule"]
 
 [proof]
-file = "maisecrets/detection/core.py"
+file = "maisecrets/detection/own_rules.py"
 find = '''"regex": r"(?<![A-Za-z0-9+/])TlRMTVNTUA'''
 replace = '''"regex": r"(?!)(?<![A-Za-z0-9+/])TlRMTVNTUA'''

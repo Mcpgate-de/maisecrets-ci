@@ -1,16 +1,27 @@
 # Privacy
 
-maisecrets runs on your machine and sends nothing anywhere. This page states what it
-reads, what it stores, for how long, and what leaves the machine, so that a person or a
-data-protection officer can check it against the source.
+maisecrets has no service of the publisher, no telemetry and no automatic network
+connection. Its hooks and its mod process your data on your machine. Network
+communication happens only in the cases listed under "What leaves the machine": a
+command that you or the agent runs, and an MCP server that you added yourself. This page
+states what it reads, what it stores, for how long, and what leaves the machine, so that
+a person or a data-protection officer can check it against the source.
 
 ## What it reads
 
-The hooks read the text of your prompts, the input of tool calls and the results of tool
-calls that the client hands them, and scan that text for secrets and personal data
-(e-mail addresses, phone numbers, IBANs, card numbers, IP addresses and national
-identifiers where enabled). No other file on your machine is read unless a tool call
-reads it.
+- **For detection:** only the text that the client hands the hooks and the mod: your
+  prompts, the input of tool calls and the results of tool calls. The hooks scan that text
+  for secrets and personal data (e-mail addresses, phone numbers, IBANs, card numbers, IP
+  addresses and national identifiers where enabled).
+- **Its own files:** its configuration (`~/.maisecrets/config.json` and, if an
+  administrator wrote one, the machine policy file), its state and logs under
+  `~/.maisecrets/`, and the stored values in the store of your operating system.
+- **Files you named in a setting:** the folders of your own detection rules
+  (`rule_dirs`) and the files of values from your own tools (`value_files`).
+- **The client's transcript:** with `scrub_transcript` on (the default), it reads the
+  transcript file of the current session on your disk and masks a detected value in it.
+
+It reads no other file of yours, except through a tool call that you or the agent makes.
 
 ## What it stores, and where
 

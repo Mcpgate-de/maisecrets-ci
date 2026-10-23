@@ -8,7 +8,7 @@ presidio-analyzer wheel as data (scripts/_static_python.py) and executes none of
 downloaded from PyPI, checked against the sha256 PyPI lists, and opened as a zip. The plugin reads
 the resulting maisecrets/detection/rules/presidio.json as data.
 
-Checksum validators are NOT exported (they are code); maisecrets/detection/core.py
+Checksum validators are NOT exported (they are code); maisecrets/detection/value_checks.py
 ports the ones it needs (generic + DE) and marks the rest as "context only".
 """
 from __future__ import annotations

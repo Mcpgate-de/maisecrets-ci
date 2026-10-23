@@ -228,6 +228,7 @@ class PasswordLiteralTests(unittest.TestCase):
         a digit still is (codex Gate A of 0.6.16)."""
         import tempfile
         from unittest import mock
+        from maisecrets.detection import value_checks   # _word_set() reads _WORDS_FILE from its own module
         d = Path(tempfile.mkdtemp(prefix="wordlist-"))
         (d / "binary.txt").write_bytes(b"\xff\xfe\x00 not utf-8 \xc3\x28")
         (d / "few.txt").write_text("alpha\nbeta\n", encoding="utf-8")
@@ -236,7 +237,7 @@ class PasswordLiteralTests(unittest.TestCase):
         letters = "".join(c for c in "xkcdqwrtzpbv")
         try:
             for name in ("missing.txt", "binary.txt", "few.txt", "junk.txt"):
-                with self.subTest(name=name), mock.patch.object(detect, "_WORDS_FILE", str(d / name)):
+                with self.subTest(name=name), mock.patch.object(value_checks, "_WORDS_FILE", str(d / name)):
                     detect._WORDS.clear()
                     self.assertEqual([k for k, _ in kinds(f"<password>{letters}</password>")], [])
                     self.assertFalse(detect._WORDS_OK[0])

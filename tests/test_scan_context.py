@@ -197,7 +197,10 @@ def reachable(tree: ast.Module, root: str) -> dict:
 
 class NoModuleScanStateTests(unittest.TestCase):
     def setUp(self):
-        self.tree = ast.parse((ROOT / "maisecrets" / "detection" / "core.py").read_text(encoding="utf-8"))
+        # core.py and the modules that hold its parts, read as one module: core.py imports each of their names
+        self.tree = ast.Module(body=[node for m in ("core", "value_checks", "own_rules", "text_index", "encoded_mail")
+                                     for node in ast.parse((ROOT / "maisecrets" / "detection" / f"{m}.py")
+                                                           .read_text(encoding="utf-8")).body], type_ignores=[])
         self.names = _module_names(self.tree)
 
     def test_the_checker_sees_each_form_of_a_module_write(self):

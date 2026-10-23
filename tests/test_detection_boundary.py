@@ -31,8 +31,10 @@ import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
 # the modules of the detection core (maisecrets/detection/) and the names of maisecrets.* that are the same module
 # objects (maisecrets/detect.py and the others: compatibility names)
 CORE_MODULES = ("checksums", "lazy_regex", "normalise", "regions", "registry", "rulespec", "rule_filter", "personal")
+# the parts of core.py in modules of their own (they have no old name)
+CORE_PARTS = ("value_checks", "own_rules", "text_index", "encoded_mail")
 CORE = frozenset({"__init__", "detect", "detection", "detection.core", *CORE_MODULES,
-                  *(f"detection.{m}" for m in CORE_MODULES)})
+                  *(f"detection.{m}" for m in CORE_MODULES + CORE_PARTS)})
 # the modules of the plugin that a plain scan still imports. Each is a later step: the config read for the regions
 # (home, through active_regions), the rules of your own and the allow list (user_rules), and the probes for a term
 # list or an import (term_files, value_files). Remove a name when the scan no longer imports it; never add one. The
@@ -624,16 +626,18 @@ class ReferencesTests(unittest.TestCase):
     def test_detect_py_holds_no_part_of_the_plugin_reference_form(self):
         # the brackets, their escapes, the c-key pattern, and an import of placeholder.py: each is the plugin's form,
         # which detect.py must ask References about, never know
-        src = (ROOT / "maisecrets" / "detection" / "core.py").read_text(encoding="utf-8")
+        # core.py and the modules that hold its parts
+        srcs = [(ROOT / "maisecrets" / "detection" / f"{m}.py").read_text(encoding="utf-8")
+                for m in ("core",) + CORE_PARTS]
+        src = "\n".join(srcs)
         # a ratchet of the spellings an ordinary change writes, not a proof against one that hides
         forms = {"open bracket": _OPEN, "close bracket": _CLOSE, "open escape": "\\u27e6",
                  "close escape": "\\u27e7", "open code point": "0x27e6", "close code point": "0x27e7",
                  "named open": "white square bracket", "key pattern": "_c\\d", "key class": "_c[0-9]"}
         self.assertEqual({name for name, form in forms.items() if form.lower() in src.lower()}, set())
         # placeholder.py is loaded in one place only, in any import form: as the default form (_references)
-        tree = ast.parse(src)
         importers = set()
-        for f in tree.body:
+        for f in (node for s in srcs for node in ast.parse(s).body):
             for n in ast.walk(f):
                 names = []
                 if isinstance(n, ast.ImportFrom):

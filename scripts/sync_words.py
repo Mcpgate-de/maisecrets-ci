@@ -4,8 +4,8 @@ rule).
 
 The list holds the base words of SCOWL's en_US Hunspell dictionary (size 60) with 4 to 8 lower-case ASCII
 letters, one per line: about 21,000 words, about 140 KB. The password rule (label-pw-literal in
-maisecrets/detection/core.py) reads it once, and only when a password label stands in the text. A longer word is still
-covered by its parts (basketball: basket + ball).
+maisecrets/detection/value_checks.py) reads it once, and only when a password label stands in the text. A longer word
+is still covered by its parts (basketball: basket + ball).
 
 Offline by design: download the release asset yourself and pass its path. The digest is pinned, so a changed
 asset fails here.
