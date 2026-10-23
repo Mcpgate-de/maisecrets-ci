@@ -26,6 +26,10 @@ and in maisecrets/detection/rules/prefixes.txt, and named no line. The release t
 as its README.md: what the plugin, its hooks and its mod do, with no example value; the full README stays on `main`.
 It ships the prefix rules as `prefixes.json` (`directory_prefixes`), in the form of the other rule files, which the
 directory passed; the loader reads that file when it is there.
+
+The mod joins `hooks/hooks.json` as a module, and `plugin.json` names no hooks file (0.7.15). That is how each of
+the 72 mods that the directory served on 2026-10-23 is declared. `main` keeps the mod's own file
+(`claude-mod/maisecrets-mod.json`), because Codex refuses a `hooks/hooks.json` with a key it does not know.
 """
 from __future__ import annotations
 
@@ -64,6 +68,9 @@ def paths(ref: str = "HEAD") -> list[str]:
 
 
 HOOKS = "hooks/hooks.json"
+MANIFEST = ".claude-plugin/plugin.json"
+MOD_JSON = "claude-mod/maisecrets-mod.json"
+MOD_FROM_HOOKS = "../claude-mod/maisecrets-mod.mjs"
 README = "README.md"
 DIRECTORY_README = "docs/DIRECTORY-README.md"
 PREFIXES_TXT = "maisecrets/detection/rules/prefixes.txt"
@@ -80,6 +87,17 @@ def directory_hooks(text: str) -> str:
                 h["command"] = f'bash "${{CLAUDE_PLUGIN_ROOT}}/hooks/run.sh" {sub}'
                 if "commandWindows" in h:
                     h["commandWindows"] = f'"${{CLAUDE_PLUGIN_ROOT}}/hooks/run.cmd" {sub}'
+    # the mod joins this file as every mod the directory serves does (`modules` beside `hooks`); `main` keeps it in a
+    # file of its own, as Codex refuses a hooks.json with a key it does not know (HooksFile, deny_unknown_fields), and
+    # the directory installs nothing for Codex
+    data["modules"] = [MOD_FROM_HOOKS]
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+
+
+def directory_manifest(text: str) -> str:
+    """plugin.json without its `hooks` entry: in the directory flavor the mod is a module of hooks/hooks.json."""
+    data = json.loads(text)
+    assert data.pop("hooks", None) == "./" + MOD_JSON, "plugin.json names another hooks file than the mod's"
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
@@ -97,6 +115,7 @@ def directory_prefixes(text: str) -> str:
 # the files the release tree replaces: path -> (source of the content on <ref>, transform)
 def _replaced(ref: str) -> dict:
     return {HOOKS: directory_hooks(_git("show", f"{ref}:{HOOKS}")),
+            MANIFEST: directory_manifest(_git("show", f"{ref}:{MANIFEST}")),
             README: _git("show", f"{ref}:{DIRECTORY_README}"),
             PREFIXES_JSON: directory_prefixes(_git("show", f"{ref}:{PREFIXES_TXT}"))}
 
@@ -110,7 +129,7 @@ def commit(ref: str, parent: str | None, message: str) -> str:
         rows = subprocess.run(["git", "ls-tree", "-r", "-z", ref], capture_output=True, check=True).stdout
         wanted = {p.encode() for p in paths(ref)}
         replaced = _replaced(ref)
-        dropped = {p.encode() for p in replaced} | {PREFIXES_TXT.encode()}
+        dropped = {p.encode() for p in replaced} | {PREFIXES_TXT.encode(), MOD_JSON.encode()}
         info = b"".join(row + b"\0" for row in rows.split(b"\0") if row and row.split(b"\t", 1)[1] in wanted
                         and row.split(b"\t", 1)[1] not in dropped)
         for path, content in replaced.items():

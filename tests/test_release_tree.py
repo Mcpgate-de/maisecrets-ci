@@ -85,10 +85,26 @@ class ReleaseTreeTests(unittest.TestCase):
         tracked = subprocess.run(["git", "ls-tree", "-r", "--name-only", "HEAD"], capture_output=True, text=True,
                                  check=True, cwd=ROOT).stdout.split("\n")
         # prefixes.txt ships as prefixes.json (build_release_tree.directory_prefixes)
+        # the mod's own hooks file stays on main: in the tree the mod is a module of hooks/hooks.json
         want = sorted(self.mod.PREFIXES_JSON if p == self.mod.PREFIXES_TXT else p
                       for p in tracked if p and not p.startswith(self.DEV_ONLY_PREFIXES)
-                      and p not in self.DEV_ONLY_FILES and not p.endswith("/agents/openai.yaml"))
+                      and p not in self.DEV_ONLY_FILES and not p.endswith("/agents/openai.yaml")
+                      and p != self.mod.MOD_JSON)
         self.assertEqual(sorted(self.files), want)
+
+    def test_the_mod_is_a_module_of_the_hooks_file_as_the_directory_serves_mods(self):
+        # every mod the directory serves names its module in hooks/hooks.json, and the manifest names no hooks file;
+        # main keeps a file of its own for the mod because Codex refuses a key it does not know in hooks/hooks.json
+        hooks = json.loads((self.tree / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+        manifest = json.loads((self.tree / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        self.assertEqual(hooks["modules"], ["../claude-mod/maisecrets-mod.mjs"])
+        self.assertTrue((self.tree / "hooks" / hooks["modules"][0]).resolve().is_file())
+        self.assertNotIn("hooks", manifest)
+        self.assertFalse((self.tree / "claude-mod" / "maisecrets-mod.json").exists())
+        self.assertTrue(hooks["hooks"], "the classic hooks stay beside the module")
+        main = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        self.assertEqual(main["hooks"], "./claude-mod/maisecrets-mod.json", "main keeps the mod's own file")
+        self.assertNotIn("modules", json.loads((ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8")))
 
     def test_every_path_the_hooks_commands_and_manifests_name_is_in_the_tree(self):
         texts = [(p, (self.tree / p).read_text(encoding="utf-8")) for p in self.files
