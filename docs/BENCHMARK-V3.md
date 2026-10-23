@@ -44,6 +44,7 @@ made that unclear.
 |---|---|---|
 | Nemotron, Gretel, Mendeley, PIILO | in full, one file per split: `dev` (read for rules), `val` (used to decide), `holdout` (the public holdout split: read once on 2026-10-19 by a split-all analysis, so development data as well, reported apart) | 1 in 25 of `val` and 1 in 25 of `holdout` |
 | Privy (`beki/privy`, test-small) | in full, totals only | 1 in 10, totals only |
+| aparte, LLM-Redactor, CredSweeper (secret datasets, below) | in full, one file per split: `dev`, `val`, `holdout` (not read) | none yet |
 | The bank | `dev` and `val` | the same |
 | The catalogs | all rule examples | the same |
 
@@ -54,6 +55,49 @@ case hashes of each file are in the result (`cases_sha256`) and in the report.
 1.7.0rc1, Preserve 0.6.1, Presidio 2.2.364, each from `bench/adapters/requirements/`, and the AI Gateway's detector
 as a consumer (`bench/adapters/ai_gateway.py`: the gateway checkout at a commit, refused with changes; it claims email,
 phone, IBAN, card, IP and German ids only).
+
+## Secret datasets (added 2026-10-22)
+
+Three public sets with labelled secrets. Each one is pinned in `scripts/measure_datasets.py` (`SOURCES`), and
+`python3 scripts/measure_datasets.py fetch --only aparte,llmredactor,credsweeper` writes it into the data directory.
+The fetch of LLM-Redactor needs pyarrow. Their values are fake or test values by their cards. Run them with
+`bench/run.py --source <name> --split dev|val|holdout`. `bench/run_all_v3.sh` runs maisecrets on each split, so
+the release gate compares them span by span with the baseline of the last release. A baseline without them shows
+them as not comparable once.
+
+### aparte (`apartejs/aparte-secrets-gold`)
+
+Real chat messages from WildChat (English and French) with fake secrets that an LLM put in, and code snippets and
+framework configs. Licence ODC-BY 1.0. Revision `efca9c0004ac8435ef58c0dcaec61c88605fbb76`. The spans are the card's
+`secrets` (code-point offsets). The `decoys` (UUIDs, SHAs, IBANs, example and masked keys) are no spans, so a finding
+on one is a false positive. The config `gold` (775 texts) is development data, because the makers of a competing
+detector tuned on it. The split rule divides it into `dev` (465) and `val` (310); its holdout part goes to `val`. The
+configs `chat-fresh` and `chat-fresh-json` (440 texts each, the same messages as JSON) are the `holdout` split (880).
+Classes: `password` → `secret.password`, `api_key` and `token` → `secret.token`, `private_key` →
+`secret.private_key`, a secret without a subtype → `secret.generic`. Channel `prompt`. The context comes from the
+mode: chat → prose, `chat_json` → json, tech → code, framework → config. It labels no PII.
+
+### llmredactor (`jayluxferro/llm-redactor-leak-benchmark`, workload `wl2_secrets`)
+
+300 synthetic prompts to an LLM (configs, code, shell commands, logs). Licence MIT. Revision
+`113f7676dbf5f8ec0152c3f3bd87150cc81f4662`. Split by the split rule: `dev` 187, `val` 52, `holdout` 61.
+Classes: `password` → `secret.password`; `api_key`, `bearer_token`, `aws_access_key` → `secret.token`;
+`aws_secret_key` → `secret.generic`; `pem_private_key` → `secret.private_key`; `email` → `pii.email` and `ip_address`
+→ `pii.ip` (with the existing label cleaning: a reserved domain or a private address is neutral); `hostname` is
+neutral. Channel `prompt`. The context is a guess from the first lines (`context_of`).
+
+### credsweeper (`Samsung/CredSweeper`, `tests/samples`)
+
+The test samples of CredSweeper, one case per text file (199 files; 47 binary files are left out). Licence MIT.
+Commit `b4875caf368bbc08d4d9431b714ad114608edf2c`. The archive of GitHub is not byte-stable, so the pin is the
+sha256 over the extracted files (`tree_sha256`). The spans come from CredSweeper's expected output of its default run
+(`tests/data/output.json`, line number and value offsets per line). Its rules give the class: a password rule →
+`secret.password`, a private key → `secret.private_key` (one span per key), a keyword rule (`Token`, `Key`, `Secret`,
+…) → `secret.generic`, a provider rule → `secret.token`. Neutral: info and low severity rules (UUID, bucket names,
+salts), each value in a negative sample (`*_n`, `*_fp`, `false_positive`), and the values that only its other runs
+report (`no_ml.json`, `doc.json`). The rest of a file is negative text. Split by the split rule on the file name:
+`dev` 114, `val` 35, `holdout` 50. Channel `tool`, the path is the file name, the context comes from the extension.
+The labels are the output of one scanner, so its precision is probably a lower bound; no read sample checks it yet.
 
 ## Repeat
 

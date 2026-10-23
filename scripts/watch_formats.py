@@ -12,6 +12,10 @@ can be in one of them long before it reaches a vendored set, or never (the Story
 - trufflehog: its detectors, one folder each under pkg/detectors
 - betterleaks: the rule ids of config/betterleaks.toml on main, ahead of the release that Renovate takes
 - veles: the secret plugins of Google's OSV-SCALIBR, one folder each under veles/secrets (kingfisher imports them)
+- gitleaks: the rule ids of config/gitleaks.toml on master
+- trivy: the ids of its built-in secret rules, pkg/fanal/secret/builtin-rules.go
+- noseyparker: the rule ids of its built-in rule files, crates/noseyparker/data/default/builtin/rules
+- nuclei: the names under file/keys of nuclei-templates, one file or folder per provider
 
 A new entry is a reason to look, not a rule: whoever looks writes a prefix rule with a test when the format has a
 fixed prefix (maisecrets/detection/rules/prefixes.txt), or adds the entry to the snapshot with `update`. The
@@ -59,6 +63,25 @@ def betterleaks_ids(text: str) -> list[str]:
     return sorted(set(re.findall(r'^\s*id\s*=\s*"([^"]+)"', text, re.M)))
 
 
+def trivy_ids(text: str) -> list[str]:
+    return sorted(set(re.findall(r'^\s*ID:\s*"([\w.-]+)"', text, re.M)))
+
+
+def yaml_ids(text: str) -> list[str]:
+    return sorted(set(re.findall(r"^\s*(?:-\s+)?id:\s*['\"]?([\w.-]+)", text, re.M)))
+
+
+def _names(repo: str, path: str) -> list[str]:
+    return sorted(e["name"] for e in json.loads(_get(f"{API}{repo}/contents/{path}")))
+
+
+def noseyparker_ids() -> list[str]:
+    base = "praetorian-inc/noseyparker/main/crates/noseyparker/data/default/builtin/rules/"
+    files = [n for n in _names("praetorian-inc/noseyparker", "crates/noseyparker/data/default/builtin/rules")
+             if n.endswith(".yml")]
+    return sorted({i for f in files for i in yaml_ids(_get(RAW + base + f).decode("utf-8"))})
+
+
 SOURCES = {
     "github": lambda: github_types(_get(RAW + "github/docs/main/src/secret-scanning/data/pattern-docs/fpt/"
                                         "public-docs.yml").decode("utf-8")),
@@ -66,6 +89,11 @@ SOURCES = {
     "betterleaks": lambda: betterleaks_ids(_get(RAW + "betterleaks/betterleaks/main/config/betterleaks.toml")
                                            .decode("utf-8")),
     "veles": lambda: _folders("google/osv-scalibr", "veles/secrets"),
+    "gitleaks": lambda: betterleaks_ids(_get(RAW + "gitleaks/gitleaks/master/config/gitleaks.toml").decode("utf-8")),
+    "trivy": lambda: trivy_ids(_get(RAW + "aquasecurity/trivy/main/pkg/fanal/secret/builtin-rules.go")
+                               .decode("utf-8")),
+    "noseyparker": noseyparker_ids,
+    "nuclei": lambda: _names("projectdiscovery/nuclei-templates", "file/keys"),
 }
 
 

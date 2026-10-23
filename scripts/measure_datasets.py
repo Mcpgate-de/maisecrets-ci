@@ -120,6 +120,43 @@ SOURCES = {
         "archive_sha256": "ad4ffbc8f7102a92f01f8d8023ddf4f5244fea6b23c3f116641fe6bbd8cbbde4",
         "files": {"test-small.json": "7ccbf2338f1b1d0f2192e5ad727e270f9cdf44dbe522a16af52d500f8c6c30f9"},
     },
+    # three secret sets added on 2026-10-22 (docs/BENCHMARK-V3.md, "Secret datasets"); their values are fake or test
+    # values by their cards, and their mapping below was fixed from the cards and the label inventory before a run
+    "aparte": {
+        "title": "aparte-secrets-gold (fake secrets in real chat messages, code and framework configs)",
+        "licence": "ODC-BY 1.0", "attribution": "the aparte-secrets authors; the host messages come from WildChat",
+        "url": "https://huggingface.co/datasets/apartejs/aparte-secrets-gold",
+        "repo": "apartejs/aparte-secrets-gold",
+        "revision": "efca9c0004ac8435ef58c0dcaec61c88605fbb76",
+        "files": {
+            "gold/gold.jsonl": "619101fb657eca7f1a7cf8524541d452bf86d313a948d3a874c40cd55bc3431d",
+            "chat-fresh/chat-fresh.jsonl": "4a219aa87bdfa49bfc396aacc971315197e29581b3e589629e63b3ad2b3deb3a",
+            "chat-fresh-json/chat-fresh-json.jsonl":
+                "6c4df76b69b2b6c79eda008c81139dcfda684bcf0c43e36d06b9e8c76ff93bdd",
+        },
+    },
+    "llmredactor": {
+        "title": "LLM-Redactor leak benchmark, workload wl2_secrets (synthetic prompts to an LLM)",
+        "licence": "MIT", "attribution": "the LLM-Redactor authors, arXiv:2604.12064",
+        "url": "https://huggingface.co/datasets/jayluxferro/llm-redactor-leak-benchmark",
+        "repo": "jayluxferro/llm-redactor-leak-benchmark",
+        "revision": "113f7676dbf5f8ec0152c3f3bd87150cc81f4662",
+        "files": {
+            "wl2_secrets/train-00000-of-00001.parquet":
+                "f10f800d4ab67931c035fb8385f81ef59439954833096d6f777f6ba190319fe0",
+        },
+        "columns": ["id", "text", "annotations", "workload"],
+    },
+    # the test samples of CredSweeper and its expected output; the archive of GitHub is not byte-stable, so the pin is
+    # the sha256 of the extracted files (tree_sha256, see tree_digest)
+    "credsweeper": {
+        "title": "CredSweeper test samples (tests/samples) and expected output (tests/data)",
+        "licence": "MIT", "attribution": "Samsung Electronics, CredSweeper",
+        "url": "https://github.com/Samsung/CredSweeper",
+        "revision": "b4875caf368bbc08d4d9431b714ad114608edf2c",
+        "archive": "https://codeload.github.com/Samsung/CredSweeper/tar.gz/b4875caf368bbc08d4d9431b714ad114608edf2c",
+        "tree_sha256": "c6ef1aaea8ea670c2e253e1490114645b53d49ca1b39f7304c59bbfc8058e7b2",
+    },
 }
 DATASETS = tuple(SOURCES)
 
@@ -177,6 +214,17 @@ LABELS = {
         **{k: _OOS for k in ("LOC", "DATE_TIME", "NRP", "TITLE", "FINANCIAL", "ORG", "US_LICENSE_PLATE", "IMEI",
                              "AGE", "MAC_ADDRESS")},
     },
+    # the card's subtypes; a secret without a subtype (framework configs, generic values) is `generic`. The decoys are
+    # no spans: their text is negative
+    "aparte": {k: "SECRET" for k in ("password", "api_key", "token", "private_key", "generic")},
+    "llmredactor": {
+        **{k: "SECRET" for k in ("api_key", "password", "bearer_token", "aws_access_key", "aws_secret_key",
+                                 "pem_private_key")},
+        "email": "EMAIL", "ip_address": "IP", "hostname": _OOS,
+    },
+    # CredSweeper's rule names grouped by credsweeper_label(); `unconfirmed` holds what its default run does not report
+    # as a credential (bench/sources.py makes it neutral)
+    "credsweeper": {**{k: "SECRET" for k in ("password", "private_key", "token", "generic")}, "unconfirmed": _OOS},
 }
 TIER_OF = {t: tier for tier, types in TIERS.items() for t in types}
 
@@ -245,6 +293,14 @@ def fetch(name: str, data: Path) -> None:
             archive.unlink()
         _require(target, src["files"]["train.json"], name)
         return
+    if name == "credsweeper":
+        if tree_digest(into) != src["tree_sha256"]:
+            archive = into / "archive.tar.gz"
+            _get(src["archive"], archive)
+            extract_credsweeper(archive, into)
+            archive.unlink()
+        _require_tree(into, src["tree_sha256"], name)
+        return
     for path, want in src["files"].items():
         dest = into / Path(path).name
         if not _verified(dest, want):
@@ -259,6 +315,51 @@ def fetch(name: str, data: Path) -> None:
 def _require(path: Path, want: str, name: str) -> None:
     if not _verified(path, want):
         raise DataError(f"{name}: {path.name} does not match its pinned sha256; delete it and fetch again")
+
+
+CREDSWEEPER_DATA = ("output.json", "no_ml.json", "doc.json")
+_MAX_MEMBER = 64 << 20
+
+
+def extract_credsweeper(archive: Path, into: Path) -> None:
+    """The regular files of tests/samples (one level, as at the pinned commit) and the expected outputs of tests/data
+    from GitHub's archive; any other member, a link, a name with a path in it or a file over 64 MiB is left out."""
+    import tarfile
+    for sub in ("samples", "data"):
+        shutil.rmtree(into / sub, ignore_errors=True)
+        (into / sub).mkdir(parents=True)
+    with tarfile.open(archive, "r:gz") as tar:
+        for m in tar:
+            parts = m.name.split("/")
+            if not m.isfile() or len(parts) != 4 or parts[1] != "tests" or m.size > _MAX_MEMBER:
+                continue
+            leaf = parts[3]
+            if leaf in ("", ".", "..") or "\\" in leaf:
+                continue
+            if parts[2] == "samples":
+                dest = into / "samples" / leaf
+            elif parts[2] == "data" and leaf in CREDSWEEPER_DATA:
+                dest = into / "data" / leaf
+            else:
+                continue
+            with tar.extractfile(m) as src, open(dest, "wb") as fh:
+                shutil.copyfileobj(src, fh, 1 << 20)
+
+
+def tree_digest(into: Path) -> str:
+    """The sha256 of "<sha256 of the file>  <path>" lines, sorted, over the files of samples/ and data/."""
+    lines = []
+    for sub in ("samples", "data"):
+        d = into / sub
+        if d.is_dir():
+            lines += [f"{sha256_of(f)}  {sub}/{f.name}" for f in sorted(d.iterdir()) if f.is_file()]
+    return hashlib.sha256("\n".join(sorted(lines)).encode()).hexdigest() if lines else ""
+
+
+def _require_tree(into: Path, want: str, name: str) -> None:
+    if tree_digest(into) != want:
+        raise DataError(f"{name}: the extracted files do not match their pinned tree_sha256; delete {into.name}/ and "
+                        f"fetch again")
 
 
 def _parquet_to_jsonl(path: Path, columns: list, sha: str) -> None:
@@ -445,6 +546,208 @@ def piilo_samples(records, stats: collections.Counter):
                "spans": [{"start": a, "end": b, "label": lab} for lab, a, b in spans]}
 
 
+def _plain_jsonl(path: Path):
+    if not path.is_file():
+        raise DataError(f"{path} is missing: run `fetch` first")
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            if line.strip():
+                yield json.loads(line)
+
+
+# aparte: the card's mode of a text is its context; `gold` is the development config (its makers tuned on it), so it
+# is split into dev and val alone; `chat-fresh` and its JSON form are the holdout
+APARTE_CONTEXT = {"chat": "prose", "negatif_chat": "prose", "chat_json": "json", "negatif_chat_json": "json",
+                  "tech": "code", "negatif_tech": "code", "framework": "config", "framework_exemple": "config"}
+APARTE_CONFIGS = ("gold", "chat-fresh", "chat-fresh-json")
+
+
+def aparte_samples(configs, stats: collections.Counter):
+    """configs: (config name, records). One sample per text; each secret is a span labelled with its subtype; the
+    decoys are no spans. The offsets are code points, as Python counts them."""
+    for config, records in configs:
+        for r in records:
+            sid = f"{config}:{r['id']}"
+            mode = r.get("mode", "")
+            if mode not in APARTE_CONTEXT:
+                raise DataError(f"aparte: {sid}: a mode without a context")
+            stats[f"{config} texts"] += 1
+            stats[f"{config} decoys (negative text)"] += len(r.get("decoys") or [])
+            split = "holdout" if config != "gold" else _split_of_record("aparte", sid).replace("holdout", "val")
+            lang = r.get("lang") if r.get("lang") in LANGUAGE_GROUP else "en"
+            yield {"id": sid, "lang": lang, "split": split, "channel": "prompt", "context": APARTE_CONTEXT[mode],
+                   "tags": [f"config:{config}", f"group:{r.get('group')}", f"mode:{mode}"], "text": r["text"],
+                   "spans": [{"start": s["start"], "end": s["end"], "label": s.get("subtype") or "generic",
+                              "expect": s.get("text", "")} for s in r.get("secrets") or []]}
+
+
+def _split_of_record(source: str, record: str) -> str:
+    """bench/cases.py, split_of: the same rule, written here so this script needs nothing of bench/."""
+    n = int(hashlib.sha256(f"{source}/{record}".encode()).hexdigest()[:8], 16) % 10
+    return "dev" if n < 6 else "val" if n < 8 else "holdout"
+
+
+def context_of(text: str) -> str:
+    """The context of a prompt by its first lines: JSON, a shell command, a log, YAML, a config file, code or prose."""
+    head = text.lstrip()
+    if head[:1] in "{[" and head.rstrip()[-1:] in "}]":
+        return "json"
+    if re.match(r"(?:\$ )?(?:curl|wget|export|ssh|psql|mysql|docker|kubectl|aws|git)\b", head):
+        return "shell"
+    if re.search(r"(?m)^\[?(?:\d{4}-\d\d-\d\d|ERROR|WARN|INFO|DEBUG)\b", head):
+        return "log"
+    if re.search(r"(?m)^(?:import|from|const|let|var|def|class|func|package|public|function)\b|[;{]\s*$", head):
+        return "code"
+    if re.search(r"(?m)^[A-Za-z_][\w.-]*:\s*$", head) and re.search(r"(?m)^ +[\w-]+:", head):
+        return "yaml"
+    if re.search(r"(?m)^(?:#.*|\[[^\]]+\]|[A-Za-z_][\w.-]*\s*[=:].*|Host .*|\s+\w+ .*)$", head) and \
+            sum(1 for line in head.splitlines() if re.match(r"\s*(?:#|\[|[A-Za-z_][\w.-]*\s*[=:]|Host |\s)", line)) \
+            >= len(head.splitlines()) * 0.6:
+        return "config"
+    return "prose"
+
+
+def llmredactor_samples(records, stats: collections.Counter):
+    """One sample per prompt of wl2_secrets; the annotations are parallel lists of start, end, kind and text."""
+    for r in records:
+        sid = str(r["id"])
+        if r.get("workload") != "wl2_secrets":
+            stats["records of another workload"] += 1
+            continue
+        a = r.get("annotations") or {}
+        cols = [a.get(k) or [] for k in ("start", "end", "kind", "text")]
+        if len({len(c) for c in cols}) != 1:
+            raise DataError(f"llmredactor: {sid}: the annotation lists differ in length")
+        stats["records"] += 1
+        yield {"id": sid, "lang": "en", "channel": "prompt", "context": context_of(r["text"]), "tags": [],
+               "text": r["text"], "spans": [{"start": s, "end": e, "label": k, "expect": t}
+                                            for s, e, k, t in zip(*cols)]}
+
+
+# CredSweeper: a rule whose name says password, a private key, a keyword rule (a value after a generic name) or a
+# rule of one provider's format; info and low severity rules (UUID, bucket names, salts, nonces) are no credential
+CREDSWEEPER_GENERIC = {"Token", "Key", "Secret", "Auth", "API", "Credential", "CMD Token", "CMD Secret",
+                       "CURL Options", "Bearer Authorization"}
+CREDSWEEPER_EXT = {"json": "json", "yaml": "yaml", "yml": "yaml", "log": "log", "sh": "shell", "ps1": "shell",
+                   "bat": "shell", "md": "doc", "txt": "doc", "html": "doc", "xml": "doc", "env": "config",
+                   "ini": "config", "cfg": "config", "conf": "config", "properties": "config", "toml": "config",
+                   "template": "config", "tf": "config", "hs": "code", "py": "code", "go": "code", "java": "code",
+                   "js": "code", "ts": "code", "kt": "code", "rb": "code", "php": "code", "c": "code", "cpp": "code",
+                   "cs": "code", "swift": "code", "patch": "code", "diff": "code", "sql": "code", "gradle": "code"}
+
+
+def credsweeper_label(rule: str, severity: str) -> str:
+    if severity in ("info", "low"):
+        return "unconfirmed"
+    r = rule.lower()
+    if "private key" in r:
+        return "private_key"
+    if "password" in r or "passwd" in r or "securestring" in r:
+        return "password"
+    return "generic" if rule in CREDSWEEPER_GENERIC else "token"
+
+
+def credsweeper_negative_file(name: str) -> bool:
+    """A sample the project keeps as a negative (`*_n`, `*_fp`, false_positive): what it reports there is no
+    credential."""
+    stem = name.split(".", 1)[0]
+    return stem.endswith("_n") or stem.endswith("_fp") or stem == "false_positive"
+
+
+def _credsweeper_context(name: str) -> str:
+    if name.startswith("doc_"):
+        return "prose"
+    ext = name.rsplit(".", 1)[1].lower() if "." in name else ""
+    return CREDSWEEPER_EXT.get(ext, "code")
+
+
+def _credsweeper_places(text: str, cred: dict):
+    """(start, end) per line of one reported credential in the file text, or None for a line it cannot place; the
+    lines of a PEM key are one span."""
+    lines = text.split("\n")
+    starts = [0]
+    for line in lines[:-1]:
+        starts.append(starts[-1] + len(line) + 1)
+    out = []
+    for ld in cred["line_data_list"]:
+        n, v = ld.get("line_num", 0), ld.get("value") or ""
+        if not v or not 1 <= n <= len(lines) or ld.get("value_start", -1) < 0:
+            out.append(None)
+            continue
+        line = lines[n - 1]
+        at = line.find(ld.get("line") or "\0")
+        if at >= 0 and line[at + ld["value_start"]:at + ld["value_end"]] == v:
+            a = starts[n - 1] + at + ld["value_start"]
+        elif line.count(v) == 1:
+            a = starts[n - 1] + line.index(v)
+        else:
+            out.append(None)
+            continue
+        out.append((a, a + len(v)))
+    placed = [p for p in out if p]
+    if "private key" in cred["rule"].lower() and placed:
+        # one key, one span; a line without a value (an empty line in the key) is inside it
+        return [(min(a for a, _ in placed), max(b for _, b in placed))]
+    return out
+
+
+def credsweeper_samples(files, expected: list, candidates: list, stats: collections.Counter):
+    """files: (sample name, bytes). expected: CredSweeper's output of its default run (tests/data/output.json), its
+    credentials; candidates: the outputs of its other runs (without ML, --doc), whose values it does not confirm. One
+    sample per text file; a binary file is left out. A credential becomes a span labelled by credsweeper_label, an
+    unconfirmed value or a line that cannot be placed a neutral span (`unconfirmed`); the rest of the file is
+    negative text."""
+    def by_file(results):
+        out = collections.defaultdict(list)
+        for cred in results:
+            paths = {ld.get("path", "") for ld in cred["line_data_list"]}
+            # info is FILE:<path> and |RAW for the plain text; another part (|ZIP:…, |DEB:…) is a file inside an archive
+            nested = any(part != "RAW" for ld in cred["line_data_list"] for part in ld.get("info", "").split("|")[1:])
+            if len(paths) != 1 or nested:
+                stats["credentials across files or inside an archive (left out)"] += 1
+                continue
+            path = paths.pop().replace("\\", "/")
+            if "tests/samples/" not in path:
+                continue
+            out[path.split("tests/samples/", 1)[1]].append(cred)
+        return out
+    confirmed, unconfirmed = by_file(expected), by_file(c for run in candidates for c in run)
+    for name, raw in files:
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            stats["binary files (left out)"] += 1
+            stats["credentials in binary files (left out)"] += len(confirmed.get(name, []))
+            continue
+        negative = credsweeper_negative_file(name)
+        spans, seen = [], set()
+        for cred in confirmed.get(name, []):
+            label = "unconfirmed" if negative else credsweeper_label(cred["rule"], cred.get("severity", ""))
+            places = _credsweeper_places(text, cred)
+            for place, ld in zip(places, cred["line_data_list"][:1] if len(places) == 1 else cred["line_data_list"]):
+                if place is None:
+                    stats["values not placed (neutral line)"] += 1
+                    n = ld.get("line_num", 0)
+                    lines = text.split("\n")
+                    if not 1 <= n <= len(lines) or not lines[n - 1]:
+                        continue
+                    a = sum(len(x) + 1 for x in lines[:n - 1])
+                    place, label = (a, a + len(lines[n - 1])), "unconfirmed"
+                if (place, label) not in seen:
+                    seen.add((place, label))
+                    spans.append({"start": place[0], "end": place[1], "label": label})
+                    stats[f"spans {label}"] += 1
+        for cred in unconfirmed.get(name, []):
+            for place in _credsweeper_places(text, cred):
+                if place and not any(s["start"] < place[1] and place[0] < s["end"] for s in spans):
+                    spans.append({"start": place[0], "end": place[1], "label": "unconfirmed"})
+                    stats["spans unconfirmed (other runs only)"] += 1
+        stats["files"] += 1
+        yield {"id": name, "lang": "en", "channel": "tool", "context": _credsweeper_context(name), "path": name,
+               "tags": ["negative-file"] if negative else [], "text": text,
+               "spans": sorted(spans, key=lambda s: (s["start"], s["end"]))}
+
+
 def load(name: str, data: Path, stats: collections.Counter):
     d = data / name
     if name == "gretel":
@@ -462,6 +765,17 @@ def load(name: str, data: Path, stats: collections.Counter):
         _require(d / "test-small.json", SOURCES["privy"]["files"]["test-small.json"], name)
         with open(d / "test-small.json", encoding="utf-8") as fh:
             return privy_samples(json.load(fh), stats)
+    if name == "aparte":
+        for f, want in SOURCES["aparte"]["files"].items():
+            _require(d / Path(f).name, want, name)
+        return aparte_samples(((c, _plain_jsonl(d / f"{c}.jsonl")) for c in APARTE_CONFIGS), stats)
+    if name == "llmredactor":
+        return llmredactor_samples(_jsonl(d / "train-00000-of-00001.jsonl.gz"), stats)
+    if name == "credsweeper":
+        _require_tree(d, SOURCES["credsweeper"]["tree_sha256"], name)
+        runs = [json.loads((d / "data" / f).read_text(encoding="utf-8")) for f in CREDSWEEPER_DATA]
+        files = ((f.name, f.read_bytes()) for f in sorted((d / "samples").iterdir()) if f.is_file())
+        return credsweeper_samples(files, runs[0], runs[1:], stats)
     if name == "piilo":
         _require(d / "train.json", SOURCES["piilo"]["files"]["train.json"], name)
         with open(d / "train.json", encoding="utf-8") as fh:

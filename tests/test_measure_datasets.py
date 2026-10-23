@@ -314,6 +314,138 @@ class LoaderTests(unittest.TestCase):
         gold, _ = counts_of("mendeley", out[0])
         self.assertEqual((gold[0]["start"], gold[0]["end"]), (at, at + len("Test Holder")))
 
+    def test_aparte_maps_subtypes_modes_and_configs_and_leaves_decoys_out(self):
+        value, decoy = "value" + "-one-x", "decoy" + "-two-y"
+        text = f"my key is {value} and not {decoy}"
+        at = text.index(value)
+        rec = {"id": "gs-1", "lang": "code", "mode": "framework", "group": "framework", "text": text,
+               "secrets": [{"start": at, "end": at + len(value), "text": value, "subtype": None, "family": "f"}],
+               "decoys": [{"kind": "uuid", "value": decoy}]}
+        fresh = {**rec, "id": "tc-1", "lang": "fr", "mode": "negatif_chat_json", "secrets": []}
+        stats = collections.Counter()
+        out = list(md.aparte_samples([("gold", [rec]), ("chat-fresh-json", [fresh])], stats))
+        gold, held = out
+        self.assertEqual(gold["spans"], [{"start": at, "end": at + len(value), "label": "generic", "expect": value}])
+        self.assertIn(gold["split"], ("dev", "val"))          # gold is development data, never the holdout
+        self.assertEqual((gold["lang"], gold["context"], gold["channel"]), ("en", "config", "prompt"))
+        self.assertEqual((held["split"], held["context"], held["lang"], held["spans"]), ("holdout", "json", "fr", []))
+        self.assertEqual(stats["gold decoys (negative text)"], 1)
+        g, _ = counts_of("aparte", gold)
+        self.assertEqual([(x["type"], x["gold"]) for x in g], [("SECRET", "pos")])
+        with self.assertRaises(md.DataError):
+            list(md.aparte_samples([("gold", [{**rec, "mode": "unknown"}])], collections.Counter()))
+
+    def test_gold_records_of_aparte_never_fall_into_the_holdout(self):
+        splits = collections.Counter(
+            s["split"] for s in md.aparte_samples(
+                [("gold", [{"id": f"gs-{i}", "lang": "en", "mode": "chat", "text": "t", "secrets": [],
+                            "decoys": []} for i in range(200)])], collections.Counter()))
+        self.assertEqual(set(splits), {"dev", "val"})
+        self.assertGreater(splits["val"], 40)                 # the hash's holdout part becomes val
+
+    def test_llmredactor_reads_parallel_annotation_lists(self):
+        value = "value" + "-three-z"
+        text = f"key: {value}\nhost: db.internal"
+        a, h = text.index(value), text.index("db.internal")
+        rec = {"id": "wl2_0001", "workload": "wl2_secrets", "text": text,
+               "annotations": {"start": [a, h], "end": [a + len(value), h + 11], "kind": ["api_key", "hostname"],
+                               "text": [value, "db.internal"]}}
+        stats = collections.Counter()
+        out = list(md.llmredactor_samples([rec, {**rec, "id": "wl1_1", "workload": "wl1_pii"}], stats))
+        self.assertEqual(len(out), 1)
+        self.assertEqual([s["label"] for s in out[0]["spans"]], ["api_key", "hostname"])
+        self.assertEqual(out[0]["context"], "config")
+        self.assertEqual(stats["records of another workload"], 1)
+        gold, _ = counts_of("llmredactor", out[0])
+        self.assertEqual([x["gold"] for x in gold], ["pos", "oos"])     # a hostname is neutral
+        rec["annotations"]["kind"] = ["api_key"]
+        with self.assertRaises(md.DataError):
+            list(md.llmredactor_samples([rec], collections.Counter()))
+
+    def test_context_of_a_prompt(self):
+        cases = {'{"a": 1}': "json", "curl -H x https://h": "shell", "[ERROR] failed\nnext": "log",
+                 "import os\nx = 1": "code", "db:\n  host: h\n  port: 1": "yaml", "# .env\nA=1\nB=2": "config",
+                 "Please help me with this sentence.": "prose"}
+        for text, want in cases.items():
+            with self.subTest(want=want):
+                self.assertEqual(md.context_of(text), want)
+
+    def test_credsweeper_places_values_by_line_and_marks_what_it_does_not_confirm(self):
+        v1, v2, v3 = "value" + "-four-q", "value" + "-five-r", "value" + "-six-s"
+        text = f"a = 1\npassword = '{v1}'\ntoken: {v2}\nother {v3}\n"
+        pem_lines = ["-----BEGIN TEST KEY-----", "AAAA", "-----END TEST KEY-----"]
+        pem = "\n".join(pem_lines) + "\n"
+
+        def ld(name, line_num, line, value, start=None):
+            s = line.index(value) if start is None else start
+            return {"path": f"./tests/samples/{name}", "info": f"FILE:./tests/samples/{name}|RAW",
+                    "line_num": line_num, "line": line, "value": value, "value_start": s, "value_end": s + len(value)}
+        lines = text.split("\n")
+        expected = [
+            {"rule": "Password", "severity": "medium", "line_data_list": [ld("conf.py", 2, lines[1], v1)]},
+            {"rule": "Example Provider Token", "severity": "high",
+             "line_data_list": [ld("conf.py", 3, "  " + lines[2], v2)]},            # "line" a window of the line
+            {"rule": "UUID", "severity": "info", "line_data_list": [ld("conf.py", 4, lines[3], v3)]},
+            {"rule": "PEM Private Key", "severity": "high",
+             "line_data_list": [ld("key.pem", i + 1, x, x) for i, x in enumerate(pem_lines)]},
+            {"rule": "Password", "severity": "medium", "line_data_list": [ld("a_n.txt", 1, v1, v1)]},
+            {"rule": "Token", "severity": "high",
+             "line_data_list": [{**ld("x.zip", 1, v1, v1), "info": "FILE:./tests/samples/x.zip|ZIP:a|RAW"}]},
+        ]
+        candidates = [[{"rule": "Secret", "severity": "high", "line_data_list": [ld("conf.py", 1, lines[0], "1")]}]]
+        files = [("conf.py", text.encode()), ("key.pem", pem.encode()), ("a_n.txt", v1.encode()),
+                 ("blob.bin", b"\xff\xfe\x00")]
+        stats = collections.Counter()
+        out = {s["id"]: s for s in md.credsweeper_samples(files, expected, candidates, stats)}
+        self.assertEqual(set(out), {"conf.py", "key.pem", "a_n.txt"})
+        conf = out["conf.py"]
+        got = [(conf["text"][s["start"]:s["end"]], s["label"]) for s in conf["spans"]]
+        self.assertEqual(got, [("1", "unconfirmed"), (v1, "password"), (v2, "token"), (v3, "unconfirmed")])
+        self.assertEqual((conf["context"], conf["channel"], conf["path"]), ("code", "tool", "conf.py"))
+        key = out["key.pem"]["spans"]
+        self.assertEqual(len(key), 1)                       # the lines of one key are one span
+        self.assertEqual(pem[key[0]["start"]:key[0]["end"]], pem.rstrip("\n"))
+        self.assertEqual([s["label"] for s in out["a_n.txt"]["spans"]], ["unconfirmed"])   # a negative file
+        self.assertEqual(stats["binary files (left out)"], 1)
+        self.assertEqual(stats["credentials across files or inside an archive (left out)"], 1)
+        gold, _ = counts_of("credsweeper", conf)
+        self.assertEqual([x["gold"] for x in gold], ["oos", "pos", "pos", "oos"])
+
+    def test_credsweeper_labels_by_rule_and_severity(self):
+        self.assertEqual(md.credsweeper_label("SQL Password", "medium"), "password")
+        self.assertEqual(md.credsweeper_label("PEM Private Key", "high"), "private_key")
+        self.assertEqual(md.credsweeper_label("Secret", "high"), "generic")
+        self.assertEqual(md.credsweeper_label("Example Provider Token", "high"), "token")
+        self.assertEqual(md.credsweeper_label("UUID", "info"), "unconfirmed")
+        self.assertTrue(md.credsweeper_negative_file("jfrog_n"))
+        self.assertTrue(md.credsweeper_negative_file("aws_multi_fp"))
+        self.assertFalse(md.credsweeper_negative_file("defined_networking"))
+
+    def test_credsweeper_fetch_keeps_samples_and_expected_output_only(self):
+        import io
+        import tarfile
+        tmp = Path(tempfile.mkdtemp(prefix="credsweeper-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        archive = tmp / "a.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            for name, data in (("CS-x/tests/samples/one", b"1"), ("CS-x/tests/data/output.json", b"[]"),
+                               ("CS-x/tests/data/other.json", b"[]"), ("CS-x/tests/samples/sub/two", b"2"),
+                               ("CS-x/README.md", b"r")):
+                info = tarfile.TarInfo(name)
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
+            link = tarfile.TarInfo("CS-x/tests/samples/link")
+            link.type, link.linkname = tarfile.SYMTYPE, "/etc/passwd"
+            tar.addfile(link)
+        md.extract_credsweeper(archive, tmp / "out")
+        self.assertEqual(sorted(p.relative_to(tmp / "out").as_posix() for p in (tmp / "out").rglob("*")
+                                if p.is_file()), ["data/output.json", "samples/one"])
+        digest = md.tree_digest(tmp / "out")
+        (tmp / "out" / "samples" / "one").write_bytes(b"changed")
+        self.assertNotEqual(md.tree_digest(tmp / "out"), digest)
+        with self.assertRaises(md.DataError):
+            md._require_tree(tmp / "out", digest, "credsweeper")
+
     def test_a_data_directory_inside_the_repository_is_refused(self):
         with self.assertRaises(md.DataError):
             md.check_data_dir(ROOT / "data")

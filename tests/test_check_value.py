@@ -543,5 +543,37 @@ class TipTests(_Base):
             self.assertNotIn("ms:(", start(), "Claude Code names it under a blocked prompt, not at the start")
 
 
+
+class FormatReportTests(unittest.TestCase):
+    """ms:(…) on a value no rule caught offers to report its format: the shape, never the value."""
+
+    def test_the_shape_names_the_fixed_start_only_before_a_random_rest(self):
+        tok = "sb" + "_pat_" + "Qx7Lm2Np9Rt4Vb8Kc3Zd6Hf1Jg5Ws0Ye"
+        self.assertEqual(check_value.format_shape(tok),
+                         {"prefix": "sb_pat_", "length": 32, "kinds": ["small letters", "capitals", "digits"],
+                          "signs": ""})
+        # a password with a word before an underscore keeps its start: the rest is too short to be a token body
+        self.assertEqual(check_value.format_shape("summer_" + "rain42!")["prefix"], "")
+
+    def test_the_report_line_holds_the_shape_and_never_the_value(self):
+        tok = "sb" + "_pat_" + "Qx7Lm2Np9Rt4Vb8Kc3Zd6Hf1Jg5Ws0Ye"
+        line = check_value.format_report(tok)
+        self.assertIn("sb_pat_", line)
+        self.assertIn("32 characters", line)
+        self.assertIn("github.com/", line)
+        self.assertNotIn(tok[7:], line)
+        self.assertNotIn(tok[7:].replace("", "%")[1:4], line)   # nor a percent-encoded piece of it
+
+    def test_no_line_when_reporting_is_off(self):
+        from unittest import mock
+        from maisecrets import events
+        with mock.patch.object(events, "tracker", return_value=None):
+            self.assertEqual(check_value.format_report("sb" + "_pat_" + "Qx7Lm2Np9Rt4Vb8Kc3Zd6Hf1"), "")
+
+    def test_a_stored_value_gets_the_report_line(self):
+        out = _prompt(f"ms:({UNSEEN})")
+        self.assertIn("Unknown format? Report its shape", out["reason"])
+        self.assertNotIn(UNSEEN, out["reason"].split("Report its shape", 1)[1])
+
 if __name__ == "__main__":
     unittest.main()

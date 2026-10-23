@@ -58,7 +58,7 @@ def inventory() -> dict:
         classes = set()
         for label in kept:
             t = labels[label]
-            classes.add(sources.SECRET_LABEL.get(label, "secret.generic") if t == "SECRET" else sources.TYPE_CLASS[t])
+            classes.add(sources.secret_class(name, label) if t == "SECRET" else sources.TYPE_CLASS[t])
         classes -= set(RETYPED_ONLY.get(name, ()))
         out[name] = {"labelled": kept, "not_labelled": sorted(k for k, t in labels.items() if t == md.OUT_OF_SCOPE),
                      "scored": sorted(classes), "excluded_shapes": EXCLUDED_SHAPES.get(name, {}),

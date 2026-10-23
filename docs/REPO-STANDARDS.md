@@ -117,6 +117,13 @@ and OpenAI plugin directories.
   asks for the harness and a live test between two sessions with `--plugin-dir`. Docs, bench and CI need nothing.
   The gate's report (`OUT/release-gate.md`) goes into the release merge request. It runs locally: the datasets are
   too large for CI.
+- **The release gate also guards coverage and time.** `--catalogs DIR` measures the candidate on the catalog clones
+  of `docs/coverage.json`: per catalog, the rules found bare and after a label may not fall. `--time` measures the CPU
+  time of the last release and the candidate in turns on the same 1 MB text and a short prompt; the gate stops when the
+  candidate takes more than 1.2 times the base and more than 0.5 s (1 MB) or 1 ms (prompt) longer, and it reports the
+  load average. With `--keep` the gate writes the coverage of the release to `docs/coverage.json` and
+  `docs/coverage-rules.txt`. On Mondays the scheduled job `coverage_drift` measures `main` on the newest catalogs and
+  turns red on a new catalog rule that maisecrets misses even after a label (docs/DETECTION-COVERAGE.md).
 - **New token formats are watched daily.** Renovate keeps the vendored rule sets current; the scheduled job
   `format_watch` (`scripts/watch_formats.py check`) compares the GitHub secret scanning types, trufflehog's
   detectors, betterleaks on `main` and Google's Veles plugins with `docs/format-watch.txt`, and turns red on a new

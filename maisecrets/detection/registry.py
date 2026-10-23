@@ -131,7 +131,7 @@ def matcher_of(rule_id: str, source: str = "") -> str:
         return "import"    # one index of every import (maisecrets/values.py), not a regex per value
     if rule_id.startswith("curl-"):
         return "curl"
-    if rule_id == "label-secret-list":
+    if rule_id in ("label-secret-list", "label-env-key-list"):
         return "list"
     if source == "literal":
         return "literal"

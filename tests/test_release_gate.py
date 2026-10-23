@@ -150,5 +150,49 @@ class MeasuredBaselineTests(unittest.TestCase):
             self.assertEqual(["maisecrets"], gate.verify_tag("v0.0.3", r))
 
 
+
+class CoverageAndTimeTests(unittest.TestCase):
+    """The gate's floor for the catalog coverage and its limit for the CPU time (0.7.9)."""
+
+    def test_coverage_may_not_fall_and_another_catalog_commit_is_not_compared(self):
+        from unittest import mock
+        pinned = {"commits": {"a": "c1", "b": "c1", "c": "c1"},
+                  "counts": {"a": {"bare": 10, "label": 20}, "b": {"bare": 5, "label": 5},
+                             "c": {"bare": 1, "label": 1}}}
+        got = {"commits": {"a": "c1", "b": "c1", "c": "other"},
+               "counts": {"maisecrets": {"a": {"bare": 11, "label": 20}, "b": {"bare": 4, "label": 6},
+                                         "c": {"bare": 0, "label": 0}}}}
+        with tempfile.TemporaryDirectory() as d:
+            out, cov = Path(d), Path(d) / "pinned.json"
+            cov.write_text(json.dumps(pinned))
+
+            def fake_run(cmd, **_kw):
+                (out / "coverage.json").write_text(json.dumps(got))
+            with mock.patch.object(gate, "COVERAGE", cov), mock.patch.object(gate.subprocess, "run", fake_run):
+                lines, failed = gate.coverage_check(Path(d), Path(d), out, "python3")
+        self.assertTrue(failed)
+        text = "\n".join(lines)
+        self.assertIn("| b | 5 → 4 **fell** | 5 → 6 |", text)
+        self.assertIn("| a | 10 → 11 | 20 → 20 |", text)
+        self.assertIn("| c | not compared", text)
+        got["counts"]["maisecrets"]["b"]["bare"] = 5
+        with tempfile.TemporaryDirectory() as d:
+            out, cov = Path(d), Path(d) / "pinned.json"
+            cov.write_text(json.dumps(pinned))
+            with mock.patch.object(gate, "COVERAGE", cov), mock.patch.object(
+                    gate.subprocess, "run", lambda cmd, **_k: (out / "coverage.json").write_text(json.dumps(got))):
+                self.assertFalse(gate.coverage_check(Path(d), Path(d), out, "python3")[1])
+
+    def test_more_than_a_fifth_more_cpu_time_stops_the_gate(self):
+        med = {"base": {"tool_1mb": 4.0, "prompt": 0.5}, "candidate": {"tool_1mb": 4.4, "prompt": 0.65}}
+        # +30 % on a prompt is 0.15 ms: too small to stop a release
+        self.assertFalse(gate.time_report(med, "v1", 3, (1.0, 1.0), 8)[1])
+        med["candidate"]["tool_1mb"] = 4.9
+        lines, failed = gate.time_report(med, "v1", 3, (1.0, 1.0), 8)
+        self.assertTrue(failed)
+        self.assertIn("**slower**", "\n".join(lines))
+        self.assertIn("say little", "\n".join(gate.time_report(med, "v1", 3, (12.0, 3.0), 8)[0]))
+
+
 if __name__ == "__main__":
     unittest.main()

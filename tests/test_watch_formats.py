@@ -28,6 +28,14 @@ class WatchFormatsTests(unittest.TestCase):
         self.assertEqual(wf.github_types(yml + yml.replace("acme_api_key", "acme_pat")), ["acme_api_key", "acme_pat"])
         toml = '[[rules]]\nid = "acme-key"\nregex = "x"\n[[rules]]\n  id = "acme-pat"\n'
         self.assertEqual(wf.betterleaks_ids(toml), ["acme-key", "acme-pat"])
+        go = 'var rules = []Rule{\n\t{\n\t\tID:              "acme-key",\n\t\tCategory: CategoryAcme,\n\t},\n'
+        self.assertEqual(wf.trivy_ids(go + go.replace("acme-key", "acme-pat")), ["acme-key", "acme-pat"])
+        np_yml = "rules:\n- name: Acme Key\n  id: np.acme.1\n  pattern: x\n- name: Acme PAT\n  id: np.acme.2\n"
+        self.assertEqual(wf.yaml_ids(np_yml), ["np.acme.1", "np.acme.2"])
+
+    def test_every_source_has_a_section_in_the_snapshot(self):
+        # a source without a section reports its whole list as new on the first run
+        self.assertEqual(set(wf.SOURCES) - set(wf.load(wf.SNAPSHOT.read_text(encoding="utf-8"))), set())
 
     def test_a_source_that_gives_nothing_stops_the_watch(self):
         # a moved file or folder must turn the job red, not read as "no new entry"

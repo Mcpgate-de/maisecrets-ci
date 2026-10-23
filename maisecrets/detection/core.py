@@ -1129,6 +1129,24 @@ _LIT_FORMS = (
 # ConvertTo-SecureString '…' (single quotes: a doubled quote; double quotes: a doubled quote and the backtick escape)
 _LIT_SQL = _LazyRx(r"(?i)\bidentified[ \t]+(?:with[ \t]+\w+[ \t]+)?by[ \t]*(?:password[ \t]*)?([\"'])")
 _LIT_PS = _LazyRx(r"(?i)ConvertTo-SecureString[ \t]+(?:-String[ \t]+)?([\"'])")
+# a password label and its value in a note, where a line goes on after them (CredSweeper's doc samples, Benchmark V3
+# dev): `host (pw:<value>)`, `(ID/PW:<value>)`, `<host>/pw:<value>`, `-pwd:<value>`. Only a password label counts
+# here (_literal_hits keeps label-pw-literal alone): a key word in parentheses is code more often
+_LIT_NOTE = (
+    _LazyRx(r"\((?:[A-Za-z]{1,10}[/&])?([A-Za-z_][\w.\-]{0,60})[ \t]*[:=][ \t]*"
+            r"([^\s\"'`,()\[\]{}<>]{3,299}[^\s\"'`,;()\[\]{}<>])[ \t]*\)"),
+    _LazyRx(r"(?:(?<=[\w)}\]]/)|(?<![^\s])-)((?i:pw|pwd|passwd|password))[ \t]*:[ \t]*"
+            r"([^\s\"'`,()\[\]{}<>]{3,299}[^\s\"'`,;.()\[\]{}<>])(?=[\s)]|$)"),
+)
+# a Kubernetes or Compose env entry whose name is the label of its value: `- name: DB_PASSWORD` and on the next line
+# `value: "<value>"` (Benchmark V3, aparte dev). The label rules saw only `value`
+_LIT_ENV_ENTRY = _LazyRx(r"(?m)^[ \t]*-[ \t]+name:[ \t]*[\"']?([A-Za-z_][\w.-]{0,60})[\"']?[ \t]*\r?\n"
+                         r"[ \t]+value:[ \t]*([\"'])")
+# a Terraform variable whose name is the label of its default: `variable "aws_secret_key" { default = "…" }`. The
+# label rules saw only `default` (Benchmark V3, llmredactor and aparte dev: 36 keys and passwords in the clear). The
+# block up to its default holds no brace (type, description and sensitive come before it)
+_LIT_TF = _LazyRx(r"(?<![\w-])variable[ \t]+\"([A-Za-z_][\w-]{0,60})\"[ \t]*\{[^{}]{0,400}?"
+                  r"(?<![\w-])default[ \t]*=[ \t]*\"")
 _LIT_BOUND = 300   # a literal longer than this, or one that its line ends, is taken to the bound: never a prefix
 _BACKSLASH_ESCAPE_RE = _LazyRx(r"\\(?:u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|(.))", re.S)
 _ESCAPED_CHAR = {"n": "\n", "t": "\t", "r": "\r", "0": "\0"}
@@ -1368,6 +1386,23 @@ def _literal_hits(text: str, channel: str = "prompt") -> list:
                 rid = _judge_literal(m.group(gl), m.group(gv), quoted=n != 0, channel=channel)
                 if rid:
                     hits.append((rid, m.start(), m.start(gv), m.end(gv)))
+        for rx in _LIT_NOTE:
+            for m in rx.finditer(text):
+                if _judge_literal(m.group(1), m.group(2), quoted=False, channel=channel) == "label-pw-literal":
+                    hits.append(("label-pw-literal", m.start(), m.start(2), m.end(2)))
+        for m in _LIT_ENV_ENTRY.finditer(text):
+            q = m.group(2)
+            end, closed = _read_quoted(text, m.end(), q)
+            rid = closed and _judge_literal(m.group(1), _unquote(text[m.end():end], q, True, False), quoted=True,
+                                            channel=channel)
+            if rid:
+                hits.append((rid, m.start(), m.end(), end))
+        for m in _LIT_TF.finditer(text):
+            end, closed = _read_quoted(text, m.end(), '"')
+            rid = closed and _judge_literal(m.group(1), _unquote(text[m.end():end], '"', True, False), quoted=True,
+                                            channel=channel)
+            if rid:
+                hits.append((rid, m.start(), m.end(), end))
         for rx, backslash in ((_LIT_SQL, True), (_LIT_PS, False)):
             for m in rx.finditer(text):
                 q = m.group(1)
@@ -1416,6 +1451,39 @@ LITERAL_RULES = (
 _LITERAL_IDS = frozenset(d["id"] for d in LITERAL_RULES)
 
 
+def _env_key_ok(v: str) -> bool:
+    """A key of Strapi's APP_KEYS: base64 of 16 bytes or more with an entropy of random bytes; the placeholders of
+    .env.example (toBeModified1) are short and words."""
+    try:
+        raw = _b64.b64decode(v + "=" * (-len(v) % 4), validate=True)
+    except ValueError:   # binascii.Error is a ValueError
+        return False
+    return len(raw) >= 16 and shannon_entropy(v) >= 3.5 and not _word_shaped(v)
+
+
+def _laravel_key_ok(v: str) -> bool:
+    """Laravel's APP_KEY: base64: and the base64 of a 16- or 32-byte key (AES-128 or AES-256), random."""
+    body = v[len("base64:"):] if v.startswith("base64:") else ""
+    try:
+        raw = _b64.b64decode(body, validate=True)
+    except ValueError:
+        return False
+    return len(raw) in (16, 32) and len(set(raw)) > 8
+
+
+def _config_key_value_ok(v: str) -> bool:
+    """A key or a salt that a config constant assigns (label-php-define-key, label-terraform-default): the
+    WordPress salts of wp-config.php are 64 printable signs, and ( ) | ` < > $ are part of them, so the literal
+    checks (_key_literal_ok, _ds_value_ok) refuse them as code. ASCII with no space, 16 characters or more, a high
+    normalised entropy, no run of words, and no fixture or placeholder: "put your unique phrase here" has spaces."""
+    v = v.strip()
+    if not 16 <= len(v) <= 256 or not v.isascii() or any(c.isspace() for c in v) or "\\" in v:
+        return False
+    if _names_itself(v) or looks_like_placeholder(v) or re.search(r"(?i)your|example|sample|changeme|dummy", v):
+        return False
+    return _norm_entropy(v) >= 0.8 and _wordlike(_deleet(v)) < 0.5
+
+
 def _random_hex(v: str) -> bool:
     """A hex id that is no counted fixture: AC0123456789abcdef… or one repeated digit is a test value."""
     h = v[2:].lower()
@@ -1436,9 +1504,14 @@ VALIDATORS = {
     "flag_value": lambda v: _word_value_ok(v, prose_punct=True),
     "glued_value": lambda v: _word_value_ok(v, min_len=6),
     "prose_value": _prose_value_ok,
+    # a "!" at the end belongs to the password ("My password is <value>! (don't judge)") only when the value is one
+    # without it: "The password is Hunter2!" stays the example of a weak password
+    "prose_value_bang": lambda v: _prose_value_ok(v) and _prose_value_ok(v.rstrip("!")),
     "sentence_value": _sentence_value_ok,
     "spaced_value": _spaced_value_ok,
     "prose_key_value": _prose_key_value_ok,
+    "config_key_value": _config_key_value_ok,
+    "laravel_key": _laravel_key_ok,
     "de_tax_id": _de_tax_id_ok,
     "de_social_security": _de_social_security_ok,
     "de_social_security_spaced": lambda v: _de_social_security_ok(v.replace("\u00a0", " ")),
@@ -1642,9 +1715,9 @@ OWN_RULES: list[dict] = [
     # prose: "my password is <value>". Only a value that is no word of a sentence: it holds a capital or a symbol
     # beyond - _ . and a digit or a symbol ("the password is incorrect" stays prose). English only: the German
     # sentence of tests/fp_corpus.py (`Das Passwort ist` and a season and a year) is kept silent
-    {"id": "label-prose-password", "type": "SECRET", "secret_group": 1, "validator": "prose_value",
+    {"id": "label-prose-password", "type": "SECRET", "secret_group": 1, "validator": "prose_value_bang",
      "regex": r"(?i)(?<![\w-])(?:password|passwd|passphrase)[ \t]+(?:is|was)[ \t]*:?[ \t]+"
-              r"[\"'„“]?([^\s\"'“”]{0,255}[^\s\"'“”.,;:!?)])[\"'“”]?(?=[.,;:!?)]*(?:[\s\"'<\\]|$))"},
+              r"[\"'„“]?([^\s\"'“”]{0,255}[^\s\"'“”.,;:!?)]!*)[\"'“”]?(?=[.,;:!?)]*(?:[\s\"'<\\]|$))"},
     # a typed sentence with no `:` or `=` after the password word (field report, 2026-10-16: Codex sent the value of
     # "Passwort <value>." in the clear). The words of each label language that is on (_PW_WORDS_OF). With a copula
     # ("Kennwort ist <value>", "mot de passe est <value>") the value check of the prose rule above: a digit and a
@@ -1671,6 +1744,12 @@ OWN_RULES: list[dict] = [
     {"id": "label-password-for-is", "type": "SECRET", "secret_group": 1, "validator": "sentence_value",
      "regex": r"(?i)(?<![\w-])(?:password|passphrase|passcode)[ \t]+(?:for|of|on|to)[ \t]+(?:[\w.@'-]+[ \t]+){1,5}?"
               r"(?:is|was)[ \t]*:?[ \t]+" + _SENTENCE_VALUE},
+    # the same with other words between the password word and the copula: "the wifi password here is <value>", "the
+    # VPN password I use for it is <value>" (Benchmark V3, aparte dev). One to four words, none of them a copula, and
+    # the value check of a sentence
+    {"id": "label-password-words-is", "type": "SECRET", "secret_group": 1, "validator": "sentence_value",
+     "regex": r"(?i)(?<![\w-])(?:password|passphrase|passcode)[ \t]+(?!(?:for|of|on|to)[ \t])"
+              r"(?:(?!(?:is|was)[ \t])[\w.@'-]+[ \t]+){1,4}?(?:is|was)[ \t]*:?[ \t]+" + _SENTENCE_VALUE},
     {"id": "label-password-use-as", "type": "SECRET", "secret_group": 1, "validator": "spaced_value",
      "regex": r"(?i)(?<![\w-])(?:use|using|enter|type|set|with)[ \t]+(?:\*\*|[\"'`„“])?"
               r"([^\s\"'`“”]{4,255}?)(?:\*\*|[\"'`“”])?[ \t]+as[ \t]+"
@@ -1819,6 +1898,37 @@ FALLBACK_RULES: list[dict] = [
               r"(?=[A-Za-z0-9_-]{0,200}?[A-Za-z0-9]{16})[A-Za-z0-9_-]{20,}"},
     {"id": "slack-token-relaxed", "type": "SECRET",
      "regex": r"(?<![\w-])(?:xoxb-|xoxp-|xoxa-|xoxr-)\d{2,}-[A-Za-z0-9-]{12,}"},
+    # the password of a URL with a sign that RFC 3986 reserves (! $ & + , ; = *; an @ after it stays in it): a database
+    # URL as people write it, unescaped (postgres://app:<value>@db:5432). ds-basic-auth stops at these signs and the
+    # e-mail rule took `<rest>@host` (Benchmark V3, aparte and llmredactor dev). Only the password, as there: the user
+    # stays text. A template (${DB_PASSWORD}, $(cat …)) fails the value check
+    {"id": "url-password-signs", "type": "SECRET", "secret_group": 1, "validator": "ds_value",
+     "regex": r"(?<![\w+.-])[A-Za-z][A-Za-z0-9+.-]{1,15}://[^\s:/?#\[\]@'\"`<>]{1,64}:"
+              r"(?=[^\s/@'\"`<>]{0,127}[!$&*+,;=])((?:[^\s/@'\"`<>]|@(?=[^\s/@'\"`<>]*@)){3,128})"
+              r"@(?=[A-Za-z0-9\[_])"},
+    # the application keys of two frameworks in an .env file (Benchmark V3, aparte dev: 11 keys in the clear). Laravel's
+    # APP_KEY=base64:<the base64 of 32 bytes>: `key` alone is a weak label, which the literal rules take only quoted.
+    # Strapi's APP_KEYS=<k1>,<k2>,…: each key of the unquoted list (_list_matches reads them)
+    {"id": "label-laravel-app-key", "type": "SECRET", "secret_group": 1, "validator": "laravel_key",
+     "regex": r"(?m)^[ \t]*(?:export[ \t]+)?APP_KEY[ \t]*=[ \t]*[\"']?(base64:[A-Za-z0-9+/]{20,44}={0,2})(?![\w+/=])"},
+    {"id": "label-env-key-list", "type": "SECRET", "secret_group": 2,
+     "regex": r"(?m)^[ \t]*(?:export[ \t]+)?(APP_KEYS)[ \t]*=[ \t]*([\"']?)"},
+    # a key that a sentence owns and names: "my stripe key is <value>", "our google api key for the map widget is
+    # <value>", "the session JWT is <value>" (Benchmark V3, aparte dev). label-prose-key wants the key word right before
+    # the value; here a possessive or an article starts it, up to two words name the service, and up to four words
+    # after for/of/on/in name the use. The value check of label-prose-key: a random shape of 16 characters or more. A
+    # public or publishable key (Stripe's pk_) is no secret
+    {"id": "label-prose-key-owned", "type": "SECRET", "secret_group": 1, "validator": "prose_key_value",
+     "regex": r"(?i)(?<![\w-])(?:my|our|your|the|his|her|their)[ \t]+(?:(?!public|publishable)[\w.-]+[ \t]+){0,2}?"
+              r"(?:key|token|secret|jwt)(?:[ \t]+(?:for|of|on|in)(?:[ \t]+[\w.@'-]+){1,4}?)?[ \t]+(?:is|was)"
+              r"[ \t]*:?[ \t]+[`\"'„“]?(?!pk_)([A-Za-z0-9_+/=.-]{15,511}[A-Za-z0-9_+/=])[`\"'“”]?"
+              r"(?=[.,;:!?)]?(?:\s|$))"},
+    # a key or a salt of PHP's define() (wp-config.php: AUTH_KEY, NONCE_SALT): the WordPress salts hold ( ) | ` and
+    # the literal rules took them for code (Benchmark V3, aparte dev: 16 salts in the clear). Only a name that ends in
+    # KEY, SALT, SECRET or TOKEN; a password is label-pw-literal's
+    {"id": "label-php-define-key", "type": "SECRET", "secret_group": 3, "validator": "config_key_value",
+     "regex": r"(?<![\w$>:])define[ \t]*\([ \t]*(['\"])(?:[A-Z][A-Z0-9]*_)*(?:KEY|SALT|SECRET|TOKEN)\1[ \t]*,[ \t]*"
+              r"(['\"])((?:(?!\2)[^\\\n]){16,256})\2[ \t]*\)"},
     # a key in a sentence: "Use the API key <value> for the call", "the access token is <value>", "the API key,
     # <value>, expires". No `:` or `=` tells that a value follows, so the value must look random (prose_key_value)
     # and have 16 characters at least. A bare `token` is the word of a tokenizer too; its values (a number, a word)
@@ -1869,17 +1979,27 @@ BETTERLEAKS_PATCHES = {
 }
 
 
+# The terminator that 336 vendored rules end with takes a quote, a space, ";" or a line end, which is right for an
+# assignment and wrong for a sentence: "the key is <token>." or "(<token>)" lost the whole hit. The terminator now
+# also takes sentence punctuation before a space or the end of the text; a dot before a letter (a host name) is still
+# no end, nor is punctuation next to a quote: `"<value>", "next"` and `<key>: "…"` are code, not a sentence (two
+# false alarms in the FP bank). The terminator is outside the secret group, so no value changes (0.7.11)
+_VENDORED_END = r"""(?:\\?['"\x60]|[\s;]|\\[nr]|$)"""
+_SENTENCE_END = r"""(?:\\?['"\x60]|[\s;]|\\[nr]|$|(?<!['"\x60])[.,:!?)](?=\s|$)(?!\s*['"\x60]))"""
+
+
 def _patched(r: dict) -> dict:
-    """The rule with its BETTERLEAKS_PATCHES entry applied. A regex correction applies only to the regex it expects."""
+    """The rule with its BETTERLEAKS_PATCHES entry applied, then the sentence terminator. A regex correction applies
+    only to the regex it expects."""
     patch = BETTERLEAKS_PATCHES.get(r.get("id"))
-    if not patch:
-        return r
     r = dict(r)
-    if patch.get("add_keywords"):
+    if patch and patch.get("add_keywords"):
         r["keywords"] = list(r.get("keywords") or []) + [k for k in patch["add_keywords"]
                                                         if k not in (r.get("keywords") or [])]
-    if patch.get("regex") and r.get("regex") == patch["expect"]:
+    if patch and patch.get("regex") and r.get("regex") == patch["expect"]:
         r["regex"] = patch["regex"]
+    if r.get("regex", "").endswith(_VENDORED_END):
+        r["regex"] = r["regex"][:-len(_VENDORED_END)] + _SENTENCE_END
     return r
 
 
@@ -2357,7 +2477,7 @@ _CAPITALISED_WORD_RE = _LazyRx(r"(?:[A-Z][a-z]+)+")
 _SENTENCE_STOP = ".;"
 # rules whose value check is cheap and refuses most candidates: it runs before the checks of the code around a value
 _VALIDATE_FIRST = frozenset({"label-password-after-word", "label-password-after-space", "label-password-apposition",
-                             "label-password-for-is", "label-password-use-as"})
+                             "label-password-for-is", "label-password-use-as", "label-password-words-is"})
 
 
 def _load_detect_secrets(languages: tuple[str, ...] = ("en",)) -> list[Rule]:
@@ -3624,6 +3744,9 @@ def _curl_matches(parts, text: str):
 # breaks around it: a list written one value per line
 _LIST_ITEM_RE = _LazyRx(r"[ \t]*(?:\r?\n[ \t]*){0,2}([\"'`])([^\"'`\\\n]{1,256})\1"
                            r"[ \t]*(?:\r?\n[ \t]*){0,2}(,|[\]})])")
+# a key of an unquoted list in an .env line (label-env-key-list): base64 and the comma after it
+_ENV_LIST_ITEM_RE = _LazyRx(r"()([A-Za-z0-9+/]{16,88}={0,2})(,|(?![A-Za-z0-9+/=]))")
+
 
 
 def _list_matches(rule: Rule, text: str):
@@ -3633,15 +3756,17 @@ def _list_matches(rule: Rule, text: str):
     bracket or at a value that is not a quoted string, at any length: a cut at 1 MB left the keys after it in the
     clear (codex Gate A of 0.6.16). A label inside a list already read is skipped, so each character is read once."""
     done = -1
+    env = rule.id == "label-env-key-list"
+    item_re, value_ok = (_ENV_LIST_ITEM_RE, _env_key_ok) if env else (_LIST_ITEM_RE, _list_value_ok)
     for lab in rule.regex.finditer(text):
         if lab.start() < done:
             continue
         pos = lab.end()
         while True:
-            it = _LIST_ITEM_RE.match(text, pos)
+            it = item_re.match(text, pos)
             if it is None:
                 break
-            if _list_value_ok(it.group(2)):
+            if value_ok(it.group(2)):
                 yield _Spanned(it, lab.start(), text)
             if it.group(3) != ",":
                 break

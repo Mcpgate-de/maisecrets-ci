@@ -1,4 +1,41 @@
 {
+ "aparte": {
+  "excluded_shapes": {},
+  "labelled": [
+   "api_key",
+   "generic",
+   "password",
+   "private_key",
+   "token"
+  ],
+  "lower_bound": [],
+  "not_labelled": [],
+  "scored": [
+   "secret.generic",
+   "secret.password",
+   "secret.private_key",
+   "secret.token"
+  ]
+ },
+ "credsweeper": {
+  "excluded_shapes": {},
+  "labelled": [
+   "generic",
+   "password",
+   "private_key",
+   "token"
+  ],
+  "lower_bound": [],
+  "not_labelled": [
+   "unconfirmed"
+  ],
+  "scored": [
+   "secret.generic",
+   "secret.password",
+   "secret.private_key",
+   "secret.token"
+  ]
+ },
  "gretel": {
   "excluded_shapes": {},
   "labelled": [
@@ -51,6 +88,31 @@
    "pii.username",
    "secret.generic",
    "secret.password"
+  ]
+ },
+ "llmredactor": {
+  "excluded_shapes": {},
+  "labelled": [
+   "api_key",
+   "aws_access_key",
+   "aws_secret_key",
+   "bearer_token",
+   "email",
+   "ip_address",
+   "password",
+   "pem_private_key"
+  ],
+  "lower_bound": [],
+  "not_labelled": [
+   "hostname"
+  ],
+  "scored": [
+   "pii.email",
+   "pii.ip",
+   "secret.generic",
+   "secret.password",
+   "secret.private_key",
+   "secret.token"
   ]
  },
  "mendeley": {

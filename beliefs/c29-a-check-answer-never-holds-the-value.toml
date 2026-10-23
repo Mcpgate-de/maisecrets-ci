@@ -6,5 +6,5 @@ runner = ["tests/test_check_value.py::NeverTheValueTests::test_no_answer_and_no_
 
 [proof]
 file = "maisecrets/hooks.py"
-find = "    return check_value.stored_text(e.ref, alone, in_text)\n"
-replace = "    return check_value.stored_text(value, alone, in_text)\n"
+find = "    return check_value.stored_text(e.ref, alone, in_text) + check_value.format_report(value)\n"
+replace = "    return check_value.stored_text(value, alone, in_text) + check_value.format_report(value)\n"

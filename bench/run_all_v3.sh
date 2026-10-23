@@ -46,7 +46,7 @@ for s in $scanners; do
     [ -s "$f" ] || run --scanner "$s" --source catalogs --catalogs "$BENCH_CATALOGS" --split all --out "$f"
   fi
 done
-for d in nemotron gretel mendeley piilo; do
+for d in nemotron gretel mendeley piilo aparte llmredactor credsweeper; do
   for split in dev val holdout; do
     f="$out/$d-$split-maisecrets-full.json"
     [ -s "$f" ] || run --scanner maisecrets --source "$d" --split "$split" --out "$f"

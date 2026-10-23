@@ -65,7 +65,7 @@ class CjkFreeFormTests(unittest.TestCase):
     """A rule with the class of CJK letters also has a form without it (detect._Lazy), for a text with no CJK letter:
     the class made the compilation of four rules cost 26 ms in each hook process. Both forms must find the same."""
     RULES = {"email", "phone", "label-password-after-word", "label-password-after-space", "label-password-apposition",
-             "label-password-for-is"}
+             "label-password-for-is", "label-password-words-is"}
 
     def rules(self) -> list:
         return [r for r in detect.rules() if isinstance(r.regex, detect._Lazy) and r.regex._plain is not None]

@@ -74,7 +74,8 @@ class ReleaseTreeTests(unittest.TestCase):
                       "docs/DETECTION-SPEC-DRAFT.md", "docs/DETECTION-CONTRACT-PROPOSAL.md",
                       "docs/rule-limits.json", "docs/ratchet-exceptions.json",
                       "docs/REGRESSION-POLICY.md",
-                      "renovate.json", "docs/format-watch.txt",
+                      "renovate.json", "docs/format-watch.txt", "docs/coverage.json", "docs/coverage-rules.txt",
+                      "docs/DETECTION-COVERAGE.md",
                       # shipped as the tree's README.md (build_release_tree.py, the directory flavor)
                       "docs/DIRECTORY-README.md"}
 

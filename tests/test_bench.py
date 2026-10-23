@@ -764,6 +764,43 @@ class NerLayerTests(unittest.TestCase):
         self.assertEqual([0.30000000000000004, 0.30000000000000004], timing["times_s"])
 
 
+class SecretSourceTests(unittest.TestCase):
+    """bench/sources.py on the secret datasets: the dataset's kind of secret gives the class, and a loader's split,
+    channel, context and path reach the case."""
+
+    def test_a_secret_label_maps_to_its_class_per_dataset(self):
+        from bench import sources
+        self.assertEqual(sources.secret_class("aparte", "token"), "secret.token")
+        self.assertEqual(sources.secret_class("llmredactor", "pem_private_key"), "secret.private_key")
+        self.assertEqual(sources.secret_class("llmredactor", "aws_secret_key"), "secret.generic")
+        self.assertEqual(sources.secret_class("credsweeper", "password"), "secret.password")
+        self.assertEqual(sources.secret_class("nemotron", "api_key"), "secret.generic")   # unchanged for the old ones
+        for name in ("aparte", "llmredactor", "credsweeper"):
+            self.assertIn(name, sources.SOURCES)
+
+    def test_a_loader_gives_split_channel_context_and_path_to_the_case(self):
+        from bench import sources
+        value = "value" + "-seven-k"
+        text = f"key {value} and a hostname"
+        at, host = text.index(value), text.index("hostname")
+        samples = [{"id": "s1", "lang": "en", "split": "holdout", "channel": "prompt", "context": "json",
+                    "path": "conf/app.json", "tags": [], "text": text,
+                    "spans": [{"start": at, "end": at + len(value), "label": "bearer_token"},
+                              {"start": host, "end": host + 8, "label": "hostname"}]},
+                   {"id": "s2", "lang": "en", "tags": [], "text": "nothing", "spans": []}]
+        md = sources._measure_datasets()
+        with mock.patch.object(md, "load", return_value=iter(samples)):
+            got = list(sources.dataset_cases("llmredactor", Path("."), collections.Counter()))
+        first, second = got
+        self.assertEqual((first["split"], first["channel"], first["context"], first["path"]),
+                         ("holdout", "prompt", "json", "conf/app.json"))
+        self.assertEqual([(s["class"], s.get("neutral", False)) for s in first["spans"]],
+                         [("secret.token", False), ("pii.other", True)])
+        self.assertEqual((second["split"], second["channel"], second["context"], second["path"]),
+                         (cases.split_of("llmredactor", "s2"), "tool", "doc", None))
+        self.assertEqual(first["source"]["licence"], "MIT")
+
+
 class BenchmarkV3Tests(unittest.TestCase):
     """bench/v3.py: precision counts a false positive only where the source labels its class (docs/BENCHMARK-V3.md)."""
 

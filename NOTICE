@@ -38,6 +38,16 @@ The formats of the token rules added in 0.6.20 (maisecrets/detection/rules/prefi
 maisecrets/detection/core.py) follow GitLab's secret detection rules (MIT License), Kingfisher and Nosey
 Parker (Apache License 2.0), or the vendor's documentation; the regular expressions are written here.
 
+The token rules added in 0.7.9 to 0.7.11 (the blocks "0.7.9" and "0.7.9, researched" of
+maisecrets/detection/rules/prefixes.txt, the signature and provider rules of own_secret_rules.json) are adapted from
+the patterns of Kingfisher and Nosey Parker (Apache License 2.0; the provider-word rules name their Kingfisher rule),
+gitleaks and betterleaks (MIT License, see LICENSE-gitleaks and LICENSE-betterleaks), GitLab's secret detection rules
+(MIT License), Microsoft's security-utilities (MIT License; the identifiable Azure keys and the Common Annotated
+Security Key), Trivy, Google OSV-SCALIBR (Veles) and titus (Apache License 2.0) and nuclei-templates (MIT License),
+or are written from each provider's own documentation or its published code (the blocks "0.7.10, provider
+code" and "0.7.11, provider code, round 2": SDKs, servers and token libraries, read for the
+token format only). The regular expressions are rewritten here in the form of the files above.
+
 The remaining rules in maisecrets/detection/core.py (OWN_RULES, REGIONAL_RULES), maisecrets/detection/checksums.py
 and the display rules in maisecrets/pii_display.py are written for this project.
 

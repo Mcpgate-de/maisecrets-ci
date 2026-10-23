@@ -322,6 +322,28 @@ format_watch:
   script:
     - python3 scripts/watch_formats.py check
 
+# The weekly drift of the catalog coverage (scripts/coverage_drift.py, on Mondays in the daily schedule): this
+# checkout on the newest commit of six public rule catalogs, rule by rule against docs/coverage-rules.txt. A new
+# catalog rule that maisecrets misses even after a label turns the job red; new rules found only after a label are
+# listed as candidates for a prefix rule (docs/DETECTION-COVERAGE.md).
+coverage_drift:
+  stage: validate
+  interruptible: false
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script:
+    - '[ "$(date +%u)" = 1 ] || { echo "the coverage drift runs on Mondays"; exit 0; }'
+    - apt-get update -qq >/dev/null && apt-get install -y -qq git >/dev/null
+    - pip install -q pyyaml
+    - status=0; python3 scripts/coverage_drift.py /tmp/catalogs --fetch --out coverage-drift.json || status=$?
+    # loop 2: draft prefix rules for every catalog rule found only after a label, for a person to review
+    - python3 scripts/draft_format_rules.py /tmp/catalogs coverage-drift.json --out format-drafts
+    - exit $status
+  artifacts:
+    when: always
+    paths: [coverage-drift.json, format-drafts/]
+    expire_in: 30 days
+
 release:
   stage: release
   image: alpine:3.20

@@ -1,0 +1,10 @@
+# c1-a-key-or-salt-in-php-define-is-a-hit: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c1-a-key-or-salt-in-php-define-is-a-hit"
+control = "C1"
+statement = "A key or a salt that PHP's define() assigns to a name ending in KEY, SALT, SECRET or TOKEN (the WordPress salts of wp-config.php, which hold ( ) | and backticks) is a secret hit; a placeholder phrase, a constant name and a short value stay text."
+runner = ["tests/test_config_forms.py::PhpDefineTests::test_a_wordpress_salt_in_define_is_a_hit"]
+
+[proof]
+file = "maisecrets/detection/core.py"
+find = '''    "config_key_value": _config_key_value_ok,'''
+replace = '''    "config_key_value": lambda v: False,'''

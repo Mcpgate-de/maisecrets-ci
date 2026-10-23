@@ -444,7 +444,10 @@ class BetterleaksPatchTests(unittest.TestCase):
                     self.assertIn(kw, loaded[rule_id].keywords)
                 if "regex" in patch:
                     self.assertEqual(vendored[rule_id]["regex"], patch["expect"])
-                    self.assertEqual(loaded[rule_id].regex.pattern, detect._re2_to_python(patch["regex"]))
+                    want = patch["regex"]   # then the sentence terminator, as for every vendored rule
+                    if want.endswith(detect._VENDORED_END):
+                        want = want[:-len(detect._VENDORED_END)] + detect._SENTENCE_END
+                    self.assertEqual(loaded[rule_id].regex.pattern, detect._re2_to_python(want))
 
     def test_a_bare_token_without_the_providers_name_is_found(self):
         b58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"

@@ -150,6 +150,49 @@ def not_caught(why: str) -> str:
     return f"{NOT_CAUGHT} {why}"
 
 
+# the fixed start of a token format: a few small letters (or capitals) before _ - or ., once or twice (sb_pat_,
+# NRAK-, hvs.). Only before a random rest of 16 characters and more: a password such as summer_rain42 keeps its start
+_FORMAT_PREFIX_RE = _Lazy(r"(?:[a-z]{2,8}|[A-Z]{2,6})[_.-](?:[a-z]{2,8}[_.-])?")
+
+
+def format_shape(value: str) -> dict:
+    """The shape of a value for a report of its format, never the value: the fixed start (or none), the length of
+    the rest and its kinds of character."""
+    m = _FORMAT_PREFIX_RE.match(value)
+    rest = value[m.end():] if m else value
+    prefix = m.group(0) if m and len(rest) >= 16 and len(set(rest)) >= 8 else ""
+    rest = value[len(prefix):]
+    kinds = [name for name, test in (("small letters", str.islower), ("capitals", str.isupper),
+                                     ("digits", str.isdigit)) if any(test(c) for c in rest)]
+    signs = sorted({c for c in rest if not c.isalnum()})
+    return {"prefix": prefix, "length": len(rest), "kinds": kinds, "signs": "".join(signs)}
+
+
+def format_report(value: str) -> str:
+    """A line that offers to report the format of a value maisecrets did not catch: the shape and a prefilled issue
+    link the person opens (docs/DETECTION-COVERAGE.md, loop 4). Empty when reporting is off (report_url null)."""
+    from . import events
+    sh = format_shape(value)
+    start = f"`{sh['prefix']}` and " if sh["prefix"] else ""
+    shape = (f"{start}{sh['length']} characters of {', '.join(sh['kinds']) or 'signs'}"
+             + (f" and `{sh['signs']}`" if sh["signs"] else ""))
+    body = "\n".join(["## A token format maisecrets did not catch", "",
+                       f"- fixed start: `{sh['prefix']}`" if sh["prefix"] else "- fixed start: none seen",
+                       f"- after it: {sh['length']} characters; {', '.join(sh['kinds']) or 'no letters or digits'}"
+                       + (f"; signs `{sh['signs']}`" if sh["signs"] else ""),
+                       "- which service issues it: (please name it)", "",
+                       "_Prepared by `ms:(…)`; it holds the shape of the value, never the value._"])
+    try:
+        url = events.link(f"Token format: {shape}"[:90], body, "new format")
+    except Exception:  # noqa: BLE001 - a broken config must not stop the answer; the report is an extra
+        return ""
+    if not url:
+        return ""
+    warn = (" Check the start first: if it is part of your secret and not the service's fixed prefix, do not send it."
+            if sh["prefix"] else "")
+    return f" Unknown format? Report its shape ({shape}), never the value: {url}{warn}"
+
+
 def stored_text(ref: str, alone: bool, in_text: bool) -> str:
     if alone and in_text:
         return not_caught(f"It is now stored ({ref}). From now on it is masked wherever it stands as a word of its "

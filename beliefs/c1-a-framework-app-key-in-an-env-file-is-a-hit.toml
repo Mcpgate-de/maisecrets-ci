@@ -1,0 +1,10 @@
+# c1-a-framework-app-key-in-an-env-file-is-a-hit: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c1-a-framework-app-key-in-an-env-file-is-a-hit"
+control = "C1"
+statement = "Each key of Strapi's unquoted APP_KEYS list in an .env file is a secret hit of its own; the placeholders of .env.example and other names stay text."
+runner = ["tests/test_config_forms.py::FrameworkAppKeyTests::test_each_key_of_strapi_app_keys_is_a_hit"]
+
+[proof]
+file = "maisecrets/detection/registry.py"
+find = '''    if rule_id in ("label-secret-list", "label-env-key-list"):'''
+replace = '''    if rule_id in ("label-secret-list",):'''

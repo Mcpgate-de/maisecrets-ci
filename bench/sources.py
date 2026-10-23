@@ -4,6 +4,9 @@ repository.
 
     bank                          bench/bank/ (this repository)
     nemotron gretel mendeley piilo  the labelled PII datasets of scripts/measure_datasets.py, with its label cleaning
+    privy                         a PII set of protocol traces, totals only (docs/BENCHMARK-V2.md)
+    aparte llmredactor credsweeper  the labelled secret datasets of scripts/measure_datasets.py (docs/BENCHMARK-V3.md,
+                                  "Secret datasets")
     catalogs                      the rule examples of six secret catalogs (scripts/measure_catalog_coverage.py)
     traces                        protocol traces made at run time by bench/traces.py (development data)"""
 from __future__ import annotations
@@ -16,7 +19,7 @@ from bench import cases
 
 ROOT = Path(__file__).resolve().parent.parent
 BANK = ROOT / "bench" / "bank"
-DATASETS = ("nemotron", "gretel", "mendeley", "piilo", "privy")
+DATASETS = ("nemotron", "gretel", "mendeley", "piilo", "privy", "aparte", "llmredactor", "credsweeper")
 SOURCES = ("bank",) + DATASETS + ("catalogs", "traces")
 
 # the types of scripts/measure_datasets.py to the classes of the benchmark; SECRET by the dataset's own label
@@ -25,7 +28,18 @@ TYPE_CLASS = {"EMAIL": "pii.email", "PHONE": "pii.phone", "IP": "pii.ip", "IBAN"
               "US_BANK_NUMBER": "pii.bank_account", "NAME": "pii.name", "ADDRESS": "pii.address",
               "BIRTH_DATE": "pii.birth_date", "ID_NUMBER": "pii.national_id", "USERNAME": "pii.username"}
 SECRET_LABEL = {"password": "secret.password", "PASSWORD": "secret.password"}
+# a secret dataset that says which kind of secret a span holds: its labels to the classes of the benchmark
+SECRET_CLASS = {
+    "aparte": {"api_key": "secret.token", "token": "secret.token", "private_key": "secret.private_key"},
+    "llmredactor": {"api_key": "secret.token", "bearer_token": "secret.token", "aws_access_key": "secret.token",
+                    "pem_private_key": "secret.private_key"},
+    "credsweeper": {"token": "secret.token", "private_key": "secret.private_key"},
+}
 REGION_OF_LANG = {"en": "us", "de": "de", "fr": "fr", "es": "es", "it": "it", "nl": "nl", "sv": "se"}
+
+
+def secret_class(dataset: str, label: str) -> str:
+    return SECRET_CLASS.get(dataset, {}).get(label) or SECRET_LABEL.get(label, "secret.generic")
 
 
 def _measure_datasets():
@@ -49,7 +63,7 @@ def dataset_cases(name: str, data: Path, stats: collections.Counter, limit: int 
             if g["type"] == md.OUT_OF_SCOPE:
                 cls = "pii.other"
             elif g["type"] == "SECRET":
-                cls = SECRET_LABEL.get(g["label"], "secret.generic")
+                cls = secret_class(name, g["label"])
             else:
                 cls = TYPE_CLASS[g["type"]]
             sp = {"start": g["start"], "end": g["end"], "class": cls, "label": g["label"]}
@@ -57,8 +71,11 @@ def dataset_cases(name: str, data: Path, stats: collections.Counter, limit: int 
                 sp["neutral"] = True
             spans.append(sp)
         lang = sample.get("lang", "en")
-        yield {"id": f"{name}/{record}", "text": sample["text"], "channel": "tool", "context": "doc", "path": None,
-               "spans": spans, "split": cases.split_of(name, record), "tags": sample.get("tags", []),
+        # a loader may give the split (a config of the dataset that is its holdout), the channel, the context and the
+        # path; else the split rule, a tool output, a document
+        yield {"id": f"{name}/{record}", "text": sample["text"], "channel": sample.get("channel", "tool"),
+               "context": sample.get("context", "doc"), "path": sample.get("path"), "spans": spans,
+               "split": sample.get("split") or cases.split_of(name, record), "tags": sample.get("tags", []),
                "region": REGION_OF_LANG.get(lang, lang), "lang": lang,
                "source": {"name": name, **{k: md.SOURCES[name].get(k) for k in ("url", "revision", "licence")
                                             if k in md.SOURCES[name]}, "record": record}}

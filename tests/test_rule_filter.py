@@ -177,6 +177,9 @@ class BetterleaksRuleTests(unittest.TestCase):
         import test_researched_formats as researched
         own_ids = {r.id for r in detect._load_own_secret_rules()}
         samples.update({rid: researched.token(rid) for rid in researched.SOURCES if rid in own_ids})
+        # the provider-word rules of 0.7.10 get the text of their kingfisher example, filled from its template
+        import test_provider_context_rules as provider
+        samples.update({rid: provider.sample(rid)[0] for rid in provider.EXAMPLES})
         kept = [r for r in detect._load_own_secret_rules() if r.id != "generic-api-key"]
         self.assertEqual(sorted(r.id for r in kept), sorted(samples), "the premise: one sample per kept rule")
         full = detect.rules()

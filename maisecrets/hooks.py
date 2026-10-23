@@ -953,7 +953,7 @@ def _store_unseen(payload: dict, cfg: dict, value: str, session: str | None, exa
     _live_cache.clear()        # the store holds a value now: the checks below must look for it
     alone = any(_verdict(value, cfg, session)[1:3])
     in_text = any(_verdict(f"see {value} here", cfg, session)[1:3])
-    return check_value.stored_text(e.ref, alone, in_text)
+    return check_value.stored_text(e.ref, alone, in_text) + check_value.format_report(value)
 
 
 def _check_value(payload: dict, groups: list) -> dict:

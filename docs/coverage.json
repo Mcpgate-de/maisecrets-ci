@@ -1,0 +1,49 @@
+{
+ "version": "0.7.10",
+ "commits": {
+  "noseyparker": "2e6e7f36ce36619852532bbe698d8cb7a26d2da7",
+  "kingfisher": "82d050530cdef9af070b8f9a75701c9c27a948c3",
+  "gitleaks": "b58d3f102cf3a2c84cb7f923d05c25c9b1aed84b",
+  "betterleaks": "49d0a87e9d3a4f729d88d828e6773a57bb4409b3",
+  "trufflehog": "c85580b712841eda4c53bc28fc6ace6100e8c16c",
+  "gitlab": "091ad415efd5070d89e685baad1f68b1e44d212c"
+ },
+ "counts": {
+  "noseyparker": {
+   "rules": 189,
+   "with_examples": 189,
+   "bare": 88,
+   "label": 171
+  },
+  "kingfisher": {
+   "rules": 1095,
+   "with_examples": 1095,
+   "bare": 351,
+   "label": 994
+  },
+  "gitleaks": {
+   "rules": 225,
+   "with_examples": 158,
+   "bare": 80,
+   "label": 153
+  },
+  "betterleaks": {
+   "rules": 467,
+   "with_examples": 360,
+   "bare": 168,
+   "label": 346
+  },
+  "trufflehog": {
+   "rules": 945,
+   "with_examples": 892,
+   "bare": 83,
+   "label": 839
+  },
+  "gitlab": {
+   "rules": 217,
+   "with_examples": 172,
+   "bare": 119,
+   "label": 162
+  }
+ }
+}

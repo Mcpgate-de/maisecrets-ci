@@ -1,0 +1,10 @@
+# c1-a-key-that-a-sentence-owns-and-names-is-a-hit: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c1-a-key-that-a-sentence-owns-and-names-is-a-hit"
+control = "C1"
+statement = "A random key of 16 characters or more after a sentence that owns and names it (my stripe key is <value>, our google api key for the map widget is <value>, the session JWT is <value>) is a secret hit; a public or publishable key, a word and a short number stay text."
+runner = ["tests/test_prose_forms.py::OwnedKeyTests::test_a_key_that_the_sentence_owns_and_names_is_a_hit"]
+
+[proof]
+file = "maisecrets/detection/core.py"
+find = '''    {"id": "label-prose-key-owned", "type": "SECRET", "secret_group": 1, "validator": "prose_key_value",'''
+replace = '''    {"id": "label-prose-key-owned", "type": "SECRET", "secret_group": 1, "validator": "de_bsnr",'''

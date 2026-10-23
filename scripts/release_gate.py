@@ -218,6 +218,86 @@ def verify_tag(tag: str, root: Path = ROOT) -> list:
     return sorted(d for d in set(measured) | set(now) if measured.get(d) != now.get(d))
 
 
+COVERAGE = ROOT / "docs" / "coverage.json"
+TIME_LIMIT = 1.2   # the candidate may take at most this much of the base's CPU time, unless the difference is too
+# small to feel: a short prompt went from 0.43 to 0.55 ms with 205 more rules (+27 %), which no hook notices
+TIME_MIN_DELTA = {"tool_1mb": 0.5, "prompt": 1.0}   # seconds for 1 MB, milliseconds for a prompt
+
+
+def coverage_check(cand: Path, catalogs: Path, out: Path, python: str) -> tuple:
+    """The catalog coverage of the candidate (scripts/measure_catalog_coverage.py) against docs/coverage.json: per
+    catalog, the rules found bare and after a label may not fall. A catalog at another commit than the pinned one is
+    not compared (its rules differ), and the report says so."""
+    pinned = json.loads(COVERAGE.read_text(encoding="utf-8"))
+    run = out / "coverage.json"
+    subprocess.run([python, str(ROOT / "scripts" / "measure_catalog_coverage.py"), str(catalogs),
+                    "--maisecrets", str(cand), "--out", str(run)], cwd=ROOT, check=True, capture_output=True)
+    got = json.loads(run.read_text(encoding="utf-8"))
+    lines, failed = ["", "Catalog coverage (rules whose examples are found whole), against docs/coverage.json:", "",
+                     "| Catalog | Bare | After a label |", "|---|---|---|"], False
+    for cat, before in pinned["counts"].items():
+        if got["commits"].get(cat) != pinned["commits"].get(cat):
+            lines.append(f"| {cat} | not compared: catalog at another commit | |")
+            continue
+        after = got["counts"]["maisecrets"][cat]
+        cells = []
+        for field in ("bare", "label"):
+            fell = after[field] < before[field]
+            failed |= fell
+            cells.append(f"{before[field]} → {after[field]}" + (" **fell**" if fell else ""))
+        lines.append(f"| {cat} | {cells[0]} | {cells[1]} |")
+    return lines, failed
+
+
+def _time_text(cand: Path, dest: Path) -> Path:
+    """1 MB of the candidate's own source and docs: the same characters for base and candidate."""
+    parts = []
+    for folder, ext in (("maisecrets", ".py"), ("docs", ".md")):
+        for f in sorted((cand / folder).rglob("*" + ext)):
+            parts.append(f.read_text(encoding="utf-8", errors="replace"))
+    dest.write_text("\n".join(parts)[:1_000_000], encoding="utf-8")
+    return dest
+
+
+def time_check(cand: Path, tag: str, out: Path, rounds: int = 3) -> tuple:
+    """CPU time of the base (the last release tag) and the candidate on the same text, measured in turns so that a
+    change of load meets both; the median of each. The candidate may take at most TIME_LIMIT times the base."""
+    text = _time_text(cand, out / "time-text.txt")
+    base = out / "base-checkout"
+    _git("worktree", "add", "--detach", str(base), tag, cwd=cand)
+    load_before = os.getloadavg()[0]
+    runs = {"base": [], "candidate": []}
+    try:
+        for _ in range(rounds):
+            for name, checkout in (("base", base), ("candidate", cand)):
+                r = subprocess.run([sys.executable, "-I", str(cand / "scripts" / "time_detector.py"), str(checkout),
+                                    str(text)], capture_output=True, text=True, check=True)
+                runs[name].append(json.loads(r.stdout))
+    finally:
+        _git("worktree", "remove", "--force", str(base), cwd=cand)
+    load_after = os.getloadavg()[0]
+    med = {name: {k: sorted(x[k] for x in rs)[len(rs) // 2] for k in ("tool_1mb", "prompt")}
+           for name, rs in runs.items()}
+    return time_report(med, tag, rounds, (load_before, load_after), os.cpu_count() or 1)
+
+
+def time_report(med: dict, tag: str, rounds: int, loads: tuple, cpus: int) -> tuple:
+    """The lines of the time table and whether the candidate is too slow: above TIME_LIMIT of the base and slower by
+    more than TIME_MIN_DELTA."""
+    lines, failed = ["", f"CPU time, base {tag} and candidate in turns ({rounds} rounds, median; load average "
+                         f"{loads[0]:.1f} before, {loads[1]:.1f} after, {cpus} CPUs):", "",
+                     "| Text | Base | Candidate | Ratio |", "|---|---:|---:|---:|"], False
+    for key, label, unit in (("tool_1mb", "1 MB tool text", "s"), ("prompt", "short prompt", "ms")):
+        b, c = med["base"][key], med["candidate"][key]
+        ratio = c / b if b else 1.0
+        slow = ratio > TIME_LIMIT and c - b > TIME_MIN_DELTA[key]
+        failed |= slow
+        lines.append(f"| {label} | {b} {unit} | {c} {unit} | {ratio:.2f}" + (" **slower**" if slow else "") + " |")
+    if max(loads) > cpus:
+        lines += ["", "The load was above the number of CPUs: the times say little. Measure again on a quiet machine."]
+    return lines, failed
+
+
 def main(argv: list) -> int:
     import argparse
     ap = argparse.ArgumentParser()
@@ -228,6 +308,8 @@ def main(argv: list) -> int:
     ap.add_argument("--dry-run", action="store_true", help="classify the changes only")
     ap.add_argument("--keep", action="store_true", help="write the results to bench/results/ as the next baseline")
     ap.add_argument("--verify-tag", help="check that a release tag holds the measured runtime trees")
+    ap.add_argument("--catalogs", type=Path, help="the catalog clones of docs/coverage.json: coverage may not fall")
+    ap.add_argument("--time", action="store_true", help="CPU time against the last release: at most 20 %% more")
     a = ap.parse_args(argv)
     if a.verify_tag:
         differ = verify_tag(a.verify_tag)
@@ -265,11 +347,31 @@ def main(argv: list) -> int:
         m = json.loads(out.read_text(encoding="utf-8"))["metrics"].get("all", {})
         holdout = (last_holdout_recall(), m.get("recall_strict"))
     text, failed = report(kind, results, holdout)
+    extra = []
+    if a.catalogs:
+        lines, fell = coverage_check(cand, a.catalogs, a.out, env.get("BENCH_PYTHON", sys.executable))
+        extra += lines
+        failed |= fell
+    if a.time:
+        lines, slow = time_check(cand, tag, a.out)
+        extra += lines
+        failed |= slow
+    if extra:
+        text = text.rsplit("\n\n**Gate:", 1)[0] + "\n" + "\n".join(extra) + "\n\n**Gate: " + (
+            "stopped" if failed else "passed") + "**"
     (a.out / "release-gate.md").write_text(text + "\n", encoding="utf-8")
     print(text)
     if a.keep and not failed:
         dest = ROOT / "bench" / "results" / f"{datetime.date.today().isoformat()}-v3-{next_version(tag)}"
         keep(a.out, dest, cand, next_version(tag), env.get("BENCH_PYTHON", ""))
+        if (a.out / "coverage.json").exists():   # the coverage of this release is the next one's floor
+            run = json.loads((a.out / "coverage.json").read_text(encoding="utf-8"))
+            COVERAGE.write_text(json.dumps({"version": next_version(tag), "commits": run["commits"],
+                                            "counts": run["counts"]["maisecrets"]}, indent=1) + "\n",
+                                encoding="utf-8")
+            sys.path.insert(0, str(ROOT / "scripts"))
+            import coverage_drift   # the per-rule result: the weekly drift job compares with it
+            coverage_drift.RULES.write_text(coverage_drift.dump_rules(run["rules"]["maisecrets"]), encoding="utf-8")
         print(f"kept as the baseline of {next_version(tag)}: {dest.relative_to(ROOT)}")
     return 1 if failed else 0
 
