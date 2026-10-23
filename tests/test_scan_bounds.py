@@ -168,6 +168,29 @@ class LabelRuleTests(unittest.TestCase):
                 linear(self, lambda n, tok=tok: (tok * (n // 10))[:n], ("label-mysql-p", "label-redis-cli-a"),
                               96000)
 
+    def test_a_run_of_spaces_or_bangs_after_a_password_word_scans_in_linear_time(self):
+        # `[ \t]*:?[ \t]+` tried every split of a run of spaces, and `!*` before a lookahead that also takes "!" every
+        # length of a run of "!": 16K characters took 3.5 to 6.2 s of the whole scan (ReDoS probe of 0.7.12)
+        cases = {
+            "password is": ("label-prose-password", "label-password-after-word"),
+            "password a is": ("label-password-words-is",),
+            "password for the db is": ("label-password-for-is",),
+            "password ": ("label-password-after-space", "label-password-after-word"),
+            "Kennwort ist": ("label-password-after-word",),
+        }
+        for head, ids in cases.items():
+            with self.subTest(head=head):
+                linear(self, lambda n, head=head: head + " " * n, ids, 32000)
+        linear(self, lambda n: "password is a" + "!" * n + "x", ("label-prose-password",), 32000)
+
+    def test_a_password_after_spaces_a_colon_or_bangs_is_still_found(self):
+        pw = rnd(10) + "#7"
+        for text in (f"the password is {pw}", f"the password is:   {pw}", f"password was  :  {pw}",
+                     f"the wifi password here is {pw}", f"password for the db is {pw}"):
+            with self.subTest(text=text[:20]):
+                self.assertIn(pw, [m.value for m in detect.scan(text)])
+        self.assertIn(pw + "!!", [m.value for m in detect.scan(f"the password is {pw}!! thanks")])
+
     def test_the_option_400_characters_after_the_command_is_still_found(self):
         pw = rnd(10) + "#7"
         text = "mysql " + "--host db " * 39 + f"-p{pw} shop"

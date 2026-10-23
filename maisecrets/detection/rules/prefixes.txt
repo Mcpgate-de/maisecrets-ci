@@ -169,7 +169,7 @@ xata-api-key                                xau_(?:(?<![A-Za-z0-9_-]xau_)|(?<=\\
 1password-service-account-token-bare                       ops_eyJ(?:(?<![A-Za-z0-9_-]ops_eyJ)|(?<=\\[nrt]ops_eyJ))[A-Za-z0-9+/_\-]{250,}={0,3}(?![A-Za-z0-9_-])
 asaas-production-key                                       \$aact_prod_(?:(?<![A-Za-z0-9_-]\$aact_prod_)|(?<=\\[nrt]\$aact_prod_))[A-Za-z0-9_\-+/=:$]{19,199}[A-Za-z0-9_\-+/=$](?![A-Za-z0-9_-])
 asaas-sandbox-key                                          \$aact_hmlg_(?:(?<![A-Za-z0-9_-]\$aact_hmlg_)|(?<=\\[nrt]\$aact_hmlg_))[A-Za-z0-9_\-+/=:$]{19,199}[A-Za-z0-9_\-+/=$](?![A-Za-z0-9_-])
-atlassian-org-admin-scoped-api-key-sibling                 ATCTT3xFfG(?:(?<![A-Za-z0-9_-]ATCTT3xFfG)|(?<=\\[nrt]ATCTT3xFfG))[A-Za-z0-9+/=_\-]+=[A-Za-z0-9]{8}(?![A-Za-z0-9_-])
+atlassian-org-admin-scoped-api-key-sibling                 ATCTT3xFfG(?:(?<![A-Za-z0-9_-]ATCTT3xFfG)|(?<=\\[nrt]ATCTT3xFfG))[A-Za-z0-9+/=_\-]{1,1024}=[A-Za-z0-9]{8}(?![A-Za-z0-9_-])
 aws-bedrock-short-term-api-key                             bedrock\-api\-key\-(?:(?<![A-Za-z0-9_-]bedrock\-api\-key\-)|(?<=\\[nrt]bedrock\-api\-key\-))[A-Za-z0-9+/]+={0,2}(?![A-Za-z0-9_-])
 baidu-qianfan-api-key-bce-v3                               bce\-v3\/ALTAK\-(?:(?<![A-Za-z0-9_-]bce\-v3\/ALTAK\-)|(?<=\\[nrt]bce\-v3\/ALTAK\-))[A-Za-z0-9]{10,}\/[A-Za-z0-9]{20,}(?![A-Za-z0-9_-])
 bitbucket-data-center-http-access-token                    BBDC\-(?:(?<![A-Za-z0-9_-]BBDC\-)|(?<=\\[nrt]BBDC\-))[A-Za-z0-9+/@_\-]{40,50}(?![A-Za-z0-9_-])

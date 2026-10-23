@@ -1721,8 +1721,8 @@ OWN_RULES: list[dict] = [
     # beyond - _ . and a digit or a symbol ("the password is incorrect" stays prose). English only: the German
     # sentence of tests/fp_corpus.py (`Das Passwort ist` and a season and a year) is kept silent
     {"id": "label-prose-password", "type": "SECRET", "secret_group": 1, "validator": "prose_value_bang",
-     "regex": r"(?i)(?<![\w-])(?:password|passwd|passphrase)[ \t]+(?:is|was)[ \t]*:?[ \t]+"
-              r"[\"'„“]?([^\s\"'“”]{0,255}[^\s\"'“”.,;:!?)]!*)[\"'“”]?(?=[.,;:!?)]*(?:[\s\"'<\\]|$))"},
+     "regex": r"(?i)(?<![\w-])(?:password|passwd|passphrase)[ \t]+(?:is|was)(?:[ \t]*:[ \t]+|[ \t]+)"
+              r"[\"'„“]?([^\s\"'“”]{0,255}[^\s\"'“”.,;:!?)]!{0,8})[\"'“”]?(?=[.,;:!?)]*(?:[\s\"'<\\]|$))"},
     # a typed sentence with no `:` or `=` after the password word (field report, 2026-10-16: Codex sent the value of
     # "Passwort <value>." in the clear). The words of each label language that is on (_PW_WORDS_OF). With a copula
     # ("Kennwort ist <value>", "mot de passe est <value>") the value check of the prose rule above: a digit and a
@@ -1731,11 +1731,12 @@ OWN_RULES: list[dict] = [
     # also be no run of English words (SHA256-Hash, iPhone15, JDK21-Update) and no ticket id (PBE-3403). A stop of
     # the sentence after the value is no part of it; `!` is, as passwords end with it
     {"id": "label-password-after-word", "type": "SECRET", "secret_group": 1, "validator": "sentence_value",
-     "regex": r"(?i)(?:(?<![\w-])" + _PW_COMPOUND + r"(?:{pairs})[ \t]+|{cjk_pairs})" + _SENTENCE_VALUE,
+     "regex": r"(?i)(?:(?<![\w-])" + _PW_COMPOUND + r"(?:{pairs})(?:[ \t]*:[ \t]+|[ \t]+)|{cjk_pairs})"
+              + _SENTENCE_VALUE,
      "languages": True},
     {"id": "label-password-after-space", "type": "SECRET", "secret_group": 1, "validator": "spaced_value",
      "regex": r"(?i)(?:(?<![\w-])" + _PW_COMPOUND + r"(?:{words})|{cjk_words})(?![\w-])"
-              r"(?:[ \t]*(?:->|=>|\u2192|\u2013|\u2014)[ \t]*|[ \t]+-{1,2}[ \t]+|[ \t]+\(?[ \t]*)"
+              r"(?:[ \t]*(?:->|=>|\u2192|\u2013|\u2014)[ \t]*|[ \t]+-{1,2}[ \t]+|[ \t]+\([ \t]*|[ \t]+)"
               + _SENTENCE_VALUE,
      "languages": True},
     # three more forms of a typed sentence (benchmark V3, Nemotron dev: about 540 passwords in the clear). An
@@ -1748,13 +1749,13 @@ OWN_RULES: list[dict] = [
      "languages": True},
     {"id": "label-password-for-is", "type": "SECRET", "secret_group": 1, "validator": "sentence_value",
      "regex": r"(?i)(?<![\w-])(?:password|passphrase|passcode)[ \t]+(?:for|of|on|to)[ \t]+(?:[\w.@'-]+[ \t]+){1,5}?"
-              r"(?:is|was)[ \t]*:?[ \t]+" + _SENTENCE_VALUE},
+              r"(?:is|was)(?:[ \t]*:[ \t]+|[ \t]+)" + _SENTENCE_VALUE},
     # the same with other words between the password word and the copula: "the wifi password here is <value>", "the
     # VPN password I use for it is <value>" (Benchmark V3, aparte dev). One to four words, none of them a copula, and
     # the value check of a sentence
     {"id": "label-password-words-is", "type": "SECRET", "secret_group": 1, "validator": "sentence_value",
      "regex": r"(?i)(?<![\w-])(?:password|passphrase|passcode)[ \t]+(?!(?:for|of|on|to)[ \t])"
-              r"(?:(?!(?:is|was)[ \t])[\w.@'-]+[ \t]+){1,4}?(?:is|was)[ \t]*:?[ \t]+" + _SENTENCE_VALUE},
+              r"(?:(?!(?:is|was)[ \t])[\w.@'-]+[ \t]+){1,4}?(?:is|was)(?:[ \t]*:[ \t]+|[ \t]+)" + _SENTENCE_VALUE},
     {"id": "label-password-use-as", "type": "SECRET", "secret_group": 1, "validator": "spaced_value",
      "regex": r"(?i)(?<![\w-])(?:use|using|enter|type|set|with)[ \t]+(?:\*\*|[\"'`„“])?"
               r"([^\s\"'`“”]{4,255}?)(?:\*\*|[\"'`“”])?[ \t]+as[ \t]+"
@@ -1926,7 +1927,7 @@ FALLBACK_RULES: list[dict] = [
     {"id": "label-prose-key-owned", "type": "SECRET", "secret_group": 1, "validator": "prose_key_value",
      "regex": r"(?i)(?<![\w-])(?:my|our|your|the|his|her|their)[ \t]+(?:(?!public|publishable)[\w.-]+[ \t]+){0,2}?"
               r"(?:key|token|secret|jwt)(?:[ \t]+(?:for|of|on|in)(?:[ \t]+[\w.@'-]+){1,4}?)?[ \t]+(?:is|was)"
-              r"[ \t]*:?[ \t]+[`\"'„“]?(?!pk_)([A-Za-z0-9_+/=.-]{15,511}[A-Za-z0-9_+/=])[`\"'“”]?"
+              r"(?:[ \t]*:[ \t]+|[ \t]+)[`\"'„“]?(?!pk_)([A-Za-z0-9_+/=.-]{15,511}[A-Za-z0-9_+/=])[`\"'“”]?"
               r"(?=[.,;:!?)]?(?:\s|$))"},
     # a key or a salt of PHP's define() (wp-config.php: AUTH_KEY, NONCE_SALT): the WordPress salts hold ( ) | ` and
     # the literal rules took them for code (Benchmark V3, aparte dev: 16 salts in the clear). Only a name that ends in
@@ -2585,10 +2586,11 @@ def _own_regex(d: dict, languages: tuple) -> str:
         if copulas:
             own = _PW_WORDS_OF.get(lang) or _PW_WORDS_OF["en"]
             if lang in _NO_SPACE_LANGUAGES:   # 密码是<value>, パスワードは <value>: a space after the copula or none
-                cjk_pairs.append("(?:" + "|".join(own) + r")[ \t]*(?:" + "|".join(copulas) + r")[ \t]*[:\uff1a]?[ \t]*")
+                cjk_pairs.append("(?:" + "|".join(own) + r")[ \t]*(?:" + "|".join(copulas)
+                                 + r")(?:[ \t]*[:\uff1a][ \t]*|[ \t]*)")
                 continue
             gap = r"[ \t]*" if lang == "th" else r"(?![\w-])[ \t]+"   # Thai writes no space between words
-            pairs.append("(?:" + "|".join(own) + ")" + gap + "(?:" + "|".join(copulas) + r")[ \t]*:?")
+            pairs.append("(?:" + "|".join(own) + ")" + gap + "(?:" + "|".join(copulas) + ")")
     return (d["regex"].replace("{words}", "|".join(words)).replace("{pairs}", "|".join(pairs))
             .replace("{cjk_words}", "|".join(cjk_words) or "(?!)")
             .replace("{cjk_pairs}", "|".join(cjk_pairs) or "(?!)"))
