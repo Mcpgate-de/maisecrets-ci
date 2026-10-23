@@ -42,6 +42,17 @@ class SentenceEndTests(unittest.TestCase):
                     with self.subTest(rule=rule_id, end=end, tail=tail):
                         self.assertIn((rule_id, tok), hits(f"my key is ({tok}{end}{tail}"))
 
+    def test_an_azure_client_secret_before_a_full_stop_or_colon_is_found(self):
+        # this rule has a terminator of its own, which refused "." and ":"; the 336 rules above share another
+        r = random.Random(713)
+        body = string.ascii_letters + string.digits + "_~."
+        value = ("".join(r.choice(ALNUM) for _ in range(3)) + "8" + "Q~"
+                 + "".join(r.choice(body) for _ in range(33)) + r.choice(ALNUM))
+        for end in (".", ":", ".\n"):
+            with self.subTest(end=repr(end)):
+                self.assertIn(("azure-ad-client-secret", value), hits(f"the client secret is {value}{end} thanks"))
+        self.assertNotIn("azure-ad-client-secret", [k for k, _v in hits(f"see {value}.example there")])
+
     def test_a_dot_before_a_letter_is_no_end(self):
         # a host name or a file name: the vendored terminator never took it, and still does not
         for rule_id, tok in TOKENS.items():

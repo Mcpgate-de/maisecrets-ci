@@ -1981,6 +1981,14 @@ BETTERLEAKS_PATCHES = {
         "expect": r"""(?i)\b(waka_[a-z0-9]{36,64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)""",
         "regex": r"""(?i)\b(waka_(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-z0-9]{36,64}))"""
                  r"""(?:\\?['"\x60]|[\s;]|\\[nr]|$)"""},
+    # its own terminator refused "." and ":", so "the client secret is <value>." was no hit at all (13 catalog
+    # examples, 0.7.13); a full stop or colon before a space or the end of the text now ends the value, as for the
+    # 336 rules with the gitleaks terminator (_SENTENCE_END)
+    "azure-ad-client-secret": {
+        "expect": "(?:^|[\\\\'\"\\x60\\s>=:(,)])([a-zA-Z0-9_~.]{3}\\dQ~[a-zA-Z0-9_~.-]{31,34})"
+                  "(?:$|[\\\\'\"\\x60\\s<),])",
+        "regex": "(?:^|[\\\\'\"\\x60\\s>=:(,)])([a-zA-Z0-9_~.]{3}\\dQ~[a-zA-Z0-9_~.-]{31,34})"
+                 "(?:$|[\\\\'\"\\x60\\s<),]|[.:](?=\\s|$))"},
 }
 
 
