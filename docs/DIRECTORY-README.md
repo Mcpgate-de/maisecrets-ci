@@ -17,6 +17,16 @@ benchmarks are at https://github.com/Mcpgate-de/maisecrets.
 - The mod opens no network connection. It sends no prompt, no session data and no local data to the publisher or to
   any other server.
 
+## Install
+
+In Claude Code 2.1.275 or later, one line installs it from its marketplace on GitHub:
+
+```
+/plugin install maisecrets --marketplace Mcpgate-de/maisecrets
+```
+
+Then start a new session.
+
 ## What the hooks do
 
 All hooks run `hooks/run.sh` (or `hooks/run.cmd` on Windows), which starts this computer's Python 3 with

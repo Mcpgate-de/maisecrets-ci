@@ -311,8 +311,8 @@ FALLBACK_RULES: list[dict] = [
               r"(?![A-Za-z0-9_-])"},
     # 0.6.21, from the values that leaked in the public benchmark's holdout sets: an OpenAI or Anthropic key and a
     # Slack token with a shorter tail and no marker of the forms above. The sk- tail needs a digit, a capital and a run
-    # of 16 letters and digits; the Slack tail starts with digits and a hyphen, as Slack writes it:
-    # sk-admin-sidebar-navigation-item2X and xoxb-background-worker-release-2024 are names. A key that a rule above
+    # of 16 letters and digits; the Slack tail starts with digits and a hyphen, as Slack writes it, so a kebab-case
+    # name after the sk-admin- or the Slack bot prefix stays a name. A key that a rule above
     # takes (T3BlbkFJ inside, api03- and AA at the end) is left to it
     {"id": "openai-anthropic-key-relaxed", "type": "SECRET",
      "regex": r"(?<![\w-])sk-(?:proj|ant|svcacct|admin)-"
