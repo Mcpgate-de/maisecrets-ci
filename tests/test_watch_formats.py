@@ -25,13 +25,28 @@ class WatchFormatsTests(unittest.TestCase):
 
     def test_the_parsers_read_the_ids_of_their_formats(self):
         yml = "- provider: Acme\n  supportedSecret: Acme Key\n  secretType: acme_api_key\n  isPublic: true\n"
-        self.assertEqual(wf.github_types(yml + yml.replace("acme_api_key", "acme_pat")), ["acme_api_key", "acme_pat"])
+        self.assertEqual(sorted(wf.github_entries(yml + yml.replace("acme_api_key", "acme_pat"))),
+                         ["acme_api_key", "acme_pat"])
         toml = '[[rules]]\nid = "acme-key"\nregex = "x"\n[[rules]]\n  id = "acme-pat"\n'
-        self.assertEqual(wf.betterleaks_ids(toml), ["acme-key", "acme-pat"])
+        self.assertEqual(sorted(wf.toml_rules(toml)), ["acme-key", "acme-pat"])
         go = 'var rules = []Rule{\n\t{\n\t\tID:              "acme-key",\n\t\tCategory: CategoryAcme,\n\t},\n'
-        self.assertEqual(wf.trivy_ids(go + go.replace("acme-key", "acme-pat")), ["acme-key", "acme-pat"])
+        self.assertEqual(sorted(wf.trivy_rules(go + go.replace("acme-key", "acme-pat"))), ["acme-key", "acme-pat"])
         np_yml = "rules:\n- name: Acme Key\n  id: np.acme.1\n  pattern: x\n- name: Acme PAT\n  id: np.acme.2\n"
-        self.assertEqual(wf.yaml_ids(np_yml), ["np.acme.1", "np.acme.2"])
+        self.assertEqual(sorted(wf.yaml_rules(np_yml)), ["np.acme.1", "np.acme.2"])
+
+    def test_a_changed_rule_text_changes_only_its_own_fingerprint(self):
+        toml = '[[rules]]\nid = "acme-key"\nregex = "acme_[a-z]{32}"\n[[rules]]\nid = "acme-pat"\nregex = "x"\n'
+        before = wf.toml_rules(toml)
+        after = wf.toml_rules(toml.replace("{32}", "{40}"))
+        self.assertNotEqual(before["acme-key"], after["acme-key"])
+        self.assertEqual(before["acme-pat"], after["acme-pat"])
+
+    def test_a_changed_fingerprint_is_news_and_a_new_id_or_a_bare_list_is_no_change(self):
+        snap_fp = {"betterleaks": {"a": "111", "b": "222"}}
+        cur = {"betterleaks": {"a": "111", "b": "999", "c": "333"}, "trufflehog": ["t"]}
+        self.assertEqual(wf.changed_entries(snap_fp, cur), {"betterleaks": ["b"]})
+        self.assertEqual(wf.load_fp(wf.dump_fp(cur)), {"betterleaks": {"a": "111", "b": "999", "c": "333"},
+                                                       "trufflehog": {}})
 
     def test_every_source_has_a_section_in_the_snapshot(self):
         # a source without a section reports its whole list as new on the first run

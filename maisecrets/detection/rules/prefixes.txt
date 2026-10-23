@@ -179,7 +179,7 @@ canadian-digital-service-gc-notify-api-key                 gcntfy\-(?:(?<![A-Za-
 cashfree-secret-key-production                             cfsk_ma_prod_(?:(?<![A-Za-z0-9_-]cfsk_ma_prod_)|(?<=\\[nrt]cfsk_ma_prod_))[A-Za-z0-9_]{20,}(?![A-Za-z0-9_-])
 cashfree-secret-key-sandbox                                cfsk_ma_test_(?:(?<![A-Za-z0-9_-]cfsk_ma_test_)|(?<=\\[nrt]cfsk_ma_test_))[A-Za-z0-9_]{20,}(?![A-Za-z0-9_-])
 checkout-com-sandbox-secret-key-current                    sk_sbox_(?:(?<![A-Za-z0-9_-]sk_sbox_)|(?<=\\[nrt]sk_sbox_))[a-z0-9]{27}(?![A-Za-z0-9_-])
-cloudflare-access-service-token-client-secret-sibling      cfast_(?:(?<![A-Za-z0-9_-]cfast_)|(?<=\\[nrt]cfast_))[A-Za-z0-9]{40}[a-f0-9]{8}(?![A-Za-z0-9_-])
+cloudflare-access-service-token-client-secret-sibling      cfast_(?:(?<![A-Za-z0-9_-]cfast_)|(?<=\\[nrt]cfast_))[A-Za-z0-9]{40}[A-Za-z0-9]{8}(?![A-Za-z0-9_-])
 coveo-api-key-rotation-secret-sibling                      coveo_apikey_rotation_v1_(?:(?<![A-Za-z0-9_-]coveo_apikey_rotation_v1_)|(?<=\\[nrt]coveo_apikey_rotation_v1_))[A-Za-z0-9]{10}\-[A-Za-z0-9]{4}\-[A-Za-z0-9]{4}\-[A-Za-z0-9]{4}\-[A-Za-z0-9]{12}_[A-Za-z0-9]{8}(?![A-Za-z0-9_-])
 databricks-dkea-token                                      dkea(?:(?<![A-Za-z0-9_-]dkea)|(?<=\\[nrt]dkea))[a-f0-9]{32}(?![A-Za-z0-9_-])
 databricks-dosa-token                                      dosa(?:(?<![A-Za-z0-9_-]dosa)|(?<=\\[nrt]dosa))[a-f0-9]{32}(?![A-Za-z0-9_-])

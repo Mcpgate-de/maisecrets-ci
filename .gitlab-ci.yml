@@ -281,10 +281,11 @@ windows_macos:
 # rules as data and execute none of them (scripts/_static_python.py; reviews, 2026-10-06: running them
 # put upstream code next to this job's credentials, the Renovate token and the CI job token of the
 # schedule's owner). RENOVATE_TOKEN is the project access token renovate-bot, Developer: it can open an
-# MR and push an unprotected branch, and cannot push to main, merge, create a v* tag or read a CI
-# variable (main and v* tags are Maintainer-only). It is protected (only protected branches and tags
-# get it) and scoped to the environment renovate. Nothing merges by
-# itself: the MR pipeline tests the new rules and a person merges.
+# MR, push an unprotected branch and merge into next, and cannot push to or merge into main, create a v*
+# tag or read a CI variable (main and v* tags are Maintainer-only). It is protected (only protected branches
+# and tags get it) and scoped to the environment renovate. The MR pipeline tests the new rules, Renovate merges
+# a patch or minor update into next itself once that pipeline is green, and the weekly release takes it to main
+# through the release gate.
 renovate:
   stage: validate
   image: renovate/renovate:39-full@sha256:1edf111e93a966416e03e0165b7d8b3fbd0f284233ce7be94f8331c5186ef8f4
@@ -343,6 +344,24 @@ coverage_drift:
     when: always
     paths: [coverage-drift.json, format-drafts/]
     expire_in: 30 days
+
+# The weekly format intake (scripts/format_intake.py, on Mondays in the daily schedule): new and changed entries of
+# the public format lists (by rule fingerprint, docs/format-watch-fp.txt), the open "Token format:" reports that the
+# answer of ms:(…) links, and the posts about token formats in the provider changelogs of docs/format-feeds.txt, in
+# one queue. An item turns the job red; the queue is the artifact a person or an agent works through
+# (docs/DETECTION-COVERAGE.md, loop 3).
+format_intake:
+  stage: validate
+  interruptible: false
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script:
+    - '[ "$(date +%u)" = 1 ] || { echo "the format intake runs on Mondays"; exit 0; }'
+    - python3 scripts/format_intake.py --out format-intake
+  artifacts:
+    when: always
+    paths: [format-intake/]
+    expire_in: 60 days
 
 release:
   stage: release

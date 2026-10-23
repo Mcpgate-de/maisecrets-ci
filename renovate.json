@@ -3,7 +3,7 @@
   "description": [
     "Renovate keeps the three vendored rulesets in maisecrets/detection/rules/ current. It runs as the scheduled job `renovate` in .gitlab-ci.yml, self-hosted, because only a self-hosted Renovate runs postUpgradeTasks.",
     "A bump of a *_VERSION file alone would leave the JSON the detector reads at the old version (red: tests/test_vendored_rules.py). The postUpgradeTasks run the sync script of that ruleset, so one MR carries the version and the regenerated rules together.",
-    "The sync scripts read the upstream rules as data (scripts/_static_python.py) and execute no upstream code; the job holds one credential, the Renovate token, a Developer token. Nothing merges by itself: a person merges the tested MR.",
+    "The sync scripts read the upstream rules as data (scripts/_static_python.py) and execute no upstream code; the job holds one credential, the Renovate token, a Developer token. Renovate opens its MRs against next, where a merge releases nothing, and merges a patch or minor update itself once its pipeline is green; the weekly release (Fridays) takes it to main through the release gate. A major update can change the rule format and waits for a person.",
     "Only the custom managers are on: the CI images and the GitHub Actions stay pinned by hand."
   ],
   "extends": [
@@ -18,8 +18,8 @@
   ],
   "prHourlyLimit": 0,
   "prConcurrentLimit": 3,
-  "automerge": false,
-  "minimumReleaseAge": "7 days",
+  "automerge": true,
+  "minimumReleaseAge": "3 days",
   "customManagers": [
     {
       "customType": "regex",
@@ -122,7 +122,12 @@
       ],
       "addLabels": [
         "needs-review"
-      ]
+      ],
+      "automerge": false
     }
-  ]
+  ],
+  "baseBranches": [
+    "next"
+  ],
+  "platformAutomerge": true
 }

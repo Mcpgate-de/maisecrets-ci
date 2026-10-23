@@ -11,6 +11,7 @@ first").
 from __future__ import annotations
 
 import re
+import urllib.parse
 
 class _Lazy:
     """A pattern compiled on its first use: the hook start compiles only what a prompt needs (tests/test_hook_start)."""
@@ -157,40 +158,47 @@ _FORMAT_PREFIX_RE = _Lazy(r"(?:[a-z]{2,8}|[A-Z]{2,6})[_.-](?:[a-z]{2,8}[_.-])?")
 
 def format_shape(value: str) -> dict:
     """The shape of a value for a report of its format, never the value: the fixed start (or none), the length of
-    the rest and its kinds of character."""
+    the rest, its kinds of character, and the same as one compact pattern (`sb_pat_[A-Za-z0-9]{32}`)."""
     m = _FORMAT_PREFIX_RE.match(value)
     rest = value[m.end():] if m else value
     prefix = m.group(0) if m and len(rest) >= 16 and len(set(rest)) >= 8 else ""
     rest = value[len(prefix):]
     kinds = [name for name, test in (("small letters", str.islower), ("capitals", str.isupper),
                                      ("digits", str.isdigit)) if any(test(c) for c in rest)]
-    signs = sorted({c for c in rest if not c.isalnum()})
-    return {"prefix": prefix, "length": len(rest), "kinds": kinds, "signs": "".join(signs)}
+    signs = "".join(sorted({c for c in rest if not c.isalnum()}))
+    span = "".join(r for name, r in (("capitals", "A-Z"), ("small letters", "a-z"), ("digits", "0-9")) if name in kinds)
+    span += "".join("\\" + c if c in "\\]^-" else c for c in signs)
+    return {"prefix": prefix, "length": len(rest), "kinds": kinds, "signs": signs,
+            "pattern": f"{prefix}[{span}]{{{len(rest)}}}"}
+
+
+# the template of the report on the GitHub tracker (.github/ISSUE_TEMPLATE/format.yml) holds the questions, so the
+# link carries only the title and stays short enough for one line of a terminal: a link of 600 characters wrapped,
+# and the indented second line could not be copied whole (2026-10-23)
+FORMAT_TEMPLATE = "format.yml"
 
 
 def format_report(value: str) -> str:
-    """A line that offers to report the format of a value maisecrets did not catch: the shape and a prefilled issue
-    link the person opens (docs/DETECTION-COVERAGE.md, loop 4). Empty when reporting is off (report_url null)."""
+    """Lines that offer to report the format of a value maisecrets did not catch: the shape and a short issue link on
+    a line of its own (docs/DETECTION-COVERAGE.md, loop 4). Only for a value with a fixed start: without one no
+    format rule can follow, and the report would be an issue nobody can act on. Empty when reporting is off."""
     from . import events
     sh = format_shape(value)
-    start = f"`{sh['prefix']}` and " if sh["prefix"] else ""
-    shape = (f"{start}{sh['length']} characters of {', '.join(sh['kinds']) or 'signs'}"
+    if not sh["prefix"]:
+        return ""
+    shape = (f"`{sh['prefix']}` and {sh['length']} characters of {', '.join(sh['kinds']) or 'signs'}"
              + (f" and `{sh['signs']}`" if sh["signs"] else ""))
-    body = "\n".join(["## A token format maisecrets did not catch", "",
-                       f"- fixed start: `{sh['prefix']}`" if sh["prefix"] else "- fixed start: none seen",
-                       f"- after it: {sh['length']} characters; {', '.join(sh['kinds']) or 'no letters or digits'}"
-                       + (f"; signs `{sh['signs']}`" if sh["signs"] else ""),
-                       "- which service issues it: (please name it)", "",
-                       "_Prepared by `ms:(…)`; it holds the shape of the value, never the value._"])
     try:
-        url = events.link(f"Token format: {shape}"[:90], body, "new format")
+        tracker = events.tracker()
     except Exception:  # noqa: BLE001 - a broken config must not stop the answer; the report is an extra
         return ""
-    if not url:
+    if not tracker:
         return ""
-    warn = (" Check the start first: if it is part of your secret and not the service's fixed prefix, do not send it."
-            if sh["prefix"] else "")
-    return f" Unknown format? Report its shape ({shape}), never the value: {url}{warn}"
+    repo = events.github_repo(tracker)
+    url = (f"https://github.com/{repo}/issues/new?" + urllib.parse.urlencode(
+        {"template": FORMAT_TEMPLATE, "title": f"Token format: {sh['pattern']}"}) if repo else tracker)
+    return (f"\nUnknown format? Report its shape ({shape}), never the value:\n{url}\n"
+            "Check the start first: if it is part of your secret and not the service's fixed prefix, do not send it.")
 
 
 def stored_text(ref: str, alone: bool, in_text: bool) -> str:

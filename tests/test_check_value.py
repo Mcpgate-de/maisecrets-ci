@@ -551,7 +551,7 @@ class FormatReportTests(unittest.TestCase):
         tok = "sb" + "_pat_" + "Qx7Lm2Np9Rt4Vb8Kc3Zd6Hf1Jg5Ws0Ye"
         self.assertEqual(check_value.format_shape(tok),
                          {"prefix": "sb_pat_", "length": 32, "kinds": ["small letters", "capitals", "digits"],
-                          "signs": ""})
+                          "signs": "", "pattern": "sb_pat_[A-Za-z0-9]{32}"})
         # a password with a word before an underscore keeps its start: the rest is too short to be a token body
         self.assertEqual(check_value.format_shape("summer_" + "rain42!")["prefix"], "")
 
@@ -564,16 +564,36 @@ class FormatReportTests(unittest.TestCase):
         self.assertNotIn(tok[7:], line)
         self.assertNotIn(tok[7:].replace("", "%")[1:4], line)   # nor a percent-encoded piece of it
 
+    def test_the_link_stands_on_a_line_of_its_own_and_fits_one_terminal_line(self):
+        # a link of 600 characters wrapped, and its indented second line could not be copied whole (2026-10-23)
+        tok = "sb" + "_pat_" + "Qx7Lm2Np9Rt4Vb8Kc3Zd6Hf1Jg5Ws0Ye"
+        links = [ln for ln in check_value.format_report(tok).split("\n") if "github.com" in ln]
+        self.assertEqual(len(links), 1)
+        self.assertTrue(links[0].startswith("https://github.com/"), "the link starts its line")
+        self.assertLessEqual(len(links[0]), 130)
+        self.assertIn("template=format.yml", links[0])
+        template = Path(__file__).resolve().parent.parent / ".github" / "ISSUE_TEMPLATE" / check_value.FORMAT_TEMPLATE
+        self.assertTrue(template.is_file(), "the template the link names exists")
+
+    def test_no_link_for_a_value_without_a_fixed_start(self):
+        # no format rule can follow from a shape without a prefix: a report would be an issue nobody can act on
+        for value in ("abcdefg" + "_hij12k", "Hv4-" + "kTr8mZq2Wx", "x" * 4 + "7Gq2Lm9Zr4Tb8Wc1"):
+            with self.subTest(value=value[:4]):
+                self.assertEqual(check_value.format_report(value), "")
+
     def test_no_line_when_reporting_is_off(self):
         from unittest import mock
         from maisecrets import events
         with mock.patch.object(events, "tracker", return_value=None):
             self.assertEqual(check_value.format_report("sb" + "_pat_" + "Qx7Lm2Np9Rt4Vb8Kc3Zd6Hf1"), "")
 
-    def test_a_stored_value_gets_the_report_line(self):
-        out = _prompt(f"ms:({UNSEEN})")
+    def test_a_stored_value_gets_the_report_line_only_with_a_fixed_start(self):
+        self.assertNotIn("Unknown format?", _prompt(f"ms:({UNSEEN})")["reason"])
+        prefixed = "zq" + "x_" + "Qx7Lm2Np9Rt4Vb8Kc3Zd6Hf1"
+        out = _prompt(f"ms:({prefixed})")
         self.assertIn("Unknown format? Report its shape", out["reason"])
-        self.assertNotIn(UNSEEN, out["reason"].split("Report its shape", 1)[1])
+        self.assertNotIn(prefixed[4:], out["reason"].split("Report its shape", 1)[1])
+
 
 if __name__ == "__main__":
     unittest.main()

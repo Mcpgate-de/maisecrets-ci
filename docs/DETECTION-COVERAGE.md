@@ -12,7 +12,7 @@ examples found without a label by 4 to 10 points per catalog. This document turn
 |---|---|---|---|---|
 | 1. Coverage as a number | Measure every catalog's examples: bare, after a label, in the catalog's own text | weekly, and in the release gate | yes | `docs/coverage.json`; the gate stops when a number falls |
 | 2. New formats as rule drafts | Turn each new entry of the watched sources into a draft rule with a test | daily watch, draft on demand | the draft; a person merges | a merge request with rules, tests and measurements |
-| 3. Research sweep | Read the providers' own documentation for token formats | monthly, and when loop 2 names a new provider | agents, with sources | `bench/formats/research-<date>.jsonl` |
+| 3. Research sweep | Read the providers' own documentation for token formats | weekly queue (`format_intake`), research on demand | the queue yes; the research by an agent, on request | `format-intake/queue.md`, then `bench/formats/research-<date>.jsonl` |
 | 4. Field reports | A person reports a format that `ms:(…)` did not catch: shape only, never the value | when it happens | the issue text | an issue, then a draft (loop 2) |
 | 5. Families | Measure each family of formats separately and close one family at a time | per block | measurement yes | a number per family in loop 1 |
 
@@ -31,7 +31,9 @@ bare, after a label, and in the example's own text. The numbers go to `docs/cove
 
 `format_watch` (daily, `scripts/watch_formats.py`) compares the GitHub secret scanning types, trufflehog's detectors,
 betterleaks on `main`, Google's Veles plugins, gitleaks on `master`, Trivy's built-in secret rules, Nosey Parker's
-rule ids and the key templates of nuclei-templates with `docs/format-watch.txt` and turns red on a new entry.
+rule ids and the key templates of nuclei-templates with `docs/format-watch.txt` and turns red on a new entry. It
+also keeps a fingerprint of each entry's rule text (`docs/format-watch-fp.txt`) and turns red when a provider
+changes a known format, a new length or a second prefix under the same id.
 
 A draft comes from `scripts/draft_format_rules.py` (in the weekly `coverage_drift` job, as the artifact
 `format-drafts/`): it takes the
@@ -41,6 +43,13 @@ catalog example). The draft merge request carries the FP bank, the time measurem
 itself: each rule can raise false positives.
 
 ### 3. Research sweep
+
+The weekly job `format_intake` (`scripts/format_intake.py`, Mondays) puts every signal into one queue, the artifact
+`format-intake/queue.md` and `queue.jsonl`: new and changed entries of the watched lists, the open "Token format:"
+reports that the answer of `ms:(…)` links (loop 4), and the posts of the last 14 days about token formats in the
+provider changelogs of `docs/format-feeds.txt`. An item turns the job red. Its first run over 60 days found
+Cloudflare's scannable Access service token secrets (2026-08-26). A person or an agent works the queue: research,
+then the drafts below.
 
 Agents read, per provider that GitHub secret scanning names (and per new provider of loop 2), the provider's
 documentation, changelog or source for its token formats, and write one line per format with its source:

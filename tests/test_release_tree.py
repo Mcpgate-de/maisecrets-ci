@@ -74,7 +74,9 @@ class ReleaseTreeTests(unittest.TestCase):
                       "docs/DETECTION-SPEC-DRAFT.md", "docs/DETECTION-CONTRACT-PROPOSAL.md",
                       "docs/rule-limits.json", "docs/ratchet-exceptions.json",
                       "docs/REGRESSION-POLICY.md",
-                      "renovate.json", "docs/format-watch.txt", "docs/coverage.json", "docs/coverage-rules.txt",
+                      "renovate.json", "docs/format-watch.txt",
+                      "docs/format-watch-fp.txt", "docs/format-feeds.txt", "docs/coverage.json",
+                      "docs/coverage-rules.txt",
                       "docs/DETECTION-COVERAGE.md",
                       # shipped as the tree's README.md (build_release_tree.py, the directory flavor)
                       "docs/DIRECTORY-README.md"}
@@ -85,26 +87,32 @@ class ReleaseTreeTests(unittest.TestCase):
         tracked = subprocess.run(["git", "ls-tree", "-r", "--name-only", "HEAD"], capture_output=True, text=True,
                                  check=True, cwd=ROOT).stdout.split("\n")
         # prefixes.txt ships as prefixes.json (build_release_tree.directory_prefixes)
-        # the mod's own hooks file stays on main: in the tree the mod is a module of hooks/hooks.json
         want = sorted(self.mod.PREFIXES_JSON if p == self.mod.PREFIXES_TXT else p
                       for p in tracked if p and not p.startswith(self.DEV_ONLY_PREFIXES)
-                      and p not in self.DEV_ONLY_FILES and not p.endswith("/agents/openai.yaml")
-                      and p != self.mod.MOD_JSON)
+                      and p not in self.DEV_ONLY_FILES and not p.endswith("/agents/openai.yaml"))
         self.assertEqual(sorted(self.files), want)
 
-    def test_the_mod_is_a_module_of_the_hooks_file_as_the_directory_serves_mods(self):
-        # every mod the directory serves names its module in hooks/hooks.json, and the manifest names no hooks file;
-        # main keeps a file of its own for the mod because Codex refuses a key it does not know in hooks/hooks.json
-        hooks = json.loads((self.tree / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+    def test_no_hook_command_points_into_the_folder_of_the_mod_or_of_the_hooks_file_that_names_it(self):
+        # the directory holds a version when it "couldn't confirm that the mod stays the same": the mod's files and
+        # the hooks file that names it must lie in folders that no command points at. 0.7.15 declared the mod in
+        # hooks/hooks.json, beside hooks/run.sh and run.cmd that every hook command names, and got that hold
         manifest = json.loads((self.tree / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
-        self.assertEqual(hooks["modules"], ["../claude-mod/maisecrets-mod.mjs"])
-        self.assertTrue((self.tree / "hooks" / hooks["modules"][0]).resolve().is_file())
-        self.assertNotIn("hooks", manifest)
-        self.assertFalse((self.tree / "claude-mod" / "maisecrets-mod.json").exists())
-        self.assertTrue(hooks["hooks"], "the classic hooks stay beside the module")
-        main = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
-        self.assertEqual(main["hooks"], "./claude-mod/maisecrets-mod.json", "main keeps the mod's own file")
-        self.assertNotIn("modules", json.loads((ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8")))
+        candidates = [manifest["hooks"].lstrip("./")] if isinstance(manifest.get("hooks"), str) else []
+        mod_hooks_file = next(p for p in candidates + ["hooks/hooks.json"]
+                              if json.loads((self.tree / p).read_text(encoding="utf-8")).get("modules"))
+        mods = json.loads((self.tree / mod_hooks_file).read_text(encoding="utf-8"))["modules"]
+        guarded = {Path(mod_hooks_file).parent.as_posix()}
+        guarded |= {(self.tree / Path(mod_hooks_file).parent / m).resolve().parent.relative_to(self.tree.resolve())
+                    .as_posix() for m in mods}
+        commands = []
+        for p in self.files:
+            if p.endswith("hooks.json") or p == mod_hooks_file:
+                for entries in (json.loads((self.tree / p).read_text(encoding="utf-8")).get("hooks") or {}).values():
+                    commands += [h.get(k, "") for e in entries for h in e.get("hooks", [])
+                                 for k in ("command", "commandWindows")]
+        self.assertTrue(commands, "the tree has classic hook commands")
+        pointed = {m.split("/")[0] for c in commands for m in re.findall(r"CLAUDE_PLUGIN_ROOT\}/([\w./-]+)", c)}
+        self.assertEqual(guarded & pointed, set(), f"commands point at {pointed}, the mod lies in {guarded}")
 
     def test_every_path_the_hooks_commands_and_manifests_name_is_in_the_tree(self):
         texts = [(p, (self.tree / p).read_text(encoding="utf-8")) for p in self.files

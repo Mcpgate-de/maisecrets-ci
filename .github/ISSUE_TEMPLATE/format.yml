@@ -1,0 +1,29 @@
+name: Token format maisecrets did not catch
+description: Report the shape of a token format that ms:(…) did not catch. Never the value.
+title: "Token format: "
+labels: ["new format"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The title holds the shape that `ms:(…)` saw: the fixed start and a pattern of the rest, such as
+        `abc_[A-Za-z0-9]{32}`. **Never paste the value**, not even a part of it. If the start in the title is part of
+        your secret and not the service's fixed prefix, close this page.
+  - type: input
+    id: service
+    attributes:
+      label: Which service issues this token?
+      description: The provider, and the kind of token if you know it (API key, personal access token, webhook secret).
+      placeholder: "Example: Acme Cloud, organization API key"
+    validations:
+      required: true
+  - type: input
+    id: docs
+    attributes:
+      label: Where is the format documented? (optional)
+      description: A link to the provider's documentation or changelog, if there is one.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else? (optional)
+      description: For example a second prefix the service uses, or where the token appears (a config file, a CLI).

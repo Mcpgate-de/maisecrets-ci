@@ -1,7 +1,7 @@
 {
   "about": "Every built-in tool a client offers the model, with the class that decides its guard. harness/run.py and harness/codex.py read the tool list of the real client from each request body and fail on a name that is not here; tests/test_invariant_store_reads.py (I3) reads the classes. Classes: reads-path and edits-path take a local path (the PreToolUse matcher must reach them and the store refuses them); shell is Bash; mcp-resource reads a resource by URI (a file: URI can name the store); no-path takes no local path, and `why` says so. MCP tools (mcp__*) are matched by their prefix and are not listed.",
   "claude-code": {
-    "seen_in": "2.1.283",
+    "seen_in": "2.1.309",
     "tools": {
       "Read": {"class": "reads-path", "field": "file_path"},
       "NotebookRead": {"class": "reads-path", "field": "notebook_path", "why": "older clients"},
@@ -20,6 +20,8 @@
       "Agent": {"class": "no-path", "why": "a subagent's own tool calls pass the same hooks"},
       "Task": {"class": "no-path", "why": "older name of Agent"},
       "Workflow": {"class": "no-path", "why": "the agents it starts pass the same hooks"},
+      "ToolSearch": {"class": "no-path", "why": "loads the schema of a deferred tool by its name; 2.1.309"},
+      "DeferredToolPlaceholder": {"class": "no-path", "why": "takes no input and is never called; 2.1.309"},
       "ListAgents": {"class": "no-path", "why": "lists agents"},
       "SendMessage": {"class": "no-path", "why": "a message to another agent or session"},
       "TaskStop": {"class": "no-path", "why": "stops a task"},

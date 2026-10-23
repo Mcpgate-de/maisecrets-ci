@@ -82,7 +82,7 @@ SOURCES = dict([
     ('checkout-com-sandbox-secret-key-current',
      'sk_sbox_[a-z0-9]{27}'),
     ('cloudflare-access-service-token-client-secret-sibling',
-     'cfast_[A-Za-z0-9]{40}[a-f0-9]{8}'),
+     'cfast_[A-Za-z0-9]{40}[A-Za-z0-9]{8}'),
     ('coveo-api-key-rotation-secret-sibling',
      'coveo_apikey_rotation_v1_[A-Za-z0-9]{10}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{12}_[A-Za-z0-9]{8}'),
     ('databricks-dkea-token',

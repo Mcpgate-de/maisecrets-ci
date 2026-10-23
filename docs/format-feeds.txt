@@ -1,0 +1,9 @@
+# Provider changelogs that scripts/format_intake.py reads each week for posts about token formats.
+# One feed per line: a short name, then the RSS or Atom URL. Add a provider whose tokens maisecrets masks.
+github-changelog https://github.blog/changelog/feed/
+cloudflare-changelog https://developers.cloudflare.com/changelog/rss/index.xml
+gitlab-blog https://about.gitlab.com/atom.xml
+vercel-changelog https://vercel.com/changelog/rss.xml
+supabase-blog https://supabase.com/rss.xml
+huggingface-blog https://huggingface.co/blog/feed.xml
+openai-news https://openai.com/news/rss.xml
