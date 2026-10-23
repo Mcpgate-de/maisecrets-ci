@@ -79,7 +79,12 @@ class ReleaseTreeTests(unittest.TestCase):
                       "docs/coverage-rules.txt",
                       "docs/DETECTION-COVERAGE.md",
                       # shipped as the tree's README.md (build_release_tree.py, the directory flavor)
-                      "docs/DIRECTORY-README.md"}
+                      "docs/DIRECTORY-README.md",
+                      # design documents, read on GitHub; nothing at run time opens them (0.7.19)
+                      "docs/CLIENTS.md", "docs/PROTOCOL.md", "docs/THREAT-MODEL.md", "docs/label-sources.md",
+                      "docs/DETECTION.md",
+                      # the rule source of betterleaks.json; the detector reads only the JSON
+                      "maisecrets/detection/rules/betterleaks.toml"}
 
     def test_every_tracked_file_ships_unless_it_is_named_developer_only(self):
         # the files of the commit the tree was built from; `git ls-files` also lists what is only

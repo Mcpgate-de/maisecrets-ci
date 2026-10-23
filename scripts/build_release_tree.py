@@ -39,9 +39,12 @@ import tempfile
 # folders and files of the plugin at run time, and the documents a user reads
 # no .codex-plugin/: Codex installs from main, and the directory held every version because that manifest names
 # image files (UNREAD_ASSET_REFERENCED, 2026-09-30: "the plugin stays held for review")
+# no docs/: nothing at run time reads them, they are on GitHub, and THREAT-MODEL.md quotes the download-and-run
+# commands that C21 guards, which the directory lists as RUNTIME_FETCH_EXEC (0.7.17)
 RUNTIME = (".claude-plugin/", "hooks/", "claude-mod/", "maisecrets/", "commands/", "skills/", "assets/",
-           "LICENSE", "NOTICE", "README.md", "PRIVACY.md", "SECURITY.md", "CHANGELOG.md",
-           "docs/CLIENTS.md", "docs/PROTOCOL.md", "docs/THREAT-MODEL.md", "docs/label-sources.md", "docs/DETECTION.md")
+           "LICENSE", "NOTICE", "README.md", "PRIVACY.md", "SECURITY.md", "CHANGELOG.md")
+# the rule source that scripts/sync_betterleaks.py converts to betterleaks.json; the detector reads only the JSON
+NOT_SHIPPED = ("maisecrets/detection/rules/betterleaks.toml",)
 
 
 def _git(*args: str, env: dict | None = None, text: bool = True) -> str:
@@ -58,6 +61,7 @@ def paths(ref: str = "HEAD") -> list[str]:
     tracked = _git("ls-tree", "-r", "--name-only", ref).splitlines()
     keep = [p for p in tracked
             if any(p == r or (r.endswith("/") and p.startswith(r)) for r in RUNTIME) and "__pycache__" not in p
+            and p not in NOT_SHIPPED
             # a skill's Codex metadata names its icon images, which the directory flags the same way
             and not (p.startswith("skills/") and "/agents/" in p and p.endswith("openai.yaml"))]
     return sorted(PREFIXES_JSON if p == PREFIXES_TXT else p for p in keep)   # see directory_prefixes

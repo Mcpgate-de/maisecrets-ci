@@ -11,7 +11,7 @@ name the shape and the path.
 
 ## What the plugin protects, and what it does not
 
-The full threat model is in `docs/THREAT-MODEL.md`. The short form:
+The full threat model is in [docs/THREAT-MODEL.md](https://github.com/Mcpgate-de/maisecrets/blob/main/docs/THREAT-MODEL.md). The short form:
 
 - **Protected:** a secret or PII value that the plugin detects in a prompt, a
   tool result or a transcript does not reach the cloud model as text.
@@ -31,5 +31,5 @@ The full threat model is in `docs/THREAT-MODEL.md`. The short form:
 
 Defensive reviews of the stores, the agent channel, the Codex adapter and the failure modes ran
 on 2026-09-26 and 2026-09-27. Their findings are fixed in the code, each with a test, and named
-in `CHANGELOG.md` and the commit messages. `docs/THREAT-MODEL.md` lists the controls and where
+in `CHANGELOG.md` and the commit messages. [docs/THREAT-MODEL.md](https://github.com/Mcpgate-de/maisecrets/blob/main/docs/THREAT-MODEL.md) lists the controls and where
 each one ends.
