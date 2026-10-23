@@ -121,6 +121,14 @@ class ProviderContextTests(unittest.TestCase):
             with self.subTest(rule=rule_id):
                 self.assertNotIn(rule_id, [m.kind for m in detect.scan(f"value: {value}", channel="tool")])
 
+    def test_the_tail_of_a_commit_id_after_the_hex_word_is_no_key(self):
+        # a link into a hexpm repository: the rule skipped 8 characters of the commit id and took the last 32
+        r = random.Random(5)
+        commit = "".join(r.choice("0123456789abcdef") for _ in range(40))
+        text = f"Hex key format: https://github.com/hexpm/hex/blob/{commit}/lib/hex/api.ex\n"
+        self.assertNotIn("provider-hex-pm-organization-repository-key",
+                         [m.kind for m in detect.scan(text, channel="tool")])
+
 
 if __name__ == "__main__":
     unittest.main()

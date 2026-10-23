@@ -44,8 +44,12 @@ itself: each rule can raise false positives.
 
 Agents read, per provider that GitHub secret scanning names (and per new provider of loop 2), the provider's
 documentation, changelog or source for its token formats, and write one line per format with its source:
-`type, provider, variant, prefix, regex, shape, source, evidence`. A line without a source has no regex. Loop 2
-turns the lines into drafts. The sweep of 2026-10-22 covered 529 types and gave 108 rules.
+`type, provider, variant, prefix, regex, shape, source, evidence`. A line without a source has no regex. The lines
+go to `bench/formats/research-<date>.jsonl` (without the free-text `shape`), and
+`scripts/draft_researched_rules.py <file>` turns them into drafts: it generates five tokens per format, drops a
+format that an existing rule already finds, a generic or public one and one without a first-party source, and keeps
+a rule only when it takes every token whole, also before `.`, `,` and `)`. The sweep of 2026-10-22 covered 529
+types and gave 108 rules; two sweeps over the providers' own code gave 72 (0.7.10) and 47 (0.7.11).
 
 ### 4. Field reports
 
@@ -77,3 +81,6 @@ Each family has its own number in loop 1 and is closed as one block, with its ow
 - Time: CPU time of a fixed 1 MB text and of a short prompt, base and candidate measured in turns; the gate stops at
   more than 20 % and reports the load average.
 - Out by design: short generic prefixes (`sk_`, `key_`), public ids and publishable keys, connection strings.
+- No new rule takes a part of a longer token that another rule took whole (a Fly.io token of several macaroons, a
+  hook URL with its scheme, the tail of a commit id): compare the catalog coverage rule by rule with
+  `docs/coverage-rules.txt` before the push, not only in the gate.
