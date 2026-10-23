@@ -630,6 +630,25 @@ def _load_own_secret_rules() -> list[Rule]:
     return rules
 
 
+def betterleaks_config() -> dict:
+    """rules/betterleaks.json: the same rules as betterleaks.toml, for a Python without tomllib; a test keeps the two
+    equal. The directory version ships it as betterleaks.part1.json, part2, … instead, each under the size the
+    directory reads, with the literal keys of a filter as their sha256 (scripts/build_release_tree.py)."""
+    whole = RULES_DIR / "betterleaks.json"
+    if whole.is_file():
+        return json.loads(whole.read_text(encoding="utf-8"))
+    cfg: dict = {}
+    n = 1
+    while (RULES_DIR / f"betterleaks.part{n}.json").is_file():
+        part = json.loads((RULES_DIR / f"betterleaks.part{n}.json").read_text(encoding="utf-8"))
+        rules = cfg.get("rules", []) + part.pop("rules", [])
+        cfg = {**part, **cfg, "rules": rules}
+        n += 1
+    if n == 1:
+        raise FileNotFoundError(whole)
+    return cfg
+
+
 def _load_betterleaks() -> list[Rule]:
     """The vendored betterleaks rules (rules/betterleaks.json, synced by scripts/sync_betterleaks.py). A rule with
     skipReport is a component that betterleaks never reports alone (a client id beside its secret); a rule without a
@@ -638,8 +657,7 @@ def _load_betterleaks() -> list[Rule]:
     from . import rule_filter
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")   # "possible nested set" in some regexes
-        # betterleaks.json is the same rules as JSON, for a Python without tomllib; a test keeps the two equal
-        cfg = json.loads((RULES_DIR / "betterleaks.json").read_text(encoding="utf-8"))
+        cfg = betterleaks_config()
         global_drop = rule_filter.compile_filter(cfg["filter"]) if cfg.get("filter") else None
         rules: list[Rule] = []
         # 379 filters are 45 different texts: each text is read once. A filter is a pure function of its text, so the
@@ -1343,7 +1361,9 @@ def _upstream_rules() -> dict:
                                         ("presidio", "presidio.json", "recognizers", "PRESIDIO_VERSION",
                                          "LICENSE-presidio")):
         v = version(ver)
-        for r in json.loads((RULES_DIR / file).read_text(encoding="utf-8"))[key]:
+        cfg = betterleaks_config() if file == "betterleaks.json" else json.loads((RULES_DIR / file).read_text(
+            encoding="utf-8"))
+        for r in cfg[key]:
             if "id" in r:
                 out[(source, r["id"])] = Upstream(source, v, r["id"], canonical_sha256(r), lic)
     return out

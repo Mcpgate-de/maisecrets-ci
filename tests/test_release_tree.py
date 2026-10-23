@@ -92,10 +92,51 @@ class ReleaseTreeTests(unittest.TestCase):
         tracked = subprocess.run(["git", "ls-tree", "-r", "--name-only", "HEAD"], capture_output=True, text=True,
                                  check=True, cwd=ROOT).stdout.split("\n")
         # prefixes.txt ships as prefixes.json (build_release_tree.directory_prefixes)
-        want = sorted(self.mod.PREFIXES_JSON if p == self.mod.PREFIXES_TXT else p
-                      for p in tracked if p and not p.startswith(self.DEV_ONLY_PREFIXES)
-                      and p not in self.DEV_ONLY_FILES and not p.endswith("/agents/openai.yaml"))
-        self.assertEqual(sorted(self.files), want)
+        want = [self.mod.PREFIXES_JSON if p == self.mod.PREFIXES_TXT else p
+                for p in tracked if p and not p.startswith(self.DEV_ONLY_PREFIXES)
+                and p not in self.DEV_ONLY_FILES and not p.endswith("/agents/openai.yaml")]
+        # betterleaks.json ships as betterleaks.part1.json, part2, … (build_release_tree.directory_betterleaks)
+        want.remove(self.mod.BETTERLEAKS_JSON)
+        parts = [p for p in self.files if re.fullmatch(r"maisecrets/detection/rules/betterleaks\.part\d+\.json", p)]
+        self.assertGreaterEqual(len(parts), 2)
+        self.assertEqual(sorted(self.files), sorted(want + parts))
+
+    def test_the_betterleaks_parts_load_the_same_rules_and_ship_no_key(self):
+        # the directory held every version whose betterleaks.json it could not read whole; the parts are each under
+        # PART_BYTES, the release detector loads the same rules from them, and the gcp-api-key allow list decides the
+        # same keys from their sha256, so no part holds a key (SECRET_IN_SCRIPT)
+        rules_dir = self.tree / "maisecrets" / "detection" / "rules"
+        parts = sorted(rules_dir.glob("betterleaks.part*.json"))
+        self.assertGreaterEqual(len(parts), 2)
+        self.assertFalse((rules_dir / "betterleaks.json").exists())
+        for p in parts:
+            # the blob the directory gets, not the file on disk: git archive on Windows writes CRLF
+            size = subprocess.run(["git", "cat-file", "-s", f"{self.commit}:{p.relative_to(self.tree).as_posix()}"],
+                                  capture_output=True, text=True, check=True, cwd=ROOT).stdout.strip()
+            self.assertLess(int(size), self.mod.PART_BYTES)
+        keys = re.compile(r"AIza[0-9A-Za-z_-]{35}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36}|xox[abprs]-[0-9]{6,}")
+        self.assertEqual([p.name for p in parts if keys.search(p.read_text(encoding="utf-8"))], [])
+        main = json.loads((ROOT / self.mod.BETTERLEAKS_JSON).read_text(encoding="utf-8"))
+        listed = re.findall(r"`(AIza[0-9A-Za-z_-]{35})`", next(r["filter"] for r in main["rules"]
+                                                               if r["id"] == "gcp-api-key"))
+        self.assertEqual(len(listed), 16)
+        probe = ("import json, sys\n"
+                 "from maisecrets.detection import core, rule_filter\n"
+                 "cfg = core.betterleaks_config()\n"
+                 "f = rule_filter.compile_filter(next(r['filter'] for r in cfg['rules'] if r['id'] == 'gcp-api-key'))\n"
+                 "keys = json.loads(sys.stdin.read())\n"
+                 "print(json.dumps({'ids': [r.id for r in core._load_betterleaks()],\n"
+                 "                  'drops': [f({'secret': k}) for k in keys]}))\n")
+        # a key of the same shape that is not listed, made at run time so the test file holds none: kept
+        other = "AIza" + "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(35))
+        results = []
+        for root in (self.tree, ROOT):
+            r = subprocess.run([sys.executable, "-c", probe], input=json.dumps(listed + [other]), capture_output=True,
+                               text=True, cwd=root, env={**os.environ, "PYTHONPATH": str(root)})
+            self.assertEqual(r.returncode, 0, r.stderr[-2000:])
+            results.append(json.loads(r.stdout))
+        self.assertEqual(results[0], results[1])
+        self.assertEqual(results[0]["drops"], [True] * 16 + [False])
 
     def test_no_hook_command_points_into_the_folder_of_the_mod_or_of_the_hooks_file_that_names_it(self):
         # the directory holds a version when it "couldn't confirm that the mod stays the same": the mod's files and

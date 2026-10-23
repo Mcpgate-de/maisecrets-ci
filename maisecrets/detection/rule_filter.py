@@ -12,13 +12,16 @@ tokenizer is loaded (internal/exprruntime/bindings_filter.go, v1.9.0), and this 
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
 from collections import Counter
 from typing import Any, Callable
 
-FILTER_FUNCTIONS = ("entropy", "tokenRatio", "matchesAny", "containsAny", "len")
+# equalsAnySha256 is not betterleaks: the directory version writes a matchesAny list of literal keys as their sha256,
+# so it ships no key (scripts/build_release_tree.py, directory_betterleaks)
+FILTER_FUNCTIONS = ("entropy", "tokenRatio", "matchesAny", "containsAny", "len", "equalsAnySha256")
 _FIELDS = {("finding", "secret"): "secret", ("finding", "match"): "match", ("finding", "line"): "line",
            ("attributes", "path"): "path"}
 
@@ -245,6 +248,8 @@ def _eval(node, env: dict) -> Any:
             return any(x in args[0] for x in args[1])
         if name == "matchesAny":
             return any(rx.search(args[0]) for rx in args[1].compiled())
+        if name == "equalsAnySha256":
+            return hashlib.sha256(args[0].encode("utf-8")).hexdigest() in args[1]
     raise Unsupported(f"node {op}")
 
 

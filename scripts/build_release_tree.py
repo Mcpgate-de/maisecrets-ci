@@ -29,6 +29,7 @@ directory passed; the loader reads that file when it is there.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -64,7 +65,11 @@ def paths(ref: str = "HEAD") -> list[str]:
             and p not in NOT_SHIPPED
             # a skill's Codex metadata names its icon images, which the directory flags the same way
             and not (p.startswith("skills/") and "/agents/" in p and p.endswith("openai.yaml"))]
-    return sorted(PREFIXES_JSON if p == PREFIXES_TXT else p for p in keep)   # see directory_prefixes
+    keep = [PREFIXES_JSON if p == PREFIXES_TXT else p for p in keep]   # see directory_prefixes
+    if BETTERLEAKS_JSON in keep:   # see directory_betterleaks
+        keep.remove(BETTERLEAKS_JSON)
+        keep += list(directory_betterleaks(_git("show", f"{ref}:{BETTERLEAKS_JSON}")))
+    return sorted(keep)
 
 
 HOOKS = "hooks/hooks.json"
@@ -72,6 +77,11 @@ README = "README.md"
 DIRECTORY_README = "docs/DIRECTORY-README.md"
 PREFIXES_TXT = "maisecrets/detection/rules/prefixes.txt"
 PREFIXES_JSON = "maisecrets/detection/rules/prefixes.json"
+BETTERLEAKS_JSON = "maisecrets/detection/rules/betterleaks.json"
+# the rules whose filter lists literal keys that betterleaks allows (public example keys): the directory version
+# ships each key as its sha256. A betterleaks sync that adds such a list elsewhere turns the release tree test red
+HASHED_ALLOW_LISTS = ("gcp-api-key",)
+PART_BYTES = 150_000
 
 
 def directory_hooks(text: str) -> str:
@@ -98,11 +108,52 @@ def directory_prefixes(text: str) -> str:
     return json.dumps(rules, indent=1, ensure_ascii=False) + "\n"
 
 
+_ALLOW_LIST = re.compile(r'matchesAny\(finding\["secret"\], \[(?P<items>[^\]]*)\]\)')
+
+
+def _hashed_allow_list(rule_id: str, text: str) -> str:
+    """The filter with its list of literal keys written as equalsAnySha256 over their sha256. betterleaks matches
+    each pattern with search; the rule's secret has the length of the keys, so a match is an equal string."""
+    def sub(m: re.Match) -> str:
+        items = re.findall(r"`([^`]*)`", m.group("items"))
+        if not items or any(not re.fullmatch(r"[A-Za-z0-9_-]{20,}", x) for x in items):
+            raise SystemExit(f"{rule_id}: the allow list holds a pattern that is no literal key")
+        digests = ", ".join(f'"{hashlib.sha256(x.encode()).hexdigest()}"' for x in items)
+        return f'equalsAnySha256(finding["secret"], [{digests}])'
+    out, n = _ALLOW_LIST.subn(sub, text)
+    if not n:
+        raise SystemExit(f"{rule_id}: no allow list of literal keys in its filter")
+    return out
+
+
+def directory_betterleaks(text: str) -> dict:
+    """betterleaks.json as betterleaks.part1.json, part2, …, each under PART_BYTES: the directory held every version
+    whose betterleaks.json (349 KB) it could not read whole (BINARIES_NOT_INSPECTED, 0.7.17). The allow lists of
+    HASHED_ALLOW_LISTS ship as sha256, so a readable part holds no key (SECRET_IN_SCRIPT). The loader
+    (core.betterleaks_config) joins the parts; the first one carries the other top-level keys."""
+    cfg = json.loads(text)
+    rules = cfg.pop("rules")
+    for r in rules:
+        if r.get("id") in HASHED_ALLOW_LISTS:
+            r["filter"] = _hashed_allow_list(r["id"], r["filter"])
+    def dump(i: int, chunk: list) -> str:
+        return json.dumps({**(cfg if i == 1 else {}), "rules": chunk}, indent=1, ensure_ascii=False) + "\n"
+    parts: list = [[]]
+    for r in rules:
+        parts[-1].append(r)
+        if len(parts[-1]) > 1 and len(dump(len(parts), parts[-1]).encode()) >= PART_BYTES:
+            parts[-1].pop()
+            parts.append([r])
+    return {f"maisecrets/detection/rules/betterleaks.part{i}.json": dump(i, chunk)
+            for i, chunk in enumerate(parts, 1)}
+
+
 # the files the release tree replaces: path -> (source of the content on <ref>, transform)
 def _replaced(ref: str) -> dict:
     return {HOOKS: directory_hooks(_git("show", f"{ref}:{HOOKS}")),
             README: _git("show", f"{ref}:{DIRECTORY_README}"),
-            PREFIXES_JSON: directory_prefixes(_git("show", f"{ref}:{PREFIXES_TXT}"))}
+            PREFIXES_JSON: directory_prefixes(_git("show", f"{ref}:{PREFIXES_TXT}")),
+            **directory_betterleaks(_git("show", f"{ref}:{BETTERLEAKS_JSON}"))}
 
 
 def commit(ref: str, parent: str | None, message: str) -> str:
@@ -114,7 +165,7 @@ def commit(ref: str, parent: str | None, message: str) -> str:
         rows = subprocess.run(["git", "ls-tree", "-r", "-z", ref], capture_output=True, check=True).stdout
         wanted = {p.encode() for p in paths(ref)}
         replaced = _replaced(ref)
-        dropped = {p.encode() for p in replaced} | {PREFIXES_TXT.encode()}
+        dropped = {p.encode() for p in replaced} | {PREFIXES_TXT.encode(), BETTERLEAKS_JSON.encode()}
         info = b"".join(row + b"\0" for row in rows.split(b"\0") if row and row.split(b"\t", 1)[1] in wanted
                         and row.split(b"\t", 1)[1] not in dropped)
         for path, content in replaced.items():
