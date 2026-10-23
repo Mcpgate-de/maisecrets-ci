@@ -997,7 +997,9 @@ class SessionStartTests(unittest.TestCase):
     def test_the_start_line_names_the_rules_of_your_own_and_warns_of_a_missing_rule_folder(self):
         sb = self.sandbox()
         gone = str(sb.root / "team-rules")
-        (sb.home / "config.json").write_text(json.dumps({**ENC, "rule_dirs": [gone]}), encoding="utf-8")
+        # no tips: the tip is one per calendar day, so two starts around midnight differed by a tip (CI, 00:00 UTC)
+        (sb.home / "config.json").write_text(json.dumps({**ENC, "rule_dirs": [gone], "tips": False}),
+                                             encoding="utf-8")
         (sb.home / ".announced").write_text("EncryptedFileBackend\n")
         (sb.home / ".shortcut").write_text("offered\n")
         (sb.home / "rules.d").mkdir()

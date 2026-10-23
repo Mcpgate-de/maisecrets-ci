@@ -1,0 +1,14 @@
+# Chinese credential labels, simplified and traditional script. Chinese writes no space between words, so
+# the words have no word start: 新密码 (new password) and 数据库密码 (database password) end in the label.
+# Fields, tab-separated: a lowercase literal every match contains, the regex, examples.
+# The sources of every word: docs/label-sources.md.
+# A label ends before the next Chinese or Japanese letter: the keyword rules let \w* run on after a label,
+# and 令牌过期时间 (token expiry time) or 密码长度 (password length) name no secret.
+密	密[码碼](?![\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff])	密码, 密碼, 新密码, 数据库密码, 新的密碼
+# 密钥 (key, of a cipher or an API) and 私钥 (private key). 公开密钥 is the public key and no secret.
+钥	(?:(?<!公开)密钥|私钥)(?![\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff])	密钥, API 密钥, 访问密钥, 秘密访问密钥, 私钥
+鑰	(?:(?<!公開)(?:金|密)鑰|私鑰)(?![\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff])	API 金鑰, 存取金鑰, 私密金鑰, 密鑰, 私鑰
+匙	密匙(?![\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff])	API 密匙, 密匙
+令牌	令牌(?![\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff])	令牌, 访问令牌, 应用令牌
+權杖	權杖(?![\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff])	權杖, 應用程式權杖
+凭据	凭据(?![\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff])	凭据, 登录凭据, 全局凭据

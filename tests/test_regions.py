@@ -102,15 +102,23 @@ class ResolveTests(unittest.TestCase):
         self.assertEqual((a.regions, a.languages), (("generic", "us"), ("en", "de")))
 
     def test_codes_are_normalised_and_a_language_without_a_label_file_adds_nothing(self):
-        a = self.resolve({"regions": [" GB ", "generic", "auto", "uk", "jp"]}, "ja_JP")
-        self.assertEqual(a.regions, ("generic", "uk", "jp"))
-        self.assertEqual(a.languages, ("en",), "no ja.txt: a Japanese system gets English labels")
+        a = self.resolve({"regions": [" GB ", "generic", "auto", "uk", "ar"]}, "hi_IN")
+        self.assertEqual(a.regions, ("generic", "uk", "in", "ar"))
+        self.assertEqual(a.languages, ("en",), "no hi.txt and no es for ar: a Hindi system gets English labels")
+
+    def test_a_russian_chinese_or_japanese_system_turns_its_labels_on(self):
+        for loc, want in [("ru_RU.UTF-8", ("en", "ru")), ("zh_CN", ("en", "zh")), ("zh-Hans_CN", ("en", "zh")),
+                          ("zh_TW.UTF-8", ("en", "zh")), ("ja_JP", ("en", "ja")), ("en_JP", ("en", "ja"))]:
+            with self.subTest(loc):
+                self.assertEqual(self.resolve({}, loc).languages, want)
 
     def test_each_region_with_a_label_file_turns_its_language_on(self):
         for region, want in [("it", ("en", "it")), ("fr", ("en", "fr")), ("lu", ("en", "fr")),
                              ("be", ("en", "nl", "fr")), ("nl", ("en", "nl")), ("br", ("en", "pt")),
                              ("pt", ("en", "pt")), ("dk", ("en", "da")), ("no", ("en", "nb")),
-                             ("cz", ("en", "cs")), ("se", ("en", "sv")), ("kr", ("en", "ko"))]:
+                             ("cz", ("en", "cs")), ("se", ("en", "sv")), ("kr", ("en", "ko")),
+                             ("ru", ("en", "ru")), ("cn", ("en", "zh")), ("tw", ("en", "zh")), ("hk", ("en", "zh")),
+                             ("mo", ("en", "zh")), ("jp", ("en", "ja"))]:
             with self.subTest(region):
                 self.assertEqual(self.resolve({"regions": [region]}, "C").languages, want)
         # a Norwegian system setting names the language "no" or "nb"; the file is nb.txt
@@ -171,8 +179,8 @@ class LabelFileTests(unittest.TestCase):
     def test_every_label_file_parses_and_each_example_matches_its_label(self):
         import re
         langs = regions.label_languages_available()
-        self.assertEqual(langs, ["cs", "da", "de", "en", "es", "fi", "fr", "it", "ko", "nb", "nl", "pl", "pt", "sv",
-                                 "th", "tr"])
+        self.assertEqual(langs, ["cs", "da", "de", "en", "es", "fi", "fr", "it", "ja", "ko", "nb", "nl", "pl", "pt",
+                                 "ru", "sv", "th", "tr", "zh"])
         for lang in langs:
             labels = regions.load_labels(lang)
             self.assertTrue(labels, lang)

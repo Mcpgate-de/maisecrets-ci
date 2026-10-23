@@ -109,6 +109,53 @@ The files were read on 2026-09-28 from the default branch of each project.
 | cs | tajný klíč | Nextcloud | [apps/files_external/l10n/cs.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/cs.json) | `Secret key` |
 | cs | klientské tajemství | Nextcloud | [apps/files_external/l10n/cs.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/cs.json) | `Client secret` |
 | cs | přihlašovací údaje | Nextcloud | [apps/settings/l10n/cs.json](https://github.com/nextcloud/server/blob/master/apps/settings/l10n/cs.json) | `Credentials` |
+| ru | пароль | Django | [django/contrib/auth/locale/ru/LC_MESSAGES/django.po](https://github.com/django/django/blob/main/django/contrib/auth/locale/ru/LC_MESSAGES/django.po) | `Password` |
+| ru | пароль | Keycloak | [themes/src/main/resources-community/theme/base/login/messages/messages_ru.properties](https://github.com/keycloak/keycloak/blob/main/themes/src/main/resources-community/theme/base/login/messages/messages_ru.properties) | `password` |
+| ru | новый пароль | Django | [django/contrib/auth/locale/ru/LC_MESSAGES/django.po](https://github.com/django/django/blob/main/django/contrib/auth/locale/ru/LC_MESSAGES/django.po) | `New password` |
+| ru | пароль приложения | Nextcloud | [apps/settings/l10n/ru.json](https://github.com/nextcloud/server/blob/master/apps/settings/l10n/ru.json) | `New app password` |
+| ru | ключ доступа | Nextcloud | [apps/files_external/l10n/ru.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/ru.json) | `Access key` |
+| ru | секретный ключ | Nextcloud | [apps/files_external/l10n/ru.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/ru.json) | `Secret key` |
+| ru | секретный ключ доступа | Nextcloud | [apps/files_external/l10n/ru.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/ru.json) | `Secret access key` |
+| ru | ключ API | Nextcloud | [apps/files_external/l10n/ru.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/ru.json) | `API key` |
+| ru | API-ключ | Yandex Cloud documentation | [iam/concepts/authorization/api-key](https://yandex.cloud/ru/docs/iam/concepts/authorization/api-key) | the page title, API key |
+| ru | закрытый ключ | Nextcloud | [apps/files_external/l10n/ru.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/ru.json) | `Private key` |
+| ru | токен | Nextcloud | [apps/settings/l10n/ru.json](https://github.com/nextcloud/server/blob/master/apps/settings/l10n/ru.json) | `Could not delete the app token` |
+| ru | учётные данные | Nextcloud | [apps/files_external/l10n/ru.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/ru.json) | `Global credentials` |
+| zh | 密码 | Django | [django/contrib/auth/locale/zh_Hans/LC_MESSAGES/django.po](https://github.com/django/django/blob/main/django/contrib/auth/locale/zh_Hans/LC_MESSAGES/django.po) | `Password` |
+| zh | 密码 | Keycloak | [themes/src/main/resources-community/theme/base/login/messages/messages_zh_Hans.properties](https://github.com/keycloak/keycloak/blob/main/themes/src/main/resources-community/theme/base/login/messages/messages_zh_Hans.properties) | `password` |
+| zh | 密码： | Linux-PAM | [po/zh_CN.po](https://github.com/linux-pam/linux-pam/blob/master/po/zh_CN.po) | `Password: ` (the fullwidth colon) |
+| zh | 密碼 | Keycloak | [themes/src/main/resources-community/theme/base/login/messages/messages_zh_Hant.properties](https://github.com/keycloak/keycloak/blob/main/themes/src/main/resources-community/theme/base/login/messages/messages_zh_Hant.properties) | `password` |
+| zh | 密码 | MDN Web Docs | [zh-CN/docs/Web/HTML/Element/input/password](https://developer.mozilla.org/zh-CN/docs/Web/HTML/Element/input/password) | `<input type="password">` |
+| zh | 秘密访问密钥 | Nextcloud | [apps/files_external/l10n/zh_CN.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/zh_CN.json) | `Secret access key` |
+| zh | 访问密钥 | Nextcloud | [apps/files_external/l10n/zh_CN.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/zh_CN.json) | `Access key ID` |
+| zh | 密钥 | Keycloak | [themes/src/main/resources-community/theme/base/login/messages/messages_zh_Hans.properties](https://github.com/keycloak/keycloak/blob/main/themes/src/main/resources-community/theme/base/login/messages/messages_zh_Hans.properties) | `loginTotpManualStep2` (the TOTP secret) |
+| zh | API 密匙 | Nextcloud | [apps/files_external/l10n/zh_CN.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/zh_CN.json) | `API key` |
+| zh | 私钥 | Nextcloud | [apps/files_external/l10n/zh_CN.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/zh_CN.json) | `Private key` |
+| zh | 存取金鑰 | Nextcloud | [apps/files_external/l10n/zh_TW.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/zh_TW.json) | `Access key` |
+| zh | 私密金鑰 | Nextcloud | [apps/files_external/l10n/zh_TW.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/zh_TW.json) | `Secret key` |
+| zh | API 金鑰 | Nextcloud | [apps/files_external/l10n/zh_TW.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/zh_TW.json) | `API key` |
+| zh | 私鑰 | Nextcloud | [apps/files_external/l10n/zh_TW.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/zh_TW.json) | `Private key` |
+| zh | 令牌 | Nextcloud | [apps/settings/l10n/zh_CN.json](https://github.com/nextcloud/server/blob/master/apps/settings/l10n/zh_CN.json) | `Could not delete the app token` |
+| zh | 權杖 | Nextcloud | [apps/settings/l10n/zh_TW.json](https://github.com/nextcloud/server/blob/master/apps/settings/l10n/zh_TW.json) | `Could not delete the app token` |
+| zh | 凭据 | Nextcloud | [apps/files_external/l10n/zh_CN.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/zh_CN.json) | `Global credentials` |
+| ja | パスワード | Django | [django/contrib/auth/locale/ja/LC_MESSAGES/django.po](https://github.com/django/django/blob/main/django/contrib/auth/locale/ja/LC_MESSAGES/django.po) | `Password` |
+| ja | パスワード | Keycloak | [themes/src/main/resources-community/theme/base/login/messages/messages_ja.properties](https://github.com/keycloak/keycloak/blob/main/themes/src/main/resources-community/theme/base/login/messages/messages_ja.properties) | `password` |
+| ja | 新しいパスワード | Linux-PAM | [po/ja.po](https://github.com/linux-pam/linux-pam/blob/master/po/ja.po) | `New password: ` |
+| ja | アプリパスワード | Nextcloud | [apps/settings/l10n/ja.json](https://github.com/nextcloud/server/blob/master/apps/settings/l10n/ja.json) | `New app password` |
+| ja | アクセスキー | Nextcloud | [apps/files_external/l10n/ja.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/ja.json) | `Access key` |
+| ja | シークレットキー | Nextcloud | [apps/files_external/l10n/ja.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/ja.json) | `Secret key` |
+| ja | シークレットアクセスキー | Nextcloud | [apps/files_external/l10n/ja.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/ja.json) | `Secret access key` |
+| ja | APIキー | Nextcloud | [apps/files_external/l10n/ja.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/ja.json) | `API key` |
+| ja | 秘密鍵 | Nextcloud | [apps/files_external/l10n/ja.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/ja.json) | `Private key` |
+| ja | トークン | Nextcloud | [apps/settings/l10n/ja.json](https://github.com/nextcloud/server/blob/master/apps/settings/l10n/ja.json) | `Could not delete the app token` |
+| ja | 資格情報 | Nextcloud | [apps/files_external/l10n/ja.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/ja.json) | `Global credentials` |
+| ja | 認証情報 | Nextcloud | [apps/files_external/l10n/ja.json](https://github.com/nextcloud/server/blob/master/apps/files_external/l10n/ja.json) | `Static credentials` |
+
+The Russian, Chinese and Japanese rows were read on 2026-10-23 (Django, Keycloak and Nextcloud from the default
+branch, Linux-PAM from master, the two web pages as served that day). Two words have no row of a translation file:
+クライアントシークレット (client secret) is the katakana of the English word, as アクセスキー is; and the copulas of
+the sentence rules (`core._PW_COPULAS_OF`: Russian это and был, Chinese 是, 为 and 為, Japanese は) are grammar, not
+labels.
 
 ## Words left out
 
@@ -138,8 +185,16 @@ A label word that is also an ordinary word in running text gives false positives
 | da | nøgle | An ordinary word (key). Only the compounds and hemmelig nøgle. |
 | nb | nøkkel | An ordinary word (key). Only the compounds and hemmelig nøkkel. |
 | cs | klíč, tajemství | Ordinary words (a key, a secret). Only the two-word labels. |
+| ru | ключ, логин | ключ alone is an ordinary word (a key, a spring); логин is the user name. Only the labels of two or more words, and API-ключ. |
+| ru | пароль and any word after it | Only a genitive (пароль администратора) or a word after от, для or к: `Пароль истекает: <date>` names no password. |
+| zh | 口令 | A common word for a password in standards, but no reviewed translation of the three projects uses it. |
+| zh | 憑證 | Nextcloud zh_TW translates Credentials so, but it also means a certificate or a receipt (付款憑證). |
+| zh | 公开密钥, 公開金鑰 | The public key: 密钥 and 金鑰 count only without them before. |
+| zh, ja | a CJK word after the label | The keyword rules let `\w*` run on after a label, and CJK letters are word characters: 令牌过期时间 (token expiry time), 密码长度, パスワード変更日 name no secret. A label ends before the next CJK letter. |
+| ja | キー, シークレット | キー alone is a key of a keyboard or a table; シークレット alone is also the private mode of a browser (シークレットモード). Only the compounds. |
+| ja | 暗証番号 | A PIN; the other files have no PIN either (the row below). |
 | all | passphrase, PIN | No label word of its own was found in the sources. A PIN is short digits, which the value filters refuse (fewer than 8 characters). |
-| all | token | The Latin-script languages write token, which en.txt takes. Only Korean 토큰 and Thai โทเค็น are in their files. |
+| all | token | The Latin-script languages write token, which en.txt takes. Only Korean 토큰, Thai โทเค็น, Russian токен, Chinese 令牌 and 權杖 and Japanese トークン are in their files. |
 
 ## Words the denylist has already
 

@@ -30,7 +30,7 @@ REGION_LANGUAGE = {
     "za": "en", "ie": "en", "nz": "en",
     "es": "es", "it": "it", "fi": "fi", "se": "sv", "pl": "pl", "tr": "tr", "kr": "ko", "th": "th",
     "fr": "fr", "lu": "fr", "be": ("nl", "fr"), "nl": "nl", "pt": "pt", "br": "pt", "dk": "da", "no": "nb",
-    "cz": "cs",
+    "cz": "cs", "ru": "ru", "cn": "zh", "tw": "zh", "hk": "zh", "mo": "zh", "jp": "ja",
 }
 # a system language whose label file has another name: "no" (Norwegian) is written as Bokmål, nb.txt
 _LANGUAGE_ALIAS = {"no": "nb"}

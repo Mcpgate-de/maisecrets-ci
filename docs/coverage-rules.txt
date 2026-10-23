@@ -262,7 +262,7 @@ betterleaks	polymarket-private-key	0	1
 betterleaks	postman-api-token	1	1
 betterleaks	postmark-api-token.1	0	1
 betterleaks	prefect-api-token	1	1
-betterleaks	private-key	1	0
+betterleaks	private-key	1	1
 betterleaks	privateai-api-token	0	1
 betterleaks	proof-full-access-api-key	1	1
 betterleaks	pulumi-api-token	1	1
@@ -650,7 +650,7 @@ gitleaks	plaid-client-id	0	1
 gitleaks	plaid-secret-key	0	1
 gitleaks	postman-api-token	1	1
 gitleaks	prefect-api-token	1	1
-gitleaks	private-key	1	0
+gitleaks	private-key	1	1
 gitleaks	privateai-api-token	0	1
 gitleaks	pulumi-api-token	1	1
 gitleaks	pypi-upload-token	1	1
@@ -1479,7 +1479,7 @@ kingfisher	kingfisher.powershell.2	0	0
 kingfisher	kingfisher.prefect.1	1	1
 kingfisher	kingfisher.privateai.1	0	1
 kingfisher	kingfisher.privkey.1	0	0
-kingfisher	kingfisher.privkey.2	1	0
+kingfisher	kingfisher.privkey.2	1	1
 kingfisher	kingfisher.proof.1	1	1
 kingfisher	kingfisher.psexec.1	0	1
 kingfisher	kingfisher.pubnub.1	0	1
@@ -2299,7 +2299,7 @@ trufflehog	getresponse	0	1
 trufflehog	github/v1	0	1
 trufflehog	github/v2	0	1
 trufflehog	github_oauth2	0	1
-trufflehog	githubapp	1	0
+trufflehog	githubapp	1	1
 trufflehog	gitlab/v1	0	1
 trufflehog	gitlab/v2	0	1
 trufflehog	gitlab/v3	0	1
@@ -2574,7 +2574,7 @@ trufflehog	postmark	0	1
 trufflehog	powrbot	0	1
 trufflehog	prefect	1	1
 trufflehog	privacy	0	1
-trufflehog	privatekey	1	0
+trufflehog	privatekey	1	1
 trufflehog	prodpad	0	1
 trufflehog	prospectcrm	0	1
 trufflehog	protocolsio	0	1

@@ -1,0 +1,14 @@
+# Russian credential labels.
+# Fields, tab-separated: a lowercase literal every match contains, the regex, examples.
+# (?<![^\W\d_]) is the start of a word: no letter of any script before it, while _ and a digit may
+# stand there (db_...). The sources of every word: docs/label-sources.md.
+# пароль: the keyword rules add \w* after a label, so the inflected forms (пароля, паролем) count too.
+# Russian puts the owner after the noun (пароль администратора, пароль от почты): one word after it
+# is part of the label when от, для or к stands before it, or when it is Cyrillic and ends as a genitive
+# (-а, -я, -ы, -и, -ов, -ей). Пароль истекает: <date> and пароль неверный: <text> stay text.
+пароль	(?<![^\W\d_])пароль(?:[ _-](?:(?:от|для|к)[ _-][^\W_]{2,20}|[а-яё]{2,18}(?:а|я|ы|и|ов|ей))(?![а-яё]))?	пароль, Пароль, новый пароль, db_пароль, пароль администратора, пароль от почты, пароль для root
+# ключ alone is an ordinary word (a key, a spring): only with доступа (access), API, секретный (secret) or
+# закрытый (private) next to it.
+ключ	(?<![^\W\d_])(?:(?:секретный|закрытый)[ _-]ключ(?:[ _-]доступа)?|ключ[ _-](?:api|доступа)|api[ _-]?ключ)	Ключ API, ключ доступа, секретный ключ, Секретный ключ доступа, закрытый ключ, API-ключ
+токен	(?<![^\W\d_])токен(?:[ _-](?:доступа|приложения))?	токен, Токен, токен доступа, токен приложения
+тные	(?<![^\W\d_])уч(?:ё|е)тные[ _-]данные	учётные данные, Учетные данные

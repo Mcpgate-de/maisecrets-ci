@@ -1,0 +1,15 @@
+# Japanese credential labels. Japanese writes no space between words, so the words have no word start:
+# 新しいパスワード (new password) and アプリパスワード (app password) end in the label.
+# Fields, tab-separated: a lowercase literal every match contains, the regex, examples.
+# The sources of every word: docs/label-sources.md.
+# A label ends before the next Chinese or Japanese letter: the keyword rules let \w* run on after a label,
+# and パスワード変更日 (date of the password change) or トークン有効期限 (token expiry) name no secret.
+パスワード	パスワード(?![\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff])	パスワード, 新しいパスワード, アプリパスワード, 現在のパスワード
+# キー alone is an ordinary word (a key of a keyboard or a table): only API, アクセス (access) and
+# シークレット (secret) before it.
+キー	(?:api|アクセス|シークレット(?:アクセス)?)[ _・]?キー(?![\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff])	APIキー, API キー, アクセスキー, シークレットキー, シークレットアクセスキー
+# シークレット alone is also the private mode of a browser (シークレットモード): only the client secret.
+シークレット	クライアントシークレット(?![\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff])	クライアントシークレット
+秘密鍵	秘密鍵(?![\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff])	秘密鍵, RSA秘密鍵
+トークン	トークン(?![\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff])	トークン, アクセストークン, アプリトークン
+情報	(?:認証|資格)情報(?![\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff])	認証情報, 資格情報, ストレージ資格情報

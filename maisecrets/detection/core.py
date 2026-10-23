@@ -551,6 +551,10 @@ def _ds_value_ok(v: str, min_len: int = 8) -> bool:
         return False
     if _DS_TEMPLATED.match(v) or _DS_INDIRECT.match(v):
         return False
+    if v.startswith("-----BEGIN"):
+        # the armour of a PEM block after a label (`Закрытый ключ: -----BEGIN …`, `password: -----BEGIN …`): the
+        # private-key rule takes the whole block, and the cut value took its first ten characters instead
+        return False
     if _GENERIC_TYPE.search(v):
         return False   # a generic type: Option<String>, Secret<String>
     if _VERSION_RE.fullmatch(v):
@@ -1625,14 +1629,15 @@ def _is_cjk(ch: str) -> bool:
 # deşifre (decipher), resenha (review)
 _PW_COMPOUND = (r"(?:[^\W\d_]{2,20}-|(?:admin|root|master|haupt|einmal|start|initial|wlan|benutzer|nutzer)"
                 r"(?=pass|kenn))?")
-# a value of Markdown inline code or in bold (`<value>`, **<value>**) is the value without the marks. The value is the
-# shortest run that a space, a quote, the end or the stops of a sentence (. , ; : ? ) 。 …) follow: a `*`, `!`, `<` or
-# `\` inside or at the end stays part of it (Abc*12x!, Gretel: a password with a Markdown escape)
-_SENTENCE_VALUE = (r"(?:\*\*|[\"'`\u201e\u201c\u201a\u2018\u00ab\u00bb])?"
+# a value of Markdown inline code or in bold (`<value>`, **<value>**), or in the corner brackets of Chinese and Japanese
+# (「<value>」), is the value without the marks. The value is the shortest run that a space, a quote, the end or the
+# stops of a sentence (. , ; : ? ) 。 …) follow: a `*`, `!`, `<` or `\` inside or at the end stays part of it (Abc*12x!,
+# Gretel: a password with a Markdown escape)
+_SENTENCE_VALUE = (r"(?:\*\*|[\"'`\u201e\u201c\u201a\u2018\u00ab\u00bb\u300c\u300e])?"
                    r"(?=[^\s\d]{0,255}\d)"   # a digit is in it (the checks need one): a word is refused at once
-                   r"([^\s\"'`\u201c\u201d\u201e\u201a\u2018\u2019\u00ab\u00bb]{0,255}?"
+                   r"([^\s\"'`\u201c\u201d\u201e\u201a\u2018\u2019\u00ab\u00bb\u300c-\u300f]{0,255}?"
                    r"[^\s\"'`\u201c\u201d\u201e\u201a\u2018\u2019\u00ab\u00bb.,;:?)\u3002\u2026" + _CJK + r"])"
-                   r"(?:\*\*|[\"'`\u201c\u201d\u2018\u2019\u00ab\u00bb])?"
+                   r"(?:\*\*|[\"'`\u201c\u201d\u2018\u2019\u00ab\u00bb\u300d\u300f])?"
                    r"(?=[.,;:?)\u3002\u2026]*(?:[\s\"'`\u201c\u201d\u2018\u2019\u00ab\u00bb" + _CJK + r"]|$))")
 
 
@@ -1726,10 +1731,10 @@ OWN_RULES: list[dict] = [
     # also be no run of English words (SHA256-Hash, iPhone15, JDK21-Update) and no ticket id (PBE-3403). A stop of
     # the sentence after the value is no part of it; `!` is, as passwords end with it
     {"id": "label-password-after-word", "type": "SECRET", "secret_group": 1, "validator": "sentence_value",
-     "regex": r"(?i)(?<![\w-])" + _PW_COMPOUND + r"(?:{pairs})[ \t]+" + _SENTENCE_VALUE,
+     "regex": r"(?i)(?:(?<![\w-])" + _PW_COMPOUND + r"(?:{pairs})[ \t]+|{cjk_pairs})" + _SENTENCE_VALUE,
      "languages": True},
     {"id": "label-password-after-space", "type": "SECRET", "secret_group": 1, "validator": "spaced_value",
-     "regex": r"(?i)(?<![\w-])" + _PW_COMPOUND + r"(?:{words})(?![\w-])"
+     "regex": r"(?i)(?:(?<![\w-])" + _PW_COMPOUND + r"(?:{words})|{cjk_words})(?![\w-])"
               r"(?:[ \t]*(?:->|=>|\u2192|\u2013|\u2014)[ \t]*|[ \t]+-{1,2}[ \t]+|[ \t]+\(?[ \t]*)"
               + _SENTENCE_VALUE,
      "languages": True},
@@ -2484,6 +2489,9 @@ def _load_detect_secrets(languages: tuple[str, ...] = ("en",)) -> list[Rule]:
     data = json.loads((RULES_DIR / "detect_secrets.json").read_text(encoding="utf-8"))
     from .regions import load_labels
     labels = [lab for lang in languages for lab in load_labels(lang)]
+    # Chinese and Japanese write the fullwidth colon (密码：<value>, パスワード：<value>; Linux-PAM's zh_CN prompt is
+    # 密码：). Only with one of them on: the rules of every other language stay as they were
+    cjk = any(lang in _NO_SPACE_LANGUAGES for lang in languages)
     # every denylist word contains one of these; each label adds its own literal
     kws = tuple(sorted({"key", "pass", "pwd", "secret", "contrase"} | {lab.prefilter for lab in labels}))
     denylist = "|".join(data["denylist"])
@@ -2509,6 +2517,8 @@ def _load_detect_secrets(languages: tuple[str, ...] = ("en",)) -> list[Rule]:
             for q in _COLON_THEN_QUOTE:   # the skip goes right before the group of the opening quote
                 at = q.rindex("([")
                 regex = regex.replace(q, q[:at] + _ESCAPED_QUOTE_SKIP + q[at:], 1)
+            if cjk:
+                regex = regex.replace(_COLON_AFTER_LABEL_ESCAPED, _COLON_AFTER_LABEL_ESCAPED[:-1] + "[:\uff1a]", 1)
         if regex.startswith(keywords + "\\w*") and len(regex) > len(keywords) + 3:
             rx = _KeywordTail(regex, keywords, list(data["denylist"]) + [lab.regex for lab in labels], flags)
         else:
@@ -2554,17 +2564,26 @@ def _own_regex(d: dict, languages: tuple) -> str:
     if want is not True:
         return d["regex"] if any(lang in languages for lang in want) else r"(?!)()"
     langs = ("en",) + tuple(lang for lang in languages if lang != "en")
-    words = [w for lang in langs for w in _PW_WORDS_OF.get(lang, ())]
+    words = [w for lang in langs if lang not in _NO_SPACE_LANGUAGES for w in _PW_WORDS_OF.get(lang, ())]
+    # Chinese and Japanese write no space between words, so a word before the password word (我的密码, 新しいパスワード)
+    # is a word character: their words take an alternative of their own with no word start. With neither language on
+    # it never matches, and the rule is the one of the other languages
+    cjk_words = [w for lang in langs if lang in _NO_SPACE_LANGUAGES for w in _PW_WORDS_OF.get(lang, ())]
     # a copula joins only the words of its own language (Finnish "on" after salasana, never "password on GitLab16");
     # a language whose people write the English word (Italian: "password è") joins it to the English words
-    pairs = []
+    pairs, cjk_pairs = [], []
     for lang in langs:
         copulas = sorted(_PW_COPULAS_OF.get(lang, ()), key=lambda c: (-len(c), c))
         if copulas:
             own = _PW_WORDS_OF.get(lang) or _PW_WORDS_OF["en"]
+            if lang in _NO_SPACE_LANGUAGES:   # 密码是<value>, パスワードは <value>: a space after the copula or none
+                cjk_pairs.append("(?:" + "|".join(own) + r")[ \t]*(?:" + "|".join(copulas) + r")[ \t]*[:\uff1a]?[ \t]*")
+                continue
             gap = r"[ \t]*" if lang == "th" else r"(?![\w-])[ \t]+"   # Thai writes no space between words
             pairs.append("(?:" + "|".join(own) + ")" + gap + "(?:" + "|".join(copulas) + r")[ \t]*:?")
-    return d["regex"].replace("{words}", "|".join(words)).replace("{pairs}", "|".join(pairs))
+    return (d["regex"].replace("{words}", "|".join(words)).replace("{pairs}", "|".join(pairs))
+            .replace("{cjk_words}", "|".join(cjk_words) or "(?!)")
+            .replace("{cjk_pairs}", "|".join(cjk_pairs) or "(?!)"))
 
 
 # the words for "password" per label language (rules/labels/<language>.txt names the same words for the keyword
@@ -2586,12 +2605,20 @@ _PW_WORDS_OF = {
     "cs": (r"heslo",),
     "ko": (r"비밀번호(?:는|가)?", r"패스워드(?:는|가)?", r"암호(?:는|가)?"),
     "th": (r"รหัสผ่าน",),
+    "ru": (r"пароль",),
+    "zh": (r"密[码碼]",),
+    "ja": (r"パスワード",),
 }
 _PW_COPULAS_OF = {
     "en": ("is", "was"), "de": ("ist", "lautet", "war"), "es": ("es", "era"), "fr": ("est", "était"),
     "it": ("è",), "pt": ("é", "era"), "nl": ("is", "was"), "pl": ("to", "jest"), "nb": ("er", "var"),
     "sv": ("är", "var"), "da": ("er", "var"), "fi": ("on", "oli"), "cs": ("je",), "th": ("คือ",),
+    # Russian has no copula in the present tense: это (this is) and был (was) stand in its place; "пароль: <value>" and
+    # "пароль — <value>" are the colon rules and label-password-after-space. Chinese 是, 为 and 為; Japanese は
+    "ru": ("это", "был"), "zh": ("是", "为", "為"), "ja": ("は",),
 }
+# the label languages that write no space between words (the CJK alternatives of _own_regex)
+_NO_SPACE_LANGUAGES = frozenset({"zh", "ja"})
 
 
 def _load_own(languages: tuple = ("en",)) -> list[Rule]:
@@ -4275,6 +4302,12 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
                     and not _label_value_ok(secret)):
                 continue   # {\"passwordLastChanged\":\"2024-10-01T12:00:00Z\"}: the new escaped path, no password
             if rule.quote_group and not m.group(rule.quote_group):
+                if _has_cjk(secret) and not _is_cjk(secret[0]):
+                    # 密码：<value>，请保密: Chinese and Japanese put no space after the value, so its end is the
+                    # first CJK letter or fullwidth sign. A value that starts with one is cut by no rule here
+                    k = next(i for i, ch in enumerate(secret) if _is_cjk(ch))
+                    secret = secret[:k]
+                    end = start + len(secret)
                 cut = _WHITESPACE_RE.search(secret)
                 if cut:
                     # the regex never ends a value on a comma; the cut keeps that rule

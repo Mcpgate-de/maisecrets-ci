@@ -80,6 +80,24 @@ PROSE = {
     "nb": ["Jeg glemte passordet mitt i går",
            "Nøkkel: sikkerhetsregler",
            "Påloggingsdetaljer sendes med posten"],
+    "ru": ["Я забыл пароль от почты",
+           "Пароль истекает: 2026-12-31",
+           "Пароль неверный: попробуйте ещё раз",
+           "Длина пароля: минимум 12 символов",
+           "Ключ: зажигание2024",
+           "Токен действителен до: 2026-12-31"],
+    "zh": ["密码错误",
+           "密码错误：请重新输入您的密码",
+           "令牌过期时间：2026-12-31",
+           "密码长度：至少8个字符",
+           "公开密钥：MIIBIjANBgkqhkiG9w0BAQEFAAOC",
+           "我忘记密码了，请帮我重置"],
+    "ja": ["パスワードを忘れた",
+           "パスワードが違います：もう一度入力してください",
+           "トークンの有効期限：2026年12月31日",
+           "パスワード変更日：2026-10-23",
+           "シークレットモード：オン2024",
+           "キー：エンター2024"],
     "cs": ["Zapomněl jsem heslo k e-mailu",
            "Heslo dne: trpělivost",
            "Klíč: bezpečnostní2024",
@@ -183,6 +201,56 @@ class LabelLanguageTests(unittest.TestCase):
             for text, got in zip(sentences, _scan(("en", lang), sentences)):
                 with self.subTest(lang=lang, text=text):
                     self.assertEqual(got, [], text)
+
+
+# a value with a capital, a digit and a sign, built from pieces: the sentence rules need all three
+_SENTENCE_V = "Kx" + "9#" + "pL" + "2v" + "!"
+_COLON_V = "Qz" + "7m" + "Lp" + "4x" + "Rt" + "9k"
+
+
+class SentenceFormsWithoutSpacesTests(unittest.TestCase):
+    """Chinese and Japanese write no space between words and use the fullwidth colon; Russian writes a dash or
+    это where other languages have a copula. Each form gives exactly its value, with the language on."""
+
+    FORMS = {
+        "ru": ["Пароль: {c}", "пароль от почты: {c}", "Пароль приложения: {c}", "пароль — {s}", "мой пароль это {s}",
+               "Ключ API: {c}", "Токен доступа: {c}"],
+        "zh": ["密码：{c}", "数据库密码：{c}，请保密", "我的密码是{s}", "密码为{s}。", "Wi-Fi密码是{s}，别告诉别人",
+               "密碼：{c}", "API 密钥：{c}", "访问令牌：{c}", "密码是“{s}”"],
+        "ja": ["パスワード：{c}", "新しいパスワード：{c}、忘れないで", "パスワードは{s}です", "パスワードは {s} です。",
+               "パスワードは「{s}」です", "APIキー：{c}", "アクセストークン：{c}"],
+    }
+
+    def test_each_form_gives_exactly_its_value(self):
+        for lang, forms in self.FORMS.items():
+            texts = [f.format(c=_COLON_V, s=_SENTENCE_V) for f in forms]
+            for form, text, got in zip(forms, texts, _scan(("en", lang), texts)):
+                want = _COLON_V if "{c}" in form else _SENTENCE_V
+                with self.subTest(lang=lang, form=form):
+                    self.assertEqual(got, [("SECRET", want)])
+
+    def test_the_forms_need_their_language(self):
+        # with English and German only, the CJK words and the fullwidth colon are no label: the rules of the other
+        # languages stay as they were
+        for lang, forms in self.FORMS.items():
+            forms = [f for f in forms if "API:" not in f]   # `API: <value>` is an English label of its own
+            texts = [f.format(c=_COLON_V, s=_SENTENCE_V) for f in forms]
+            for form, got in zip(forms, _scan(("en", "de"), texts)):
+                with self.subTest(lang=lang, form=form):
+                    self.assertEqual(got, [])
+        self.assertEqual(_scan(("en", "de"), [f"password：{_COLON_V}"]), [[]])
+
+    def test_a_private_key_after_a_label_stays_one_block(self):
+        # `Закрытый ключ: -----BEGIN …`: the label rule took the ten characters of the armour, and the private-key
+        # rule lost the block (ProwlBench observation, 2026-10-23; English `password:` did the same)
+        rnd = random.Random(5)
+        body = "\n".join("".join(rnd.choice("abcdefghKLMNOPQR0123456789+/") for _ in range(64)) for _ in range(5))
+        kind = "PRI" + "VATE KEY"
+        pem = f"-----BEGIN {kind}-----\n{body}\n-----END {kind}-----"
+        for lang, label in (("en", "password"), ("ru", "Закрытый ключ"), ("zh", "私钥"), ("ja", "秘密鍵")):
+            with self.subTest(label=label):
+                self.assertEqual(_scan(("en", lang), [f"{label}: {pem}"]), [[("SECRET", pem)]])
+        self.assertEqual(_scan(("en", "zh"), [f"password：{_COLON_V}"]), [[("SECRET", _COLON_V)]])
 
 
 if __name__ == "__main__":
