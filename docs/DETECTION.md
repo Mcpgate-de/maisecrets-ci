@@ -49,7 +49,7 @@ for m in d.findings(text, channel="tool", path="notes.txt"):
 | Name | What |
 |---|---|
 | `Detector` | A detector with its own configuration: `scan`, `findings`, `rules`, `allow_list`, `explain_allowed`, `regions`, `reset`, `slowest_user_rule`, `activate`. `scan` and `findings` take the text as a `str` (a subclass of `str` too) and raise `TypeError` for anything else, `bytes` and `None` included (since 0.8) |
-| `Match` | One hit: `kind` (the rule id), `type`, `value`, `start`, `end` |
+| `Match` | One hit: `kind` (the rule id), `type`, `value`, `start`, `end`. `start` and `end` count the Unicode code points of the `str` that was scanned, and `text[start:end] == value` |
 | `Sources`, `NO_SOURCES` | What a scan takes besides the built-in rules |
 | `References`, `NO_REFERENCES` | The reference form of the caller |
 | `Host`, `THIS_COMPUTER` | What a scan reads of its computer |
@@ -78,6 +78,7 @@ maintainer on 2026-10-20 (merge request !160):
 | `TYPES` and `maisecrets/detection/types.json` | **stable** as the section "The type vocabulary" says: a listed type and its family stay; a class may be refined in a minor release; new types may come |
 | `LazyRegex` | **removed in 0.8** (deprecated in 0.7.0): give `user_rule` the pattern as a string |
 | The text of `scan` and `findings` | **a `str`**: anything else raises `TypeError` since 0.8, decided without a `DeprecationWarning` in 0.7. Before, `None`, `b""` and `0` gave no hits and other bytes or numbers raised whatever the first regex raised |
+| The offsets of a `Match` | **Unicode code points** of the scanned `str`, `text[start:end] == value`. A UTF-16 caller (JavaScript, Java, .NET) counts a character outside the BMP, such as an emoji, as two units and converts. In a tool result a value hidden by ANSI codes or zero-width characters has the span of its original text, those characters included |
 | `maisecrets.detect` and the other old names | **not API**: plugin modules, not in the wheel |
 | The hits themselves | **not API**: a patch version may find more or fewer values; `docs/BENCHMARKS.md` and `scripts/compare_bench.py` report how |
 
@@ -89,8 +90,9 @@ to be carried as API.
 
 **Checks that hold it:** `tests/test_detection_package.py` pins `__all__`, the parameters of `user_rule`, the stable
 `Match` fields, a rule of your own found through a `Detector`, the `ValueError` of a wrong argument, that
-`LazyRegex` is gone and the `TypeError` of a text that is not a `str`. `scripts/wheel_smoke.py` makes a rule of its
-own through `user_rule` in a fresh venv.
+`LazyRegex` is gone and the `TypeError` of a text that is not a `str`. `tests/test_code_point_offsets.py` pins the
+offsets on texts with emoji and combining characters. `scripts/wheel_smoke.py` makes a rule of its own through
+`user_rule` in a fresh venv.
 
 ## The type vocabulary
 
@@ -139,6 +141,7 @@ import or a patch through an old name reaches the core itself. The plugin and it
 | `tests/test_detector.py` | Two detectors, their caches, their threads and the snapshot of a rule load. |
 | `tests/test_detector_host.py` | An explicit host reads neither the user name nor the clock; an explicit detector gives one result on two hosts. |
 | `tests/test_detection_package.py` | The API, the old names, the rule data, and a library caller that imports nothing of the plugin. |
+| `tests/test_code_point_offsets.py` | The offsets count code points: emoji and combining characters before, around and inside a value, in a JSON line and in the cleaned copy of a tool result. |
 | `tests/test_library_consumer.py` | A server-like caller of the public names only (`examples/library_consumer.py`): its own sources and rules, `reset()`, two detectors in eight threads, a large input, many requests, no file under HOME. |
 
 `scripts/detection_fingerprint.py` records the hits of 27,337 inputs. A change that moves the code and not the rules
