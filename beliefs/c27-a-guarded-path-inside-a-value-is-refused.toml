@@ -5,6 +5,6 @@ statement = "A server value whose piece (--name=PATH, @PATH, file://PATH) names 
 runner = ["tests/test_vault_refs.py::Online::test_a_guarded_path_inside_a_server_value_does_not_go_into_bash"]
 
 [proof]
-file = "maisecrets/hooks.py"
+file = "maisecrets/guarded_paths.py"
 find = '''    return any(_a_guarded_path(v, cwd) for v in pieces if v)'''
 replace = '''    return _a_guarded_path(value.strip(), cwd)'''

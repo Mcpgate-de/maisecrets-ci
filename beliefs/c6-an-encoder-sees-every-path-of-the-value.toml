@@ -5,6 +5,6 @@ statement = "An encoder is refused wherever the value can reach it: a pipe, a gr
 runner = ["tests/test_gates.py::ContextTests::test_an_encoder_is_refused_only_where_the_value_can_reach_it"]
 
 [proof]
-file = "maisecrets/hooks.py"
+file = "maisecrets/shell_commands.py"
 find = "    if everywhere:\n        return [True] * len(segs)\n"
 replace = "    if False:\n        return [True] * len(segs)\n"

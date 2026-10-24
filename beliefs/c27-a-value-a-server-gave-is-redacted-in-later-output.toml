@@ -5,6 +5,6 @@ statement = "A value that a server gave this session is hunted in tool output fo
 runner = ["tests/test_vault_refs.py::Online::test_a_value_echoed_by_a_command_is_redacted_to_the_server_token"]
 
 [proof]
-file = "maisecrets/hooks.py"
+file = "maisecrets/tool_output.py"
 find = '''    out.extend((v, t) for v, t in vault_refs.released(vault.backend, session)'''
 replace = '''    out.extend((v, t) for v, t in []'''

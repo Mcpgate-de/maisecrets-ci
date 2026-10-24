@@ -5,6 +5,6 @@ statement = "A backslash before a newline continues the line, as in the shell: `
 runner = ["tests/test_gates.py::ScannerEdgeTests::test_a_command_word_hidden_by_quotes_a_variable_or_a_runner_is_still_refused"]
 
 [proof]
-file = "maisecrets/hooks.py"
+file = "maisecrets/shell_commands.py"
 find = "                     else m.group(1) + \"  \", command)\n"
 replace = "                     else m.group(0), command)\n"

@@ -5,6 +5,6 @@ statement = "A remote command that would read the value from stdin as a program 
 runner = ["tests/test_ssh_route.py::RouteDecisionTests::test_every_other_ssh_shape_is_refused_with_its_reason"]
 
 [proof]
-file = "maisecrets/hooks.py"
+file = "maisecrets/shell_commands.py"
 find = "    why = _remote_refusal(\" \".join(remote))\n"
 replace = "    why = None\n"

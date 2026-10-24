@@ -5,7 +5,7 @@ statement = "A Bash server value over 4096 characters, or one that holds the spe
 runner = ["tests/test_vault_refs.py::Online::test_a_long_value_or_a_guarded_folder_with_a_space_does_not_go_into_bash"]
 
 [proof]
-file = "maisecrets/hooks.py"
+file = "maisecrets/guarded_paths.py"
 find = '''    if len(value) > 4096 or _holds_a_guarded_folder(value):
         return True'''
 replace = '''    if False:

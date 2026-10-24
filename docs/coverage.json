@@ -1,5 +1,5 @@
 {
- "version": "0.7.19",
+ "version": "0.7.20",
  "commits": {
   "noseyparker": "2e6e7f36ce36619852532bbe698d8cb7a26d2da7",
   "kingfisher": "82d050530cdef9af070b8f9a75701c9c27a948c3",
@@ -18,7 +18,7 @@
   "kingfisher": {
    "rules": 1095,
    "with_examples": 1095,
-   "bare": 351,
+   "bare": 352,
    "label": 995
   },
   "gitleaks": {

@@ -240,6 +240,14 @@ OWN_RULES: list[dict] = [
     {"id": "discord-bot-token", "type": "SECRET", "validator": "discord_bot_token",
      "regex": r"(?<![0-9A-Za-z_.-])[MNO][0-9A-Za-z_-]{23,27}\.[0-9A-Za-z_-]{6}\.[0-9A-Za-z_-]{27,38}"
               r"(?![0-9A-Za-z_.-])"},
+    # 2026-10-24, from the format watch (trufflehog detectors fireworks and infisical): two formats whose fixed start
+    # has three characters, under the four that rules/prefixes.txt asks. A Fireworks AI API key: fw_ and 20 to 40
+    # letters and digits. An Infisical service token: st., a UUID, a dot and 32 hex digits, and a second such part
+    {"id": "fireworks-api-key", "type": "SECRET",
+     "regex": r"(?<![A-Za-z0-9_-])fw_[A-Za-z0-9]{20,40}(?![A-Za-z0-9_-])"},
+    {"id": "infisical-service-token", "type": "SECRET",
+     "regex": r"(?<![A-Za-z0-9_.-])st\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[0-9a-f]{32}"
+              r"(?:\.[0-9a-f]{32})?(?![A-Za-z0-9_.-])"},
     # a BIP39 seed phrase: 12 to 24 words of the English list whose checksum holds (checksums.bip39_spans; the regex is
     # never run). Twelve words carry a checksum of 4 bits, so one list of ordinary words in 16 passes ("client connect
     # system process input output error return result update file edit", Gate A of 0.6.19): a phrase of 12 needs a word

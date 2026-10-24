@@ -5,6 +5,6 @@ statement = "The command-word rules read the words as the shell does: \\ssh, s''
 runner = ["tests/test_gates.py::ScannerEdgeTests::test_a_command_word_hidden_by_quotes_a_variable_or_a_runner_is_still_refused"]
 
 [proof]
-file = "maisecrets/hooks.py"
+file = "maisecrets/shell_commands.py"
 find = "                words = _shlex.split(command[seg[\"start\"]:seg[\"end\"]]) or words\n"
 replace = "                pass\n"

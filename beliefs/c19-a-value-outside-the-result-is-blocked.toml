@@ -5,6 +5,6 @@ statement = "A value that the detector finds outside the result of a notificatio
 runner = ["tests/test_agent_reports.py::AgentReportTests::test_a_value_added_outside_the_result_is_blocked"]
 
 [proof]
-file = "maisecrets/hooks.py"
+file = "maisecrets/agent_reports.py"
 find = "    return None if detect.scan(text) else text\n"
 replace = "    return text\n"

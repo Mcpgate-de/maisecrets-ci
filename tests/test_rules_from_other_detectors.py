@@ -489,6 +489,9 @@ TOKENS = {
     "mapbox-secret-token": lambda r: (J(["sk", ".eyJ"]) + rd(r, 60, B64U) + "." + rd(r, 22, B64U),
                                       J(["pk", ".eyJ"]) + rd(r, 60, B64U) + "." + rd(r, 22, B64U)),
     "kong-konnect-token": lambda r: (J(["kp", "at_"]) + rd(r, 49, AN), J(["kp", "at_"]) + rd(r, 12, AN)),
+    "fireworks-api-key": lambda r: (J(["f", "w_"]) + rd(r, 32, AN), J(["f", "w_"]) + rd(r, 12, AN)),
+    "infisical-service-token": lambda r: (J(["s", "t."]) + _uuid(r) + "." + rd(r, 32, HEXL) + "." + rd(r, 32, HEXL),
+                                          J(["s", "t."]) + _uuid(r) + "." + rd(r, 12, HEXL)),
     "sonarcloud-org-token": lambda r: (J(["sq", "co_"]) + rd(r, 59, AN), J(["sq", "co_"]) + rd(r, 12, AN)),
     "adafruit-io-key": lambda r: (J(["ai", "o_"]) + rd(r, 28, AN), J(["ai", "o_"]) + rd(r, 12, AN)),
     "pypi-test-upload-token": lambda r: (J(["pypi-AgENdGVz", "dC5weXBpLm9yZw"]) + rd(r, 150, B64U),
@@ -517,7 +520,8 @@ class TokenFormatTests(unittest.TestCase):
         new = {line.split()[0] for line in text.splitlines()
                if line.strip() and not line.startswith("#")} - {"gitlab-runner-token", "gitlab-deploy-token-any",
                                                                  "webhook-signing-secret", "cloudflare-user-api-token"}
-        self.assertEqual(new | {"telegram-bot-token", "mailchimp-api-key", "discord-bot-token"}, set(TOKENS))
+        self.assertEqual(new | {"telegram-bot-token", "mailchimp-api-key", "discord-bot-token", "fireworks-api-key",
+                                "infisical-service-token"}, set(TOKENS))
 
     def test_each_prefix_rule_starts_its_matches_with_a_literal_of_four_characters(self):
         # a literal that every match holds lets the regex engine skip a text without it

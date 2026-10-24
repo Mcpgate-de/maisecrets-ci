@@ -5,6 +5,6 @@ statement = "A placeholder inside the ssh command line, where the remote shell w
 runner = ["tests/test_ssh_route.py::RouteDecisionTests::test_every_other_ssh_shape_is_refused_with_its_reason"]
 
 [proof]
-file = "maisecrets/hooks.py"
+file = "maisecrets/shell_commands.py"
 find = "    if any(seg[\"start\"] <= a < seg[\"end\"] for _k, a, _b in refs):\n"
 replace = "    if False:\n"

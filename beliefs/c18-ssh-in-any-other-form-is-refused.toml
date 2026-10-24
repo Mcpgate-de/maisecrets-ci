@@ -5,6 +5,6 @@ statement = "With a value in the command, ssh in a function body, a group, an if
 runner = ["tests/test_gates.py::ScannerEdgeTests::test_a_command_word_hidden_by_quotes_a_variable_or_a_runner_is_still_refused"]
 
 [proof]
-file = "maisecrets/hooks.py"
+file = "maisecrets/shell_commands.py"
 find = "        if sg[\"cmd\"] in (\"scp\", \"sftp\", \"autossh\", \"mosh\"):\n"
 replace = "        if False:\n"

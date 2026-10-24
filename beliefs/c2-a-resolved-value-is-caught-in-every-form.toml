@@ -5,6 +5,6 @@ statement = "A value this session resolved is redacted as a substring in plain, 
 runner = ["tests/test_gates.py::ResolvedValueRedactionTests::test_value_in_url_path_query_prefix_and_encodings_is_redacted"]
 
 [proof]
-file = "maisecrets/hooks.py"
+file = "maisecrets/tool_output.py"
 find = "        for form in sorted(forms, key=len, reverse=True):\n"
 replace = "        for form in []:\n"

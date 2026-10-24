@@ -5,6 +5,6 @@ statement = "A session approval covers only read-only remote commands; a remote 
 runner = ["tests/test_ssh_route.py::SessionApprovalTests::test_a_remote_command_that_can_write_still_asks_every_time"]
 
 [proof]
-file = "maisecrets/hooks.py"
+file = "maisecrets/shell_commands.py"
 find = "        if not raw or raw[0] not in READ_ONLY_REMOTE:\n"
 replace = "        if not raw:\n"

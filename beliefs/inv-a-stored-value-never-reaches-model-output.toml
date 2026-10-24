@@ -17,19 +17,19 @@ runner = [
 
 [[proof]]
 path = "the encodings of a value this session resolved"
-file = "maisecrets/hooks.py"
+file = "maisecrets/tool_output.py"
 find = "        for form in sorted(forms, key=len, reverse=True):\n"
 replace = "        for form in []:\n"
 
 [[proof]]
 path = "JSON escaped twice (a JSON document in an MCP text)"
-file = "maisecrets/hooks.py"
+file = "maisecrets/tool_output.py"
 find = "*escaped,\n              *(json.dumps(e)[1:-1] for e in escaped)]"
 replace = "*escaped]"
 
 [[proof]]
 path = "the fingerprint match of a live value"
-file = "maisecrets/hooks.py"
+file = "maisecrets/tool_output.py"
 find = "            if key is None:\n                continue\n            found.append(key)"
 replace = "            if True:\n                continue\n            found.append(key)"
 
@@ -83,7 +83,7 @@ replace = "        \"note\": f\"maisecrets replaced {hit['n']} value(s)"
 
 [[proof]]
 path = "another session's value, encoded as hex or base64 by a command"
-file = "maisecrets/hooks.py"
+file = "maisecrets/tool_output.py"
 find = "    yield from _decoded(token)\n"
 replace = "    yield from ()\n"
 

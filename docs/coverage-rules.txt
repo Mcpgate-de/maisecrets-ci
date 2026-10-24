@@ -1070,7 +1070,7 @@ kingfisher	kingfisher.finnhub.1	0	1
 kingfisher	kingfisher.firebase.1	0	1
 kingfisher	kingfisher.firebase.2	0	1
 kingfisher	kingfisher.firecrawl.1	1	1
-kingfisher	kingfisher.fireworks.1	0	1
+kingfisher	kingfisher.fireworks.1	1	1
 kingfisher	kingfisher.fixer.1	0	1
 kingfisher	kingfisher.flagsmith.1	0	1
 kingfisher	kingfisher.flagsmith.2	0	1

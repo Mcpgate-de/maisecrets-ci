@@ -1659,7 +1659,7 @@ ambee	52682d7c3ee0
 amplitudeapikey	4d15f22cdefa
 anthropic	4b9b6447a395
 anypoint	c16b036ba1d8
-anypointoauth2	77e831c09a22
+anypointoauth2	6fe140c88367
 apacta	abcd29864183
 api2cart	b9617d0281ef
 apideck	f31288b5199b
@@ -1911,6 +1911,7 @@ finage	3c33a058e90c
 financialmodelingprep	b8e5a2b5ab15
 findl	78bb82e9aade
 finnhub	1567eea312de
+fireworks	527fda871fb0
 fixerio	f4d5eb27de35
 flatio	2dfdf8d95df5
 fleetbase	d400fe467415
@@ -2010,6 +2011,7 @@ iexcloud	9e6ea1aa2319
 imagekit	59fea080721c
 imagga	51c3ba5a7265
 impala	cafae3a92dd4
+infisical	d47f153f31fb
 infura	12e1a4ea57a0
 insightly	971e8de35290
 instabot	fe5df6f4e727

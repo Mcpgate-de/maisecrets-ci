@@ -27,13 +27,13 @@ replace = "    if True:\n        return None\n    return _deny(f\"maisecrets: {t
 
 [[proof]]
 path = "a hard link to a store file"
-file = "maisecrets/hooks.py"
+file = "maisecrets/guarded_paths.py"
 find = "    if _hardlinked_into(real, protected):\n        return True\n"
 replace = "    if False:\n        return True\n"
 
 [[proof]]
 path = "a symlink resolved to its target"
-file = "maisecrets/hooks.py"
+file = "maisecrets/guarded_paths.py"
 find = "    return os.path.realpath(p if os.path.isabs(p) else os.path.join(cwd or os.getcwd(), p))"
 replace = "    return os.path.abspath(p if os.path.isabs(p) else os.path.join(cwd or os.getcwd(), p))"
 
@@ -57,19 +57,19 @@ replace = "            path = v\n"
 
 [[proof]]
 path = "the editing tools know the run directory and a hard link"
-file = "maisecrets/hooks.py"
+file = "maisecrets/guarded_paths.py"
 find = "        inside = inside or _touches_store(path, cwd)\n"
 replace = "        inside = inside\n"
 
 [[proof]]
 path = "Bash names the configured home"
-file = "maisecrets/hooks.py"
+file = "maisecrets/shell_commands.py"
 find = "    for d in _store_dir_spellings():\n"
 replace = "    for d in []:\n"
 
 [[proof]]
 path = "Bash names the default home, the keychain or a delivery path"
-file = "maisecrets/hooks.py"
+file = "maisecrets/shell_commands.py"
 find = "    m = (_STORE_READ_RE_I if windows_paths else _STORE_READ_RE).search(command)"
 replace = "    m = None"
 
@@ -87,13 +87,13 @@ replace = "_READ_TOOLS = (\"Read\", \"Grep\", \"Glob\", \"LS\", \"NotebookRead\"
 
 [[proof]]
 path = "a directory next to the store is not the store"
-file = "maisecrets/hooks.py"
+file = "maisecrets/guarded_paths.py"
 find = "any(probe == d for d in protected)"
 replace = "any(probe.startswith(d) for d in protected)"
 
 [[proof]]
 path = "a path next to the configured home in Bash"
-file = "maisecrets/hooks.py"
+file = "maisecrets/shell_commands.py"
 find = "re.escape(d) + r\"(?![\\w.-])\", command)"
 replace = "re.escape(d), command)"
 
@@ -117,12 +117,12 @@ replace = "\"matcher\": \"Bash|Write|"
 
 [[proof]]
 path = "a Windows path to the configured home in another case"
-file = "maisecrets/hooks.py"
+file = "maisecrets/shell_commands.py"
 find = "            if re.search(rx, command, re.IGNORECASE):"
 replace = "            if re.search(rx, command):"
 
 [[proof]]
 path = "a path next to the configured home in PowerShell"
-file = "maisecrets/hooks.py"
+file = "maisecrets/shell_commands.py"
 find = 're.split(r"[/\\]+", d)) + r"\.*(?![\w.-])"'
 replace = 're.split(r"[/\\]+", d)) + r"\.*"'

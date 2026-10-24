@@ -5,6 +5,6 @@ statement = "A notification passes only when this session's transcript gives its
 runner = ["tests/test_agent_reports.py::AgentReportTests::test_a_tool_use_id_the_transcript_does_not_give_to_an_agent_is_blocked"]
 
 [proof]
-file = "maisecrets/hooks.py"
+file = "maisecrets/agent_reports.py"
 find = "    return _called_an_agent(transcript, tool_use_id)\n"
 replace = "    return True\n"

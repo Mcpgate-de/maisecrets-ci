@@ -1911,6 +1911,7 @@ finage
 financialmodelingprep
 findl
 finnhub
+fireworks
 fixerio
 flatio
 fleetbase
@@ -2010,6 +2011,7 @@ iexcloud
 imagekit
 imagga
 impala
+infisical
 infura
 insightly
 instabot

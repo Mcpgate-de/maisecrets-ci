@@ -5,6 +5,6 @@ statement = "scp, rsync with a remote shell and GIT_SSH_COMMAND are refused for 
 runner = ["tests/test_vault_refs.py::Online::test_an_ssh_form_with_a_server_token_is_refused"]
 
 [proof]
-file = "maisecrets/hooks.py"
+file = "maisecrets/shell_commands.py"
 find = '''    offsets = [m.start() for m in _REF_RE.finditer(command) if ctxs[m.start()] != "comment"]'''
 replace = '''    offsets = [a for _k, a, _b in find_refs(command) if ctxs[a] != "comment"]'''
