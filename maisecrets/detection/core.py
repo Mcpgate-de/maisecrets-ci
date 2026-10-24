@@ -2406,7 +2406,9 @@ def scan(text: str, enabled: set[str] | None = None, channel: str = "prompt", pa
     export of a tool result, without the allow list and the sources (`maisecrets rules check`).
     `enabled` names rules by id or by key (maisecrets/detection/registry.py): an id that two rules share enables both,
     a key one
-    of them."""
+    of them. A text that is not a str (bytes, None) raises TypeError; a subclass of str is a str."""
+    if not isinstance(text, str):
+        raise TypeError(f"text must be a str, not {type(text).__name__}")
     # the channel and the path travel as arguments: a nested scan (is_fixture) or a scan in another thread has its own
     return _scan(text, enabled, rule_list=rule_list, channel="tool" if channel == "tool" else "prompt", path=path or "")
 

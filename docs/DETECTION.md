@@ -48,13 +48,13 @@ for m in d.findings(text, channel="tool", path="notes.txt"):
 
 | Name | What |
 |---|---|
-| `Detector` | A detector with its own configuration: `scan`, `findings`, `rules`, `allow_list`, `explain_allowed`, `regions`, `reset`, `slowest_user_rule`, `activate` |
+| `Detector` | A detector with its own configuration: `scan`, `findings`, `rules`, `allow_list`, `explain_allowed`, `regions`, `reset`, `slowest_user_rule`, `activate`. `scan` and `findings` take the text as a `str` (a subclass of `str` too) and raise `TypeError` for anything else, `bytes` and `None` included (since 0.8) |
 | `Match` | One hit: `kind` (the rule id), `type`, `value`, `start`, `end` |
 | `Sources`, `NO_SOURCES` | What a scan takes besides the built-in rules |
 | `References`, `NO_REFERENCES` | The reference form of the caller |
 | `Host`, `THIS_COMPUTER` | What a scan reads of its computer |
 | `Active`, `resolve_regions` | The regions and label languages, and their resolution from a config (`locale=` to give the locale) |
-| `user_rule` | A rule of your own, for `Sources.user_rules` (returns a `Rule`; `LazyRegex` is deprecated) |
+| `user_rule` | A rule of your own, for `Sources.user_rules` (returns a `Rule`) |
 | `TYPES` | The type vocabulary: each type a `Match` can carry, with its `family` and `class` (`maisecrets/detection/types.json`) |
 
 The rule tables and the helpers of `core.py` are no API: they change with the rules.
@@ -76,7 +76,8 @@ maintainer on 2026-10-20 (merge request !160):
 | `user_rule(id, type, pattern, keywords=(), secret_group=0)` | **stable**: the one way for a caller to make a rule of its own. The id becomes `user:<id>`; a wrong argument raises `ValueError` |
 | `Rule` | **no stable constructor**: the type that `user_rule` returns and `Detector.rules()` lists. Of its fields only `id`, `type`, `keywords` and `secret_group` are promised; the other 17 belong to the detector |
 | `TYPES` and `maisecrets/detection/types.json` | **stable** as the section "The type vocabulary" says: a listed type and its family stay; a class may be refined in a minor release; new types may come |
-| `LazyRegex` | **deprecated**: a `DeprecationWarning` on access; importable until 0.8 at least |
+| `LazyRegex` | **removed in 0.8** (deprecated in 0.7.0): give `user_rule` the pattern as a string |
+| The text of `scan` and `findings` | **a `str`**: anything else raises `TypeError` since 0.8, decided without a `DeprecationWarning` in 0.7. Before, `None`, `b""` and `0` gave no hits and other bytes or numbers raised whatever the first regex raised |
 | `maisecrets.detect` and the other old names | **not API**: plugin modules, not in the wheel |
 | The hits themselves | **not API**: a patch version may find more or fewer values; `docs/BENCHMARKS.md` and `scripts/compare_bench.py` report how |
 
@@ -87,8 +88,9 @@ maintainer on 2026-10-20 (merge request !160):
 to be carried as API.
 
 **Checks that hold it:** `tests/test_detection_package.py` pins `__all__`, the parameters of `user_rule`, the stable
-`Match` fields, a rule of your own found through a `Detector`, the `ValueError` of a wrong argument and the warning of
-`LazyRegex`. `scripts/wheel_smoke.py` makes a rule of its own through `user_rule` in a fresh venv.
+`Match` fields, a rule of your own found through a `Detector`, the `ValueError` of a wrong argument, that
+`LazyRegex` is gone and the `TypeError` of a text that is not a `str`. `scripts/wheel_smoke.py` makes a rule of its
+own through `user_rule` in a fresh venv.
 
 ## The type vocabulary
 
