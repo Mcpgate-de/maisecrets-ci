@@ -270,6 +270,35 @@ and OpenAI plugin directories.
   mcpgate.de. `maisecrets.io` is not registered. The OpenAI route needs a
   website with privacy and support pages behind that domain.
 
+### What the directory flags, and the answer in the release tree
+
+The security scan of the directory held versions for these reasons. Each answer has a guard; do not undo one
+without reading its reason.
+
+| Finding | Cause | Answer | Guard |
+|---|---|---|---|
+| `UNPINNED_NPX` (0.5.15, 0.5.16) | a hook command with a variable, a substitution or an inline program | one program per hook (`directory_hooks`) | `test_release_tree` |
+| `UNREAD_ASSET_REFERENCED` (2026-09-30) | `.codex-plugin/` and the skills' `agents/openai.yaml` name image files | not shipped | `test_release_tree` |
+| `SECRET_IN_SCRIPT` (0.7.7, 0.7.8) | example values in `README.md` and `prefixes.txt`; no line named | `DIRECTORY-README.md` as README, `prefixes.json` | `test_release_tree` |
+| `SECRET_IN_SCRIPT` (0.7.17) | a code comment with token-shaped examples, read for the first time after a file split | the comment names the form in words | none: write no token-shaped example in a comment |
+| `SECRET_IN_SCRIPT` (risk) | literal public example keys in the betterleaks allow list | shipped as sha256 (`equalsAnySha256`) | `test_release_tree` |
+| `RUNTIME_FETCH_EXEC` (0.7.17) | `docs/THREAT-MODEL.md` quotes the download-and-run commands that C21 guards | no `docs/` in the release tree | `test_release_tree` |
+| `BINARIES_NOT_INSPECTED` (0.7.17 to 0.7.19) | a text file above the read limit (207 KB read, 271 KB held); the finding names only the largest file | split modules; betterleaks in parts under `PART_BYTES` | `test_every_file_is_small_enough_for_the_directory_to_read`, `FILE_BYTES` |
+
+What stays, and why: `MOD_LOCAL_DATA_LEAVES`, `MOD_SESSION_DATA_LEAVES`, `MOD_RUNS_PROCESS`,
+`MOD_PROCESS_COMMAND_COMPUTED` and `MOD_PRESENT` describe the mod itself, and "adds hooks" and "adds credential
+forward" compare with the live version 0.5.9. Only a release without the mod or without hooks removes them; such
+versions go to a reviewer ("Content policy review").
+
+How to read the page:
+
+- A split exposes text that the scan could not read before. A file split can thus bring new findings in old
+  content. Run `scripts/scan_tree.py` and read the comments of the new files before the release.
+- The page names only the rule of each finding, with no file or line. "Compared with vX: no new findings" is not
+  reliable; compare the list of rules of each version.
+- A version that only changes tests or docs does not release (`refactor`, `docs`, `test`). A change for the
+  directory is `fix(directory): …`.
+
 ## Testing discipline (now)
 
 - Unit tests: `python3 -m unittest discover -s tests`.

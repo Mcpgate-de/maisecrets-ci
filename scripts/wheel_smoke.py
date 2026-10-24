@@ -10,6 +10,7 @@ outside the checkout, with -I and an empty HOME, and must:
 - carry the plugin's version and every file of maisecrets/detection/ (the code and the rule data), and no other module;
 - find a token and an SSN with an explicit Detector, and with one built from defaults, and the value of a rule
   of your own made with user_rule;
+- answer a request of the contract maisecrets.detect/1 through `python -m maisecrets.detection`;
 - load no module of the plugin and leave the empty HOME empty, so a library caller never reads a user's config.
 
 It prints one line per check and exits 1 when one fails. It changes nothing in the checkout."""
@@ -53,6 +54,7 @@ print(json.dumps({
     "modules": sorted(m for m in sys.modules if m.startswith("maisecrets")),
     "home": sorted(os.listdir(os.environ["HOME"])),
     "own": [(m.kind, m.value) for m in own.findings("ref ORD-" + "123456", channel="tool")],
+    "classes": {m.type: det.TYPES[m.type]["class"] for m in given.findings(text, channel="tool")},
 }))
 '''
 
@@ -91,6 +93,16 @@ def main(argv) -> int:
             print("FAIL probe:", r.stderr.strip()[-2000:])
             return 1
         got = json.loads(r.stdout)
+        # the JSON entry point of the installed wheel (contract maisecrets.detect/1), the text of the probe
+        text = "SSN " + "-".join(("536", "22", "8726")) + "\ntoken " + "ghp_" + "A1b2C3d4" * 4 + "Zz9y"
+        request = {"contract": "maisecrets.detect/1", "text": text, "channel": "tool", "regions": ["generic", "us"],
+                   "languages": ["en"]}
+        e = _run([str(vpy), "-I", "-m", "maisecrets.detection"], cwd=str(home), env=env, input=json.dumps(request))
+        try:
+            entry = json.loads(e.stdout)
+        except ValueError:
+            entry = {}
+        home_after = sorted(os.listdir(home))
     checks = [
         ("version is the plugin's", got["version"] == expected_version, f"{got['version']} vs {expected_version}"),
         ("every file of the core and its rule data", got["files"] == expected_files,
@@ -105,6 +117,13 @@ def main(argv) -> int:
                                         for m in got["modules"]), str(got["modules"])),
         ("the empty HOME stays empty", got["home"] == [], str(got["home"])),
         ("a rule of your own through user_rule", got["own"] == [["user:order-ref", "123456"]], str(got["own"])),
+        ("the type vocabulary (types.json) gives each found type its class",
+         got["classes"] == {"SECRET": "secret", "US_SSN": "pii.national_id"}, str(got["classes"])),
+        ("python -m maisecrets.detection answers with the plugin's version and both findings, nothing on stderr",
+         e.returncode == 0 and e.stderr == "" and entry.get("engine", {}).get("version") == expected_version
+         and sorted(f["type"] for f in entry.get("findings", [])) == ["SECRET", "US_SSN"],
+         f"exit {e.returncode}, {len(e.stderr)} bytes on stderr, {sorted(entry)}"),
+        ("the empty HOME stays empty after the entry point", home_after == [], str(home_after)),
     ]
     # a wheel to hand out is built at the tag of its version: the release commit lands on main only, so a build from
     # next carries the version of the last release with changes that release lacks

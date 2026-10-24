@@ -1,0 +1,98 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://github.com/Mcpgate-de/maisecrets/blob/main/maisecrets/detection/detect-1.schema.json",
+ "title": "maisecrets.detect/1",
+ "description": "The request and the response of python3 -m maisecrets.detection (docs/DETECTION.md, \"The JSON entry point\"). Offsets count Unicode code points. Not expressed here: start < end <= the length of the text, and the order of the findings (start, end, type, rule).",
+ "$defs": {
+  "request": {
+   "type": "object",
+   "required": ["contract", "text", "channel", "regions", "languages"],
+   "additionalProperties": false,
+   "properties": {
+    "contract": {"const": "maisecrets.detect/1"},
+    "text": {"type": "string"},
+    "channel": {"enum": ["prompt", "tool"]},
+    "regions": {"type": "array", "items": {"type": "string", "pattern": "^(generic|[a-z]{2})$"}},
+    "languages": {"type": "array", "items": {"type": "string", "pattern": "^[a-z]{2}$"}},
+    "context": {
+     "type": "object",
+     "additionalProperties": false,
+     "properties": {
+      "path": {"type": "string"},
+      "fields": {"type": "array", "items": {"$ref": "#/$defs/field"}}
+     }
+    }
+   }
+  },
+  "field": {
+   "description": "The span of a value in code points of the text (start < end <= its length) and its field path, outermost first (at least one part). format is informative.",
+   "type": "object",
+   "required": ["start", "end", "name"],
+   "additionalProperties": false,
+   "properties": {
+    "start": {"type": "integer", "minimum": 0},
+    "end": {"type": "integer", "minimum": 1},
+    "name": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "integer"}]}},
+    "format": {"type": "string"}
+   }
+  },
+  "response": {"oneOf": [{"$ref": "#/$defs/result"}, {"$ref": "#/$defs/error"}]},
+  "result": {
+   "type": "object",
+   "required": ["contract", "engine", "findings"],
+   "additionalProperties": false,
+   "properties": {
+    "contract": {"const": "maisecrets.detect/1"},
+    "engine": {
+     "type": "object",
+     "required": ["name", "version", "ruleset"],
+     "additionalProperties": false,
+     "properties": {
+      "name": {"const": "maisecrets"},
+      "version": {"type": "string"},
+      "ruleset": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+     }
+    },
+    "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}}
+   }
+  },
+  "finding": {
+   "type": "object",
+   "required": ["start", "end", "type", "provenance"],
+   "additionalProperties": false,
+   "properties": {
+    "start": {"type": "integer", "minimum": 0},
+    "end": {"type": "integer", "minimum": 1},
+    "type": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
+    "provenance": {
+     "type": "object",
+     "required": ["rule", "origin", "layer"],
+     "additionalProperties": false,
+     "properties": {
+      "rule": {"type": "string"},
+      "origin": {"enum": ["builtin", "user", "term", "import", "model"]},
+      "layer": {"enum": ["deterministic", "model"]}
+     }
+    }
+   }
+  },
+  "error": {
+   "type": "object",
+   "required": ["contract", "error"],
+   "additionalProperties": false,
+   "properties": {
+    "contract": {"const": "maisecrets.detect/1"},
+    "error": {
+     "type": "object",
+     "required": ["code", "path", "message"],
+     "additionalProperties": false,
+     "properties": {
+      "code": {"enum": ["invalid_json", "unsupported_contract", "invalid_request", "internal_error"]},
+      "path": {"type": "string"},
+      "message": {"type": "string"}
+     }
+    }
+   }
+  }
+ }
+}

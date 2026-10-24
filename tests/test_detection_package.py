@@ -19,8 +19,8 @@ import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
 
 from maisecrets import detect, detection  # noqa: E402
 
-API = {"Active", "Detector", "Host", "LazyRegex", "Match", "NO_REFERENCES", "NO_SOURCES", "References", "Rule",
-       "Sources", "THIS_COMPUTER", "resolve_regions", "user_rule"}
+API = {"Active", "Detector", "Host", "Match", "NO_REFERENCES", "NO_SOURCES", "References", "Rule", "Sources",
+       "THIS_COMPUTER", "TYPES", "resolve_regions", "user_rule"}
 # maisecrets.<old name> -> the module of the package it is
 OLD_NAMES = {"detect": "core", "checksums": "checksums", "lazy_regex": "lazy_regex", "normalise": "normalise",
              "regions": "regions", "registry": "registry", "rulespec": "rulespec", "rule_filter": "rule_filter",
@@ -45,7 +45,6 @@ class ApiTests(unittest.TestCase):
     def test_a_star_import_gives_the_api_only(self):
         ns: dict = {}
         exec("from maisecrets.detection import *", ns)
-        # the warning of the deprecated LazyRegex leaves __warningregistry__ in the namespace
         self.assertEqual({k for k in ns if not k.startswith("__")}, API)
 
     def test_a_library_caller_imports_the_package_and_nothing_of_the_plugin(self):
@@ -66,7 +65,7 @@ print(json.dumps([kinds, sorted(m for m in sys.modules if m.startswith("maisecre
 
 
 class UserRuleTests(unittest.TestCase):
-    """user_rule is the stable way to a rule of your own (docs/DETECTION.md, "The API"); LazyRegex is deprecated."""
+    """user_rule is the stable way to a rule of your own (docs/DETECTION.md, "The API"); LazyRegex is gone since 0.8."""
 
     def test_the_signature_is_the_promised_one(self):
         import inspect
@@ -97,13 +96,38 @@ class UserRuleTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     detection.user_rule(**kw)
 
-    def test_lazy_regex_still_imports_and_warns(self):
-        import warnings
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            cls = detection.LazyRegex
-        self.assertIs(cls, detect.LazyRegex)
-        self.assertTrue(any(issubclass(x.category, DeprecationWarning) for x in w))
+    def test_lazy_regex_is_no_longer_a_name_of_the_package(self):
+        # deprecated in 0.7.0, removed in 0.8 (docs/DETECTION.md, "The API"); the core keeps the class for itself
+        with self.assertRaises(AttributeError):
+            detection.LazyRegex  # noqa: B018
+        with self.assertRaises(ImportError):
+            exec("from maisecrets.detection import LazyRegex", {})
+
+
+class TextTypeTests(unittest.TestCase):
+    """scan and findings take a str and raise TypeError for anything else (docs/DETECTION.md, "The API")."""
+
+    def setUp(self):
+        self.d = detection.Detector(regions=detection.Active(regions=("generic",), languages=("en",), source="t"),
+                                    sources=detection.NO_SOURCES, references=detection.NO_REFERENCES,
+                                    host=detection.Host(user="t", year=2026))
+
+    def test_a_text_that_is_not_a_str_raises_type_error(self):
+        # None, b"" and 0 gave [] before 0.8, bytes and int raised whatever the first regex raised
+        for text in (None, b"", b"mail: a@b.example", bytearray(b"x"), 0, 5, ["x"]):
+            for call in (self.d.scan, self.d.findings, detect.scan, detect.findings):
+                with self.subTest(text=type(text).__name__, call=call.__qualname__):
+                    with self.assertRaisesRegex(TypeError, "text must be a str, not " + type(text).__name__):
+                        call(text)
+
+    def test_a_subclass_of_str_is_scanned_like_its_str(self):
+        class Text(str):
+            pass
+        text = "token glpat-" + "AbCdEfGhIjKlMnOpQrSt done"
+        want = [(m.kind, m.start, m.end, m.value) for m in self.d.findings(text)]
+        self.assertEqual(len(want), 1, "the premise: the token is found")
+        self.assertEqual([(m.kind, m.start, m.end, m.value) for m in self.d.findings(Text(text))], want)
+        self.assertEqual([(m.kind, m.start, m.end, m.value) for m in self.d.scan(Text(text))], want)
 
 
 class OldNamesTests(unittest.TestCase):

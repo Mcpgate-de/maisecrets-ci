@@ -23,9 +23,10 @@ SKILL = ROOT / "skills" / "secret-hygiene"
 DETECTOR = ("maisecrets/__init__.py", "maisecrets/detection/__init__.py", "maisecrets/detection/checksums.py",
             "maisecrets/detection/core.py", "maisecrets/detection/value_checks.py", "maisecrets/detection/own_rules.py",
             "maisecrets/detection/text_index.py", "maisecrets/detection/encoded_mail.py",
-            "maisecrets/detection/lazy_regex.py", "maisecrets/detection/normalise.py",
+            "maisecrets/detection/fields.py", "maisecrets/detection/lazy_regex.py", "maisecrets/detection/normalise.py",
             "maisecrets/detection/regions.py", "maisecrets/detection/registry.py",
             "maisecrets/detection/rule_filter.py", "maisecrets/detection/rulespec.py",
+            "maisecrets/detection/vocabulary.py", "maisecrets/detection/types.json",
             "maisecrets/detect.py", "maisecrets/checksums.py", "maisecrets/lazy_regex.py", "maisecrets/normalise.py",
             "maisecrets/regions.py", "maisecrets/registry.py", "maisecrets/rule_filter.py", "maisecrets/rulespec.py",
             "maisecrets/placeholder.py", "maisecrets/rules/freemail_domains.txt")

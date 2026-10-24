@@ -32,8 +32,8 @@ import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
 # objects (maisecrets/detect.py and the others: compatibility names)
 CORE_MODULES = ("checksums", "lazy_regex", "normalise", "regions", "registry", "rulespec", "rule_filter", "personal")
 # the parts of core.py in modules of their own (they have no old name)
-CORE_PARTS = ("value_checks", "own_rules", "text_index", "encoded_mail")
-CORE = frozenset({"__init__", "detect", "detection", "detection.core", *CORE_MODULES,
+CORE_PARTS = ("value_checks", "own_rules", "text_index", "encoded_mail", "fields")
+CORE = frozenset({"__init__", "detect", "detection", "detection.core", "detection.vocabulary", *CORE_MODULES,
                   *(f"detection.{m}" for m in CORE_MODULES + CORE_PARTS)})
 # the modules of the plugin that a plain scan still imports. Each is a later step: the config read for the regions
 # (home, through active_regions), the rules of your own and the allow list (user_rules), and the probes for a term

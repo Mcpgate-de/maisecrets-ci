@@ -12,6 +12,7 @@ repository.
 from __future__ import annotations
 
 import collections
+import json
 import sys
 from pathlib import Path
 
@@ -22,11 +23,11 @@ BANK = ROOT / "bench" / "bank"
 DATASETS = ("nemotron", "gretel", "mendeley", "piilo", "privy", "aparte", "llmredactor", "credsweeper")
 SOURCES = ("bank",) + DATASETS + ("catalogs", "traces")
 
-# the types of scripts/measure_datasets.py to the classes of the benchmark; SECRET by the dataset's own label
-TYPE_CLASS = {"EMAIL": "pii.email", "PHONE": "pii.phone", "IP": "pii.ip", "IBAN": "pii.iban", "CARD": "pii.card",
-              "US_SSN": "pii.national_id", "ABA_ROUTING_NUMBER": "pii.bank_account",
-              "US_BANK_NUMBER": "pii.bank_account", "NAME": "pii.name", "ADDRESS": "pii.address",
-              "BIRTH_DATE": "pii.birth_date", "ID_NUMBER": "pii.national_id", "USERNAME": "pii.username"}
+# a type to its class, from the published vocabulary (docs/DETECTION.md, "The type vocabulary"): the types of
+# scripts/measure_datasets.py and those maisecrets finds (bench/adapters/maisecrets.py). A dataset's SECRET span takes
+# its class from the dataset's own label (secret_class)
+TYPE_CLASS = {t: v["class"] for t, v in json.loads(
+    (ROOT / "maisecrets" / "detection" / "types.json").read_text(encoding="utf-8"))["types"].items()}
 SECRET_LABEL = {"password": "secret.password", "PASSWORD": "secret.password"}
 # a secret dataset that says which kind of secret a span holds: its labels to the classes of the benchmark
 SECRET_CLASS = {

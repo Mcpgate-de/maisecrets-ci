@@ -82,6 +82,8 @@ BETTERLEAKS_JSON = "maisecrets/detection/rules/betterleaks.json"
 # ships each key as its sha256. A betterleaks sync that adds such a list elsewhere turns the release tree test red
 HASHED_ALLOW_LISTS = ("gcp-api-key",)
 PART_BYTES = 150_000
+# the largest file the release tree may hold: the directory read 207 KB and held 271 KB unread (0.7.17 to 0.7.19)
+FILE_BYTES = 200_000
 
 
 def directory_hooks(text: str) -> str:

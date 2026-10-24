@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -86,8 +87,18 @@ class MeasuredBaselineTests(unittest.TestCase):
         return r
 
     def test_the_next_version_moves_the_last_number(self):
-        self.assertEqual("0.7.7", gate.next_version("v0.7.6"))
-        self.assertEqual("1.0.10", gate.next_version("v1.0.9"))
+        # empty, not unset: a project CI variable for an approved release reaches every job of the pipeline
+        with mock.patch.dict(os.environ, {"MAISECRETS_RELEASE_BUMP": ""}):
+            self.assertEqual("0.7.7", gate.next_version("v0.7.6"))
+            self.assertEqual("1.0.10", gate.next_version("v1.0.9"))
+
+    def test_an_approved_bump_names_the_baseline_of_the_minor_or_major_version(self):
+        self.assertEqual("0.8.0", gate.next_version("v0.7.20", "minor"))
+        self.assertEqual("1.0.0", gate.next_version("v0.7.20", "major"))
+        with mock.patch.dict(os.environ, {"MAISECRETS_RELEASE_BUMP": "minor"}):
+            self.assertEqual("0.8.0", gate.next_version("v0.7.20"))
+        with mock.patch.dict(os.environ, {"MAISECRETS_RELEASE_BUMP": ""}):
+            self.assertEqual("0.7.21", gate.next_version("v0.7.20"))
 
     def test_kept_results_are_gzip_without_local_paths_and_name_the_measured_trees(self):
         with tempfile.TemporaryDirectory() as d:

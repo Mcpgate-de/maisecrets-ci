@@ -51,6 +51,7 @@ from pathlib import Path
 from . import checksums
 from .lazy_regex import LazyRx as _LazyRx
 from . import registry as _registry
+from . import fields as _fields
 # The value checks, the own rules and the text index live in modules of their own, so that each file stays readable.
 # The core imports each of their names: `core.<name>` stays the same object. A patch must go to the module that
 # defines it.
@@ -1778,13 +1779,17 @@ class Detector:
         return _Activation(self)
 
     def scan(self, text: str, enabled: set[str] | None = None, channel: str = "prompt", path: str = "",
-             rule_list: list[Rule] | None = None) -> list[Match]:
-        """The matches of the text under this detector's configuration (detect.scan)."""
-        return self._run(scan, text, enabled, channel, path, rule_list)
+             rule_list: list[Rule] | None = None, *, fields=None) -> list[Match]:
+        """The matches of the text under this detector's configuration (detect.scan). `fields`: see scan()."""
+        if fields is None:   # the call of before: a caller may wrap detect.scan
+            return self._run(scan, text, enabled, channel, path, rule_list)
+        return self._run(scan, text, enabled, channel, path, rule_list, fields=fields)
 
-    def findings(self, text: str, channel: str = "prompt", path: str = "") -> list[Match]:
-        """The matches without the fixtures of a pasted test (detect.findings)."""
-        return self._run(findings, text, channel, path)
+    def findings(self, text: str, channel: str = "prompt", path: str = "", *, fields=None) -> list[Match]:
+        """The matches without the fixtures of a pasted test (detect.findings). `fields`: see scan()."""
+        if fields is None:
+            return self._run(findings, text, channel, path)
+        return self._run(findings, text, channel, path, fields=fields)
 
     def rules(self) -> list[Rule]:
         """The rule list of this detector, sorted by rank (detect.rules)."""
@@ -2399,16 +2404,22 @@ def _command_start(text: str, pos: int) -> int:
 
 
 def scan(text: str, enabled: set[str] | None = None, channel: str = "prompt", path: str = "",
-         rule_list: list[Rule] | None = None) -> list[Match]:
+         rule_list: list[Rule] | None = None, *, fields=None) -> list[Match]:
     """Return non-overlapping matches, leftmost first; the first rule to claim a span wins. channel "tool" (a tool
     result or a file) takes a password after a password label without evidence of chance, and the cells of a
     password export (path: the file the text came from, if any). `rule_list` scans with those rules and the password
     export of a tool result, without the allow list and the sources (`maisecrets rules check`).
     `enabled` names rules by id or by key (maisecrets/detection/registry.py): an id that two rules share enables both,
     a key one
-    of them."""
+    of them. A text that is not a str (bytes, None) raises TypeError; a subclass of str is a str. `fields`, a list of
+    (start, end, name) with a field path as name, adds what each field name says as a label before its value would
+    (maisecrets/detection/fields.py); without it the scan is the one of before."""
+    if not isinstance(text, str):
+        raise TypeError(f"text must be a str, not {type(text).__name__}")
+    spans = _fields.checked(text, fields)
     # the channel and the path travel as arguments: a nested scan (is_fixture) or a scan in another thread has its own
-    return _scan(text, enabled, rule_list=rule_list, channel="tool" if channel == "tool" else "prompt", path=path or "")
+    hits = _scan(text, enabled, rule_list=rule_list, channel="tool" if channel == "tool" else "prompt", path=path or "")
+    return _fields.added(text, hits, spans, lambda t: scan(t, enabled, channel, "", rule_list)) if spans else hits
 
 
 # a label rule (LABEL_RULES): its header labels the cell, so a word in it is stored quiet and a fixture in test code
@@ -3221,10 +3232,14 @@ def user_rule(id: str, type: str, pattern: str, keywords=(), secret_group: int =
 re2_to_python = _re2_to_python   # a pattern in RE2 syntax, as Python's re reads it
 
 
-def findings(text: str, channel: str = "prompt", path: str = "") -> list[Match]:
+def findings(text: str, channel: str = "prompt", path: str = "", *, fields=None) -> list[Match]:
     """The hits of scan() without the fixtures of a pasted test (is_fixture). The scan runs in the channel of the
     caller; is_fixture runs after it, and its own check of a value scans in the prompt channel, as before."""
-    return [m for m in scan(text, channel=channel, path=path) if not is_fixture(m, text, path)]
+    spans = _fields.checked(text, fields)
+    hits = scan(text, channel=channel, path=path)   # the call of before: a caller may wrap detect.scan
+    if spans:
+        hits = _fields.added(text, hits, spans, lambda t: scan(t, channel=channel))
+    return [m for m in hits if not is_fixture(m, text, path)]
 
 
 def explain_allowed(value: str) -> str | None:

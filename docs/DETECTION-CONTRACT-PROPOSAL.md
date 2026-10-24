@@ -62,6 +62,11 @@ published list; the gateway asked for one. The proposal: a published list (`type
 (`secret`, `pii`) and a class (`pii.phone`, `pii.national_id`, … the classes of the benchmark), and the rule that a
 new type is added in a minor version and a type is never renamed or removed within a major version.
 
+Done for 0.8: `maisecrets/detection/types.json` and `maisecrets.detection.TYPES`, 79 types with every region
+loaded. A new type may come in any release, since the installed version lists every type it emits; a listed type is
+not renamed or removed without the deprecation path, and its family stays; its class may be refined in a minor
+release (docs/DETECTION.md, "The type vocabulary").
+
 ## Structured context: when the field name carries the meaning
 
 A value such as `0171 4829173`, `X1234567` or `hunter2` means little alone; `{"telefon": "…"}`, `passport_no=…` or
@@ -94,6 +99,11 @@ The contract carries it as spans with names, not as a second data model:
 
 This is also where the record-field misses of the benchmark (category C, about 8 % of what 0.7.3 misses) would be
 taken: one declarative field lexicon read by both the text parsers and `context.fields`.
+
+**Built in 0.8, narrower than above** (docs/DETECTION.md, "Field names"): `fields` only adds evidence. A field holds
+no hit back, the text is parsed as without fields (no "structure first"), and the lexicon is the label words the
+rules already have, plus three kinds of name that add nothing (`key` and `token` alone, a page cursor). A field that
+holds a value back would need the field lexicon above; it waits for a measured case.
 
 ## The conformance cases
 

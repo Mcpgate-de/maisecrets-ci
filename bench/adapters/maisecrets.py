@@ -10,22 +10,19 @@ import tempfile
 from pathlib import Path
 
 from bench.adapters import _proc
+from bench.sources import TYPE_CLASS
 
 NAME = "maisecrets"
 SCOPE = ("secret.", "pii.")
 WORKER = Path(__file__).with_name("maisecrets_worker.py")
 _HOME_VAR = "MAISECRETS" + "_HOME"
-_PII = {"EMAIL": "pii.email", "PHONE": "pii.phone", "IBAN": "pii.iban", "CARD": "pii.card", "IP": "pii.ip",
-        "NAME": "pii.name", "ADDRESS": "pii.address", "BIRTH_DATE": "pii.birth_date", "USERNAME": "pii.username",
-        # a bank account is no national id (Benchmark V3: the per-class tables put us-bank under the wrong class)
-        "US_BANK_NUMBER": "pii.bank_account", "ABA_ROUTING_NUMBER": "pii.bank_account"}
 
 
 def cls_of(placeholder_type: str) -> str:
-    if placeholder_type == "SECRET":
-        return "secret"
-    if placeholder_type in _PII:
-        return _PII[placeholder_type]
+    """The class of a type: the published vocabulary (maisecrets/detection/types.json) of this bench checkout."""
+    if placeholder_type in TYPE_CLASS:
+        return TYPE_CLASS[placeholder_type]
+    # a type that the vocabulary of this checkout does not list (an older checkout under test): the rule before it
     if placeholder_type.endswith(("_TAX_ID", "_UID")):
         return "pii.tax_id"
     return "pii.national_id"

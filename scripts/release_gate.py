@@ -135,11 +135,17 @@ def report(kind: dict, results: dict, holdout: tuple | None) -> tuple:
     return "\n".join(lines), failed
 
 
-def next_version(tag: str) -> str:
-    """The version the release gives: the last number of the tag plus one (scripts/release.py)."""
-    parts = tag.lstrip("v").split(".")
-    parts[-1] = str(int(parts[-1]) + 1)
-    return ".".join(parts)
+def next_version(tag: str, approved: str | None = None) -> str:
+    """The version the release gives (scripts/release.py): the last number of the tag plus one, or the approved
+    minor or major bump of MAISECRETS_RELEASE_BUMP. 0.8.0 would otherwise have kept its baseline as 0.7.21."""
+    if approved is None:
+        approved = os.environ.get("MAISECRETS_RELEASE_BUMP", "").strip().lower() or None
+    major, minor, patch = (int(p) for p in tag.lstrip("v").split("."))
+    if approved == "major":
+        return f"{major + 1}.0.0"
+    if approved == "minor":
+        return f"{major}.{minor + 1}.0"
+    return f"{major}.{minor}.{patch + 1}"
 
 
 def runtime_trees(rev: str, cwd: Path = ROOT) -> dict:

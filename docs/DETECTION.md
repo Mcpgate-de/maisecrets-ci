@@ -48,13 +48,14 @@ for m in d.findings(text, channel="tool", path="notes.txt"):
 
 | Name | What |
 |---|---|
-| `Detector` | A detector with its own configuration: `scan`, `findings`, `rules`, `allow_list`, `explain_allowed`, `regions`, `reset`, `slowest_user_rule`, `activate` |
-| `Match` | One hit: `kind` (the rule id), `type`, `value`, `start`, `end` |
+| `Detector` | A detector with its own configuration: `scan`, `findings`, `rules`, `allow_list`, `explain_allowed`, `regions`, `reset`, `slowest_user_rule`, `activate`. `scan` and `findings` take the text as a `str` (a subclass of `str` too) and raise `TypeError` for anything else, `bytes` and `None` included (since 0.8). They take an optional keyword argument `fields` (since 0.8, additive): the field names of values in the text, below |
+| `Match` | One hit: `kind` (the rule id), `type`, `value`, `start`, `end`. `start` and `end` count the Unicode code points of the `str` that was scanned, and `text[start:end] == value` |
 | `Sources`, `NO_SOURCES` | What a scan takes besides the built-in rules |
 | `References`, `NO_REFERENCES` | The reference form of the caller |
 | `Host`, `THIS_COMPUTER` | What a scan reads of its computer |
 | `Active`, `resolve_regions` | The regions and label languages, and their resolution from a config (`locale=` to give the locale) |
-| `user_rule` | A rule of your own, for `Sources.user_rules` (returns a `Rule`; `LazyRegex` is deprecated) |
+| `user_rule` | A rule of your own, for `Sources.user_rules` (returns a `Rule`) |
+| `TYPES` | The type vocabulary: each type a `Match` can carry, with its `family` and `class` (`maisecrets/detection/types.json`) |
 
 The rule tables and the helpers of `core.py` are no API: they change with the rules.
 
@@ -63,6 +64,37 @@ checks of a value), `own_rules.py` (`OWN_RULES`, `FALLBACK_RULES`), `text_index.
 test-code check) and `encoded_mail.py` (an address with its @ as %40). `core.py` imports each of their names, so
 `core.<name>` is the same object. A patch of such a name on the core does not reach the functions of the part:
 patch the module that defines the name.
+
+## Field names: `fields` (since 0.8)
+
+A caller that has the structure of its data (a JSON response walked with a field path, a key-value record) can give
+the field name of a value with the text, instead of the core guessing it back from the text:
+
+```python
+d.findings("0171 4829173", channel="tool", fields=[(0, 12, ("customer", "telefon"))])   # one PHONE, 0-12
+d.findings("0171 4829173", channel="tool")                                            # no hit
+```
+
+- **The shape:** a list or tuple of `(start, end, name)`. `start` and `end` are the span of the value in code points
+  of the text, `0 <= start < end <= len(text)`; `name` is the field path, outermost first, a tuple (or list) of `str`
+  and `int` parts. A wrong shape raises `TypeError`, an offset outside the text `ValueError`; the message names the
+  position (`fields[1]`) and never a part of the text or of a name. Fields may overlap.
+- **What a name does:** it is evidence as the same label before the value in text is, and only that. The last part of
+  the path that is no list index is put before a copy of the value (`telefon: <value>`) and that line is scanned with
+  the rules of the call. A hit inside the value is added when the bare value has none there and the scan of the whole
+  text has none there either (`maisecrets/detection/fields.py`).
+- **What it never does:** take a hit away (the hits of the text stay as they are), add a hit outside its span, bring
+  back a hit that the text around the value took away, or parse anything: the core reads JSON and the other formats of
+  the text itself, as without fields. A field that names what the core read itself adds no second hit.
+- **Names that add nothing:** a name the label rules give no evidence for (`id`, `value`, `data`, `title`, an unknown
+  word), `key` and `token` alone (in API data they name a ticket key, an object key or a cursor as often as a
+  credential; `api_key`, `access_token`, `secret_key` are labels as in text), the cursor of a paged list
+  (`nextPageToken`, `syncToken`, `continuationToken`), and a name with a line break, `:`, `=` or a quote, or longer
+  than 64 characters. `build_number` stays text.
+- **Without `fields`** (or with an empty list) a scan is the one of before: `scripts/detection_fingerprint.py` gives
+  the same bytes. Each field costs two scans of its value, one with the label and one bare.
+- `tests/test_detection_fields.py` holds these points; `tests/conformance/cases.json` has cases with
+  `context.fields` in the gateway's shapes (a leaf with its field path, and a JSON text with fields of its own keys).
 
 ## The API: the decision of 2026-10-20
 
@@ -74,7 +106,10 @@ maintainer on 2026-10-20 (merge request !160):
 | `Detector`, `Match` (`kind`, `type`, `value`, `start`, `end`), `Sources`, `NO_SOURCES`, `References`, `NO_REFERENCES`, `Host`, `THIS_COMPUTER`, `Active`, `resolve_regions` | **stable** |
 | `user_rule(id, type, pattern, keywords=(), secret_group=0)` | **stable**: the one way for a caller to make a rule of its own. The id becomes `user:<id>`; a wrong argument raises `ValueError` |
 | `Rule` | **no stable constructor**: the type that `user_rule` returns and `Detector.rules()` lists. Of its fields only `id`, `type`, `keywords` and `secret_group` are promised; the other 17 belong to the detector |
-| `LazyRegex` | **deprecated**: a `DeprecationWarning` on access; importable until 0.8 at least |
+| `TYPES` and `maisecrets/detection/types.json` | **stable** as the section "The type vocabulary" says: a listed type and its family stay; a class may be refined in a minor release; new types may come |
+| `LazyRegex` | **removed in 0.8** (deprecated in 0.7.0): give `user_rule` the pattern as a string |
+| The text of `scan` and `findings` | **a `str`**: anything else raises `TypeError` since 0.8, decided without a `DeprecationWarning` in 0.7. Before, `None`, `b""` and `0` gave no hits and other bytes or numbers raised whatever the first regex raised |
+| The offsets of a `Match` | **Unicode code points** of the scanned `str`, `text[start:end] == value`. A UTF-16 caller (JavaScript, Java, .NET) counts a character outside the BMP, such as an emoji, as two units and converts. In a tool result a value hidden by ANSI codes or zero-width characters has the span of its original text, those characters included |
 | `maisecrets.detect` and the other old names | **not API**: plugin modules, not in the wheel |
 | The hits themselves | **not API**: a patch version may find more or fewer values; `docs/BENCHMARKS.md` and `scripts/compare_bench.py` report how |
 
@@ -85,8 +120,126 @@ maintainer on 2026-10-20 (merge request !160):
 to be carried as API.
 
 **Checks that hold it:** `tests/test_detection_package.py` pins `__all__`, the parameters of `user_rule`, the stable
-`Match` fields, a rule of your own found through a `Detector`, the `ValueError` of a wrong argument and the warning of
-`LazyRegex`. `scripts/wheel_smoke.py` makes a rule of its own through `user_rule` in a fresh venv.
+`Match` fields, a rule of your own found through a `Detector`, the `ValueError` of a wrong argument, that
+`LazyRegex` is gone and the `TypeError` of a text that is not a `str`. `tests/test_code_point_offsets.py` pins the
+offsets on texts with emoji and combining characters. `scripts/wheel_smoke.py` makes a rule of its own through
+`user_rule` in a fresh venv.
+
+## The type vocabulary
+
+`maisecrets/detection/types.json` lists every type that a `Match.type` of a built-in rule or pass can carry, and
+`TYPES` is the same list as a read-only mapping:
+
+```python
+from maisecrets.detection import TYPES
+TYPES["DE_TAX_ID"]       # {"family": "pii", "class": "pii.tax_id"}
+TYPES["SECRET"]          # {"family": "secret", "class": "secret"}
+```
+
+- **`family`** is `secret` or `pii`. **`class`** is one of the classes of the benchmark (`bench/cases.py`), such as
+  `pii.phone`, `pii.national_id` or `pii.bank_account`, or the family alone when the type does not say which kind it
+  is (`SECRET`). The benchmark reads its classes from this file (`bench/sources.py`). The classes today are the
+  classes of the benchmark, so several types under `pii.national_id` (postcodes, vehicle plates, tax and company
+  numbers) are candidates for a finer class later.
+- **Stable:** a type that a release lists is not renamed or removed without the deprecation path above. When its
+  last rule goes, the entry stays with a `deprecated` field for at least one minor version. The family of a listed
+  type never changes.
+- **May be refined in a minor release:** the class of a listed type. The changelog names each type whose class moved.
+- **May grow in any release:** new types (a new rule, a new region, a vendored rule set that brings a new entity),
+  and new optional fields in an entry. A caller handles a type it does not know by its `family` and `class` from
+  `TYPES` of the installed version: that version lists every type it emits.
+- **Not listed:** the type of a rule of your own (`user_rule`) and of a term list or an imported value of the
+  plugin; the caller or the person chose it. The terms and imports of the plugin take listed types only.
+
+`tests/test_type_vocabulary.py` derives the emitted types from the rules of every region and label language and from
+the passes, and fails when a type is emitted and not listed, or listed and emitted by nothing (unless it is
+`deprecated`). A vendored rule-set update that brings a new type is therefore red until the type gets an entry.
+
+## The JSON entry point: maisecrets.detect/1
+
+A caller in any language runs the core as a process: one JSON request on stdin, one JSON response on stdout.
+
+```bash
+python3 -m maisecrets.detection < request.json > response.json
+```
+
+It needs Python 3.9 or later and the wheel installed (or the plugin folder as the working directory), and no other
+package. It reads no home folder, no config and no network. Each call is one process; it loads the rules of its
+request and ends (about 0.1 s on an M-series laptop). A Python server uses the library in process instead.
+
+The schema of the request and of the response is `maisecrets/detection/detect-1.schema.json` (JSON Schema 2020-12,
+`$defs/request` and `$defs/response`); it ships in the wheel next to the code. The contract follows
+`docs/DETECTION-CONTRACT-PROPOSAL.md`, with the keys the core fills today.
+
+**The request.** A JSON object in UTF-8 (a byte order mark is allowed):
+
+| Key | Required | Meaning |
+|---|---|---|
+| `contract` | yes | `"maisecrets.detect/1"` |
+| `text` | yes | the text to scan, a string |
+| `channel` | yes | `"prompt"` (a person typed it) or `"tool"` (a tool result or a file). The tool channel takes forms a prompt does not, such as a phone number under a key that names a phone |
+| `regions` | yes | the country rule sets, such as `["generic", "de"]`: `generic` and the country codes the rules name (`de`, `us`, `uk`, …; an unknown code is an error). `generic` is always on; `[]` gives it alone |
+| `languages` | yes | the label languages, such as `["en", "de"]`: the files of `maisecrets/detection/rules/labels/`. English is always on |
+| `context.path` | no | the file the text came from: a value of a test file can then be a fixture and no finding |
+| `context.fields` | no | the field names of values in the text: a list of `{"start", "end", "name", "format"}`, the span of a value in code points, its field path outermost first (strings and integers, at least one part) and an informative format. It is the `fields` argument of `Detector.findings` ("Field names" above): evidence as a label, never a finding taken away. A wrong field is an error with the path `context.fields[i]…` |
+
+The order of `regions` and of `languages` does not matter. A key that the table does not name is an error, so a
+misspelt key never goes unnoticed. One key of the proposal is
+not in `maisecrets.detect/1` yet: `exclusions` has no form in the core today (a reference form is a `References` object of six questions, not a list
+of spans). A caller drops a finding inside its own placeholders itself. A later release may accept it as a new
+optional key; a request without them keeps its meaning.
+
+```json
+{"contract": "maisecrets.detect/1",
+ "text": "{\"customer\": {\"telefon\": \"0171 4829173\", \"build_number\": \"20261021\"}}",
+ "channel": "tool", "regions": ["generic", "de"], "languages": ["en", "de"]}
+```
+
+**The response.** One line of JSON with a fixed key order:
+
+```json
+{"contract": "maisecrets.detect/1",
+ "engine": {"name": "maisecrets", "version": "0.8.0", "ruleset": "sha256:…"},
+ "findings": [{"start": 26, "end": 38, "type": "PHONE",
+               "provenance": {"rule": "phone-after-phone-word", "origin": "builtin", "layer": "deterministic"}}]}
+```
+
+- **`start` and `end`** count Unicode code points of `text`, `end` exclusive. The value is `text[start:end]`; the
+  response never carries it, so a secret stays out of the output stream. A UTF-16 caller (JavaScript, Java, .NET)
+  counts a character outside the BMP, such as an emoji, as two units and converts.
+- **`type`** is a type of `maisecrets/detection/types.json` (section "The type vocabulary"), with its family and class
+  there. The findings are sorted by `start`, `end`, `type` and `rule`, and no two of them overlap.
+- **`provenance`** is informative: `rule` is the rule id (`Match.kind`), and it may change with the rules; `origin`
+  is `builtin` and `layer` is `deterministic` in this release. There is no confidence.
+- **`engine.version`** is the version of the plugin or the wheel. **`engine.ruleset`** is a sha256 over the rule list
+  the request loaded (each rule's id, type, pattern, keywords and checks, in scan order), the regions, the label
+  languages and the year. It is computed from the loaded rules, not from the files: a checkout with CRLF line ends
+  and the release tree give the same digest. The same request, version and ruleset give the same bytes.
+- **The year** is the one input from outside the request: a birth date must lie before the current year (UTC). It is
+  part of `ruleset`, so the digest changes on 1 January.
+
+**Errors.** An error is a response too, on stdout, with a non-zero exit status. stderr stays empty.
+
+```json
+{"contract": "maisecrets.detect/1", "error": {"code": "invalid_request", "path": "regions[1]", "message": "is no known region"}}
+```
+
+| `code` | Exit status | When |
+|---|---|---|
+| `invalid_json` | 2 | the input is not one JSON document in UTF-8, has a key twice in one object, or holds `NaN` |
+| `unsupported_contract` | 2 | `contract` is not `maisecrets.detect/1` |
+| `invalid_request` | 2 | a required key is missing, a value has the wrong type or is not known, a key is not defined, or the process got arguments; `path` names the field (`channel`, `regions[1]`, `context.path`; `""` for the request itself) |
+| `internal_error` | 3 | the engine failed; the message names the class of the exception |
+
+Exit status 0 is a response with findings. Any other status (1 from the interpreter itself, for example when the
+package is not found) means no response was written. The message of an error is a fixed text of the engine: it
+never holds a value of the request, not even the name of an unknown key, since a key is input as well.
+
+`tests/test_detection_entry_point.py` runs the conformance cases (`tests/conformance/cases.json`) through the entry
+point and compares each response with the Python API, checks every response kind and the two examples above against
+the schema, runs one request twice in fresh processes and compares the bytes, and sends a secret-shaped value in each
+wrong field and checks that no output holds it. `scripts/wheel_smoke.py` calls the entry point from the installed
+wheel.
 
 ## The old names
 
@@ -105,6 +258,9 @@ import or a patch through an old name reaches the core itself. The plugin and it
 | `tests/test_detector.py` | Two detectors, their caches, their threads and the snapshot of a rule load. |
 | `tests/test_detector_host.py` | An explicit host reads neither the user name nor the clock; an explicit detector gives one result on two hosts. |
 | `tests/test_detection_package.py` | The API, the old names, the rule data, and a library caller that imports nothing of the plugin. |
+| `tests/test_code_point_offsets.py` | The offsets count code points: emoji and combining characters before, around and inside a value, in a JSON line and in the cleaned copy of a tool result. |
+| `tests/test_detection_entry_point.py` | The JSON entry point: the conformance cases through it, the schema, the errors, the bytes of two runs, no value in any output. |
+| `tests/test_detection_fields.py` | The `fields` argument: evidence as a label in text, nothing for a weak name, no hit taken away, the same hits on a JSON text the core parses itself, the `TypeError` and `ValueError` of a wrong shape. |
 | `tests/test_library_consumer.py` | A server-like caller of the public names only (`examples/library_consumer.py`): its own sources and rules, `reset()`, two detectors in eight threads, a large input, many requests, no file under HOME. |
 
 `scripts/detection_fingerprint.py` records the hits of 27,337 inputs. A change that moves the code and not the rules

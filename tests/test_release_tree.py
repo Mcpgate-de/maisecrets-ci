@@ -101,6 +101,15 @@ class ReleaseTreeTests(unittest.TestCase):
         self.assertGreaterEqual(len(parts), 2)
         self.assertEqual(sorted(self.files), sorted(want + parts))
 
+    def test_every_file_is_small_enough_for_the_directory_to_read(self):
+        # the directory reads a file only up to a size between 207 KB (read) and 271 KB (BINARIES_NOT_INSPECTED,
+        # 0.7.17 to 0.7.19), and then holds the version; docs/REPO-STANDARDS.md, "What the directory flags"
+        sizes = subprocess.run(["git", "ls-tree", "-r", "-l", self.commit], capture_output=True, text=True,
+                               check=True, cwd=ROOT).stdout.splitlines()
+        self.assertGreater(len(sizes), 50)
+        big = [row.split("\t")[1] for row in sizes if int(row.split()[3]) >= self.mod.FILE_BYTES]
+        self.assertEqual(big, [])
+
     def test_the_betterleaks_parts_load_the_same_rules_and_ship_no_key(self):
         # the directory held every version whose betterleaks.json it could not read whole; the parts are each under
         # PART_BYTES, the release detector loads the same rules from them, and the gcp-api-key allow list decides the
@@ -212,6 +221,20 @@ class ReleaseTreeTests(unittest.TestCase):
                  if ln.strip() and not ln.startswith("#")]
         self.assertEqual([(d["id"], d["regex"]) for d in shipped], [(i, r.strip()) for i, r in lines])
         self.assertGreater(len(shipped), 40)
+
+    def test_the_json_entry_point_of_the_tree_gives_the_ruleset_of_the_checkout(self):
+        # the tree has betterleaks parts with hashed allow lists and prefixes.json: the digest is over the loaded
+        # rules, so both name the same ruleset (docs/DETECTION.md, "The JSON entry point")
+        request = json.dumps({"contract": "maisecrets.detect/1", "text": "runner glrt-" + "x" * 3, "channel": "tool",
+                              "regions": ["generic", "de", "us"], "languages": ["en", "de"]}).encode()
+        out = []
+        for root in (ROOT, self.tree):
+            r = subprocess.run([sys.executable, "-m", "maisecrets.detection"], input=request, cwd=str(root),
+                               capture_output=True, timeout=60,
+                               env={k: v for k, v in os.environ.items() if k != "PYTHONPATH"})
+            self.assertEqual((r.returncode, r.stderr), (0, b""))
+            out.append(json.loads(r.stdout)["engine"])
+        self.assertEqual(out[0], out[1])
 
     def test_the_tree_loads_its_prefix_rules_from_the_json(self):
         # a runner token of rules/prefixes.txt is found by the detector of the tree alone, which has no prefixes.txt

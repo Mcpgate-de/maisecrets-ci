@@ -2,7 +2,8 @@
 
 Each case names the spans that must be masked whole (start, end, type) and the spans that must stay text. A second
 implementation would run the same file; here it holds the boundary decisions of the detection core. A case is judged
-on start, end and type only, not on the rule id.
+on start, end and type only, not on the rule id. A case may give `context.fields` (start, end and the field path
+`name` of a value, docs/DETECTION-CONTRACT-PROPOSAL.md); the scan then takes them as `fields`.
 
 Run: python3 -m unittest tests.test_conformance_cases -v
 """
@@ -27,7 +28,13 @@ CASES = json.loads((ROOT / "tests" / "conformance" / "cases.json").read_text(enc
 def hits(case: dict) -> list:
     active = regions.Active(regions=tuple(case["regions"]), languages=tuple(case["languages"]), source="conformance")
     with detect.Detector(regions=active).activate():
-        return detect.scan(case["input"], channel=case["channel"])
+        return detect.scan(case["input"], channel=case["channel"], fields=fields_of(case))
+
+
+def fields_of(case: dict):
+    """The optional context.fields of a case as the API takes them: (start, end, name path), or None."""
+    given = case.get("context", {}).get("fields")
+    return None if given is None else [(f["start"], f["end"], tuple(f["name"])) for f in given]
 
 
 class ConformanceCaseTests(unittest.TestCase):
@@ -38,6 +45,8 @@ class ConformanceCaseTests(unittest.TestCase):
                 self.assertEqual(c["kind"], "normative")
                 for s in c["expected"] + c["not_expected"]:
                     self.assertTrue(0 <= s["start"] < s["end"] <= len(c["input"]))
+                for f in c.get("context", {}).get("fields", []):
+                    self.assertTrue(0 <= f["start"] < f["end"] <= len(c["input"]) and f["name"])
 
     def test_each_expected_span_is_masked_whole_with_its_type(self):
         for c in CASES:
