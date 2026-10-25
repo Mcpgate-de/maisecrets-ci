@@ -95,7 +95,7 @@ MSG="maisecrets needs Python 3.9 or newer on the PATH of the client (found: ${FO
 case "${1:-}" in
   post-tool-failure)
     # the client shows a failed output as it is: there is nothing to withhold, only the reason to name
-    printf '{"systemMessage":"%s Until then every prompt is blocked."}' "$MSG"
+    printf '{"systemMessage":"%s Until then every prompt and every tool call is blocked."}' "$MSG"
     mark
     exit 0 ;;
   post-tool)
@@ -113,20 +113,20 @@ case "${1:-}" in
     mark
     exit 0 ;;
   session-start)
-    printf '{"systemMessage":"%s Until then every prompt is blocked."}' "$MSG"
+    printf '{"systemMessage":"%s Until then every prompt and every tool call is blocked."}' "$MSG"
     mark
     exit 0 ;;
 esac
 # JSON, not exit 2: Codex runs the tool when a hook exits 2 (harness/codex.py); both clients read this
 case "${1:-}" in
   pre-tool)
-    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s Until then every prompt is blocked."}}' "$MSG"
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s Until then every prompt and every tool call is blocked."}}' "$MSG"
     mark
     exit 0 ;;
   user-prompt)
-    printf '{"decision":"block","reason":"%s Until then every prompt is blocked."}' "$MSG"
+    printf '{"decision":"block","reason":"%s Until then every prompt and every tool call is blocked."}' "$MSG"
     mark
     exit 0 ;;
 esac
-echo "$MSG Until then every prompt is blocked." >&2
+echo "$MSG Until then every prompt and every tool call is blocked." >&2
 exit 2   # any other use of the launcher (a CLI command): fail closed

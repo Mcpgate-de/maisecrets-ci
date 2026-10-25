@@ -396,9 +396,10 @@ class Removal(_Files):
     def test_only_the_persons_typed_prompt_removes_an_import(self):
         r = self.imported([{"value": NAME, "type": "NAME"}])
         prompt = f"/maisecrets:forget import:{r.id}"
-        for payload in ({**CLAUDE, "source": "schedule_wakeup"}, {**CLAUDE, "agent_id": "a1"}):
+        for payload, who in (({**CLAUDE, "source": "schedule_wakeup"}, "a loop that wakes the session"),
+                             ({**CLAUDE, "agent_id": "a1"}, "a subagent")):
             ans = hooks.user_prompt({"prompt": prompt, "session_id": "S1", **payload})
-            self.assertIn("counts only when you type it", ans["reason"])
+            self.assertIn(f"counts only when you type it as your prompt; this one came from {who},", ans["reason"])
             self.assertEqual(len(values.rows()), 1)
         ans = hooks.user_prompt({"prompt": prompt, "session_id": "S1", **CLAUDE})
         self.assertIn(f"import:{r.id} removed", ans["reason"])

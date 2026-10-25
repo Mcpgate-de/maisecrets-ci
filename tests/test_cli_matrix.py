@@ -37,6 +37,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 DISPATCH = ROOT / "hooks" / "dispatch.py"
+NOTHING_WAITING = "(maisecrets: no blocked prompt is waiting. A blocked prompt waits 15 minutes.)"
 RESOLVE = ROOT / "hooks" / "resolve.py"
 sys.path.insert(0, str(ROOT))
 # the in-process tests import maisecrets; its home is fixed at the first import and must be a
@@ -192,7 +193,7 @@ class Sandbox:
         """Store a generated value through `put` (stdin) and return its key."""
         value = fake_value()
         r = self.run("put", f"--type={type_}", stdin=value + "\n")
-        m = re.search(r"stored as (\w+) ", r.stdout)
+        m = re.search(r"placeholder (?:is )?\u27e6(\w+)", r.stdout)
         if r.returncode != 0 or not m:
             raise AssertionError(f"seed put failed: {r.returncode} {r.stdout} {r.stderr}")
         self.values.append(value)
@@ -489,7 +490,7 @@ def transition_problems(state: str, command: str, args: list[str], r: subprocess
     usage = r.returncode == 2
     if command == "audit":
         # no state has an audit.log; audit reads nothing else and changes nothing
-        expect(r.stdout == ("" if usage else "(no resolves recorded)\n"), "audit output")
+        expect(r.stdout == ("" if usage else "(no stored value was used yet)\n"), "audit output")
         expect(r.stderr == ("usage: audit [n]\n" if usage else ""), "audit stderr")
         unchanged("audit")
         return p
@@ -507,8 +508,10 @@ def transition_problems(state: str, command: str, args: list[str], r: subprocess
         expect(after.files == ["config.json"], "a configuration error creates nothing")
         return p
     if kind == "index" and command not in ("wipe", "repair"):
-        expect(f"maisecrets {command}: vault index unreadable (index.json)" in r.stderr, "names the unreadable index")
-        expect("maisecrets repair" in r.stderr, "names repair")
+        expect(f"maisecrets {command}: its list of stored values (index.json) is damaged" in r.stderr,
+               "names the damaged index")
+        expect("run.sh repair in a terminal" in r.stderr or "run.cmd repair in a terminal" in r.stderr,
+               "names repair")
         unchanged(f"{command} on a damaged index")
         return p
     if command == "wipe":
@@ -524,7 +527,8 @@ def transition_problems(state: str, command: str, args: list[str], r: subprocess
         expect(set(after.files) <= kept, f"wipe left {after.files}")
         return p
     if command == "repair":
-        m = re.fullmatch(r"repaired: (\d+) stored value\(s\) deleted, counters (\{.*\})\n", r.stdout)
+        m = re.fullmatch(r"Repaired\. (\d+) stored value\(s\) were deleted; new placeholders continue after the "
+                         r"old numbers(?: \(last: (.*)\))?\.\n", r.stdout)
         expect(m is not None, "repair output")
         want: dict = {}
         # a key an old placeholder still names is never handed out again: the store, every key the
@@ -539,7 +543,8 @@ def transition_problems(state: str, command: str, args: list[str], r: subprocess
         values = [k for k in before.store or [] if k != "_maisecrets_fpkey"]
         if m:
             expect(int(m.group(1)) == len(values), f"repair count, expected {len(values)}")
-            expect(ast.literal_eval(m.group(2)) == want, f"repair counters, expected {want}")
+            last = dict(k.rsplit("_c", 1) for k in m.group(2).split(", ")) if m.group(2) else {}
+            expect({t: int(n) for t, n in last.items()} == want, f"repair counters, expected {want}")
         expect(after.index == {"entries": {}, "counters": want, "by_fingerprint": {}}, "repair index")
         want_store = ["_maisecrets_fpkey"] if before.store is not None else None   # the fingerprint key stays
         expect(after.store == want_store, f"repair left {after.store} in the store")
@@ -553,7 +558,7 @@ def transition_problems(state: str, command: str, args: list[str], r: subprocess
     if command == "forget":
         key = args[0]
         if key in (before.index or {}).get("entries", {}):
-            expect(r.stdout == f"{key}: deleted. A placeholder for it no longer resolves anywhere.\n", "forget")
+            expect(r.stdout == f"{key}: deleted. A placeholder for it no longer works anywhere.\n", "forget")
             expect(key not in after_entries and key not in (after.store or []), f"{key} is still there")
             expect(key not in (after.index or {}).get("by_fingerprint", {}).values(), "the fingerprint stays")
             others = sorted(k for k in ret if k != key)
@@ -591,7 +596,7 @@ def transition_problems(state: str, command: str, args: list[str], r: subprocess
             expect(("TEST MODE" in r.stdout) == (STATES[state][2] == "jsonfile"), "list names the test store")
     elif command == "status":
         kept = _KEEP_DAYS.get(state, 30)
-        expect(f"\nentries: {len(live)} live, {len(expired)} expired (metadata kept {kept} days)\n" in r.stdout,
+        expect(f"\nstored values: {len(live)}, {len(expired)} expired (metadata kept {kept} days)\n" in r.stdout,
                "status counts")
     elif command == "expire":
         expect(r.stdout == f"purged {len(newly)} expired value(s)\n", f"expire should purge {newly}")
@@ -702,9 +707,9 @@ class StateMatrixTests(unittest.TestCase):
     def test_list_and_status_show_an_expired_entry_as_expired(self):
         sb, r = self._run("expired-purged", "list")
         self.assertIn("0 value(s) stored, 1 expired", r.stdout)
-        self.assertRegex(r.stdout, r"SECRET_c1\s+SECRET\s+manual\s+\S+\s+0\s+expired")
+        self.assertRegex(r.stdout, r"SECRET_c1\s+SECRET\s+you\s+\S+\s+0\s+expired")
         sb, r = self._run("expired-purged", "status")
-        self.assertIn("entries: 0 live, 1 expired (metadata kept 30 days)", r.stdout)
+        self.assertIn("stored values: 0, 1 expired (metadata kept 30 days)", r.stdout)
 
     def test_an_expired_entry_before_its_sweep_is_expired_to_every_command(self):
         sb, r = self._run("expired-unswept", "list")
@@ -745,11 +750,12 @@ class StateMatrixTests(unittest.TestCase):
         self.assertIn("WARNING: config.json: tips has the wrong type; the file was ignored", r.stdout)
         _sb, r = self._run("empty", "status")
         self.assertIn("settings from a machine policy: none", r.stdout)
-        self.assertIn("rehydration: automatic (no ask of maisecrets; the client's permission rules decide)\n",
+        self.assertIn("stored values in tool calls: automatic (no ask of maisecrets; the client's permission rules "
+                      "decide)\n",
                       r.stdout)
         # a file ignored for a wrong type that set no rehydration: the default stays
         _sb, r = self._run("config-wrong-type", "status")
-        self.assertIn("rehydration: automatic (", r.stdout)
+        self.assertIn("stored values in tool calls: automatic (", r.stdout)
         self.assertIn("encrypted file", r.stdout)
 
     def test_the_test_store_says_so(self):
@@ -763,14 +769,14 @@ class StateMatrixTests(unittest.TestCase):
     def test_a_damaged_index_names_repair_and_repair_brings_the_store_back(self):
         sb, r = self._run("damaged-index", "list")
         self.assertEqual(r.returncode, 1)
-        self.assertIn("maisecrets repair", r.stderr)
+        self.assertRegex(r.stderr, r"run\.(sh|cmd) repair in a terminal")
         self.assertNotIn("Traceback", r.stderr)
         r = sb.run("repair")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("counters {'SECRET': 1}", r.stdout)
+        self.assertIn("new placeholders continue after the old numbers", r.stdout)
         self.assertEqual(sb.run("list").stdout.strip(), "Nothing is stored.")
         r = sb.run("put", stdin=fake_value())
-        self.assertIn("stored as SECRET_c2 ", r.stdout, "the counter continues past the old key")
+        self.assertRegex(r.stdout, r"placeholder (?:is )?\u27e6SECRET_c2\b", "the counter continues past the old key")
 
     def test_a_configuration_error_names_the_file_and_changes_nothing(self):
         for state, where in (("policy-wrong-type", "policy.json: keep_purged_days has the wrong type"),
@@ -811,13 +817,14 @@ class StateMatrixTests(unittest.TestCase):
         value = fake_value("Cb")
         sb.clip.write_text(value + "\n", encoding="utf-8")
         r = sb.run("put", "--clipboard", "--type=email")
-        self.assertIn("stored as EMAIL_c1 (22 chars); reference ⟦EMAIL_c1⟧ is in the clipboard", r.stdout)
+        self.assertIn("Stored. Its placeholder ⟦EMAIL_c1⟧ is in your clipboard: paste it where the value is needed.",
+                      r.stdout)
         self.assertEqual(sb.clip.read_text(encoding="utf-8"), "⟦EMAIL_c1⟧")
         self.assertEqual(sb.run("get", "EMAIL_c1").stdout, value + "\n")
         sb.clip.write_text("", encoding="utf-8")
         r = sb.run("put", "--clipboard")
         self.assertEqual(r.returncode, 2)
-        self.assertIn("no value", r.stderr)
+        self.assertIn("the clipboard is empty. Copy the value first", r.stderr)
 
     def test_forget_deletes_the_value_and_the_placeholder_stops_resolving(self):
         sb, r = self._run("live", "forget", "⟦SECRET_c1⟧", "EMAIL_c1:x")
@@ -832,7 +839,7 @@ class StateMatrixTests(unittest.TestCase):
         rows = [f"2026-09-27T10:00:0{i}\tS1\tSECRET_c{i}\tBash\techo ⟦SECRET_c{i}⟧" for i in range(1, 4)]
         (sb.home / "audit.log").write_text("\n".join(rows[:2] + ["broken line"] + rows[2:]) + "\n", encoding="utf-8")
         out = sb.run("audit", "2").stdout.splitlines()
-        self.assertEqual(out[0].split(), ["time", "session", "key", "tool", "context"])
+        self.assertEqual(out[0].split(), ["time", "session", "placeholder", "tool", "command"])
         self.assertEqual(len(out), 2, out)          # the header and the newest valid row
         self.assertIn("SECRET_c3", out[1])
 
@@ -841,7 +848,7 @@ class StateMatrixTests(unittest.TestCase):
         self.addCleanup(sb.remove)
         r = sb.run("shortcut", "../evil")
         self.assertEqual(r.returncode, 0)
-        self.assertIn("installed /ms:", r.stdout)
+        self.assertIn("Installed /ms.", r.stdout)
         commands = sb.user_home / ".claude" / "commands"
         self.assertEqual(sorted(p.name for p in commands.iterdir()), ["ms.md"])
         self.assertFalse((sb.user_home / ".claude" / "evil.md").exists())
@@ -883,7 +890,7 @@ class StateMatrixTests(unittest.TestCase):
     def test_pending_hands_out_the_blocked_prompt_once(self):
         sb, r = self._run("live", "pending")
         self.assertEqual(r.stdout.strip(), "password: ⟦SECRET_c2⟧")
-        self.assertEqual(sb.run("pending").stdout.strip(), "(maisecrets: no blocked prompt is waiting)")
+        self.assertEqual(sb.run("pending").stdout.strip(), NOTHING_WAITING)
 
     def test_a_false_positive_report_names_the_value_to_forget_and_deletes_nothing(self):
         sb = base_state("live").copy()
@@ -910,11 +917,11 @@ class StateMatrixTests(unittest.TestCase):
         self.assertNotIn(b, r.stdout, "the pending prompt holds placeholders, never the value")
         # a session with no prompt of its own never gets another session's
         r = sb.run("pending", env=sb.env(CLAUDE_CODE_SESSION_ID="SC"))
-        self.assertEqual(r.stdout.strip(), "(maisecrets: no blocked prompt is waiting)")
+        self.assertEqual(r.stdout.strip(), NOTHING_WAITING)
         r = sb.run("pending", env=sb.env(CLAUDE_CODE_SESSION_ID="SA"))
         self.assertIn("password: ", r.stdout)
         self.assertEqual(sb.run("pending", env=sb.env(CLAUDE_CODE_SESSION_ID="SA")).stdout.strip(),
-                         "(maisecrets: no blocked prompt is waiting)", "handed out once")
+                         NOTHING_WAITING, "handed out once")
 
     def test_a_session_id_is_a_name_never_a_path(self):
         sb = base_state("live").copy()
@@ -923,7 +930,7 @@ class StateMatrixTests(unittest.TestCase):
         for bad in ("../pending/SA", "SA/../SA", ".hidden", "a b"):
             with self.subTest(bad):
                 r = sb.run("pending", env=sb.env(CLAUDE_CODE_SESSION_ID=bad))
-                self.assertEqual(r.stdout.strip(), "(maisecrets: no blocked prompt is waiting)")
+                self.assertEqual(r.stdout.strip(), NOTHING_WAITING)
 
     def test_scan_prints_positions_not_the_text(self):
         value = fake_value("Sc")
@@ -1099,8 +1106,8 @@ class SessionStartTests(unittest.TestCase):
         sb = self.sandbox()
         (sb.home / "index.json").write_text('{"entries": {', encoding="utf-8")
         out = _start(self, sb, CLAUDECODE="1")
-        self.assertIn("vault index unreadable", out["systemMessage"])
-        self.assertIn("maisecrets repair", out["systemMessage"])
+        self.assertIn("its list of stored values (index.json) is damaged", out["systemMessage"])
+        self.assertRegex(out["systemMessage"], r"run\.(sh|cmd) repair in a terminal")
         self.assertEqual((sb.home / "index.json").read_text(), '{"entries": {', "the damaged file stays")
 
     def test_a_payload_that_is_not_an_object_counts_as_empty(self):
@@ -1179,8 +1186,8 @@ class HookEventTests(unittest.TestCase):
 PAIR_STATES = ("empty", "live", "expired-unswept", "expired-purged", "damaged-index", "policy")
 PAIR_EVENTS = ("session-start", "user-prompt", "pre-tool", "post-tool")
 # what a Bash reference to the newest key of each state gets: the value, or a deny that names why
-PAIR_PRE = {"empty": "(unknown)", "live": None, "expired-unswept": "(expired)", "expired-purged": "(expired)",
-            "damaged-index": "did NOT run", "policy": "(foreign-session)"}
+PAIR_PRE = {"empty": "(no such placeholder)", "live": None, "expired-unswept": "(expired)",
+            "expired-purged": "(expired)", "damaged-index": "did NOT run", "policy": "(not given in this session)"}
 
 
 def pair_cells() -> list[tuple[str, str, str]]:
@@ -1242,7 +1249,7 @@ def run_pair(state: str, event: str, client: str) -> list[str]:
         if event == "session-start":
             msg = out.get("systemMessage", "")
             if damaged:
-                if "maisecrets repair" not in msg:
+                if " repair in a terminal" not in msg:
                     problems.append(f"{cell}: the message does not name repair: {msg!r}")
             elif hso != {"hookEventName": "SessionStart", "additionalContext": hooks_primer()}:
                 problems.append(f"{cell}: no primer: {hso!r}")

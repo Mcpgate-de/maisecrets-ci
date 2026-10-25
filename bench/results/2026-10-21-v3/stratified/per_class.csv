@@ -1,0 +1,113 @@
+dataset,scanner,class,support,tp,fn,partial,recall,small_sample
+Nemotron-PII,maisecrets,address,140,52,88,1,0.3714,False
+Nemotron-PII,maisecrets,bank_account,110,108,2,0,0.9818,False
+Nemotron-PII,maisecrets,birth_date,145,124,21,0,0.8552,False
+Nemotron-PII,maisecrets,card,9,9,0,0,1.0,True
+Nemotron-PII,maisecrets,email,436,436,0,0,1.0,False
+Nemotron-PII,maisecrets,ip,83,83,0,0,1.0,False
+Nemotron-PII,maisecrets,name,1159,338,821,0,0.2916,False
+Nemotron-PII,maisecrets,national_id,281,230,51,0,0.8185,False
+Nemotron-PII,maisecrets,phone,272,212,60,1,0.7794,False
+Nemotron-PII,maisecrets,username,146,41,105,0,0.2808,False
+Nemotron-PII,presidio,address,140,14,126,69,0.1,False
+Nemotron-PII,presidio,bank_account,110,66,44,33,0.6,False
+Nemotron-PII,presidio,birth_date,145,0,145,0,0.0,False
+Nemotron-PII,presidio,card,9,9,0,0,1.0,True
+Nemotron-PII,presidio,email,436,435,1,0,0.9977,False
+Nemotron-PII,presidio,ip,83,83,0,0,1.0,False
+Nemotron-PII,presidio,name,1159,997,162,0,0.8602,False
+Nemotron-PII,presidio,national_id,281,130,151,111,0.4626,False
+Nemotron-PII,presidio,phone,272,251,21,1,0.9228,False
+Nemotron-PII,presidio,username,146,24,122,2,0.1644,False
+Nemotron-PII,preserve,address,140,0,140,73,0.0,False
+Nemotron-PII,preserve,bank_account,110,74,36,21,0.6727,False
+Nemotron-PII,preserve,birth_date,145,125,20,0,0.8621,False
+Nemotron-PII,preserve,card,9,9,0,0,1.0,True
+Nemotron-PII,preserve,email,436,436,0,0,1.0,False
+Nemotron-PII,preserve,ip,83,83,0,0,1.0,False
+Nemotron-PII,preserve,name,1159,743,416,1,0.6411,False
+Nemotron-PII,preserve,national_id,281,110,171,40,0.3915,False
+Nemotron-PII,preserve,phone,272,252,20,3,0.9265,False
+Nemotron-PII,preserve,username,146,4,142,3,0.0274,False
+Nemotron-PII,pii_anon,address,140,70,70,33,0.5,False
+Nemotron-PII,pii_anon,bank_account,110,65,45,0,0.5909,False
+Nemotron-PII,pii_anon,birth_date,145,145,0,0,1.0,False
+Nemotron-PII,pii_anon,card,9,9,0,0,1.0,True
+Nemotron-PII,pii_anon,email,436,436,0,0,1.0,False
+Nemotron-PII,pii_anon,ip,83,79,4,0,0.9518,False
+Nemotron-PII,pii_anon,name,1159,912,247,22,0.7869,False
+Nemotron-PII,pii_anon,national_id,281,141,140,13,0.5018,False
+Nemotron-PII,pii_anon,phone,272,208,64,8,0.7647,False
+Nemotron-PII,pii_anon,username,146,65,81,0,0.4452,False
+Mendeley financial,maisecrets,address,352,237,115,2,0.6733,False
+Mendeley financial,maisecrets,card,321,321,0,0,1.0,False
+Mendeley financial,maisecrets,name,633,126,507,3,0.1991,False
+Mendeley financial,maisecrets,national_id,413,413,0,0,1.0,False
+Mendeley financial,maisecrets,phone,365,341,24,0,0.9342,False
+Mendeley financial,presidio,address,352,1,351,277,0.0028,False
+Mendeley financial,presidio,card,321,299,22,0,0.9315,False
+Mendeley financial,presidio,name,633,606,27,12,0.9573,False
+Mendeley financial,presidio,national_id,413,413,0,0,1.0,False
+Mendeley financial,presidio,phone,365,91,274,274,0.2493,False
+Mendeley financial,preserve,address,352,0,352,156,0.0,False
+Mendeley financial,preserve,card,321,321,0,0,1.0,False
+Mendeley financial,preserve,name,633,289,344,103,0.4566,False
+Mendeley financial,preserve,national_id,413,413,0,0,1.0,False
+Mendeley financial,preserve,phone,365,365,0,0,1.0,False
+Mendeley financial,pii_anon,address,352,0,352,265,0.0,False
+Mendeley financial,pii_anon,card,321,237,84,0,0.7383,False
+Mendeley financial,pii_anon,name,633,621,12,10,0.981,False
+Mendeley financial,pii_anon,national_id,413,413,0,0,1.0,False
+Mendeley financial,pii_anon,phone,365,0,365,272,0.0,False
+Gretel finance,maisecrets,address,260,76,184,13,0.2923,False
+Gretel finance,maisecrets,birth_date,31,15,16,0,0.4839,False
+Gretel finance,maisecrets,card,8,8,0,0,1.0,True
+Gretel finance,maisecrets,email,80,80,0,0,1.0,False
+Gretel finance,maisecrets,iban,8,8,0,0,1.0,True
+Gretel finance,maisecrets,ip,17,17,0,0,1.0,True
+Gretel finance,maisecrets,name,668,83,585,0,0.1243,False
+Gretel finance,maisecrets,national_id,15,10,5,0,0.6667,True
+Gretel finance,maisecrets,phone,50,36,14,0,0.72,False
+Gretel finance,maisecrets,username,4,2,2,0,0.5,True
+Gretel finance,presidio,address,260,4,256,187,0.0154,False
+Gretel finance,presidio,birth_date,31,0,31,0,0.0,False
+Gretel finance,presidio,card,8,8,0,0,1.0,True
+Gretel finance,presidio,email,80,80,0,0,1.0,False
+Gretel finance,presidio,iban,8,7,1,0,0.875,True
+Gretel finance,presidio,ip,17,17,0,0,1.0,True
+Gretel finance,presidio,name,668,340,328,55,0.509,False
+Gretel finance,presidio,national_id,15,14,1,1,0.9333,True
+Gretel finance,presidio,phone,50,45,5,1,0.9,False
+Gretel finance,presidio,username,4,2,2,0,0.5,True
+Gretel finance,preserve,address,260,0,260,157,0.0,False
+Gretel finance,preserve,birth_date,31,17,14,0,0.5484,False
+Gretel finance,preserve,card,8,8,0,0,1.0,True
+Gretel finance,preserve,email,80,80,0,0,1.0,False
+Gretel finance,preserve,iban,8,7,1,1,0.875,True
+Gretel finance,preserve,ip,17,17,0,0,1.0,True
+Gretel finance,preserve,name,668,294,374,139,0.4401,False
+Gretel finance,preserve,national_id,15,5,10,0,0.3333,True
+Gretel finance,preserve,phone,50,45,5,0,0.9,False
+Gretel finance,preserve,username,4,2,2,0,0.5,True
+Gretel finance,pii_anon,address,260,18,242,125,0.0692,False
+Gretel finance,pii_anon,birth_date,31,27,4,1,0.871,False
+Gretel finance,pii_anon,card,8,8,0,0,1.0,True
+Gretel finance,pii_anon,email,80,79,1,0,0.9875,False
+Gretel finance,pii_anon,iban,8,8,0,0,1.0,True
+Gretel finance,pii_anon,ip,17,17,0,0,1.0,True
+Gretel finance,pii_anon,name,668,302,366,101,0.4521,False
+Gretel finance,pii_anon,national_id,15,9,6,0,0.6,True
+Gretel finance,pii_anon,phone,50,20,30,3,0.4,False
+Gretel finance,pii_anon,username,4,2,2,0,0.5,True
+Privy,maisecrets,card,64,61,3,0,0.9531,False
+Privy,maisecrets,name,796,35,761,1,0.044,False
+Privy,maisecrets,national_id,216,146,70,0,0.6759,False
+Privy,presidio,card,64,59,5,0,0.9219,False
+Privy,presidio,name,796,237,559,74,0.2977,False
+Privy,presidio,national_id,216,213,3,0,0.9861,False
+Privy,preserve,card,64,64,0,0,1.0,False
+Privy,preserve,name,796,146,650,14,0.1834,False
+Privy,preserve,national_id,216,11,205,13,0.0509,False
+Privy,pii_anon,card,64,64,0,0,1.0,False
+Privy,pii_anon,name,796,208,588,10,0.2613,False
+Privy,pii_anon,national_id,216,36,180,0,0.1667,False

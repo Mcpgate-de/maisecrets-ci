@@ -1174,7 +1174,8 @@ def extract(path: str, pages=None, cwd: str = "") -> tuple[str | None, str]:
     if scanned:
         # fail closed: a page number or a header line of a scan is no reason to send anything of it
         text = (f"[maisecrets: this PDF looks scanned: pdftotext found less than {MIN_CHARS_PER_PAGE} characters "
-                f"of text per page ({pages} page(s)). maisecrets does no OCR, so the AI gets nothing of it.]")
+                f"of text per page ({pages} page(s)). maisecrets cannot read text in images, so the AI gets nothing "
+                "of it.]")
     return text, ""
 
 

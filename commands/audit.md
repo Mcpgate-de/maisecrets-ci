@@ -1,5 +1,5 @@
 ---
-description: The last resolves - when, which session, which key, which tool, the command with its placeholders. Values are never in this log.
+description: The last uses of your stored values - when, in which session, which placeholder, which tool and command. No value is shown.
 argument-hint: "[n]"
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" audit *), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" audit *)
 ---

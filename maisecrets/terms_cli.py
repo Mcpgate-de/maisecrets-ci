@@ -33,7 +33,7 @@ def show() -> int:
         print(f"\nLeft out of the team lists ({len(loaded.refused)}), each with the check it failed:")
         for r in loaded.refused:
             print(f"  {r.source}" + (f" line {r.line}" if r.line else "") + f" · {r.reason}")
-    print("\n" + USAGE.split("\n", 2)[2])
+    print("\n" + USAGE.rsplit("\n", 1)[1])
     return 1 if loaded.error else 0
 
 

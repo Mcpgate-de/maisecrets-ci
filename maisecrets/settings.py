@@ -29,15 +29,16 @@ INTERNAL = ("backend", "allow_plaintext_store", "report_url", "max_ttl_seconds",
 
 TITLE = {
     "ssh_consent": "SSH consent", "ssh_autonomous_hosts": "Autonomous hosts",
-    "secret_destinations": "Secret destinations",
-    "rehydration": "Rehydration", "ssh_host_groups": "SSH host groups",
+    "secret_destinations": "Where secrets were sent",
+    "rehydration": "Stored values in tool calls", "ssh_host_groups": "SSH host groups",
     "ssh_approval": "SSH approval", "resolve_in_files": "Values in files", "ssh_via_sandbox": "Values over ssh",
     "block_at_mentions": "Block @file mentions", "rewrite_prompts": "Rewrite prompts",
     "scrub_transcript": "Clean the transcript", "strip_hidden_characters": "Remove invisible characters",
     "regions": "Regions", "ttl_seconds": "Lifetime of a value", "renew_on_use": "Renew on use",
     "tips": "Tips and hints",
     "shortcut": "/ms shortcut", "guard": "Update guard", "pass_agent_reports": "Subagent reports",
-    "gateway_servers": "Gateway servers", "client_header": "Vault references", "rule_dirs": "Rule folders",
+    "gateway_servers": "Gateway servers", "client_header": "Values back from your MCP servers",
+    "rule_dirs": "Rule folders",
     "read_pdf": "PDFs the AI reads", "read_image": "Images the AI reads", "clean_dirs": "Folders with clean files",
     "value_files": "Value files",
     "max_keys_per_session": "Values per session and hour", "max_resolves_per_hour": "Uses per hour",
@@ -48,7 +49,8 @@ MEANING = {
     "secret_destinations": "Notes where each stored secret is sent, on this computer only. Never stops a call.",
     "rehydration": "How a stored value goes into a tool call.",
     "ssh_host_groups": "Hosts that one typed ssh window covers together.",
-    "ssh_approval": "Under rehydration confirm: ask per command, or once per value and session for ssh.",
+    "ssh_approval": "When stored values in tool calls is confirm: for ssh, ask for each command, or once per value "
+                    "and session.",
     "resolve_in_files": "A placeholder in Write or Edit content gets its value.",
     "ssh_via_sandbox": "A value may go to ssh on stdin inside the Claude Code sandbox.",
     "block_at_mentions": "Block an @file mention in a prompt; the file would skip the scan.",
@@ -188,8 +190,25 @@ def not_typed_reason(payload: dict) -> str:
         return ("maisecrets: a settings change counts only when you type it as your prompt; this one came from a "
                 f"client that a program started (entry point {shown}, as `claude -p` has), so nothing was changed. "
                 "Type it in your own Claude Code or Codex session.")
-    return ("maisecrets: a settings change counts only when you type it as your prompt; this one came from the "
-            f"client ({payload.get('source')}), so nothing was changed.")
+    return ("maisecrets: a settings change counts only when you type it as your prompt; this one came from "
+            f"{came_from(payload)}, so nothing was changed.")
+
+
+def came_from(payload: dict) -> str:
+    """Who sent a prompt that the person did not type, in words: the client's `source` is a raw value (`cron`, a
+    missing field), which said nothing to the person."""
+    if peer_sender(payload.get("prompt")) is not None:
+        return "another Claude session"
+    if payload.get("agent_id"):
+        return "a subagent"
+    source = str(payload.get("source") or "").lower()
+    if "sdk" in source or nested_program(payload):
+        return "a program"
+    if any(w in source for w in ("loop", "wake")):
+        return "a loop that wakes the session"
+    if any(w in source for w in ("cron", "schedul", "task")):
+        return "a scheduled task"
+    return "the client, not from you"
 
 
 def state(key: str, cfg: dict) -> str:
@@ -408,7 +427,8 @@ def apply_typed(key: str, word: str, route: str = "typed prompt", cwd: str = "")
         return True, "maisecrets: feature hints reset. No protection setting was changed."
     cfg = load_config()
     if key in (cfg.get("policy_keys") or []):
-        return False, f"maisecrets: {key} is managed by a machine policy; it cannot be changed here."
+        return False, (f"maisecrets: {TITLE.get(key, key)} is set by your administrator's policy. It cannot be "
+                       "changed here.")
     hosts_change = key in _LIST_KEYS and (word == "default" or word.startswith(("add:", "remove:")))
     if key not in _BOOL_KEYS and key not in _CHOICES and key not in _INT_KEYS and not hosts_change:
         if key == "ssh_autonomous_hosts":
@@ -430,8 +450,8 @@ def apply_typed(key: str, word: str, route: str = "typed prompt", cwd: str = "")
         if key in _BOOL_KEYS and word not in _BOOL_WORDS:
             return False, f"maisecrets: {key} takes on, off or default."
         if key == "read_image" and word == "convert":
-            return False, ("maisecrets: convert is for PDFs only; maisecrets does no OCR. read_image takes allow, "
-                           "ask, block or default.")
+            return False, ("maisecrets: convert is for PDFs only; maisecrets cannot read text in images. read_image "
+                           "takes allow, ask, block or default.")
         if key in _CHOICES and word not in _CHOICES[key]:
             return False, f"maisecrets: {key} takes {', '.join(_CHOICES[key])} or default."
         if key in _INT_KEYS:

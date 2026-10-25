@@ -12,6 +12,7 @@ What runs, where, and what makes it fail. The history of each finding is in the 
 | repository scan | `python3 scripts/scan_tree.py` | GitLab `no_secrets_in_tree` |
 | Claude Code harness | `python3 harness/run.py` | GitLab `harness_claude`; locally `scripts/check_all.sh` (needs `claude`) |
 | Codex harness | `python3 harness/codex.py` | GitLab `harness_codex` |
+| Codex harness on the `release-codex` tree | `python3 harness/codex.py --tree=codex` (the tree that `scripts/build_release_tree.py --flavor codex` builds from HEAD, installed as a Git source with `path: plugin`) | GitLab `harness_codex` |
 | vault references, end to end | `python3 harness/vault_refs_e2e.py` | by hand before a release that touches `maisecrets/vault_refs.py` (needs `claude` and `openssl`): the real client, a client profile of its own and the fake server of `harness/vault_server.py`; the resolve and the `client_header: false` run |
 | native store and clipboard | `MAISECRETS_NATIVE_BACKEND_TEST=1`, `MAISECRETS_NATIVE_CLIPBOARD_TEST=1` | GitHub runners only: they use the real keychain and clipboard |
 | Codex with a real model | `python3 harness/codex.py --real` | by hand: `mcp_text_field_rehydrate`, `allow_keeps_the_codex_sandbox`, `apply_patch_rehydrate` and `apply_patch_store_refused` need a real model (an MCP call, a sandbox and a patch the fake upstream cannot script) |
@@ -27,7 +28,7 @@ What runs, where, and what makes it fail. The history of each finding is in the 
 | release comparison | `python3 scripts/release_compare.py PREV NEW OUT [--reuse-prev DIR] [--reuse-new DIR]` | by hand for each release: both tags on the dev and val splits of the development sources and Privy totals, the change per source, split and class, the five largest gains and regressions, and the findings of `scripts/compare_bench.py`; time is reported, not judged |
 | Windows end to end | `GITLAB_COM_TOKEN=… python3 scripts/windows_e2e.py [--rev REV]` | by hand before a release that touches the hooks, the launchers or the harness: GitLab-hosted Windows runners of a separate project, in three shapes (PowerShell 7, Windows PowerShell 5.1, Git Bash). Each job runs `harness/windows/shell_probe.py` (which shell runs a hook, and the `hooks.json` command in each shell) and `harness/run.py` with the shell tool the client offers (`MAISECRETS_HARNESS_SHELL_TOOL`) |
 
-2742 tests (`tests/test_*.py`), about 35 seconds on an M-series laptop. Without PyYAML, two tests of
+2775 tests (`tests/test_*.py`), about 35 seconds on an M-series laptop. Without PyYAML, two tests of
 `tests/test_measure_catalog_coverage.py` fail and the belief `manifest-every-frontmatter-parses-as-yaml` is
 skipped; CI installs it. A virtual environment with `pip install pyyaml` gives the full run locally. The GitHub matrix runs on
 Windows and macOS in two places. In a merge request into `main`, and into `next` unless it changes documentation

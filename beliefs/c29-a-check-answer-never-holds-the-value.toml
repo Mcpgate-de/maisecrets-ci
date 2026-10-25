@@ -1,10 +1,10 @@
 # c29-a-check-answer-never-holds-the-value: the test owns the rule; this file names it and the mutation that must turn it red.
 belief = "c29-a-check-answer-never-holds-the-value"
 control = "C29"
-statement = "The answer to a check names types, rules and a placeholder, never the value; no file but the store holds it."
+statement = "The answer to a check names what a value is masked as, how it was found and a placeholder, never the value; no file but the store holds it."
 runner = ["tests/test_check_value.py::NeverTheValueTests::test_no_answer_and_no_file_but_the_store_holds_the_value"]
 
 [proof]
 file = "maisecrets/hooks.py"
-find = "    return check_value.stored_text(e.ref, alone, in_text) + check_value.format_report(value)\n"
-replace = "    return check_value.stored_text(value, alone, in_text) + check_value.format_report(value)\n"
+find = "    return check_value.stored_text(e.ref, alone, in_text, _hours(seconds)) + check_value.format_report(value)\n"
+replace = "    return check_value.stored_text(value, alone, in_text, _hours(seconds)) + check_value.format_report(value)\n"

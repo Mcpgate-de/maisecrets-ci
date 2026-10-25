@@ -6,5 +6,5 @@ runner = ["tests/test_gates.py::StorePathTests::test_a_read_of_the_store_or_its_
 
 [proof]
 file = "maisecrets/hooks.py"
-find = "    if not hits:\n        return None\n    return _deny(f\"maisecrets: {tool} would read the maisecrets store"
-replace = "    if True:\n        return None\n    return _deny(f\"maisecrets: {tool} would read the maisecrets store"
+find = "    if not hits:\n        return None\n    return _deny(f\"maisecrets: {tool} would read the stored values of maisecrets"
+replace = "    if True:\n        return None\n    return _deny(f\"maisecrets: {tool} would read the stored values of maisecrets"

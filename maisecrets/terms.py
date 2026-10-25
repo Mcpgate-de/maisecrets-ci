@@ -1061,7 +1061,7 @@ def parse_command(prompt) -> tuple[str, str] | None:
 
 USAGE = ("maisecrets: send /maisecrets:term add NAME (for example /maisecrets:term add Jan Kowalski | Kowalsk*) or "
          "/maisecrets:term remove NAME as your own prompt; in Codex: maisecrets: term add NAME. /maisecrets:term "
-         "alone shows your lists. This prompt was not sent to the model.")
+         "alone shows your lists. This prompt was not sent to the AI.")
 
 
 def _shown_suggested() -> str:
@@ -1090,7 +1090,7 @@ def _add_typed(words: str, floor: bool = False) -> tuple[bool, str, list]:
             reason = (reason.replace(" in a team list", "") + "; a prompt without a source may not come from you, so "
                       "the rules of a team list hold")
         return False, (f"maisecrets: the term was not added ({reason}). "
-                       "This prompt was not sent to the model."), [words]
+                       "This prompt was not sent to the AI."), [words]
     try:
         text = PERSONAL.read_text(encoding="utf-8") if PERSONAL.exists() else ""
     except (OSError, UnicodeDecodeError):
@@ -1100,7 +1100,7 @@ def _add_typed(words: str, floor: bool = False) -> tuple[bool, str, list]:
     for e in ents:
         if wanted & {v.text.lower() for v in e.variants}:
             return False, (f"maisecrets: this term is already on your list ({e.label}, line {e.line} of "
-                           f"{_shown_path()}). This prompt was not sent to the model."), [words]
+                           f"{_shown_path()}). This prompt was not sent to the AI."), [words]
     labels = {line.split(None, 1)[0] for line in text.splitlines() if line.strip()}
     n = 1
     while f"NAME_{n}" in labels:
@@ -1123,8 +1123,8 @@ def _add_typed(words: str, floor: bool = False) -> tuple[bool, str, list]:
     note = ""
     common = [v for v in wanted if v in stoplist()]
     if common:
-        note = (" Note: the term is a common word (rules/term_stoplist.txt), so it is masked in every text; a longer "
-                "variant, such as the full name, masks less.")
+        note = (" Note: the term is a common word, so it is masked in every text; a longer variant, such as the "
+                "full name, masks less.")
     try:
         parse(new)
     except TermsError as exc:
@@ -1135,8 +1135,8 @@ def _add_typed(words: str, floor: bool = False) -> tuple[bool, str, list]:
                  "and \"Surname, First name\" are masked too; /maisecrets:term shows them. Masked as well: the joined "
                  "forms first.last, first-last and first_last. The first name alone stays visible; to mask it, add "
                  "it as a term of its own.")
-    return True, (f"maisecrets: the term is on your list now as {label} (line {line} of {_shown_path()}). From the "
-                  f"next tool result on it is replaced by a placeholder. This prompt was not sent to the model.{note}"
+    return True, (f"maisecrets: the term is on your list now as {label} (line {line} of {_shown_path()}). From now "
+                  f"on the AI sees a placeholder in place of it. This prompt was not sent to the AI.{note}"
                   ), [v.strip().strip("*").strip() for v in words.split("|")] + [words]
 
 
@@ -1210,9 +1210,9 @@ def _term_remove_typed(words: str, entity_id: str | None = None) -> tuple[bool, 
     prebuild()
     if not removed:
         return False, ("maisecrets: this term is not on your own list, and it is no name you marked; nothing was "
-                       "changed. A team list is changed in its folder. This prompt was not sent to the model."), \
+                       "changed. A team list is changed in its folder. This prompt was not sent to the AI."), \
             [words]
-    return True, (f"maisecrets: removed {', '.join(removed)} from your terms. This prompt was not sent to the model."
+    return True, (f"maisecrets: removed {', '.join(removed)} from your terms. This prompt was not sent to the AI."
                   ), [words]
 
 
@@ -1238,7 +1238,7 @@ def session_note() -> str | None:
         parts.append(f"the team term lists changed: {team} term(s) in {len(loaded.files)} file(s)"
                      + (f" (before: {was})" if isinstance(was, int) else "")
                      + (f", {len(loaded.refused)} line(s) left out" if loaded.refused else "")
-                     + "; /maisecrets:rules shows them.")
+                     + "; /maisecrets:term shows them.")
     try:
         from .home import atomic_write
         atomic_write(STATE_FILE, json.dumps({"digest": digest[:16], "team": team}))

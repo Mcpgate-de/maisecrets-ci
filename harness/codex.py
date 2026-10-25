@@ -10,7 +10,12 @@ Assertions: the marker secret never appears in any request body, in the
 rollout transcript under CODEX_HOME/sessions, or in the final message; the
 placeholders do.
 
-Usage: python3 harness/codex.py [--real] [scenario ...]
+With --tree=codex the plugin comes from the tree of the GitHub branch `release-codex` as
+scripts/build_release_tree.py builds it from HEAD: a Git marketplace in `.agents/plugins/marketplace.json`
+that names the branch and its `plugin/` folder, as a Codex user installs it. Without `.codex-plugin/` in that
+folder Codex loads none of the hooks, and every scenario fails.
+
+Usage: python3 harness/codex.py [--real] [--tree=codex] [scenario ...]
 """
 from __future__ import annotations
 
@@ -33,6 +38,8 @@ UNSEEN = "Cx7-" + "hRn4wQp8Zv"     # no detector shape: a check stores it
 MODEL = os.environ.get("MAISECRETS_CODEX_MODEL", "gpt-5.6-sol")
 PORT = 8792
 REAL = "--real" in sys.argv
+TREE = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--tree=")), None)
+_MARKETPLACE: list = []
 REF_MAIL = "\u27e6EMAIL_c1\u27e7"
 MAKE_DOC = "import sys\nopen('account.html', 'w').write('<p>' + sys.argv[1] + '</p>')\n"
 DOCUMENTS = {".pdf", ".docx", ".odt", ".rtf", ".html", ".htm"}
@@ -216,6 +223,57 @@ SCENARIOS = {
 }
 
 
+def marketplace() -> str:
+    """What `codex plugin marketplace add` gets: this checkout, or with --tree=codex a marketplace folder whose
+    `.agents/plugins/marketplace.json` names the built `release-codex` commit in a local Git repository."""
+    if TREE is None:
+        return str(ROOT)
+    if TREE != "codex":
+        raise SystemExit(f"--tree={TREE}: only codex")
+    if not _MARKETPLACE:
+        work = Path(tempfile.mkdtemp(prefix="maisecrets-codex-tree-"))
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import build_release_tree
+        # the tree is built inside a bare repository that holds HEAD alone: a push from this checkout would run its
+        # pre-push hook, and the bare repository is what Codex clones
+        # the tree is built in a bare repository that holds HEAD alone (a push from this checkout would run its
+        # pre-push hook). That repository is shallow, and git 2.39 (the CI image) serving a filtered clone from a
+        # shallow repository grows pack-objects until the kernel kills it (CI job 17447748452, exit 137): Codex
+        # clones from a second, complete repository that holds the parentless release-codex commit alone
+        build = work / "build.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(build)], check=True)
+        subprocess.run(["git", "-C", str(build), "fetch", "-q", "--depth", "1", ROOT.as_uri(), "HEAD:refs/heads/src"],
+                       check=True)
+        cwd = os.getcwd()
+        os.chdir(build)
+        try:
+            commit = build_release_tree.commit("src", None, "harness: release-codex of HEAD", "codex")
+            subprocess.run(["git", "update-ref", "refs/heads/release-codex", commit], check=True)
+        finally:
+            os.chdir(cwd)
+        repo = work / "repo.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(repo)], check=True)
+        # Codex clones a Git source with a `path` as `--filter=blob:none --sparse`; a local repository serves that
+        # only with the filter allowed (GitHub does), and without it the clone hangs (codex-cli 0.164.0)
+        subprocess.run(["git", "-C", str(repo), "config", "uploadpack.allowFilter", "true"], check=True)
+        subprocess.run(["git", "-C", str(repo), "config", "uploadpack.allowAnySHA1InWant", "true"], check=True)
+        subprocess.run(["git", "-C", str(repo), "fetch", "-q", str(build),
+                        "refs/heads/release-codex:refs/heads/release-codex"], check=True)
+        if subprocess.run(["git", "-C", str(repo), "rev-parse", "--is-shallow-repository"], capture_output=True,
+                          text=True, check=True).stdout.strip() != "false":
+            raise SystemExit("the repository Codex clones from is shallow")
+        mkt = work / "marketplace" / ".agents" / "plugins"
+        mkt.mkdir(parents=True)
+        (mkt / "marketplace.json").write_text(json.dumps({
+            "name": "maisecrets", "interface": {"displayName": "maisecrets"},
+            "plugins": [{"name": "maisecrets", "category": "Security",
+                         "source": {"source": "url", "url": (work / "repo.git").as_uri(), "ref": "release-codex",
+                                    "path": "plugin"}}]}, indent=2))
+        print(f"     the plugin comes from release-codex {commit[:12]} (plugin/), not from this checkout")
+        _MARKETPLACE.append(str(work / "marketplace"))
+    return _MARKETPLACE[0]
+
+
 def run_scenario(name: str, sc: dict) -> list[str]:
     fails: list[str] = []
     if sc.get("real_only") and not REAL:
@@ -265,7 +323,7 @@ def run_scenario(name: str, sc: dict) -> list[str]:
     # so Codex's own plugin and hook discovery is under test. Writing hooks.json into CODEX_HOME
     # (the first version of this harness) hid a discovery failure: with a root plugin.json in the
     # package Codex found 0 of the 4 hooks (measured by a peer session on 0.157.1, 2026-09-26).
-    for cmd in (["codex", "plugin", "marketplace", "add", str(ROOT)],
+    for cmd in (["codex", "plugin", "marketplace", "add", marketplace()],
                 ["codex", "plugin", "add", "maisecrets@maisecrets"]):
         r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=120)
         if r.returncode != 0:
@@ -302,6 +360,8 @@ def run_scenario(name: str, sc: dict) -> list[str]:
     sys.path.insert(0, str(ROOT))
     from maisecrets.codex_trust import content_hash
     plugin_roots = [p.parent.parent for p in (codex_home / "plugins" / "cache").rglob("hooks/hooks.json")]
+    if TREE and plugin_roots and not all((p / ".codex-plugin" / "plugin.json").exists() for p in plugin_roots):
+        fails.append("the installed plugin folder has no .codex-plugin/plugin.json: not the release-codex tree")
     contents_before = [content_hash(p) for p in plugin_roots]
     try:
         r = subprocess.run(
@@ -490,7 +550,7 @@ def run_vault_refs() -> list[str]:
                f'[model_providers.fake]\nname = "maisecrets fake"\nbase_url = "http://127.0.0.1:{PORT}/v1"\n'
                'wire_api = "responses"\nenv_key = "FAKE_OPENAI_KEY"\nsupports_websockets = false\n')
         (codex_home / "config.toml").write_text(cfg)
-        for cmd in (["codex", "plugin", "marketplace", "add", str(ROOT)],
+        for cmd in (["codex", "plugin", "marketplace", "add", marketplace()],
                     ["codex", "plugin", "add", "maisecrets@maisecrets"]):
             r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=120)
             if r.returncode != 0:

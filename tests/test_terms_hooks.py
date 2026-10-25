@@ -156,7 +156,7 @@ class TypedCommandTests(_Base):
     def test_a_prompt_the_client_injected_changes_nothing(self):
         out = _prompt(f"/maisecrets:term add {NAME}", source="scheduled")
         self.assertEqual(out["decision"], "block")
-        self.assertIn("nothing was changed", out["reason"])
+        self.assertIn("this one came from a scheduled task, so nothing was changed", out["reason"])
         self.assertFalse(terms.PERSONAL.exists())
         _prompt(f"/maisecrets:term add {NAME}")
         out = _prompt(f"/maisecrets:term remove {NAME}", source="loop")

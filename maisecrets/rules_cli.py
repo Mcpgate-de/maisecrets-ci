@@ -62,10 +62,12 @@ def show() -> int:
         from . import values as imports
         line = imports.summary_line()
         print(f"\n{line[0].upper()}{line[1:]}; /maisecrets:list shows each import")
-    print(f"\nAllow list: {len(values)} exact value(s), {len(ids)} rule id(s) switched off"
+    from .notices import launcher
+    from .user_rules import ALLOW_FILE
+    print(f"\nAllow list ({ALLOW_FILE}): {len(values)} exact value(s), {len(ids)} rule id(s) switched off"
           + (f" ({', '.join(sorted(ids))})" if ids else ""))
     print("\nAdd a folder: /maisecrets:settings rule_dirs add DIR (type it as your own prompt)\n"
-          "Check a folder: maisecrets rules check DIR")
+          f"Check a folder: {launcher()} rules check DIR")
     return 0
 
 

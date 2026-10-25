@@ -1,4 +1,7 @@
-"""The `release` branch holds only the runtime files, and the plugin works from it alone.
+"""The release branches hold only the runtime files, and the plugin works from each of them alone.
+
+`release` (directory flavor, the Anthropic directory), `release-claude` (Claude Code) and `release-codex` (Codex, the
+plugin under `plugin/`): scripts/build_release_tree.py, docs/REPO-STANDARDS.md "Release branches".
 
 Run: python3 -m unittest tests.test_release_tree -v
 """
@@ -34,26 +37,87 @@ def _builder():
     return mod
 
 
+def _build(flavor: str):
+    """(builder, commit, files, extracted tree) of HEAD in the flavor."""
+    mod = _builder()
+    cwd = os.getcwd()
+    os.chdir(ROOT)
+    try:
+        commit = mod.commit("HEAD", None, f"test release tree {flavor}", flavor)
+        files = subprocess.run(["git", "ls-tree", "-r", "--name-only", commit], capture_output=True,
+                               text=True, check=True).stdout.split()
+        data = subprocess.run(["git", "archive", commit], capture_output=True, check=True).stdout
+    finally:
+        os.chdir(cwd)
+    tree = Path(tempfile.mkdtemp(prefix=f"maisecrets-release-tree-{flavor}-"))
+    with tarfile.open(fileobj=io.BytesIO(data)) as t:
+        if sys.version_info >= (3, 12):
+            t.extractall(tree, filter="data")
+        else:
+            t.extractall(tree)   # our own git archive, not an untrusted tar
+    return mod, commit, files, tree
+
+
+def _paths(flavor: str) -> list:
+    cwd = os.getcwd()
+    os.chdir(ROOT)
+    try:
+        return _builder().paths("HEAD", flavor)
+    finally:
+        os.chdir(cwd)
+
+
+def _too_big(commit: str, limit: int) -> list:
+    sizes = subprocess.run(["git", "ls-tree", "-r", "-l", commit], capture_output=True, text=True,
+                           check=True, cwd=ROOT).stdout.splitlines()
+    assert len(sizes) > 50, sizes
+    return [row.split("\t")[1] for row in sizes if int(row.split()[3]) >= limit]
+
+
+def _assert_the_hooks_block_and_clean(case: unittest.TestCase, plugin_root: Path) -> None:
+    """The user-prompt hook of <plugin_root> blocks a prompt with a token and keeps the cleaned prompt for /ms. The
+    cleaned prompt proves that the detector of the tree ran: a hook that cannot import its package blocks too."""
+    home = Path(tempfile.mkdtemp(prefix="maisecrets-release-home-"))
+    try:
+        (home / "config.json").write_text(json.dumps({"backend": "jsonfile", "allow_plaintext_store": True}))
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("CLAUDE", "CODEX_"))}
+        # a sink for the clipboard copy of the cleaned prompt: pbcopy and xclip on PATH, and
+        # MS_TEST_CLIP for tests/_platform_fakes.py on Windows
+        sink = home / "bin"
+        sink.mkdir()
+        for tool in ("pbcopy", "xclip"):
+            (sink / tool).write_text("#!/bin/sh\ncat >/dev/null\n", encoding="utf-8")
+            (sink / tool).chmod(0o755)
+        env.update(MAISECRETS_HOME=str(home), PYTHONUTF8="1", MS_TEST_CLIP=str(home / "clip"),
+                   PATH=str(sink) + os.pathsep + env.get("PATH", ""))
+        token = "glpat-" + "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(20))
+        payload = json.dumps({"prompt": f"use {token}", "session_id": "S1", "transcript_path": "",
+                              "prompt_id": "p1"})
+        r = subprocess.run([sys.executable, str(plugin_root / "hooks" / "dispatch.py"), "user-prompt"],
+                           input=payload, capture_output=True, text=True, encoding="utf-8", env=env,
+                           timeout=60, cwd=str(home))
+        case.assertEqual(r.returncode, 0, r.stderr)
+        case.assertEqual(json.loads(r.stdout).get("decision"), "block", r.stdout)
+        case.assertNotIn(token, r.stdout)
+        cleaned = home / "pending" / "S1.txt"
+        case.assertTrue(cleaned.exists(), "no cleaned prompt: the detector of the tree did not run")
+        text = cleaned.read_text(encoding="utf-8")
+        case.assertIn("use ", text)
+        case.assertNotIn(token, text)
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
+
+
+def _head(path: str) -> str:
+    return subprocess.run(["git", "-C", str(ROOT), "show", f"HEAD:{path}"], capture_output=True, text=True,
+                          encoding="utf-8", check=True).stdout
+
+
 @unittest.skipUnless(HAS_GIT, "git and a clone are needed")
 class ReleaseTreeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.mod = _builder()
-        cwd = os.getcwd()
-        os.chdir(ROOT)
-        try:
-            cls.commit = cls.mod.commit("HEAD", None, "test release tree")
-            cls.files = subprocess.run(["git", "ls-tree", "-r", "--name-only", cls.commit], capture_output=True,
-                                       text=True, check=True).stdout.split()
-            data = subprocess.run(["git", "archive", cls.commit], capture_output=True, check=True).stdout
-        finally:
-            os.chdir(cwd)
-        cls.tree = Path(tempfile.mkdtemp(prefix="maisecrets-release-tree-"))
-        with tarfile.open(fileobj=io.BytesIO(data)) as t:
-            if sys.version_info >= (3, 12):
-                t.extractall(cls.tree, filter="data")
-            else:
-                t.extractall(cls.tree)   # our own git archive, not an untrusted tar
+        cls.mod, cls.commit, cls.files, cls.tree = _build("directory")
 
     @classmethod
     def tearDownClass(cls):
@@ -104,11 +168,7 @@ class ReleaseTreeTests(unittest.TestCase):
     def test_every_file_is_small_enough_for_the_directory_to_read(self):
         # the directory reads a file only up to a size between 207 KB (read) and 271 KB (BINARIES_NOT_INSPECTED,
         # 0.7.17 to 0.7.19), and then holds the version; docs/REPO-STANDARDS.md, "What the directory flags"
-        sizes = subprocess.run(["git", "ls-tree", "-r", "-l", self.commit], capture_output=True, text=True,
-                               check=True, cwd=ROOT).stdout.splitlines()
-        self.assertGreater(len(sizes), 50)
-        big = [row.split("\t")[1] for row in sizes if int(row.split()[3]) >= self.mod.FILE_BYTES]
-        self.assertEqual(big, [])
+        self.assertEqual(_too_big(self.commit, self.mod.FILE_BYTES), [])
 
     def test_the_betterleaks_parts_load_the_same_rules_and_ship_no_key(self):
         # the directory held every version whose betterleaks.json it could not read whole; the parts are each under
@@ -185,31 +245,7 @@ class ReleaseTreeTests(unittest.TestCase):
                 self.assertTrue((self.tree / rel).exists(), f"{rel} is named but not shipped")
 
     def test_the_hooks_block_a_secret_from_the_tree_alone(self):
-        home = Path(tempfile.mkdtemp(prefix="maisecrets-release-home-"))
-        try:
-            (home / "config.json").write_text(json.dumps({"backend": "jsonfile", "allow_plaintext_store": True}))
-            env = {k: v for k, v in os.environ.items() if not k.startswith(("CLAUDE", "CODEX_"))}
-            # a sink for the clipboard copy of the cleaned prompt: pbcopy and xclip on PATH, and
-            # MS_TEST_CLIP for tests/_platform_fakes.py on Windows
-            sink = home / "bin"
-            sink.mkdir()
-            for tool in ("pbcopy", "xclip"):
-                (sink / tool).write_text("#!/bin/sh\ncat >/dev/null\n", encoding="utf-8")
-                (sink / tool).chmod(0o755)
-            env.update(MAISECRETS_HOME=str(home), PYTHONUTF8="1", MS_TEST_CLIP=str(home / "clip"),
-                       PATH=str(sink) + os.pathsep + env.get("PATH", ""))
-            token = "glpat-" + "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(20))
-            payload = json.dumps({"prompt": f"use {token}", "session_id": "S1", "transcript_path": "",
-                                  "prompt_id": "p1"})
-            r = subprocess.run([sys.executable, str(self.tree / "hooks" / "dispatch.py"), "user-prompt"],
-                               input=payload, capture_output=True, text=True, encoding="utf-8", env=env,
-                               timeout=60, cwd=str(home))
-            self.assertEqual(r.returncode, 0, r.stderr)
-            out = json.loads(r.stdout)
-            self.assertEqual(out.get("decision"), "block", r.stdout)
-            self.assertNotIn(token, r.stdout)
-        finally:
-            shutil.rmtree(home, ignore_errors=True)
+        _assert_the_hooks_block_and_clean(self, self.tree)
 
     def test_the_tree_ships_the_short_readme_and_the_prefix_rules_as_json(self):
         # the directory blocked 0.7.7 and 0.7.8 with SECRET_IN_SCRIPT in README.md and prefixes.txt (no line named)
@@ -271,6 +307,7 @@ class ReleaseTreeTests(unittest.TestCase):
                     m = main["hooks"][event][i]
                     self.assertEqual(entry.get("matcher"), m.get("matcher"))
                     self.assertEqual(h["timeout"], m["hooks"][j]["timeout"])
+                    self.assertEqual(h.get("statusMessage"), m["hooks"][j].get("statusMessage"))
                     self.assertEqual(h["command"].split()[-1], re.search(r'run\.sh" ([\w-]+)',
                                                                           m["hooks"][j]["command"]).group(1))
         self.assertEqual(tree["hooks"].keys(), main["hooks"].keys())
@@ -320,6 +357,99 @@ class ReleaseTreeTests(unittest.TestCase):
         finally:
             os.chdir(cwd)
         self.assertEqual(parents, [self.commit])
+
+
+@unittest.skipUnless(HAS_GIT, "git and a clone are needed")
+class ClaudeTreeTests(unittest.TestCase):
+    """`release-claude`: the runtime files of the tag with its own hooks and README; Claude Code installs from it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod, cls.commit, cls.files, cls.tree = _build("claude")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tree, ignore_errors=True)
+
+    def test_the_tree_is_the_runtime_files_with_the_hooks_and_readme_of_main(self):
+        # the runtime folders named here, not taken from the builder: the developer files stay out, the Codex
+        # metadata too, and betterleaks.json ships in parts (FILE_BYTES); every other file is the tag's own
+        tracked = subprocess.run(["git", "ls-tree", "-r", "--name-only", "HEAD"], capture_output=True, text=True,
+                                 check=True, cwd=ROOT).stdout.split("\n")
+        runtime = (".claude-plugin/", "hooks/", "claude-mod/", "maisecrets/", "commands/", "skills/", "assets/")
+        top = {"LICENSE", "NOTICE", "README.md", "PRIVACY.md", "SECURITY.md", "CHANGELOG.md"}
+        want = [p for p in tracked if (p.startswith(runtime) or p in top) and not p.endswith("/agents/openai.yaml")
+                and p not in (self.mod.BETTERLEAKS_JSON, "maisecrets/detection/rules/betterleaks.toml")]
+        parts = [p for p in self.files if re.fullmatch(r"maisecrets/detection/rules/betterleaks\.part\d+\.json", p)]
+        self.assertGreaterEqual(len(parts), 2)
+        self.assertEqual(sorted(self.files), sorted(want + parts))
+        self.assertIn(self.mod.PREFIXES_TXT, self.files)
+        for path in ("hooks/hooks.json", "README.md", ".claude-plugin/plugin.json"):
+            with self.subTest(path):
+                self.assertEqual((self.tree / path).read_text(encoding="utf-8"), _head(path))
+
+    def test_every_file_is_under_the_size_limit(self):
+        self.assertEqual(_too_big(self.commit, self.mod.FILE_BYTES), [])
+
+    def test_the_hooks_block_a_secret_from_the_tree_alone(self):
+        _assert_the_hooks_block_and_clean(self, self.tree)
+
+
+@unittest.skipUnless(HAS_GIT, "git and a clone are needed")
+class CodexTreeTests(unittest.TestCase):
+    """`release-codex`: the claude tree plus `.codex-plugin/` and the skills' Codex metadata, under `plugin/`.
+    Without `.codex-plugin/` Codex reads `.claude-plugin/plugin.json`, whose `hooks` names the mod file, and loads no
+    hook and says nothing (`harness/codex.py --tree codex` runs the hooks of this tree in a real Codex)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod, cls.commit, cls.files, cls.tree = _build("codex")
+        cls.root = cls.tree / "plugin"
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tree, ignore_errors=True)
+
+    def test_the_tree_is_the_claude_tree_and_the_codex_files_under_plugin(self):
+        tracked = subprocess.run(["git", "ls-tree", "-r", "--name-only", "HEAD"], capture_output=True, text=True,
+                                 check=True, cwd=ROOT).stdout.split("\n")
+        codex_only = [p for p in tracked if p.startswith(".codex-plugin/") or p.endswith("/agents/openai.yaml")]
+        self.assertIn(".codex-plugin/plugin.json", codex_only)
+        self.assertEqual(sorted(self.files), sorted("plugin/" + p for p in _paths("claude") + codex_only))
+
+    def test_the_codex_manifest_lets_codex_read_the_hooks_file(self):
+        manifest = json.loads((self.root / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        # Codex reads hooks/hooks.json only while the manifest defines no hooks key (docs/REPO-STANDARDS.md)
+        self.assertNotIn("hooks", manifest)
+        self.assertEqual((self.root / "hooks" / "hooks.json").read_text(encoding="utf-8"), _head("hooks/hooks.json"))
+        named = re.findall(r'"(\./[\w./-]+)"', json.dumps(manifest))
+        self.assertIn("./skills/", named)
+        for rel in named:
+            with self.subTest(rel):
+                self.assertTrue((self.root / rel).exists(), f"{rel} is named by .codex-plugin/plugin.json")
+        metas = sorted(self.root.glob("skills/*/agents/openai.yaml"))
+        self.assertTrue(metas)
+        for meta in metas:
+            for rel in re.findall(r'"(\./[\w./-]+)"', meta.read_text(encoding="utf-8")):
+                with self.subTest(meta.parent.parent.name, rel=rel):
+                    self.assertTrue((meta.parent.parent / rel).exists(), f"{rel} is named by {meta}")
+
+    def test_every_file_is_under_the_size_limit(self):
+        self.assertEqual(_too_big(self.commit, self.mod.FILE_BYTES), [])
+
+    def test_the_hooks_block_a_secret_from_the_plugin_folder_alone(self):
+        _assert_the_hooks_block_and_clean(self, self.root)
+
+
+class HookStatusMessageTests(unittest.TestCase):
+    def test_every_hook_says_what_maisecrets_does(self):
+        # the client shows it while the hook runs; Codex counts it in the declaration the person approves
+        hooks = json.loads((ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
+        handlers = [(event, h) for event, groups in hooks.items() for g in groups for h in g["hooks"]]
+        self.assertGreaterEqual(len(handlers), 5)
+        for event, h in handlers:
+            with self.subTest(event):
+                self.assertRegex(h.get("statusMessage", ""), r"^maisecrets [a-z]")
 
 
 if __name__ == "__main__":

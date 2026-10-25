@@ -6,23 +6,27 @@ import time
 from .vault import HOME, load_config
 
 TIPS = [
-    "maisecrets: write `password: <value>` (or passwort:, api_key=; 8+ characters) and the value goes to "
-    "your vault; the AI gets a short form and can still use it in commands.",
-    "maisecrets: copy a value, then /maisecrets:put stores it and puts the short form in your clipboard.",
+    "maisecrets: write `password: <value>` (or passwort:, api_key=; 8+ characters) and the value is stored on "
+    "this computer; the AI gets a placeholder and can still use it in commands.",
+    "maisecrets: copy a value, then /maisecrets:put stores it and puts its placeholder in your clipboard.",
     "maisecrets: /maisecrets:list shows what is stored, masked; /maisecrets:forget <key> deletes one.",
-    "maisecrets: a short form works only in a session where you typed it. Paste it into a prompt to use it here.",
+    "maisecrets: a placeholder works only in a session where you typed or pasted it. Paste it into a prompt to use "
+    "it here.",
     "maisecrets: /maisecrets:report prepares a report from the last detection, without the value.",
-    "maisecrets: /maisecrets:audit lists every use of a stored value: when, which key, which command.",
-    "maisecrets: a bare password in a normal sentence is not detected. Label it, or use /maisecrets:put.",
+    "maisecrets: /maisecrets:audit lists every use of a stored value: when, which placeholder, which command.",
+    "maisecrets: a bare password in a normal sentence is not detected. Write password: in front of it, test it "
+    "with ms:(…), or use /maisecrets:put.",
     "maisecrets: add detection rules for the tokens of your own services in ~/.maisecrets/rules.d or a team "
     "folder; /maisecrets:rules shows them, README \"Rules of your own\" says how.",
 ]
 # Codex has no slash commands for plugins: its tips name only what works there
 TIPS_CODEX = [
-    "maisecrets: write `password: <value>` (or passwort:, api_key=; 8+ characters) and the value goes to "
-    "your vault; the AI gets a short form and can still use it in commands.",
-    "maisecrets: a short form works only in a session where you typed it. Paste it into a prompt to use it here.",
-    "maisecrets: a bare password in a normal sentence is not detected. Label it with `password:`.",
+    "maisecrets: write `password: <value>` (or passwort:, api_key=; 8+ characters) and the value is stored on "
+    "this computer; the AI gets a placeholder and can still use it in commands.",
+    "maisecrets: a placeholder works only in a session where you typed or pasted it. Paste it into a prompt to use "
+    "it here.",
+    "maisecrets: a bare password in a normal sentence is not detected. Write password: in front of it, or test it "
+    "with ms:(…) alone as your prompt.",
     "maisecrets: add detection rules for the tokens of your own services in ~/.maisecrets/rules.d or a team "
     "folder (`maisecrets: set rule_dirs add DIR` as your own prompt); README \"Rules of your own\" says how.",
 ]
@@ -56,4 +60,4 @@ TRY_IT_EXAMPLE = "max.muster@firma-xyz.de"   # not example.com: a reserved domai
 
 
 def try_it_line() -> str:
-    return f"Try it: send {TRY_IT_EXAMPLE} as a prompt. maisecrets stops it and shows the next step."
+    return f"Try it: send ms:({TRY_IT_EXAMPLE}) alone. maisecrets says what it would mask, and nothing reaches the AI."

@@ -67,7 +67,7 @@ and OpenAI plugin directories.
   waiting. The tree matches when the MR was up to date with `main` at its last pipeline and nothing
   else merged before it. No match, or no answer from GitHub, is the wait as before.
 - Matrix by hand: push the commit to the GitHub branch `ci-check` (pushed over each time; the rulesets
-  protect only `main`, `release` and the tags `v*`). `.github/workflows/ci.yml` runs on it. No draft pull request
+  protect only `main`, `release` and the tags `v*`; `release-claude` and `release-codex` must join them before a marketplace file names them). `.github/workflows/ci.yml` runs on it. No draft pull request
   and no new branch name: GitHub keeps listing a deleted pull-request branch.
 - Vendored rulesets: Renovate keeps `maisecrets/detection/rules/` current (`renovate.json`). The job `renovate`
   runs self-hosted on a pipeline schedule with `RENOVATE_RUN=true`; on a schedule no other job runs.
@@ -172,12 +172,26 @@ and OpenAI plugin directories.
   "API", whatever the type of its commit. It writes
   the version into the three manifests and a generated section into
   `CHANGELOG.md`.
-- The GitHub branch `release` holds only the runtime files of each release
-  (`scripts/build_release_tree.py`, one commit per release, pushed by `mirror_tag`). The
-  tests, CI files, release scripts and developer docs are left out: the plugin never runs
-  them, and the Anthropic directory blocked two versions on literals in the tests.
-  `tests/test_release_tree.py` names the developer-only files; every other tracked file
-  ships.
+- Release branches. Three GitHub branches hold only the runtime files of a release
+  (`scripts/build_release_tree.py --flavor <flavor>`). Each move is one commit on top of the
+  last one, never a force push. The tests, CI files, release scripts and developer docs are
+  left out: the plugin never runs them, and the Anthropic directory blocked two versions on
+  literals in the tests. `tests/test_release_tree.py` names the developer-only files and
+  checks each flavor; no file of any flavor may reach 200 KB.
+
+  | Branch | Flavor | Tree | Moved by | Read by |
+  |---|---|---|---|---|
+  | `release` | `directory` | runtime files; the directory's own `hooks/hooks.json`, `README.md`, `prefixes.json` and betterleaks parts | `mirror_tag`, every release, unless the directory hold is on | the Anthropic directory |
+  | `release-claude` | `claude` | runtime files with `main`'s own `hooks/hooks.json` and `README.md`; betterleaks in parts (size) | `mirror_tag`, every release, before the directory hold | Claude Code, once `.claude-plugin/marketplace.json` names it (not yet) |
+  | `release-codex` | `codex` | the `claude` tree plus `.codex-plugin/` and the skills' `agents/openai.yaml`, all under `plugin/` | `release_codex`: every tag pipeline while the project variable `MAISECRETS_CODEX_EVERY_RELEASE` is `true`; else the pipeline schedule with `MAISECRETS_SCHEDULE=release-codex`, or by hand in a tag pipeline for a security fix | Codex, once `.agents/plugins/marketplace.json` names it as a Git source with `path: plugin` (not yet) |
+
+  `release_codex` takes the version that GitHub `main` already has, and its tag must be the
+  tag of this project: a tag reaches GitHub only through `mirror_tag`, after `verify_release`.
+  It does nothing when `release-codex` already has that version or a newer one. Codex is slow
+  on purpose: it asks the person to trust the hooks again for each version, and lets prompts
+  through until then. Without `.codex-plugin/` Codex reads `.claude-plugin/plugin.json`, whose
+  `hooks` names the mod file, and loads no hook; `harness/codex.py --tree=codex` runs the
+  hooks of the built tree in a real Codex.
 - The directory hold: with `MAISECRETS_DIRECTORY_HOLD: "1"` in `.gitlab-ci.yml`, `mirror_tag`
   pushes GitHub `main` and the tag but not `release`, so the Anthropic directory sees no new
   version while one is in its review. The organisation marketplace (GitLab `main`,

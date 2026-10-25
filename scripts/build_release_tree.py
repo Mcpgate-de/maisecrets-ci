@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Build the tree of the `release` branch: only the files the plugin needs at run time.
+"""Build the tree of a release branch on GitHub: only the files the plugin needs at run time.
+
+Three flavors, one per branch (docs/REPO-STANDARDS.md, "Release branches"):
+- `directory`: the branch `release`, which the Anthropic directory reviews (the default; described below).
+- `claude`: the branch `release-claude`, which Claude Code installs from. The runtime files of the tag with the
+  tag's own hooks/hooks.json and README.md. Only betterleaks.json ships in parts: no file may reach FILE_BYTES.
+- `codex`: the branch `release-codex`, which Codex installs from. The files of `claude` plus `.codex-plugin/` and
+  each skill's agents/openai.yaml, all under `plugin/`: Codex installs a Git source only from a sub-directory
+  (`path`), and without `.codex-plugin/` it reads `.claude-plugin/plugin.json`, whose `hooks` names the mod file,
+  and loads no hook.
 
 The Anthropic directory checks every file it gets, and it blocked two versions on literals in the
 test files (2026-09-27). The tests, the CI files, the release scripts and the developer docs are
@@ -7,9 +16,9 @@ never run by the plugin, so the `release` branch leaves them out. The allowlist 
 whole content: a new runtime folder must be added here, and a test checks that every path the
 hooks and the commands name is in the tree.
 
-    python3 scripts/build_release_tree.py list [<ref>]       the paths, one per line
-    python3 scripts/build_release_tree.py commit <ref> [<parent>] -m <message>
-                                                              write a commit, print its id
+    python3 scripts/build_release_tree.py list [<ref>] [--flavor F]       the paths, one per line
+    python3 scripts/build_release_tree.py commit <ref> [<parent>] -m <message> [--flavor F]
+                                                                           write a commit, print its id
 
 `commit` writes the tree into a temporary index, so the working copy and the real index stay as
 they are. With <parent> the new commit continues that history; without it, it starts one.
@@ -38,8 +47,8 @@ import sys
 import tempfile
 
 # folders and files of the plugin at run time, and the documents a user reads
-# no .codex-plugin/: Codex installs from main, and the directory held every version because that manifest names
-# image files (UNREAD_ASSET_REFERENCED, 2026-09-30: "the plugin stays held for review")
+# no .codex-plugin/ but in the codex flavor: the directory held every version because that manifest names image
+# files (UNREAD_ASSET_REFERENCED, 2026-09-30: "the plugin stays held for review")
 # no docs/: nothing at run time reads them, they are on GitHub, and THREAT-MODEL.md quotes the download-and-run
 # commands that C21 guards, which the directory lists as RUNTIME_FETCH_EXEC (0.7.17)
 RUNTIME = (".claude-plugin/", "hooks/", "claude-mod/", "maisecrets/", "commands/", "skills/", "assets/",
@@ -58,18 +67,32 @@ def _git(*args: str, env: dict | None = None, text: bool = True) -> str:
     return r.stdout
 
 
-def paths(ref: str = "HEAD") -> list[str]:
+FLAVORS = ("directory", "claude", "codex")
+# the folder the codex flavor puts the plugin in: a Codex Git source names it as its `path`, which cannot be "."
+CODEX_ROOT = "plugin/"
+
+
+def _shipped(ref: str, flavor: str) -> list[str]:
+    """The tracked files of <ref> that the flavor ships, before any replacement."""
     tracked = _git("ls-tree", "-r", "--name-only", ref).splitlines()
-    keep = [p for p in tracked
-            if any(p == r or (r.endswith("/") and p.startswith(r)) for r in RUNTIME) and "__pycache__" not in p
+    runtime = RUNTIME + ((".codex-plugin/",) if flavor == "codex" else ())
+    return [p for p in tracked
+            if any(p == r or (r.endswith("/") and p.startswith(r)) for r in runtime) and "__pycache__" not in p
             and p not in NOT_SHIPPED
-            # a skill's Codex metadata names its icon images, which the directory flags the same way
-            and not (p.startswith("skills/") and "/agents/" in p and p.endswith("openai.yaml"))]
-    keep = [PREFIXES_JSON if p == PREFIXES_TXT else p for p in keep]   # see directory_prefixes
-    if BETTERLEAKS_JSON in keep:   # see directory_betterleaks
-        keep.remove(BETTERLEAKS_JSON)
-        keep += list(directory_betterleaks(_git("show", f"{ref}:{BETTERLEAKS_JSON}")))
-    return sorted(keep)
+            # a skill's Codex metadata names its icon images, which the directory flags; only Codex reads it
+            and (flavor == "codex" or not (p.startswith("skills/") and "/agents/" in p and p.endswith("openai.yaml")))]
+
+
+def _prefix(flavor: str) -> str:
+    return CODEX_ROOT if flavor == "codex" else ""
+
+
+def paths(ref: str = "HEAD", flavor: str = "directory") -> list[str]:
+    replaced = _replaced(ref, flavor)
+    # the sources that a replacement stands in for: prefixes.txt becomes prefixes.json in the directory flavor only
+    gone = set(replaced) | {BETTERLEAKS_JSON} | ({PREFIXES_TXT} if flavor == "directory" else set())
+    keep = [p for p in _shipped(ref, flavor) if p not in gone] + list(replaced)
+    return sorted(_prefix(flavor) + p for p in keep)
 
 
 HOOKS = "hooks/hooks.json"
@@ -150,30 +173,39 @@ def directory_betterleaks(text: str) -> dict:
             for i, chunk in enumerate(parts, 1)}
 
 
-# the files the release tree replaces: path -> (source of the content on <ref>, transform)
-def _replaced(ref: str) -> dict:
+# the files the release tree replaces: path -> content made from <ref>. Only the directory flavor changes the hooks,
+# the README and the prefix rules; every flavor ships betterleaks.json in parts (FILE_BYTES)
+def _replaced(ref: str, flavor: str = "directory") -> dict:
+    if flavor not in FLAVORS:
+        raise SystemExit(f"unknown flavor {flavor!r}; one of {', '.join(FLAVORS)}")
+    parts = directory_betterleaks(_git("show", f"{ref}:{BETTERLEAKS_JSON}"))
+    if flavor != "directory":
+        return parts
     return {HOOKS: directory_hooks(_git("show", f"{ref}:{HOOKS}")),
             README: _git("show", f"{ref}:{DIRECTORY_README}"),
             PREFIXES_JSON: directory_prefixes(_git("show", f"{ref}:{PREFIXES_TXT}")),
-            **directory_betterleaks(_git("show", f"{ref}:{BETTERLEAKS_JSON}"))}
+            **parts}
 
 
-def commit(ref: str, parent: str | None, message: str) -> str:
+def commit(ref: str, parent: str | None, message: str, flavor: str = "directory") -> str:
+    prefix = _prefix(flavor).encode()
     with tempfile.TemporaryDirectory() as d:
         env = dict(os.environ, GIT_INDEX_FILE=os.path.join(d, "index"))
         _git("read-tree", "--empty", env=env)
         # NUL-separated bytes both ways: in text mode Windows writes CRLF into the pipe, and git
         # then reads paths that end in a carriage return (the release tree test on windows-latest)
         rows = subprocess.run(["git", "ls-tree", "-r", "-z", ref], capture_output=True, check=True).stdout
-        wanted = {p.encode() for p in paths(ref)}
-        replaced = _replaced(ref)
-        dropped = {p.encode() for p in replaced} | {PREFIXES_TXT.encode(), BETTERLEAKS_JSON.encode()}
-        info = b"".join(row + b"\0" for row in rows.split(b"\0") if row and row.split(b"\t", 1)[1] in wanted
-                        and row.split(b"\t", 1)[1] not in dropped)
+        replaced = _replaced(ref, flavor)
+        wanted = {p[len(prefix):].encode() for p in paths(ref, flavor)} - {p.encode() for p in replaced}
+        info = b""
+        for row in rows.split(b"\0"):
+            if row and row.split(b"\t", 1)[1] in wanted:
+                meta, path = row.split(b"\t", 1)
+                info += meta + b"\t" + prefix + path + b"\0"
         for path, content in replaced.items():
             blob = subprocess.run(["git", "hash-object", "-w", "--stdin"], input=content.encode("utf-8"),
                                   capture_output=True, check=True).stdout.decode().strip()
-            info += f"100644 {blob}\t{path}".encode() + b"\0"
+            info += f"100644 {blob}\t".encode() + prefix + path.encode() + b"\0"
         r = subprocess.run(["git", "update-index", "-z", "--index-info"], input=info, env=env, capture_output=True)
         if r.returncode != 0:
             raise SystemExit(f"git update-index failed: {r.stderr.decode(errors='replace').strip()[:300]}")
@@ -188,13 +220,22 @@ def commit(ref: str, parent: str | None, message: str) -> str:
 
 
 def main(argv: list[str]) -> int:
+    argv = list(argv)
+    flavor = "directory"
+    if "--flavor" in argv:
+        i = argv.index("--flavor")
+        if i + 1 >= len(argv) or argv[i + 1] not in FLAVORS:
+            print(f"--flavor takes one of {', '.join(FLAVORS)}")
+            return 2
+        flavor = argv[i + 1]
+        del argv[i:i + 2]
     if len(argv) >= 2 and argv[1] == "list":
-        print("\n".join(paths(argv[2] if len(argv) > 2 else "HEAD")))
+        print("\n".join(paths(argv[2] if len(argv) > 2 else "HEAD", flavor)))
         return 0
     if len(argv) >= 5 and argv[1] == "commit" and "-m" in argv:
         i = argv.index("-m")
         rest = argv[2:i]
-        print(commit(rest[0], rest[1] if len(rest) > 1 else None, argv[i + 1]))
+        print(commit(rest[0], rest[1] if len(rest) > 1 else None, argv[i + 1], flavor))
         return 0
     print(__doc__)
     return 2

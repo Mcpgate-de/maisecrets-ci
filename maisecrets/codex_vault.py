@@ -563,5 +563,6 @@ def notice(name: str) -> str:
     from .vault_refs import HEADER, _say_name
     return (f"maisecrets: the MCP server {_say_name(name)} supports {HEADER}. From the next start of Codex, "
             "maisecrets puts this server's values into your local files and commands; the AI still sees only "
-            "tokens. To turn it off: /maisecrets:settings client_header false. More: README, section "
+            "placeholders. To turn it off, send this alone as your prompt: maisecrets: set client_header off. More: "
+            "README, section "
             "\"Vault references\".")

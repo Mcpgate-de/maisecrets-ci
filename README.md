@@ -132,11 +132,12 @@ You paste a token into the prompt by accident:
 > please check why my GitLab token glpat-… fails in CI
 maisecrets: a secret was found and kept from the AI.
 
-    ⌘V  pastes the cleaned prompt. Then send it, or type /ms to send it at once.
+    ⌘V  pastes the cleaned prompt. Then send it, or type /maisecrets:send to send it at once.
 
 Something wrong? /maisecrets:report · maisecrets by mcpgate.de
 ```
 
+With `/maisecrets:shortcut` installed, the line names the short `/ms`.
 Zero requests left the machine for that prompt. The rewritten prompt reads
 `please check why ⟦SECRET_c3⟧ fails in CI`, and Claude can use the
 placeholder in a command as above.
@@ -317,6 +318,11 @@ installed version, and whether a second maisecrets is installed. A workspace adm
 can ship the hooks as managed hooks (`requirements.toml`, MDM), which are
 trusted by policy and cannot be disabled. The plain ChatGPT chat, web and
 mobile have no local runtime and no hooks.
+
+**Codex gets fewer versions.** Codex asks you to trust the hooks again for
+each version, so Codex will install from the GitHub branch `release-codex`,
+which can move more slowly than the releases, and moves at once for a security
+fix; Claude Code gets every release.
 
 For development:
 
@@ -614,11 +620,11 @@ apart, as a local use. `/maisecrets:list`
 shows it under each secret:
 
 ```
-SECRET_c7      SECRET  github_pat            3d   14        21h  -
-    Seen at (a record, not a permission)
+SECRET_c7      SECRET  format       3d   14        21h  -
+    Sent to (a record only; it allows nothing)
       other.example.net     1×     last less than an hour ago   new
       api.github.com        10+×   last 2 hours ago
-    Local uses (not destination-protected)
+    Used on this computer
       a file in ~/proj/     2–9×   last 3 days ago
 ```
 
@@ -704,21 +710,21 @@ after `ms:` as your whole prompt:
 
 ```
 > ms:(the-value-you-want-to-check)
-✓ maisecrets would mask this: SECRET (gitlab-pat)
+✓ maisecrets masks this as a secret (⟦SECRET_…⟧). maisecrets knows this format, so it masks it wherever it appears, also alone.
 
 This prompt was not sent. The value did not reach the AI.
 ```
 
 ```
 > ms:(Kx7#another-value)
-⚠ maisecrets would NOT have caught this. It is now stored (⟦SECRET_c4⟧). From now on it is masked wherever it stands as a word of its own.
+⚠ maisecrets did not catch this value. maisecrets stored it as ⟦SECRET_c4⟧. For 1 day after each use it is masked wherever it stands as a word of its own.
 
 This prompt was not sent. The value did not reach the AI.
 ```
 
 ```
 > ms:(two words)
-⚠ maisecrets would NOT have caught this. It looks like ordinary text, so it was not stored. If it is a secret, store it with /maisecrets:put.
+⚠ maisecrets did not catch this value. It looks like ordinary text, so it was not stored. If it is a secret, store it with /maisecrets:put.
 
 This prompt was not sent. The value did not reach the AI.
 ```

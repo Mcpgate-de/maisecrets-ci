@@ -592,9 +592,14 @@ def recognize(prompt, client: str) -> tuple[str, str | None] | None:
 
 # --- the report ---
 
+def _launcher() -> str:
+    from .notices import launcher
+    return launcher()
+
+
 USAGE = ("maisecrets: /maisecrets:report incident shows the incident report; "
          "/maisecrets:report incident <code/cause> shows one group. "
-         "Clear the record in a terminal: hooks/run.sh report incident clear (hooks\\run.cmd on Windows).")
+         f"Clear the record in a terminal: {_launcher()} report incident clear")
 
 
 def _platform() -> str:
@@ -656,7 +661,7 @@ def render(groups: dict, selector: str | None, markers: list[str] | None = None)
         for k, g in sorted(shown.items(), key=lambda kv: kv[1]["days"][-1], reverse=True):
             lines.append(f"- {k} · {g['class']} · {len(g['days'])} · {seen(g['count'])}")
     if markers:
-        lines.append("Not yet folded: " + ", ".join(markers))
+        lines.append("Not yet counted: " + ", ".join(markers))
     if withheld:
         lines.append(f"{withheld} group(s) withheld.")
     if shown:

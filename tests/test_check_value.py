@@ -24,7 +24,7 @@ import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
 Path(os.environ["MAISECRETS_HOME"]).mkdir(parents=True, exist_ok=True)
 Path(os.environ["MAISECRETS_HOME"], "config.json").write_text('{"backend": "jsonfile", "allow_plaintext_store": true}')
 
-from maisecrets import check_value, detect, hooks, incidents, settings, terms, user_rules  # noqa: E402
+from maisecrets import check_value, detect, hooks, incidents, notices, settings, terms, user_rules  # noqa: E402
 from maisecrets.placeholder import CLOSE, OPEN  # noqa: E402
 from maisecrets.vault import HOME, Vault  # noqa: E402
 import _hygiene  # noqa: E402
@@ -51,6 +51,11 @@ STATE = ("index.json", "vault.json", "audit.log", "hooks.log", "events.log", "te
          ".terms-state", ".terms-cache", "allow.txt", "hints.json")
 # the files that hold a value by design: the plaintext test store, the term list and the allow list
 HOLD_VALUES = ("vault.json", "terms.txt", "terms.marked.json", ".terms-cache", "allow.txt")
+
+
+def _says(type_: str) -> str:
+    """What a verdict names for a hit of this type: its noun and the placeholder type the AI sees, never a rule id."""
+    return f"{notices.type_word(type_)} ({OPEN}{type_}_…{CLOSE})"
 
 
 def _clean() -> None:
@@ -189,8 +194,8 @@ class AlwaysBlockedTests(_Base):
             self.assertFalse(Path(HOME, "vault.json").exists() and UNSEEN in Path(HOME, "vault.json").read_text())
 
     def test_the_mod_gets_a_drop_with_the_verdict_and_never_a_text(self):
-        for prompt, said in ((f"ms:({GLPAT})", "SECRET (gitlab-pat)"), (f"ms:({GLPAT}", "SECRET (gitlab-pat)"),
-                             (f" ms:( {UNSEEN} )", "It is now stored")):
+        for prompt, said in ((f"ms:({GLPAT})", _says("SECRET")), (f"ms:({GLPAT}", _says("SECRET")),
+                             (f" ms:( {UNSEEN} )", "maisecrets stored it as")):
             out = hooks.rewrite_prompt({"prompt": prompt, "session_id": "S1", "origin": "composer"})
             self.assertEqual(sorted(out), ["drop"], "a check is never rewritten")
             self.assertIn(said, out["drop"])
@@ -255,12 +260,12 @@ class SameVerdictTests(_Base):
                 self._arrange(how)
                 check = _prompt(f"ms:({value})")
                 self.assertEqual(check["decision"], "block")
-                check_caught = check["reason"].startswith("✓ maisecrets would mask this")
+                check_caught = check["reason"].startswith("✓ maisecrets masks")
                 self.assertEqual(check_caught, normal_caught)
                 self.assertEqual(check["reason"].startswith(check_value.NOT_CAUGHT), not normal_caught)
                 self.assertEqual(_hits() if check_caught else [], normal_hits)
                 for type_, kind in normal_hits:
-                    self.assertIn(check_value.hit_label(type_, kind, stored=kind == "manual"), check["reason"])
+                    self.assertIn(_says(type_), check["reason"])
                 seen.add(normal_caught)
         self.assertEqual(seen, {True, False}, "the cases cover both verdicts")
 
@@ -275,8 +280,10 @@ class SameVerdictTests(_Base):
 
     def test_several_hits_are_all_named(self):
         out = _prompt(f"ms:({GLPAT} {MAIL})")
-        self.assertIn("SECRET (gitlab-pat)", out["reason"])
-        self.assertIn("EMAIL (email)", out["reason"])
+        self.assertIn("masks 2 parts of this", out["reason"])
+        self.assertIn(_says("SECRET"), out["reason"])
+        self.assertIn(_says("EMAIL"), out["reason"])
+        self.assertNotIn("gitlab-pat", out["reason"], "no rule id")
 
     def test_each_group_gives_the_verdict_of_its_own_normal_prompt(self):
         # ms:(v) ms:(w): each line is the verdict that the normal prompt v (and w) gives alone, from the same state
@@ -298,13 +305,13 @@ class SameVerdictTests(_Base):
                         self.assertEqual(len(lines), 2, out["reason"])
                         line = lines[0 if first else 1]
                         self.assertTrue(line.startswith(f"Value {1 if first else 2}: "), line)
-                        self.assertEqual("✓ maisecrets would mask this" in line, normal, line)
+                        self.assertEqual("✓ maisecrets masks" in line, normal, line)
                         for type_, kind in normal_hits:
-                            self.assertIn(check_value.hit_label(type_, kind, stored=kind == "manual"), line)
+                            self.assertIn(_says(type_), line)
                         other_line = lines[1 if first else 0]
-                        self.assertEqual("SECRET (gitlab-pat)" in other_line, other == GLPAT, other_line)
-                        if other == GLPAT:
-                            self.assertNotIn("gitlab-pat", line, "the hit of the other group stays in its line")
+                        self.assertEqual(_says("SECRET") in other_line, other == GLPAT, other_line)
+                        if other == GLPAT and "SECRET" not in {type_ for type_, _kind in normal_hits}:
+                            self.assertNotIn(_says("SECRET"), line, "the hit of the other group stays in its line")
                         self.assertTrue(out["reason"].endswith(check_value.NOT_SENT))
 
     def test_a_group_does_not_see_what_a_group_before_it_stored(self):
@@ -312,7 +319,7 @@ class SameVerdictTests(_Base):
         out = _prompt(f"ms:({UNSEEN}) ms:({UNSEEN})")
         lines = out["reason"].split("\n\n")[0].split("\n")
         self.assertEqual([x.split(": ", 1)[1] for x in lines][0], [x.split(": ", 1)[1] for x in lines][1])
-        self.assertIn("It is now stored", lines[1])
+        self.assertIn("maisecrets stored it as", lines[1])
         # a later group that holds the value of an earlier one: its verdict comes from the state before the prompt
         _clean()
         out = _prompt(f"ms:({UNSEEN}) ms:(see {UNSEEN} here)")
@@ -343,8 +350,8 @@ class SameVerdictTests(_Base):
     def test_the_mod_gets_one_drop_with_every_verdict(self):
         out = hooks.rewrite_prompt({"prompt": f"ms:({GLPAT}) ms:({UNSEEN})", "session_id": "S1", "origin": "composer"})
         self.assertEqual(sorted(out), ["drop"])
-        self.assertIn("Value 1: ✓ maisecrets would mask this: SECRET (gitlab-pat)", out["drop"])
-        self.assertIn("Value 2: " + check_value.NOT_CAUGHT + " It is now stored", out["drop"])
+        self.assertIn("Value 1: ✓ maisecrets masks this as " + _says("SECRET"), out["drop"])
+        self.assertIn("Value 2: " + check_value.NOT_CAUGHT + " maisecrets stored it as", out["drop"])
         self.assertNotIn(GLPAT, out["drop"])
         self.assertNotIn(UNSEEN, out["drop"])
         # the scrub takes each value alone, not only the prompt as typed: a later record can hold the value alone
@@ -438,19 +445,20 @@ class NeverTheValueTests(_Base):
 class StoreTests(_Base):
     def test_a_value_no_rule_caught_is_stored_and_caught_from_then_on(self):
         out = _prompt(f"ms:({UNSEEN})")
-        self.assertIn("It is now stored (" + OPEN + "SECRET_c1" + CLOSE + "). From now on it is masked wherever it "
-                      "stands as a word of its own.", out["reason"])
+        self.assertIn("maisecrets stored it as " + OPEN + "SECRET_c1" + CLOSE + ". For 1 day after each use it is "
+                      "masked wherever it stands as a word of its own.", out["reason"])
+        self.assertNotIn("From now on", out["reason"], "the store keeps it for its lifetime, not for good")
         self.assertEqual(Vault().get("SECRET_c1", session="S1"), (UNSEEN, "ok"))
         meta = json.loads(Path(HOME, "index.json").read_text())["entries"]["SECRET_c1"]
         self.assertEqual((meta["type"], meta["kind"]), ("SECRET", "manual"), "as /maisecrets:put stores it")
         self.assertEqual(_prompt(f"please use {UNSEEN} here")["decision"], "block")
         again = _prompt(f"ms:({UNSEEN})")
-        self.assertIn("SECRET (stored value)", again["reason"])
+        self.assertIn("This value is already stored as " + OPEN + "SECRET_c1" + CLOSE, again["reason"])
 
     def test_a_passphrase_with_spaces_is_stored_and_the_answer_says_where_it_is_found(self):
         out = _prompt(f"ms:({PHRASE})")
-        self.assertIn("It is now stored", out["reason"])
-        self.assertIn("Inside a sentence maisecrets does not find it", out["reason"])
+        self.assertIn("maisecrets stored it as", out["reason"])
+        self.assertIn("Inside a sentence it is not found", out["reason"])
         self.assertEqual(_prompt(PHRASE)["decision"], "block")
 
     def test_ordinary_text_is_not_stored(self):
@@ -470,19 +478,19 @@ class StoreTests(_Base):
                       "Sommer2026" + "#1", "Hamburg" + "#2026", "Kq9>4mPq" + "!zLx", "Zq>=7mP" + "!2"):
             with self.subTest(value[:3]):
                 self.assertTrue(check_value.looks_like_a_credential(value), value[:3])
-        self.assertIn("It is now stored", _prompt(f"ms:({PASSWORD})")["reason"])
+        self.assertIn("maisecrets stored it as", _prompt(f"ms:({PASSWORD})")["reason"])
 
     def test_storing_is_refused_where_it_is_not_allowed_or_would_not_help(self):
         for prompt, why in ((f"ms:({UNSEEN[:6]})", "only from 8 characters"), ("ms:(Apfel)", "only from 8 characters"),
                             (f"ms:({UNSEEN}\n{UNSEEN})", "more than one line")):
             out = _prompt(prompt)
             self.assertIn(why, out["reason"])
-            self.assertIn("It was not stored" if "line" in why else "so it was not stored", out["reason"])
+            self.assertIn("so it was not stored", out["reason"])
         self.assertFalse(Path(HOME, "index.json").exists())
 
     def test_a_placeholder_next_to_a_value_does_not_hide_the_verdict(self):
         out = _prompt("ms:(" + OPEN + "SECRET_c9" + CLOSE + f" {GLPAT})")
-        self.assertIn("SECRET (gitlab-pat)", out["reason"])
+        self.assertIn(_says("SECRET"), out["reason"])
         out = _prompt("ms:(" + OPEN + "SECRET_c9" + CLOSE + f" {UNSEEN})")
         self.assertIn("It holds a maisecrets placeholder, so it was not stored", out["reason"])
 
@@ -536,11 +544,15 @@ class TipTests(_Base):
                                    input=json.dumps(payload), capture_output=True, text=True, env=env, timeout=60)
                 self.assertEqual(r.returncode, 0, r.stderr)
                 return json.loads(r.stdout).get("systemMessage", "")
-            self.assertIn(check_value.TIP_CODEX, start())
-            self.assertNotIn("ms:(", start())
+            # the first start names ms:(…) in its try-it line; the Codex tip would say it twice, and its hint is used
+            first = start()
+            self.assertIn("Try it: send ms:(", first)
+            self.assertNotIn(check_value.TIP_CODEX, first)
+            self.assertIn("check_value", (home / "store" / "hints.json").read_text())
+            self.assertNotIn(check_value.TIP_CODEX, start())
             payload["transcript_path"] = str(home / ".claude" / "projects" / "p" / "r.jsonl")
             (home / "store" / "hints.json").unlink()
-            self.assertNotIn("ms:(", start(), "Claude Code names it under a blocked prompt, not at the start")
+            self.assertNotIn(check_value.TIP_CLAUDE, start(), "Claude Code names it under a blocked prompt")
 
 
 
@@ -593,6 +605,60 @@ class FormatReportTests(unittest.TestCase):
         out = _prompt(f"ms:({prefixed})")
         self.assertIn("Unknown format? Report its shape", out["reason"])
         self.assertNotIn(prefixed[4:], out["reason"].split("Report its shape", 1)[1])
+
+
+class VerdictModelTests(_Base):
+    """The verdict says what a value is masked as (a noun and the placeholder type) and how sure that is (the form of
+    the rule or the source of the hit), and never a rule id (maisecrets/verdict.py)."""
+
+    LABELLED = "Zq8-" + "synthetic-pw"        # no shape: found only by the label in front of it
+
+    def test_a_format_hit_says_it_is_masked_also_alone(self):
+        out = _prompt(f"ms:({GLPAT})")["reason"]
+        self.assertTrue(out.startswith("✓ maisecrets masks this as a secret (" + OPEN + "SECRET_…" + CLOSE + ")."), out)
+        self.assertIn("maisecrets knows this format, so it masks it wherever it appears, also alone.", out)
+        self.assertNotIn("gitlab-pat", out)
+
+    def test_a_label_hit_names_the_label_and_says_how_long_the_value_is_stored(self):
+        out = _prompt(f"ms:(password: {self.LABELLED})")["reason"]
+        self.assertIn("found it by the label in front of it (`password:`). A value like this without such a label is "
+                      "not found.", out)
+        self.assertIn("This value is now stored, so it is masked wherever it appears for 1 day (each use extends it).",
+                      out)
+        self.assertNotIn("ds-keyword", out)
+        self.assertNotIn(self.LABELLED, out)
+        self.assertEqual(_prompt(f"see {self.LABELLED} here")["decision"], "block", "the stored half is true")
+
+    def test_a_short_label_hit_is_not_promised_to_be_found_again(self):
+        out = _prompt("ms:(password: Zq8-x" + "y)")["reason"]
+        self.assertIn("It is too short to be found again without the label.", out)
+        self.assertNotIn("now stored", out)
+
+    def test_a_default_word_after_a_label_is_not_promised_to_be_found_again(self):
+        out = _prompt("ms:(password: postgres)")["reason"]
+        self.assertIn("It is a common word, so it is found again only with the label.", out)
+        self.assertNotIn("now stored", out)
+
+    def test_several_hits_get_one_line_each_in_text_order(self):
+        out = _prompt(f"ms:(password: {self.LABELLED} mail {MAIL})")["reason"].split("\n\n")[0]
+        lines = out.split("\n")
+        self.assertEqual(lines[0], "✓ maisecrets masks 2 parts of this:")
+        self.assertTrue(lines[1].startswith("  · " + _says("SECRET") + ", found by the label in front of it "
+                                            "(`password:`)"), lines[1])
+        self.assertEqual(lines[2], "  · " + _says("EMAIL") + ", maisecrets knows this format and masks it everywhere")
+
+    def test_the_same_line_twice_is_said_once(self):
+        other = "glpat-" + "Z9y8X7w6V5u4T3s2R1q0"
+        out = _prompt(f"ms:({GLPAT} {other})")["reason"].split("\n\n")[0]
+        self.assertEqual(out.split("\n")[1:], ["  · 2 × " + _says("SECRET") + ", maisecrets knows this format and "
+                                                "masks it everywhere"])
+
+    def test_the_allow_list_is_named_with_its_file(self):
+        Path(user_rules.ALLOW_FILE).write_text(ALLOWED + "\n", encoding="utf-8")
+        detect.reset_rules()
+        out = _prompt(f"ms:({ALLOWED})")["reason"]
+        self.assertIn("Your allow list lets it through: it allows this exact value.", out)
+        self.assertIn(f"remove that line from {user_rules.ALLOW_FILE}.", out)
 
 
 if __name__ == "__main__":

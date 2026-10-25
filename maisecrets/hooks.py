@@ -454,7 +454,8 @@ def take_pending(session: str | None = None) -> str | None:
         if len(fresh) > 1:
             # two sessions blocked a prompt; without a session id the newest could belong to the
             # other one and its private text would land here (review, 2026-09-26)
-            return "(maisecrets: blocked prompts of two sessions are waiting; paste from the clipboard instead)"
+            return ("(maisecrets: blocked prompts of two sessions are waiting; paste from the clipboard, or copy "
+                    "the cleaned prompt from the block message)")
         cands = sorted(fresh, key=lambda p: p.stat().st_mtime, reverse=True)[:1]
     cands = [c for c in cands if time.time() - c.stat().st_mtime < 15 * 60]   # a stale prompt is not sent
     if not cands:
@@ -677,11 +678,16 @@ def _take_values_out(prompt: str, matches: list, cfg: dict, vault, session: str 
     return rewritten, entries, values, stored, matches
 
 
+def settings_mod_came_from(payload: dict) -> str:
+    from .settings import came_from
+    return came_from(payload)
+
+
 def _run_sh() -> str:
     """The absolute path of this plugin's launcher for this OS, for a line the person runs in a terminal (run.sh does
     not run in cmd or PowerShell)."""
-    name = "run.cmd" if os.name == "nt" else "run.sh"
-    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks", name)
+    from .notices import launcher
+    return launcher()
 
 
 def _incident_answer(kind: str, selector: str | None) -> dict:
@@ -731,8 +737,10 @@ def _store_unseen(payload: dict, cfg: dict, value: str, session: str | None, exa
     from . import settings as settings_mod
     allowed = _allowed_by_the_list(value)
     if allowed:
-        return check_value.not_caught(f"maisecrets lets it through: {allowed}. It was not stored. Remove that line "
-                                      "from the allow list to protect it.")
+        from .user_rules import ALLOW_FILE
+        why = allowed[len("your allow list "):] if allowed.startswith("your allow list ") else allowed
+        return check_value.not_caught(f"Your allow list lets it through: it {why}. It was not stored. To protect it, "
+                                      f"remove that line from {ALLOW_FILE}.")
     if not exact:
         return check_value.not_caught("It was not stored, because the prompt does not start with ms:( exactly. Send "
                                       "it again as ms:(…) to store it.")
@@ -746,8 +754,8 @@ def _store_unseen(payload: dict, cfg: dict, value: str, session: str | None, exa
         return check_value.not_caught("It holds a maisecrets placeholder, so it was not stored. Check the value "
                                       "without the placeholder.")
     if "\n" in value or "\r" in value:
-        return check_value.not_caught("It has more than one line, and maisecrets finds a stored value only on one "
-                                      "line. It was not stored.")
+        return check_value.not_caught("It has more than one line, so it was not stored. maisecrets finds a stored "
+                                      "value only on one line. Use /maisecrets:put for it.")
     if len(value) < _EXACT_MIN_LEN:
         return check_value.not_caught(f"maisecrets finds a stored value only from {_EXACT_MIN_LEN} characters on, "
                                       "so it was not stored.")
@@ -759,17 +767,20 @@ def _store_unseen(payload: dict, cfg: dict, value: str, session: str | None, exa
         e = Vault(cfg).put(value, "SECRET", "manual", session=session)
     except Exception as exc:  # noqa: BLE001 - the answer says it; the prompt stays blocked
         incidents.note("prompt.check-store", exc)
-        return check_value.not_caught(f"It could not be stored ({type(exc).__name__}).")
+        return check_value.not_caught(f"It could not be stored (an internal error, {type(exc).__name__}). Try "
+                                      "/maisecrets:put, or /maisecrets:report incident.")
     _live_cache.clear()        # the store holds a value now: the checks below must look for it
     alone = any(_verdict(value, cfg, session)[1:3])
     in_text = any(_verdict(f"see {value} here", cfg, session)[1:3])
-    return check_value.stored_text(e.ref, alone, in_text) + check_value.format_report(value)
+    seconds = int(round(e.expires - e.created))
+    return check_value.stored_text(e.ref, alone, in_text, _hours(seconds)) + check_value.format_report(value)
 
 
 def _check_value(payload: dict, groups: list) -> dict:
     """The answer to ms:(…): always a block, whatever the verdict. Each group of the prompt (check_value.parse_all)
     gets its own verdict, from the same calls as a normal prompt with that value. The reason goes to the person and
-    names types and rule ids, never the value; the transcript loses the prompt as typed."""
+    says what each hit is masked as and how it was found (maisecrets/verdict.py), never the value; the transcript
+    loses the prompt as typed."""
     cfg = load_config()
     session = payload.get("session_id")
     codex = client_of(payload) == "codex"
@@ -822,9 +833,8 @@ def _check_one(payload: dict, cfg: dict, session: str | None, value: str, exact:
         return [], [], check_value.A_PLACEHOLDER_LINE
     entries, matches, n_stored, values = _verdict(value, cfg, session)
     if matches or n_stored:
-        labels = [check_value.hit_label(m.type, m.kind) for m in matches]
-        labels += [check_value.hit_label(e.type, e.kind, stored=True) for e in entries[len(matches):]]
-        return entries, values, check_value.caught_line(labels)
+        from . import verdict
+        return entries, values, verdict.caught(value, matches, entries)
     return entries, values, ("store", value, session, exact)     # _check_value stores it after the last verdict
 
 
@@ -932,7 +942,7 @@ def _term_command(payload: dict, cmd: tuple, typed: bool, cfg: dict) -> dict:
         reason = terms.USAGE
     elif not typed:
         reason = ("maisecrets: a change of your terms counts only when you type it as your prompt; this one came from "
-                  f"the client ({payload.get('source')}), so nothing was changed.")
+                  f"{settings_mod_came_from(payload)}, so nothing was changed.")
     elif verb == "add":
         # Claude Code sends a source with every prompt; one without it may not come from the person, so the floor of
         # a team list holds. Codex never sends a source: its adds follow the person's rules (gate review, round 2)
@@ -985,8 +995,8 @@ def user_prompt(payload: dict) -> dict:
         return {
             "decision": "block",
             "reason": (
-                f"maisecrets: @{mention} would inline the file without scanning. "
-                "Ask the assistant to read it instead, so the Read result can be redacted."
+                f"maisecrets: @{mention} would send the whole file to the AI before maisecrets can check it. "
+                "Ask the AI to read the file instead; then maisecrets masks what is secret in it."
             ),
             "hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "suppressOriginalPrompt": True},
         }
@@ -1056,7 +1066,7 @@ def user_prompt(payload: dict) -> dict:
                 reason = f"maisecrets: the import could not be removed ({type(exc).__name__}); nothing was changed."
         else:
             reason = ("maisecrets: the removal of an import counts only when you type it as your prompt; this one came "
-                      f"from the client ({payload.get('source')}), so nothing was removed.")
+                      f"from {settings_mod_came_from(payload)}, so nothing was removed.")
         if client_of(payload) == "codex":
             return {"decision": "block", "reason": reason}
         return {"decision": "block", "reason": reason,
@@ -1067,9 +1077,9 @@ def user_prompt(payload: dict) -> dict:
             prompt, _marked = term_files.take_markers(prompt, _name_ttl(cfg))
         except OSError as exc:
             return {"decision": "block", "reason": (
-                f"maisecrets: the name you marked with {{{{…}}}} cannot be recorded ({type(exc).__name__}), so it "
-                "would reach the model unmasked. This prompt was not sent; send it again without the marker, or "
-                "write the name as /maisecrets:term add NAME."),
+                f"maisecrets: the name you marked with {{{{…}}}} cannot be recorded ({type(exc).__name__}), so the "
+                "AI would see it. This prompt was not sent. Add the name with /maisecrets:term add NAME, then send "
+                "the prompt again."),
                 "hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "suppressOriginalPrompt": True}}
     if grant:
         from . import consent_store
@@ -1086,12 +1096,12 @@ def user_prompt(payload: dict) -> dict:
             consent_store.drop_codes(session)    # a wrong sentence is another prompt: the code ends (codex review)
         reason = (f"maisecrets: writes over ssh to {', '.join(hosts)} run without asking for "
                   f"{consent_store.APPROVAL_SECONDS // 3600} hours in this session. This prompt was not sent to the "
-                  "model; send your next request." if hosts else
+                  "AI; send your next request." if hosts else
                   ("maisecrets: this consent code is not valid (wrong host, used, or older than "
                    f"{consent_store.CODE_SECONDS // 60} minutes). Nothing was allowed; this prompt was not sent."
                    if grant.group(2) else
-                   "maisecrets: in Codex this sentence needs the code from the refusal. Nothing was allowed; this "
-                   "prompt was not sent."))
+                   "maisecrets: in Codex this sentence needs the 6-digit code from the refusal message. Nothing "
+                   "was allowed; this prompt was not sent."))
         return {"decision": "block", "reason": reason,
                 "hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "suppressOriginalPrompt": True}}
 
@@ -1340,7 +1350,7 @@ def _rehydrated(payload: dict, cfg: dict, path: str, new_input: dict, reason: st
         return _ask(new_input, reason)
     if decision in ("defer", "allow"):
         return _updated(payload, new_input)
-    return _deny("maisecrets: the rehydration policy refuses this call. Nothing ran.")
+    return _deny("maisecrets: the setting rehydration does not let a stored value into this call. Nothing ran.")
 
 
 _ARGS_END = "MAISECRETS_ARGS_END"
@@ -1380,9 +1390,9 @@ def _store_refusal(command: str, windows_paths: bool = False) -> dict | None:
     if matched:
         # said as what the user does next, not as a check to stay inside: "do not rephrase … to get around
         # the check" next to an ops request read like an attempt to get around a control (ops review, 2026-09-28)
-        return _deny(f"maisecrets: this command touches {matched}, the user's own store. The user manages it "
-                     f"with /maisecrets:list and /maisecrets:forget{also}. The command did not run. If the task needs "
-                     "something from there, tell the user what; if this is a false positive, "
+        return _deny(f"maisecrets: this command reads a part of maisecrets that holds stored values ({matched}). "
+                     f"The user manages them with /maisecrets:list and /maisecrets:forget{also}. The command did not "
+                     "run. If the task needs something from there, tell the user what; if this is a false positive, "
                      "/maisecrets:report records it.")
     return None
 
@@ -1595,7 +1605,8 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
         # /ms reads the blocked prompt of the session the client names; a command that names another one
         # would take that session's text (Codex review, 2026-09-28)
         return _deny("maisecrets: this command sets or clears the session id, which selects the blocked prompt "
-                     "of another session. The command did not run. /ms sends the blocked prompt of this session.")
+                     "of another session. The command did not run. /maisecrets:send sends the blocked prompt of this "
+                     "session.")
     refused = _store_refusal(command)
     if refused:
         return refused
@@ -1811,8 +1822,8 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
         return _ask(new_input, base + "The remote command can still pass the value on: allow it only if you trust "
                                       "that host and that command.")
     return _rehydrated(payload, cfg, "bash", new_input,
-                       f"maisecrets: this command gets the real value of {keys} through a shell variable; the "
-                       "command shown here carries no value. Check the command before you allow it.")
+                       f"maisecrets: if you allow it, this command gets the value of {keys}. The command shown "
+                       "here holds only the placeholder. Check where the command sends the value.")
 
 
 def key_nonce() -> str:
@@ -1904,22 +1915,24 @@ def _deny_reason(failed: list[str]) -> str:
     value, or changing maisecrets settings (review, 2026-09-26)."""
     hints: list[str] = []
     if any("(unknown)" in f for f in failed):
-        hints.append("A key marked (unknown) does not exist; do not guess other keys, use only "
+        hints.append("A placeholder marked (no such placeholder) does not exist; do not guess other keys, use only "
                      "placeholders the user gave you.")
     if any("(expired)" in f for f in failed):
-        hints.append("A key marked (expired) has no value any more. Ask the user to store it again with "
+        hints.append("A placeholder marked (expired) has no value any more. Ask the user to store it again with "
                      "/maisecrets:put or to paste it into a prompt (maisecrets blocks it and gives a new "
                      "placeholder), then use the new placeholder. Do not ask for the value in any other way.")
     if any("foreign-session" in f or "no-session" in f for f in failed):
-        hints.append("A key marked (foreign-session) resolves only in a session where a human typed "
-                     "it: ask the user to paste the placeholder, never the value.")
+        hints.append("A placeholder marked (not given in this session) works only in a session where a human "
+                     "typed or pasted it: ask the user to paste the placeholder, never the value.")
     if any("limit:" in f for f in failed):
         hints.append("The cap is set by the user. Stop and tell the user that they can raise it with their "
                      "own prompt /maisecrets:settings max_keys_per_session NUMBER (or max_resolves_per_hour; "
                      "in Codex: maisecrets: set KEY NUMBER); do not change maisecrets settings yourself.")
     if any("audit" in f for f in failed):
         hints.append("The audit log could not be written, so no value is released. Tell the user.")
-    return ("maisecrets: cannot resolve " + ", ".join(failed) + ". The command did not run. "
+    shown = [f.replace("(unknown)", "(no such placeholder)").replace("(foreign-session)", "(not given in this "
+                       "session)").replace("(no-session)", "(not given in this session)") for f in failed]
+    return ("maisecrets: cannot use " + ", ".join(shown) + ". The command did not run. "
             + " ".join(hints))
 
 
@@ -1979,8 +1992,8 @@ def _pre_mcp(payload: dict, cfg: dict, tool: str, tool_input: dict) -> dict:
         _scrub_transcript_later(payload.get("transcript_path", ""), list(values.values()), refs)
     new_input = _walk_strings(tool_input, substitute)
     names = ", ".join(f"⟦{k}⟧" for k in values)
-    warn = (f" WARNING: {', '.join(text_fields)} is text that the tool publishes or stores; the real value "
-            "goes out with it." if text_fields else "")
+    warn = (f" WARNING: {', '.join(text_fields)} is text that other people can read (a message, a comment, a "
+            "page). The real value goes out with it." if text_fields else "")
     return _rehydrated(payload, cfg, "mcp", new_input,
                        f"maisecrets: this call gets the real value of {names} in {', '.join(fields)} "
                        f"of {tool}.{warn} Check the target and the value before you allow it.")
@@ -2085,8 +2098,8 @@ def _store_path_refusal(tool: str, tool_input: dict, cwd: str) -> dict | None:
         _walk_strings(tool_input, look)
     if not hits:
         return None
-    return _deny(f"maisecrets: {tool} would read the maisecrets store or its value directory, the user's own store. "
-                 "The user manages it with /maisecrets:list and /maisecrets:forget. The call did not run. If this is "
+    return _deny(f"maisecrets: {tool} would read the stored values of maisecrets. "
+                 "The user manages them with /maisecrets:list and /maisecrets:forget. The call did not run. If this is "
                  "a false positive, /maisecrets:report records it.")
 
 
@@ -2284,7 +2297,7 @@ def _pre_powershell(payload: dict, tool_input: dict, cfg: dict | None = None) ->
         return _deny("maisecrets: this PowerShell call has no command text to check. The command did not run.")
     if re.search(r"CLAUDE_CODE_SESSION_ID", command, re.IGNORECASE):
         return _deny("maisecrets: this command names the session id, which selects the blocked prompt of a "
-                     "session. The command did not run. /ms sends the blocked prompt of this session"
+                     "session. The command did not run. /maisecrets:send sends the blocked prompt of this session"
                      + _NEEDS_GIT_BASH + ".")
     refused = _store_refusal(command, windows_paths=True)
     if refused:
@@ -2557,7 +2570,8 @@ def post_tool(payload: dict) -> dict:
             return {"decision": "block",
                     "reason": f"[maisecrets: the tool ran and finished; this is not an error. {note}]\n\n{cleaned}"}
         return {
-            "systemMessage": f"maisecrets removed {hidden['n']} invisible character(s) from this {tool} result.",
+            "systemMessage": f"maisecrets removed {hidden['n']} invisible character(s) from this {tool} result. "
+                             "They can hide instructions; the text around them stays.",
             "hookSpecificOutput": {"hookEventName": "PostToolUse", "updatedToolOutput": new_response,
                                    "additionalContext": note},
         }
@@ -2594,7 +2608,7 @@ def post_tool(payload: dict) -> dict:
     shown = ", ".join(dict.fromkeys(refs)) if refs else "values that are already stored"
     return {
         # the person sees what was replaced, not only the model (UX review, 2026-09-27)
-        "systemMessage": f"maisecrets replaced {hit['n']} value(s) in this {tool} "
+        "systemMessage": f"maisecrets masked {hit['n']} value(s) in this {tool} "
                          f"result before the AI saw it: {shown}."
                          + (f" It also removed {hidden['n']} invisible character(s)." if hidden["n"] else "")
                          + (f" {swap[2]}" if swap else ""),
@@ -2602,7 +2616,7 @@ def post_tool(payload: dict) -> dict:
             "hookEventName": "PostToolUse",
             "updatedToolOutput": new_response,
             "additionalContext": (
-                f"maisecrets redacted {hit['n']} value(s) in this tool result. The tool ran and finished; "
+                f"maisecrets masked {hit['n']} value(s) in this tool result. The tool ran and finished; "
                 "do not run it again to see the values. Use the ⟦TYPE_cN⟧ placeholders as they are: in a Bash "
                 "command, an MCP argument or the content of Write/Edit they are resolved at run time."
                 + (f" {note}" if note else "")
@@ -2643,7 +2657,7 @@ def _failure(event: str, payload: dict, exc: BaseException) -> dict:
             f"no write access to {where}. Another program may hold it open (an antivirus scan, a second copy of "
             "maisecrets), or it belongs to another user. maisecrets blocks until it can write; to work without its "
             "protection meanwhile, switch its hooks off in the client's hook settings."), hint=False)
-    return _fail_closed(event, payload, f"failed ({type(exc).__name__}).")
+    return _fail_closed(event, payload, f"an internal error ({type(exc).__name__}).")
 
 
 def _how_failed(exc: BaseException) -> str:
@@ -2803,15 +2817,16 @@ def post_tool_failure(payload: dict) -> dict:
                  "maisecrets cleaned the transcript on disk now, but could not start the later pass" if now else
                  "maisecrets could not clean the transcript on disk")
     unkeyed = max(0, len(dict.fromkeys(values)) - len(refs)) if matches else 0
-    cap = (f" {unkeyed} more were not stored (above max_new_entries_per_result), so a repeat of those is found "
-           "only by its shape." if unkeyed else "")
+    cap = (f" {unkeyed} more were not stored (too many in one result), so a repeat of those is found only by its "
+           "format." if unkeyed else "")
     from . import events
     events.record("PostToolUseFailure", "claude", entries, outcome=f"a failed call: seen by the model; {scrub}")
     shown = ", ".join(refs) if refs else "values that are already stored"
     tool = payload.get("tool_name") or "tool"
     return {
         "systemMessage": f"maisecrets: this failed {tool} call printed {hit['n']} value(s) ({shown}). Claude Code "
-                         f"shows the output of a failed call to the AI as it is, so the AI saw them; {scrub}.{cap}",
+                         f"shows the output of a failed call to the AI as it is, so the AI saw them; {scrub}.{cap} "
+                         "If a value is a real secret, change it at its service.",
         "hookSpecificOutput": {
             "hookEventName": "PostToolUseFailure",
             "additionalContext": (f"maisecrets: the output of this failed call held {hit['n']} value(s) the user "
@@ -2900,30 +2915,39 @@ def _test_watchdog_seconds(default: float) -> float:
     return value if math.isfinite(value) and 0 < value <= _TEST_WATCHDOG_MAX else default
 
 
+_CHECKED = {"pre-tool": "this tool call", "post-tool": "this tool result", "post-tool-failure": "this tool result"}
+
+
 def _fail_closed(event: str, payload: dict, why: str, hint: bool = True) -> dict:
     """The answer that keeps the guard up when the hook itself cannot finish: block the prompt,
     deny the tool, withhold the tool output. Never a value, never an exception text (a keychain
     error carried the value in its argument list; Codex review, 2026-09-26). Each text says
     whether the tool ran, so the model does not repeat a push or a deploy (review, 2026-09-26)."""
     codex = client_of(payload) == "codex"
-    reason = f"maisecrets {event}: {why}" + _incident_line(codex)
-    if event == "post-tool-failure":
-        # the client shows the failed output whatever this answer says: there is nothing to withhold
-        return {"hookSpecificOutput": {"hookEventName": "PostToolUseFailure", "additionalContext": reason}}
     if event == "user-prompt":
-        tail = (" The prompt was not sent; try again. If this message comes again, tell the user that "
-                "maisecrets cannot finish (a locked store or a slow disk)." if hint
-                else " The prompt was not sent. Tell the user; do not retry.")
-        out = {"decision": "block", "reason": reason + tail}
+        # the person reads this one: what happened, and the one next step
+        again = (" If this comes again, " + (f"run {_run_sh()} report incident in a terminal to see a report you can "
+                                             "send." if codex else "/maisecrets:report incident shows a report you "
+                                                                   "can send.")
+                 if hint else "")
+        out = {"decision": "block", "reason": f"maisecrets could not check this prompt: {why} It was not sent. "
+                                              + ("Send it again." if hint else "Fix the cause, then send it again.")
+                                              + again}
         if not codex:
             out["hookSpecificOutput"] = {"hookEventName": "UserPromptSubmit", "suppressOriginalPrompt": True}
         return out
+    what = _CHECKED.get(event)
+    reason = (f"maisecrets could not check {what}: {why}" if what else f"maisecrets {event}: {why}") + \
+        _incident_line(codex)
+    if event == "post-tool-failure":
+        # the client shows the failed output whatever this answer says: there is nothing to withhold
+        return {"hookSpecificOutput": {"hookEventName": "PostToolUseFailure", "additionalContext": reason}}
     if event == "pre-tool":
         tail = (" The command did NOT run. Retry once; if this message comes again, stop and tell the user "
                 "that maisecrets cannot reach its store." if hint
                 else " The command did NOT run. Tell the user; do not retry.")
         return _deny(reason + tail)
-    tail = (" The tool ran and finished; its output is withheld because the redaction did not finish. "
+    tail = (" The tool ran and finished; its output is withheld because the masking did not finish. "
             "Do NOT run it again to see the output; tell the user to check the result in their terminal.")
     if codex:
         return {"decision": "block", "reason": reason + tail}
@@ -3243,7 +3267,8 @@ def main(argv: list[str]) -> int:
     def on_timeout() -> None:
         if not fired.acquire(blocking=False):
             return                                   # the other watchdog runs it already, to its end
-        if answer(_fail_closed(event, payload, f"took longer than {seconds:.0f}s."), "watchdog"):
+        if answer(_fail_closed(event, payload, f"it took longer than {seconds:.0f}s (the computer may be busy)."),
+                  "watchdog"):
             def last() -> None:
                 _heartbeat(event, payload, done=True)
                 _quarantine_running_rule(time.perf_counter() - clock)

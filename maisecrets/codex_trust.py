@@ -26,9 +26,10 @@ _SKIPPED = ("__pycache__", ".venv")
 
 def declaration_hash(event: str, group: dict, handler: dict, windows: bool) -> str:
     command = (handler.get("commandWindows") or handler["command"]) if windows else handler["command"]
-    identity = {"event_name": EVENTS[event],
-                "hooks": [{"type": "command", "command": command, "timeout": handler.get("timeout", 600),
-                           "async": False}]}
+    hook = {"type": "command", "command": command, "timeout": handler.get("timeout", 600), "async": False}
+    if handler.get("statusMessage") is not None:
+        hook["statusMessage"] = handler["statusMessage"]   # part of the declaration (codex-rs config/hook_config.rs)
+    identity = {"event_name": EVENTS[event], "hooks": [hook]}
     if group.get("matcher") is not None:
         identity["matcher"] = group["matcher"]
     blob = json.dumps(identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
@@ -137,10 +138,11 @@ def status_lines(root: Path, codex_home: Path, windows: bool | None = None) -> l
                 elif (entry.get("trusted_content_hash") or baseline) != current:
                     changed += 1
     fix = "open /hooks in Codex and trust the maisecrets entries; until then Codex lets prompts and tool calls through"
+    warn = "WARNING: maisecrets does not protect Codex now: "
     if untrusted:
-        out.append(f"codex hooks: {untrusted} of {total} not trusted: {fix}")
+        out.append(f"{warn}codex hooks: {untrusted} of {total} not trusted: {fix}")
     elif changed:
-        out.append(f"codex hooks: trusted for other contents of this folder (an update, or a changed file), "
+        out.append(f"{warn}codex hooks: trusted for other contents of this folder (an update, or a changed file), "
                    f"so Codex 0.164 and newer skip them: {fix}")
     elif old:
         out.append("codex hooks: trusted (an approval from before Codex 0.164: after the next maisecrets update, "

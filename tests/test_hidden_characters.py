@@ -422,7 +422,7 @@ class HiddenCharacterTests(unittest.TestCase):
 
     def test_a_value_in_a_repeated_key_is_counted_where_it_stands(self):
         out = self.post({"a": {GLPAT: 1}, "b": {GLPAT: 2}}, tool="mcp__x__y")
-        self.assertIn("replaced 2 value(s)", out["systemMessage"])
+        self.assertIn("masked 2 value(s)", out["systemMessage"])
 
     def test_report_n_refuses_an_event_that_only_removed_characters(self):
         self.post({"result": "a" + tags("hidden")})

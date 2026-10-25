@@ -136,7 +136,7 @@ class GrantTests(unittest.TestCase):
         token = "glpat-" + "PendingProbeAbc123456789x"
         out = hooks.user_prompt({"prompt": f"deploy with {token} now", "session_id": "S7", "transcript_path": "",
                                  **CLAUDE})
-        self.assertIn("/ms", out["reason"])
+        self.assertIn("/maisecrets:send", out["reason"])
         self.assertNotIn(token, out["reason"])
         text = hooks.take_pending("S7")
         self.assertEqual(text, "deploy with ⟦SECRET_c2⟧ now")
@@ -145,7 +145,7 @@ class GrantTests(unittest.TestCase):
     def test_reference_resolves_only_in_a_session_that_saw_it(self):
         out = _bash_pre("echo " + self.e.ref, session="S2")["hookSpecificOutput"]
         self.assertEqual(out["permissionDecision"], "deny")
-        self.assertIn("foreign-session", out["permissionDecisionReason"])
+        self.assertIn("(not given in this session)", out["permissionDecisionReason"])
         self.assertIn("paste", out["permissionDecisionReason"])
         # no session id at all: nothing resolves
         out = hooks.pre_tool({"tool_name": "Bash", "tool_input": {"command": "echo " + self.e.ref}, **CLAUDE})
@@ -259,7 +259,7 @@ class ContextTests(unittest.TestCase):
         before = set(os.listdir(hooks._run_dir()))
         out = _bash_pre("echo " + self.e.ref + " ⟦SECRET_c99⟧")["hookSpecificOutput"]
         self.assertEqual(out["permissionDecision"], "deny")
-        self.assertIn("(unknown)", out["permissionDecisionReason"])
+        self.assertIn("(no such placeholder)", out["permissionDecisionReason"])
         self.assertIn("do not guess", out["permissionDecisionReason"])
         self.assertEqual(set(os.listdir(hooks._run_dir())) - before, set())
 
@@ -761,7 +761,7 @@ class McpTests(unittest.TestCase):
             out = hooks.pre_tool({"tool_name": "mcp__slack__post", "session_id": "S1", "prompt_id": "p",
                                   "tool_input": tool_input})["hookSpecificOutput"]
             self.assertEqual(out["permissionDecision"], "ask")
-            self.assertIn("WARNING: text is text that the tool publishes", out["permissionDecisionReason"])
+            self.assertIn("WARNING: text is text that other people can read", out["permissionDecisionReason"])
             # nested, listed, camel-case, suffixed and JSON-string text fields (review, 2026-09-27)
             for ti in ({"messages": [{"text": self.e.ref}]}, {"items": [{"Text": self.e.ref}]},
                        {"children": [{"paragraph": {"rich_text": [{"text": {"content": self.e.ref}}]}}]},
@@ -837,7 +837,7 @@ class RedactionTests(unittest.TestCase):
         text = json.dumps(out)
         self.assertNotIn(NASTY, text)
         self.assertEqual(out["hookSpecificOutput"]["updatedToolOutput"]["stdout"], f"PW={e.ref}\ngot:{e.ref}\n")
-        self.assertIn(f"replaced 2 value(s) in this Bash result before the AI saw it: {e.ref}", out["systemMessage"])
+        self.assertIn(f"masked 2 value(s) in this Bash result before the AI saw it: {e.ref}", out["systemMessage"])
 
     def test_index_carries_no_reversible_fingerprint(self):
         import hashlib

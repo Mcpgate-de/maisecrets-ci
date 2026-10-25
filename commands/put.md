@@ -1,5 +1,5 @@
 ---
-description: Store the value in your clipboard in the maisecrets vault and get a placeholder back (for a password without a recognisable shape). The value never reaches the model.
+description: Store the value in your clipboard and get a placeholder back (for a password maisecrets does not find by itself). The value never reaches the AI.
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" put *), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" put *)
 ---
 

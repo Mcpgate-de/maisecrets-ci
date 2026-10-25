@@ -85,7 +85,7 @@ call :mark
 exit /b 2
 :np_post_tool_failure
 rem the client shows a failed output as it is: there is nothing to withhold, only the reason to name
-echo {"systemMessage":"maisecrets needs Python 3.9 or newer. Install it for all users, as an administrator: winget install --id Python.Python.3.12 --exact --scope machine - a Python for one user only cannot run in the Codex sandbox. Then restart the client. Until then every prompt is blocked."}
+echo {"systemMessage":"maisecrets needs Python 3.9 or newer. Install it for all users, as an administrator: winget install --id Python.Python.3.12 --exact --scope machine - a Python for one user only cannot run in the Codex sandbox. Then restart the client. Until then every prompt and every tool call is blocked."}
 call :mark
 exit /b 0
 :np_post_tool
@@ -101,15 +101,15 @@ echo {"decision":"block","reason":"[maisecrets needs Python 3.9 or newer. Instal
 call :mark
 exit /b 0
 :np_pre_tool
-echo {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"maisecrets needs Python 3.9 or newer. Install it for all users, as an administrator: winget install --id Python.Python.3.12 --exact --scope machine - a Python for one user only cannot run in the Codex sandbox. Then restart the client. Until then every prompt is blocked."}}
+echo {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"maisecrets needs Python 3.9 or newer. Install it for all users, as an administrator: winget install --id Python.Python.3.12 --exact --scope machine - a Python for one user only cannot run in the Codex sandbox. Then restart the client. Until then every prompt and every tool call is blocked."}}
 call :mark
 exit /b 0
 :np_user_prompt
-echo {"decision":"block","reason":"maisecrets needs Python 3.9 or newer. Install it for all users, as an administrator: winget install --id Python.Python.3.12 --exact --scope machine - a Python for one user only cannot run in the Codex sandbox. Then restart the client. Until then every prompt is blocked."}
+echo {"decision":"block","reason":"maisecrets needs Python 3.9 or newer. Install it for all users, as an administrator: winget install --id Python.Python.3.12 --exact --scope machine - a Python for one user only cannot run in the Codex sandbox. Then restart the client. Until then every prompt and every tool call is blocked."}
 call :mark
 exit /b 0
 :np_session_start
-echo {"systemMessage":"maisecrets needs Python 3.9 or newer. Install it for all users, as an administrator: winget install --id Python.Python.3.12 --exact --scope machine - a Python for one user only cannot run in the Codex sandbox. Then restart the client. Until then every prompt is blocked."}
+echo {"systemMessage":"maisecrets needs Python 3.9 or newer. Install it for all users, as an administrator: winget install --id Python.Python.3.12 --exact --scope machine - a Python for one user only cannot run in the Codex sandbox. Then restart the client. Until then every prompt and every tool call is blocked."}
 call :mark
 exit /b 0
 :done

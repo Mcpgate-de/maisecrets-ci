@@ -42,8 +42,8 @@ replace = "        text = response if isinstance(response, str) else json.dumps(
 [[proof]]
 path = "a deny reason that quotes the command"
 file = "maisecrets/hooks.py"
-find = "return _deny(f\"maisecrets: this command touches {matched}, the user's own store."
-replace = "return _deny(f\"maisecrets: this command {command} touches {matched}, the user's own store."
+find = "return _deny(f\"maisecrets: this command reads a part of maisecrets that holds stored values ({matched}). \""
+replace = "return _deny(f\"maisecrets: this command {command} reads a part of maisecrets that holds stored values ({matched}). \""
 
 [[proof]]
 path = "the block notice shows the cleaned prompt"
@@ -60,8 +60,8 @@ replace = "    if False:\n        # a value the store already holds"
 [[proof]]
 path = "the fail-closed answer names the type, not the message"
 file = "maisecrets/hooks.py"
-find = "    return _fail_closed(event, payload, f\"failed ({type(exc).__name__}).\")"
-replace = "    return _fail_closed(event, payload, f\"failed ({exc}).\")"
+find = "    return _fail_closed(event, payload, f\"an internal error ({type(exc).__name__}).\")"
+replace = "    return _fail_closed(event, payload, f\"an internal error ({exc}).\")"
 
 [[proof]]
 path = "the configuration warning names only a typo of a real key"
@@ -78,8 +78,8 @@ replace = "\"permissionDecisionReason\": reason, \"updatedPermissions\": []}}\n\
 [[proof]]
 path = "the person's notice of a redaction"
 file = "maisecrets/hooks.py"
-find = "        \"systemMessage\": f\"maisecrets replaced {hit['n']} value(s)"
-replace = "        \"note\": f\"maisecrets replaced {hit['n']} value(s)"
+find = "        \"systemMessage\": f\"maisecrets masked {hit['n']} value(s)"
+replace = "        \"note\": f\"maisecrets masked {hit['n']} value(s)"
 
 [[proof]]
 path = "another session's value, encoded as hex or base64 by a command"

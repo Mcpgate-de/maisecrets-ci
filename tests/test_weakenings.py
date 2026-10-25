@@ -141,19 +141,21 @@ class SessionStart(unittest.TestCase):
         events.record_weakening("setting", "rehydration", "typed prompt")
         events.record_weakening("forget", "SECRET_c3", "cli")
         line = events.weakenings_since_last_start()
-        self.assertEqual(line, "maisecrets: since the last session start, 2 protections were loosened: setting "
-                               "rehydration (typed prompt), forget SECRET_c3 (cli). If you did not do this, check "
-                               "/maisecrets:settings and /maisecrets:list.")
+        # the setting by its title, the route in words: the raw key and route said nothing to the person
+        self.assertEqual(line, "maisecrets: since the last session start, 2 protections were loosened: the setting "
+                               "Stored values in tool calls (your prompt), stored value SECRET_c3 deleted (a terminal "
+                               "command). If you did not do this, check /maisecrets:settings and /maisecrets:list.")
         self.assertIsNone(events.weakenings_since_last_start(), "shown once")
         events.record_weakening("forget", "SECRET_c4", "slash command")
-        self.assertIn("1 protection was loosened: forget SECRET_c4 (slash command).",
+        self.assertIn("1 protection was loosened: stored value SECRET_c4 deleted (a slash command).",
                       events.weakenings_since_last_start())
 
     def test_a_broken_byte_in_the_log_neither_stops_the_line_nor_the_sentence(self):
         events.EVENTS.parent.mkdir(parents=True, exist_ok=True)
         events.EVENTS.write_bytes(b"\xff\n")
         events.record_weakening("forget", "SECRET_c5", "cli")
-        self.assertIn("1 protection was loosened: forget SECRET_c5 (cli).", events.weakenings_since_last_start())
+        self.assertIn("1 protection was loosened: stored value SECRET_c5 deleted (a terminal command).",
+                      events.weakenings_since_last_start())
 
     def test_many_are_counted_and_a_detection_never_pushes_one_out(self):
         for i in range(7):
@@ -176,7 +178,7 @@ class SessionStart(unittest.TestCase):
                                capture_output=True, text=True, env=env, timeout=60, cwd=tempfile.gettempdir())
                 for _ in range(2)]
         first, second = (json.loads(r.stdout)["systemMessage"] for r in runs)
-        self.assertIn("1 protection was loosened: setting ssh_consent (slash command).", first)
+        self.assertIn("1 protection was loosened: the setting SSH consent (a slash command).", first)
         self.assertNotIn("loosened", second)
         self.assertNotIn("loosened", json.loads(runs[0].stdout)["hookSpecificOutput"]["additionalContext"],
                          "the sentence is for the person, not for the model")

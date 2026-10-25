@@ -646,7 +646,7 @@ class Convert(_Work):
     def test_a_pdf_without_text_says_so(self):
         _reset(read_pdf="convert")
         self.stub("printf '\\f'")
-        self.assertIn("no OCR", output(self.post())["file"]["content"])
+        self.assertIn("cannot read text in images", output(self.post())["file"]["content"])
 
     def test_read_image_has_no_convert(self):
         _reset(read_image="convert")      # a hand-edited file: no mode, so it blocks

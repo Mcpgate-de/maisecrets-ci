@@ -50,7 +50,7 @@ def describe_backend(backend) -> str:
         "EncryptedFileBackend": f"encrypted file {HOME / 'vault.enc.json'} (openssl, key file {HOME / 'key'})",
         "JsonFileBackend": f"PLAINTEXT file {HOME / 'vault.json'} - TEST MODE, not for real secrets",
     }.get(name, name)
-    return (f"maisecrets vault: {where}. Metadata: {INDEX}. "
+    return (f"Stored values: {where}. Metadata: {INDEX}. "
             f"To change it: write {{\"backend\": \"encrypted-file\"}} to {CONFIG} (takes effect on the next call). "
             "Free and open source, by mcpgate.de.")
 
@@ -617,8 +617,9 @@ class Vault:
             # next put would overwrite SECRET_c1 in the store. The file stays in place, so every
             # later call raises too (moving it away made the guard last one call; review,
             # 2026-09-26). `maisecrets repair` rebuilds the counters from the store.
-            raise CodedError(f"vault index unreadable ({INDEX.name}); nothing is stored or resolved until "
-                             f"`maisecrets repair` ran or the file was fixed by hand",
+            from .notices import launcher
+            raise CodedError(f"its list of stored values ({INDEX.name}) is damaged. Until it is repaired, nothing is "
+                             f"stored or put into a command. To repair it, run {launcher()} repair in a terminal",
                              "store.index-read", "parse") from exc
         if not isinstance(data, dict) or "entries" not in data:
             raise CodedError("vault index has an unexpected shape", "store.index-shape", "shape")
@@ -909,9 +910,9 @@ class Vault:
         per_hour = int(self.cfg.get("max_resolves_per_hour", DEFAULT_CONFIG["max_resolves_per_hour"]))
         keys_in_session = {r["key"] for r in rec if r["session"] == session}
         if key not in keys_in_session and len(keys_in_session) >= per_session:
-            return f"limit: {per_session} distinct keys in this session this hour (max_keys_per_session)"
+            return f"limit: {per_session} different placeholders in this session this hour (max_keys_per_session)"
         if len(rec) >= per_hour:
-            return f"limit: {per_hour} resolves in the last hour (max_resolves_per_hour)"
+            return f"limit: {per_hour} uses in the last hour (max_resolves_per_hour)"
         return "ok"
 
     def _limit_all(self, keys: list[str], session: str | None) -> list[str]:
@@ -932,10 +933,10 @@ class Vault:
         if new and len(known) + len(new) > per_session:
             # a cap lowered below the keys already known: the first new key is over it (review round 4:
             # IndexError when the call named only known keys)
-            return [f"{new[max(0, per_session - len(known))]} (limit: {per_session} distinct keys in this session this "
-                    "hour (max_keys_per_session))"]
+            return [f"{new[max(0, per_session - len(known))]} (limit: {per_session} different placeholders in this "
+                    "session this hour (max_keys_per_session))"]
         if len(rec) + len(keys) > per_hour:
-            return [f"{keys[per_hour - len(rec)]} (limit: {per_hour} resolves in the last hour "
+            return [f"{keys[per_hour - len(rec)]} (limit: {per_hour} uses in the last hour "
                     "(max_resolves_per_hour))"]
         return []
 

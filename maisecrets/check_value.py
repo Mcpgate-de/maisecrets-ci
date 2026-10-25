@@ -5,8 +5,8 @@ value is the text between `ms:(` and the last `)`, or up to the end when the `)`
 values, each with its own verdict (parse_all). The verdict comes from the same calls as for a normal prompt with that
 value (hooks._prompt_hits and hooks._take_values_out). A value no rule caught is stored only when it looks like a
 credential (looks_like_a_credential). The answer
-goes to the person only, in the block reason, and names types and rule ids, never the value (README "Check a value
-first").
+goes to the person only, in the block reason, and says what the value is masked as and how it was found
+(maisecrets/verdict.py), never the value (README "Check a value first").
 """
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ EXACT_RE = re.compile(r"\A" + _BLANK + r"ms:\(", re.I)
 # one blank at most on each side: `ms:( value )` and a key on its own lines between `ms:(` and `)`
 _EDGES = ("\r\n", "\n", " ", "\t")
 
-TIP_CLAUDE = "Tip: check a value first with ms:(…)"
+TIP_CLAUDE = "Tip: to test if maisecrets catches a value, send ms:(the value) alone."
 TIP_CODEX = ("maisecrets: check a value first: send ms:(your value) alone as your prompt. maisecrets says whether it "
              "would mask the value, and the value does not reach the AI.")
 NOT_SENT = "This prompt was not sent. The value did not reach the AI."
@@ -47,7 +47,8 @@ USAGE_LINE = ("maisecrets: put the value between the brackets, for example ms:(m
               "it would mask it.")
 A_PLACEHOLDER_LINE = ("maisecrets: this is a maisecrets placeholder, not a value. Put the value itself between the "
                       "brackets.")
-NOT_CAUGHT = "⚠ maisecrets would NOT have caught this."
+# past tense: a value the check stores is masked after the check, and "would NOT have caught" said the opposite
+NOT_CAUGHT = "⚠ maisecrets did not catch this value."
 ORDINARY = "It looks like ordinary text, so it was not stored. If it is a secret, store it with /maisecrets:put."
 
 
@@ -132,21 +133,6 @@ def only_placeholders(value: str, refs: list) -> bool:
     return bool(refs) and not "".join(rest).strip()
 
 
-def hit_label(type_: str, kind: str, stored: bool = False) -> str:
-    """One hit as the person reads it: the type and the rule id. A term names no entity, a stored value no key."""
-    if stored:
-        return f"{type_} (stored value)"
-    if kind.startswith("import:"):
-        return f"{type_} (import:{kind.split(':')[1]})"
-    if kind.startswith("term:"):
-        return f"{type_} (term)"
-    return f"{type_} ({kind})"
-
-
-def caught_line(labels: list[str]) -> str:
-    return f"✓ maisecrets would mask this: {', '.join(dict.fromkeys(labels))}"
-
-
 def not_caught(why: str) -> str:
     return f"{NOT_CAUGHT} {why}"
 
@@ -201,14 +187,16 @@ def format_report(value: str) -> str:
             "Check the start first: if it is part of your secret and not the service's fixed prefix, do not send it.")
 
 
-def stored_text(ref: str, alone: bool, in_text: bool) -> str:
+def stored_text(ref: str, alone: bool, in_text: bool, ttl: str = "1 day") -> str:
+    """Where maisecrets finds a value it just stored, and for how long: the store keeps it for `ttl` after each use
+    (ttl_seconds, 1 day by default), not for good."""
     if alone and in_text:
-        return not_caught(f"It is now stored ({ref}). From now on it is masked wherever it stands as a word of its "
-                          "own.")
+        return not_caught(f"maisecrets stored it as {ref}. For {ttl} after each use it is masked wherever "
+                          "it stands as a word of its own.")
     if alone:
-        return not_caught(f"It is now stored ({ref}). From now on it is masked where it stands alone on a line or "
-                          "after a colon or an equals sign (password: …). Inside a sentence maisecrets does not find "
-                          "it, because it has spaces.")
+        return not_caught(f"maisecrets stored it as {ref} for {ttl} after each use. It is masked when it stands "
+                          "alone on a line or after \"password:\" or \"=\". Inside a sentence it is not found, "
+                          "because it has spaces.")
     return not_caught(f"It is now stored ({ref}), but maisecrets does not find it again in a prompt. Please report "
                       "this with /maisecrets:report bug (the report holds no value).")
 

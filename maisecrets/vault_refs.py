@@ -461,7 +461,8 @@ def ensure_headers(cfg: dict, backend) -> str | None:
                      f"MCP server(s) in {path}")
     if not parts:
         return None
-    return "; ".join(parts) + f" (backup until the next start: {backup.name}; client_header false turns it off)."
+    return "; ".join(parts) + (f" (a backup of the config is kept until the next start: {backup.name}. To turn "
+                               "this off: /maisecrets:settings client_header off.)")
 
 
 def _apply_config(cfg: dict, backend, lock_wait: float = 5.0,
@@ -566,8 +567,8 @@ def _notice(name: str) -> str:
     # later request carries the new header; no restart is needed
     return (f"maisecrets: the MCP server {_say_name(name)} supports {HEADER}, and maisecrets wrote its header into "
             f"the client config. {reconnect_step(name)} Then maisecrets puts this server's values into your local "
-            "files and commands; the AI still sees only tokens. To turn it off: /maisecrets:settings client_header "
-            "false. More: README, section \"Vault references\".")
+            "files and commands; the AI still sees only placeholders. To turn it off: /maisecrets:settings "
+            "client_header off. More: README, section \"Vault references\".")
 
 
 def reconnect_step(name: str) -> str:

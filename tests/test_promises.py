@@ -125,10 +125,11 @@ class LauncherFailsClosedTests(unittest.TestCase):
                     self.assertEqual(out["hookSpecificOutput"]["hookEventName"], "PostToolUse")
                 elif event == "session-start":
                     self.assertEqual(r.returncode, 0)
-                    self.assertTrue(json.loads(r.stdout)["systemMessage"].endswith("every prompt is blocked."))
+                    self.assertTrue(json.loads(r.stdout)["systemMessage"].endswith(
+                        "every prompt and every tool call is blocked."))
                 else:
                     assert_refuses(self, event, r)
-                    self.assertIn("Until then every prompt is blocked.", r.stdout)
+                    self.assertIn("Until then every prompt and every tool call is blocked.", r.stdout)
 
     def test_no_python_on_the_path_blocks_every_event(self):
         self.check_all_events("none")
@@ -776,7 +777,7 @@ class TranscriptScrubThroughTheHooksTests(unittest.TestCase):
         # a value with a quote and a backslash, so its escaped forms differ from the plain one
         value = 'Mq"' + fake_value("M") + "\\z"
         r = self.sb.run("put", stdin=value)
-        key = re.search(r"stored as (\w+) ", r.stdout).group(1)
+        key = re.search(r"placeholder (?:is )?\u27e6(\w+)", r.stdout).group(1)
         ref = f"⟦{key}⟧"
         self.hook("user-prompt", {"prompt": f"use {ref}", "session_id": "S1", "prompt_id": "p1"})   # admits S1
         out = self.hook("pre-tool", {"tool_name": "mcp__srv__echo", "session_id": "S1", "prompt_id": "p2",
@@ -914,7 +915,8 @@ class NoNetworkTests(unittest.TestCase):
                                env=env, capture_output=True, text=True, timeout=30)
         self.assertIn("no network", probe.stderr)
         (sb.root / "tripwire").unlink()
-        key = re.search(r"stored as (\w+) ", sb.run("put", stdin=fake_value("Rf"), env=env).stdout).group(1)
+        out = sb.run("put", stdin=fake_value("Rf"), env=env).stdout
+        key = re.search(r"placeholder (?:is )?\u27e6(\w+)", out).group(1)
         transcript = sb.root / "t.jsonl"
         transcript.write_text("{}\n", encoding="utf-8")
         for event, payload in _payloads(f"⟦{key}⟧"):

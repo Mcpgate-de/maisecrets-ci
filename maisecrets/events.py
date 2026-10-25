@@ -126,13 +126,22 @@ def record_weakening(kind: str, name: str, route: str) -> None:
         pass
 
 
+_ROUTE_WORDS = {"typed prompt": "your prompt", "slash command": "a slash command", "cli": "a terminal command"}
+
+
 def _label(e: dict) -> str:
+    """One loosened protection as the person reads it: the setting by its title, a stored value by its key, and how
+    it was done. The raw key and route words (`setting ssh_consent (typed prompt)`) said nothing to the person."""
     kind, name = e.get("weakened"), e.get("name", "?")
+    route = _ROUTE_WORDS.get(e.get("route", ""), "another way")
     if kind == "setting":
-        return f"setting {name}"
+        from .settings import TITLE
+        return f"the setting {TITLE.get(name, name)} ({route})"
     if kind == "forget":
-        return f"forget {name}"
-    return f"{kind} {name}"
+        return f"stored value {name} deleted ({route})"
+    if kind == "value-import":
+        return f"imported values {name} removed ({route})"
+    return f"{kind} {name} ({route})"
 
 
 def weakenings_since_last_start() -> str | None:
@@ -155,7 +164,7 @@ def weakenings_since_last_start() -> str | None:
         os.replace(atomic, _SHOWN)
     except OSError:
         pass
-    named = ", ".join(f"{_label(e)} ({e.get('route', 'other')})" for e in new[:5])
+    named = ", ".join(_label(e) for e in new[:5])
     more = f", and {len(new) - 5} more in {EVENTS.name}" if len(new) > 5 else ""
     was = "protection was" if len(new) == 1 else "protections were"
     return (f"maisecrets: since the last session start, {len(new)} {was} loosened: {named}{more}. If you did not "

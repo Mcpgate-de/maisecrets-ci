@@ -245,7 +245,8 @@ class Change(unittest.TestCase):
         self.assertNotIn("ssh_consent", _user())
         with mock.patch.object(settings, "load_config",
                                return_value={**load_config(), "policy_keys": ["ssh_consent"]}):
-            self.assertIn("machine policy", settings.apply_typed("ssh_consent", "on")[1])
+            self.assertIn("SSH consent is set by your administrator's policy",
+                          settings.apply_typed("ssh_consent", "on")[1])
         self.assertNotIn("ssh_consent", _user())
         CONFIG.write_text('{"backend": "jsonfile", "allow_plaintext_store": true,')
         try:
@@ -432,11 +433,11 @@ class Hint(unittest.TestCase):
     def test_the_hint_keeps_what_the_answer_does(self):
         # a redacted result keeps its output and its own context; the hint comes after it
         result = {"hookSpecificOutput": {"hookEventName": "PostToolUse", "updatedToolOutput": {"stdout": "x"},
-                                         "additionalContext": "maisecrets redacted 1 value(s)"}}
+                                         "additionalContext": "maisecrets masked 1 value(s)"}}
         with mock.patch.object(hooks, "post_tool", return_value=result):
             out = _post("ssh web1 reboot")
         self.assertEqual(out["hookSpecificOutput"]["updatedToolOutput"], {"stdout": "x"})
-        self.assertTrue(_context(out).startswith("maisecrets redacted 1 value(s)"))
+        self.assertTrue(_context(out).startswith("maisecrets masked 1 value(s)"))
         self.assertIn("maisecrets can ask", _context(out))
         # a hint that fails does not withhold the output
         _reset()

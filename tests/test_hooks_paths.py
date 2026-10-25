@@ -108,13 +108,17 @@ class FailClosedAnswerTests(unittest.TestCase):
             with self.subTest(client=client):
                 up = hooks._fail_closed("user-prompt", payload, "x")
                 self.assertEqual(up["decision"], "block")
-                self.assertIn("The prompt was not sent; try again", up["reason"])
+                # the person reads it: no event id, no "tell the user", one next step
+                self.assertTrue(up["reason"].startswith("maisecrets could not check this prompt: x It was not sent. "
+                                                        "Send it again. If this comes again, "), up["reason"])
+                self.assertNotIn("user-prompt", up["reason"])
+                self.assertNotIn("tell the user", up["reason"])
                 if client == "claude":
                     self.assertTrue(up["hookSpecificOutput"]["suppressOriginalPrompt"])
                 else:
                     self.assertNotIn("hookSpecificOutput", up, "Codex rejects a Claude-only field")
                 up = hooks._fail_closed("user-prompt", payload, "x", hint=False)
-                self.assertIn("do not retry", up["reason"])
+                self.assertIn("It was not sent. Fix the cause, then send it again.", up["reason"])
                 pre = hooks._fail_closed("pre-tool", payload, "x", hint=False)["hookSpecificOutput"]
                 self.assertEqual(pre["permissionDecision"], "deny")
                 self.assertIn("did NOT run. Tell the user; do not retry", pre["permissionDecisionReason"])
@@ -139,7 +143,7 @@ class FailClosedAnswerTests(unittest.TestCase):
             with self.subTest(event), mock.patch.dict(hooks.HANDLERS, {event: boom}):
                 rc, out, _err = self._main(event, '{"prompt_id": "p"}')
                 self.assertEqual(rc, 0)
-                self.assertIn("failed (RuntimeError)", out)
+                self.assertIn("an internal error (RuntimeError)", out)
                 self.assertNotIn(PLAIN, out, "an exception message may carry a value")
                 json.loads(out)
 
@@ -159,7 +163,7 @@ class FailClosedAnswerTests(unittest.TestCase):
         with mock.patch.object(hooks, "post_tool", side_effect=KeyError(PLAIN)):
             out = hooks._post_tool_guarded({"turn_id": "t"})
         self.assertEqual(out["decision"], "block")
-        self.assertIn("failed (KeyError)", out["reason"])
+        self.assertIn("an internal error (KeyError)", out["reason"])
         self.assertNotIn(PLAIN, json.dumps(out))
 
     def test_the_watchdog_withholds_a_slow_post_tool_and_denies_a_slow_pre_tool(self):
@@ -237,7 +241,7 @@ class ClientShapeTests(unittest.TestCase):
             codex = hooks.user_prompt({"prompt": "use " + GLPAT, "session_id": "U2", "turn_id": "t",
                                        "transcript_path": ""})
         self.assertTrue(claude["hookSpecificOutput"]["suppressOriginalPrompt"])
-        self.assertIn("pastes the cleaned prompt. Then send it, or type /ms", claude["reason"])
+        self.assertIn("pastes the cleaned prompt. Then send it, or type /maisecrets:send", claude["reason"])
         self.assertNotIn("hookSpecificOutput", codex)
         self.assertIn("pastes the cleaned prompt. Then send it.", codex["reason"])
         self.assertIn("maisecrets by mcpgate.de", codex["reason"])
@@ -297,7 +301,7 @@ class ClientShapeTests(unittest.TestCase):
         self.assertEqual(new["content"][1], {"n": 5, "ok": True, "none": None})
         self.assertEqual(new["meta"]["deep"], [["x", self.e.ref + " tail"]])
         self.assertEqual(new["exit"], 0)
-        self.assertIn("replaced 2 value(s) in this mcp__x__y result", out["systemMessage"])
+        self.assertIn("masked 2 value(s) in this mcp__x__y result", out["systemMessage"])
         self.assertEqual(hooks.post_tool({"tool_name": "Bash", "session_id": "S1", "tool_response": None,
                                           **CLAUDE}), {})
         self.assertEqual(hooks.post_tool({"tool_name": "Bash", "session_id": "S1", "tool_response": [1, 2.5],
@@ -469,7 +473,7 @@ class MentionAndPendingTests(unittest.TestCase):
             with self.subTest(prompt):
                 out = hooks.user_prompt({"prompt": prompt, "cwd": cwd, "session_id": "M1", "prompt_id": "p"})
                 self.assertEqual(out["decision"], "block")
-                self.assertIn("would inline the file without scanning", out["reason"])
+                self.assertIn("would send the whole file to the AI before maisecrets can check it", out["reason"])
                 self.assertTrue(out["hookSpecificOutput"]["suppressOriginalPrompt"])
         self.assertEqual(hooks.user_prompt({"prompt": "see @nothing-here.env", "cwd": str(self.dir), **CLAUDE}), {})
         self.assertEqual(hooks.user_prompt({"prompt": "mail me@example", "cwd": str(self.dir), **CLAUDE}), {})
@@ -574,7 +578,7 @@ class FileToolTests(unittest.TestCase):
         out = _hso(self._pre("Write", {"file_path": "/w/a", "content": "⟦SECRET_c77⟧"}))
         self.assertEqual(out["permissionDecision"], "deny")
         reason = out["permissionDecisionReason"]
-        self.assertIn("SECRET_c77 (unknown)", reason)
+        self.assertIn("SECRET_c77 (no such placeholder)", reason)
         self.assertIn("Nothing was written.", reason)
         self.assertNotIn("The command did not run", reason)
 
@@ -607,7 +611,7 @@ class McpAskTests(unittest.TestCase):
         self.assertIn("used as a field name", out["permissionDecisionReason"])
         self.assertEqual(self._pre({"q": "no placeholder", "n": 3}), {})
         out = _hso(self._pre({"to": "⟦SECRET_c55⟧"}))
-        self.assertIn("SECRET_c55 (unknown)", out["permissionDecisionReason"])
+        self.assertIn("SECRET_c55 (no such placeholder)", out["permissionDecisionReason"])
         self.assertIn("do not guess other keys", out["permissionDecisionReason"])
 
     def test_field_paths_and_text_field_words(self):
@@ -684,7 +688,7 @@ class BashPathTests(unittest.TestCase):
             _run(out["updatedInput"]["command"])
         third = Vault().put("third-" + PLAIN, "SECRET", "manual", session="S1")
         out = _hso(_bash_pre("echo " + third.ref))
-        self.assertIn("limit: 1 distinct keys", out["permissionDecisionReason"])
+        self.assertIn("limit: 1 different placeholders", out["permissionDecisionReason"])
         self.assertIn("do not change maisecrets settings yourself", out["permissionDecisionReason"])
         # 0.6.9: the person learns how to raise the cap (a typed prompt; the model may not type it for them)
         self.assertIn("/maisecrets:settings max_keys_per_session NUMBER", out["permissionDecisionReason"])
@@ -853,7 +857,7 @@ class PayloadMatrixTests(unittest.TestCase):
         self.assertEqual(self._one(_dispatch("user-prompt", '{"session_id": "SM"}')), {})
         wrong = self._one(_dispatch("user-prompt", '{"prompt": 42, "prompt_id": "p"}'))
         self.assertEqual(wrong["decision"], "block")
-        self.assertIn("failed (TypeError)", wrong["reason"])
+        self.assertIn("an internal error (TypeError)", wrong["reason"])
         broken = self._one(_dispatch("user-prompt", json.dumps({"prompt": "x " + GLPAT, "prompt_id": "p",
                                                                 "transcript_path": ""}), home=self.broken))
         self.assertEqual(broken["decision"], "block")

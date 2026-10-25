@@ -3,7 +3,8 @@
 Codex keeps `trusted_hash` per hook in config.toml and compares it with a hash of the hook as it is now
 (codex-rs hooks/src/engine/discovery.rs, hook_hash). A different hash makes the hook "Modified", and a modified
 hook does not run, with no message, until the person trusts it again; the ChatGPT app has no screen for that. The
-hash covers the command text of the platform (commandWindows on Windows), the timeout and the matcher. The
+hash covers the command text of the platform (commandWindows on Windows), the timeout, the matcher and the
+statusMessage. The
 recomputation (maisecrets/codex_trust.py) matched the hashes in two real config.toml files (macOS and Windows,
 2026-09-30) and the hash Codex 0.164.0-alpha.4 gave for a fixture plugin (2026-10-19).
 
@@ -13,6 +14,8 @@ its hooks off at once (measured: the next prompt with a token reached the model)
 
 So a change to a command or a matcher in hooks/hooks.json switches maisecrets off for every Codex user before 0.164.
 If the change is meant, update the hashes here and say in the CHANGELOG that Codex users must trust the hooks again.
+The statusMessage of each hook (0.8) is such a change: the hashes below pin the commands, matchers and timeouts
+without it, and Codex users approve the hooks once for the version that brings it.
 """
 from __future__ import annotations
 
@@ -65,6 +68,10 @@ FIXTURE_CONTENTS = "sha256:da1aaf212af5a401d5f881a2064ae182309936af54f0fd6069ce2
 # the same fixture on windows-latest, codex-cli 0.164.0-alpha.4 (harness/codex_trust_probe.py, 2026-10-19): Codex
 # spells the relative paths with "\\" there
 FIXTURE_CONTENTS_WINDOWS = "sha256:d0f73e3e4b2efac73ea2f649f0ae78db7c431c45c6e5250241ccf5ed248dd74b"
+# the fixture hook with "statusMessage": "fixture checks the prompt", as codex-cli 0.164.0 gave it in hooks/list
+# (2026-10-25): the message is part of the declaration
+FIXTURE_STATUS = "fixture checks the prompt"
+FIXTURE_DECLARATION_WITH_STATUS = "sha256:83d7f545053b1aed0efd9310af7bc57f2986db92d86cd1e8cc30a6d4131b5ab1"
 
 # hook groups added after the trust above: Codex treats each as a new hook that needs its own trust, while the groups
 # above keep theirs (an added group changes no hash of another). apply_patch by its own name (0.6.40): Codex
@@ -84,8 +91,9 @@ def codex_hashes(platform: str) -> dict:
         for g in groups:
             if (event, g.get("matcher")) in ADDED_GROUPS:
                 continue
-            out[codex_trust.EVENTS[event]] = codex_trust.declaration_hash(event, g, g["hooks"][0],
-                                                                          platform == "windows")
+            # without the statusMessage: the commands, matchers and timeouts stay the ones people trusted
+            handler = {k: v for k, v in g["hooks"][0].items() if k != "statusMessage"}
+            out[codex_trust.EVENTS[event]] = codex_trust.declaration_hash(event, g, handler, platform == "windows")
     return out
 
 
@@ -118,6 +126,9 @@ class CodexTrustTests(unittest.TestCase):
         self.assertEqual(codex_trust.declaration_hash("UserPromptSubmit", group, group["hooks"][0], False),
                          FIXTURE_DECLARATION)
         self.assertEqual(codex_trust.content_hash(root, windows=False), FIXTURE_CONTENTS)
+        self.assertEqual(codex_trust.declaration_hash("UserPromptSubmit", group,
+                                                      {**group["hooks"][0], "statusMessage": FIXTURE_STATUS}, False),
+                         FIXTURE_DECLARATION_WITH_STATUS)
         self.assertEqual(codex_trust.content_hash(root, windows=True), FIXTURE_CONTENTS_WINDOWS)
         self.assertEqual(codex_trust.content_hash(root),
                          FIXTURE_CONTENTS_WINDOWS if os.name == "nt" else FIXTURE_CONTENTS)

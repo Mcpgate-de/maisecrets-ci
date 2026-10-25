@@ -314,7 +314,7 @@ class RehydrationMatrixTests(unittest.TestCase):
         tool, tool_input = _input("ssh", ref)
         hso = self.pre(tool, tool_input, "claude", rehydration="confirm", ssh_approval="per-session")
         self.assertEqual(hso.get("permissionDecision"), "deny")
-        self.assertIn("foreign-session", hso["permissionDecisionReason"])
+        self.assertIn("(not given in this session)", hso["permissionDecisionReason"])
         store = Path(HOME, "ssh-approvals.json")
         self.assertFalse(store.exists() and '"pending": {}' not in store.read_text(encoding="utf-8"),
                          "a refused key left a pending approval token")

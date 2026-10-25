@@ -42,19 +42,35 @@ def _list_values() -> int:
         return 0
     live = [e for e in rows if not e.purged]
     print(f"{len(live)} value(s) stored, {len(rows) - len(live)} expired (only the masked form is kept).")
-    print(f"{'key':<14} {'type':<7} {'kind':<18} {'age':>5} {'uses':>4} {'expires in':>10}  shown as")
+    print(f"{'placeholder':<14} {'type':<7} {'found by':<9} {'age':>5} {'uses':>4} {'expires in':>10}  shown as")
     from . import destinations
     shown_before = time.time() - destinations.NEW_SECONDS
     for e in sorted(rows, key=lambda x: x.created):
         exp = "expired" if e.purged else f"{int(max(0, e.expires - time.time()) // 3600)}h"
-        print(f"{e.key:<14} {e.type:<7} {e.kind:<18} {_age(e.created):>5} {e.uses:>4} {exp:>10}  {e.display or '-'}")
+        print(f"{e.key:<14} {e.type:<7} {_found_by(e.kind):<9} {_age(e.created):>5} {e.uses:>4} {exp:>10}  "
+              f"{e.display or '-'}")
         if not e.purged:
             for line in _destination_lines(destinations.of(e.key), shown_before):
                 print(line)
     if v.backend.test_mode:
         print("\nbackend: jsonfile (TEST MODE, plaintext under ~/.maisecrets/)")
-    print("\nTo delete one: /maisecrets:forget <key>. To delete everything: /maisecrets:status shows how.")
+    launcher = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks",
+                            "run.cmd" if os.name == "nt" else "run.sh")
+    print(f"\nTo delete one: /maisecrets:forget <placeholder>. To delete everything, run in a terminal: {launcher} "
+          "wipe --yes")
     return 0
+
+
+def _found_by(kind: str) -> str:
+    """How a stored value was found, in the words of the ms:( check (maisecrets/verdict.py): the rule id meant
+    nothing to the person."""
+    if kind == "manual":
+        return "you"
+    for prefix, word in (("term:", "term"), ("import:", "import"), ("user:", "your-rule")):
+        if kind.startswith(prefix):
+            return word
+    from .verdict import EXPORT_RULE, how_found
+    return "label" if kind == EXPORT_RULE else how_found(kind)
 
 
 def _destination_lines(rec: dict, shown_before: float) -> list[str]:
@@ -73,10 +89,10 @@ def _destination_lines(rec: dict, shown_before: float) -> list[str]:
                 f"{destinations.uses_text(d.get('uses', 0)):<6} "
                 f"last {destinations.when_text(d.get('last', 0))}{new}")
     if network:
-        out.append("    Seen at (a record, not a permission)")
+        out.append("    Sent to (a record only; it allows nothing)")
         out += [row(d) for d in network]
     if local:
-        out.append("    Local uses (not destination-protected)")
+        out.append("    Used on this computer")
         out += [row(d) for d in local]
     return out
 
@@ -95,7 +111,7 @@ def cmd_forget(args: list[str]) -> int:
         if getattr(v, "destinations_kept", False):
             print(f"{key}: its destination record could not be deleted now; /maisecrets:forget {key} again later.")
         if status == "ok":
-            print(f"{key}: deleted. A placeholder for it no longer resolves anywhere.")
+            print(f"{key}: deleted. A placeholder for it no longer works anywhere.")
         elif status == "unknown":
             print(f"{key}: not found (see /maisecrets:list)")
             rc = 1
@@ -144,10 +160,10 @@ def cmd_audit(args: list[str]) -> int:
         return 2
     path = HOME / "audit.log"
     if not path.exists():
-        print("(no resolves recorded)")
+        print("(no stored value was used yet)")
         return 0
     lines = path.read_text(encoding="utf-8").splitlines()[-n:]
-    print("time                 session  key            tool            context")
+    print("time                 session  placeholder    tool            command")
     for line in lines:
         parts = line.split("\t")
         if len(parts) == 5:
@@ -175,13 +191,14 @@ def cmd_put(args: list[str]) -> int:
         value = sys.stdin.read()
     value = value.strip()
     if not value:
-        print("maisecrets put: no value (empty clipboard/stdin)", file=sys.stderr)
+        print("maisecrets: the clipboard is empty. Copy the value first, then run /maisecrets:put again."
+              if source == "clipboard" else "maisecrets: no value came on stdin; nothing was stored.", file=sys.stderr)
         return 2
     e = Vault().put(value, type_, "manual")
     from .hooks import _clipboard
     copied = _clipboard(e.ref)
-    print(f"stored as {e.key} ({len(value)} chars); reference {e.ref} "
-          f"{'is in the clipboard' if copied else 'printed above'}")
+    print(f"Stored. Its placeholder {e.ref} is in your clipboard: paste it where the value is needed." if copied
+          else f"Stored. Its placeholder is {e.ref}: paste it where the value is needed.")
     return 0
 
 
@@ -209,8 +226,8 @@ def cmd_report(args: list[str]) -> int:
         for i, e in enumerate(evs, 1):
             hits = ", ".join(f"{h['type']}/{h['kind']}" for h in e.get("hits", []))
             print(f"{i:<3} {e.get('ts', ''):<20} {e.get('hook', ''):<17} {e.get('client', ''):<7} {hits}")
-        print("\nmaisecrets report last [note] | report <n> [note] | report bug <text> | report feature <text>"
-              " | report incident")
+        print("\n/maisecrets:report last <why it is wrong> | /maisecrets:report <n> <why> | /maisecrets:report bug "
+              "<text> | /maisecrets:report feature <text> | /maisecrets:report incident")
         return 0
     if args[0] == "last":
         # a removal of invisible characters is no detection to report as a false alarm; the list shows it. The
@@ -248,7 +265,7 @@ def _forget_the_false_positive(ev: dict) -> None:
     print(f"Test data that maisecrets leaves alone: {TEST_DATA_URL}")
     keys = list(dict.fromkeys(h.get("key") for h in ev.get("hits", []) if h.get("key")))
     if keys:
-        print("If this is not a secret, delete its stored value so it is not redacted or blocked again: "
+        print("If this is not a secret, delete its stored value so it is not masked or blocked again: "
               + " ".join(f"/maisecrets:forget {k}" for k in keys))
 
 
@@ -346,7 +363,7 @@ def _print_imports(rows: list, always: bool = False) -> None:
     if not rows:
         if always:
             print("No values are imported. A tool of yours writes JSON lines ({\"value\": ..., \"type\": ...}); "
-                  "`values import FILE` or the setting value_files adds them.")
+                  "/maisecrets:settings value_files add FILE adds them.")
         return
     from .values import type_text
     print(f"\nImported values (mask only): {sum(r['count'] for r in rows)} in {len(rows)} import(s)")
@@ -411,7 +428,7 @@ def cmd_status(_: list[str]) -> int:
     live = [e for e in v.list() if not e.purged]
     print(describe_backend(v.backend))
     kept = v.cfg.get("keep_purged_days")
-    print(f"entries: {len(live)} live, {len(v.list()) - len(live)} expired (metadata kept {kept} days)")
+    print(f"stored values: {len(live)}, {len(v.list()) - len(live)} expired (metadata kept {kept} days)")
     policy = v.cfg.get("policy_keys") or []
     print("settings from a machine policy: " + (", ".join(policy) if policy else "none"))
     from . import rehydration
@@ -421,7 +438,7 @@ def cmd_status(_: list[str]) -> int:
             "block": "no value goes into a tool call"}
     main = pol["bash"]
     other = [f"{path} {p}" for path, p in pol.items() if p != main]
-    print(f"rehydration: {main} ({what[main]})" + (f"; except {', '.join(other)}" if other else ""))
+    print(f"stored values in tool calls: {main} ({what[main]})" + (f"; except {', '.join(other)}" if other else ""))
     from . import detect
     def version(name: str) -> str:
         return (detect.RULES_DIR / f"{name}_VERSION").read_text(encoding="utf-8").strip()
@@ -553,14 +570,13 @@ def cmd_shortcut(args: list[str]) -> int:
     if "--remove" in args:
         removed = remove_shortcut(next((a for a in args if a != "--remove" and a.isalnum()), "ms"))
         print("removed: " + (", ".join(removed) if removed else "nothing (no maisecrets shortcut found)"))
-        print("The session start will not install it again; run `shortcut` to get it back.")
+        print("The session start will not install it again; type /maisecrets:shortcut to get it back.")
         return 0
     name = (args[0] if args and args[0].isalnum() else "ms")
     target, wrapper = install_shortcut(name)
     from .vault import HOME
     (HOME / ".shortcut").write_text("installed\n", encoding="utf-8")
-    print(f"installed /{name}: {target} -> {wrapper}.")
-    print("Start a new session (or /reload-plugins) to use it.")
+    print(f"Installed /{name}. Start a new session (or /reload-plugins) to use it. ({target} -> {wrapper})")
     return 0
 
 
@@ -886,7 +902,9 @@ def cmd_repair(_: list[str]) -> int:
     except RuntimeError as exc:
         print(f"repair refused: {exc}", file=sys.stderr)
         return 1
-    print(f"repaired: {info['deleted']} stored value(s) deleted, counters {info['counters']}")
+    last = ", ".join(f"{t}_c{n}" for t, n in sorted(info["counters"].items()))
+    print(f"Repaired. {info['deleted']} stored value(s) were deleted; new placeholders continue after the old "
+          f"numbers" + (f" (last: {last})." if last else "."))
     return 0
 
 

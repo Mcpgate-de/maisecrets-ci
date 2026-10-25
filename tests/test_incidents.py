@@ -350,7 +350,7 @@ class ReportTests(_Home):
                 mock.patch.object(webbrowser, "open", side_effect=AssertionError("a browser")):
             text = incidents.report_text()
         self.assertIn("store.lock/lock", text)
-        self.assertIn("Not yet folded: guard.fired", text)
+        self.assertIn("Not yet counted: guard.fired", text)
         self.assertTrue(self.marker_still_there())
 
     def marker_still_there(self) -> bool:

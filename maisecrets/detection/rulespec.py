@@ -42,7 +42,7 @@ class RuleSpec:
     region: str          # "generic" or a country code
     type: str            # the placeholder type: SECRET, EMAIL, IBAN, DE_ID_CARD, ...
     rule_class: str      # what it finds: "provider:github", "label:keyword", "pii:email", ...
-    form: str            # keyword | label | shape
+    form: str            # keyword | label | shape; a rule of a pass that needs a label or a form is a label rule
     matcher: str = "regex"   # matcher_of
     filters: frozenset = frozenset()   # filters_of
     language: str = ""   # the label languages of a label source ("en,de"), else ""
@@ -155,6 +155,14 @@ def pass_specs(export_rule: str, export_type: str, personal_rules: tuple, prompt
     return out
 
 
+def _form(rule_id: str, needs: str) -> str:
+    """The form of a spec: form_of by the id, and `label` for a personal-data rule that finds a value only by the words
+    around it (`Name:`, a phone word, a vCard field, a form): it is no shape that is found alone. A spec only: a rule
+    of a pass has no Rule.form, so the scan and the fixture check (detect._shape_rule_ids) do not change."""
+    form = form_of(rule_id)
+    return "label" if form == "shape" and needs else form
+
+
 def make(source: str, rule_id: str, type_: str, seq: int, *, region: str = "generic", channel: str = "both",
          language: str = "", upstream: Upstream | None = None, patches: tuple = (), needs: str = "") -> RuleSpec:
     origin = "vendored" if source in VENDORED else OWN_SPECIAL.get(source, "own")
@@ -165,6 +173,6 @@ def make(source: str, rule_id: str, type_: str, seq: int, *, region: str = "gene
     phase = PHASES["user"] if source == "user" else PASSES.get(source, PHASES["rules"])
     return RuleSpec(key=key_of(source, rule_id), id=rule_id, source=source, origin=origin,
                     priority=(phase, BANDS.get(source, 0), seq), channel=channel, region=region, type=type_,
-                    rule_class=rule_class(source, rule_id, type_), form=form_of(rule_id),
+                    rule_class=rule_class(source, rule_id, type_), form=_form(rule_id, needs),
                     matcher=matcher_of(rule_id, source), filters=filters_of(rule_id), language=language,
                     needs=needs, upstream=upstream, patches=tuple(patches))

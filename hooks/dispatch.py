@@ -40,7 +40,7 @@ def _refuse_without_the_code(why: str) -> None:
     maisecrets is imported here, and the text carries the exception type only."""
     event = sys.argv[1] if len(sys.argv) == 2 else ""
     msg = (f"maisecrets cannot load its own code ({why}); the plugin folder may be half updated. "
-           "Run /reload-plugins or start a new session.")
+           "Start a new session (in Claude Code: claude --resume to keep this one).")
     if event == "post-tool-failure":
         import json
         print(json.dumps({"systemMessage": msg}))    # a failed output cannot be withheld: only the reason is named
@@ -57,11 +57,11 @@ def _refuse_without_the_code(why: str) -> None:
         sys.exit(0)
     if event == "session-start":
         import json
-        print(json.dumps({"systemMessage": msg + " Until then every prompt is blocked."}))
+        print(json.dumps({"systemMessage": msg + " Until then every prompt and tool call is blocked."}))
         _marker("launcher.import")
         sys.exit(0)
     import json
-    text = msg + " Until then every prompt is blocked."
+    text = msg + " Until then every prompt and tool call is blocked."
     # JSON, not exit 2: Codex runs the tool when a hook exits 2 (harness/codex.py); both clients read this
     if event == "pre-tool":
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
@@ -111,7 +111,8 @@ if len(sys.argv) >= 2 and sys.argv[1] == "pending":
     # harness, 2026-09-28): with two blocked prompts waiting, /ms found neither and pointed to the
     # clipboard, which does not exist over SSH or in Remote Control (field report on 0.5.8)
     text = take_pending(os.environ.get("CLAUDE_CODE_SESSION_ID") or None)
-    print(text if text is not None else "(maisecrets: no blocked prompt is waiting)")
+    print(text if text is not None else "(maisecrets: no blocked prompt is waiting. A blocked prompt waits 15 "
+          "minutes.)")
     sys.exit(0)
 
 if len(sys.argv) >= 2 and sys.argv[1] in ("report", "put", "status", "list", "audit", "expire", "config",
@@ -209,7 +210,9 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
     except Exception:  # noqa: BLE001 - rules of your own never stop a session start
         own_rules, broken = "", None
     marker = HOME / ".announced"
+    tried = False
     if v.backend.test_mode or not marker.exists():
+        tried = True        # the try-it line names ms:(…): the Codex tip below would say it twice
         from maisecrets.tips import try_it_line  # noqa: E402
         more = "" if codex else " /maisecrets:status shows the details, /maisecrets:list what is stored."
         out["systemMessage"] = (f"maisecrets {version} is on{own_rules}. " + intro_line(v.backend) + more + " "
@@ -227,10 +230,12 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
     if quieted:
         out["systemMessage"] = (out.get("systemMessage", "") +
                                 f" {len(quieted)} stored word(s) are program code, not secrets "
-                                f"({', '.join(quieted)}): maisecrets no longer redacts them in other texts. "
+                                f"({', '.join(quieted)}): maisecrets no longer masks them in other texts. "
                                 "/maisecrets:forget deletes them.")
     if cfg.get("config_warning"):
-        out["systemMessage"] = out.get("systemMessage", "") + f" Warning: {cfg['config_warning']}."
+        out["systemMessage"] = (out.get("systemMessage", "") + f" Warning: {cfg['config_warning']}."
+                                + (" Until it is fixed, no stored value goes into a tool call."
+                                   if cfg.get("rehydration_fallback") else ""))
     # each protection loosened since the last start (a setting, a forget), once, to the person (C22)
     try:
         from maisecrets.events import weakenings_since_last_start  # noqa: E402
@@ -279,7 +284,7 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
         try:
             from maisecrets import settings as _settings  # noqa: E402
             from maisecrets.check_value import TIP_CODEX  # noqa: E402
-            if _settings.hint_due("check_value", cfg) and _settings.claim_hint("check_value"):
+            if _settings.hint_due("check_value", cfg) and _settings.claim_hint("check_value") and not tried:
                 out["systemMessage"] = out.get("systemMessage", "") + " " + TIP_CODEX
         except Exception:  # noqa: BLE001 - a tip never stops a session start
             pass

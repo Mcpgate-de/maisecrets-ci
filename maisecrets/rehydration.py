@@ -54,19 +54,19 @@ def refusal(cfg: dict, path: str, client: str, names: str, did_not: str) -> str 
     if outcome(client, pol) != "deny":
         return None
     if path == "file" and not cfg.get("resolve_in_files", True):
-        return (f"maisecrets: {names} is not resolved in a file tool on this machine (resolve_in_files is off). "
+        return (f"maisecrets: {names} is not put into a file tool on this machine (resolve_in_files is off). "
                 f"{did_not} To put the value into a file, use a Bash command the user approves, "
                 "for example printf '%s' ⟦KEY⟧ > file.")
     raw = cfg.get("rehydration", DEFAULT)
     if cfg.get("rehydration_fallback"):
         # the fallback for a config it cannot read as written set block, not the user: name the cause
-        return (f"maisecrets: {names} is not resolved while the maisecrets settings cannot be read as written "
+        return (f"maisecrets: {names} gets no value while the maisecrets settings cannot be read as written "
                 f"({cfg['config_warning']}). {did_not} Tell the user to fix the file; /maisecrets:status names it.")
     if raw not in POLICIES:
-        return (f"maisecrets: {names} is not resolved: the rehydration setting is not one of "
+        return (f"maisecrets: {names} gets no value: the rehydration setting is not one of "
                 f"{', '.join(POLICIES)}. {did_not} Tell the user to check the maisecrets config.")
     if pol == "confirm":
-        return (f"maisecrets: {names} is not resolved: rehydration is set to confirm, and Codex cannot ask the "
+        return (f"maisecrets: {names} gets no value: rehydration is set to confirm, and Codex cannot ask the "
                 f"user first. {did_not} Ask the user to run it themselves, or to change the setting.")
-    return (f"maisecrets: {names} is not resolved: rehydration is set to block on this machine. {did_not} "
+    return (f"maisecrets: {names} gets no value: rehydration is set to block on this machine. {did_not} "
             "Ask the user to do this step themselves.")

@@ -274,9 +274,9 @@ class DecisionTests(_Env):
                 self.assertTrue(want[name](out), out)
                 self.assertIn("/reload-plugins", json.dumps(out))
                 # after a synced update /reload-plugins keeps the gone folder: the refusal gives the restart
-                # command of this very session and the bug behind it
+                # command of this very session; the issue number of the bug helps no person, so it is not named
                 self.assertIn(f"claude --resume {payload['session_id']}", json.dumps(out))
-                self.assertIn("anthropics/claude-code#97847", json.dumps(out))
+                self.assertNotIn("anthropics/claude-code#97847", json.dumps(out))
                 # the command stands on a line of its own, so it is seen, and a triple click copies just it
                 self.assertIn(f"\n\n    claude --resume {payload['session_id']}\n\n", _reason(out))
                 self.assertGreaterEqual(time.monotonic() - started, 0.3, "it waits before it refuses")

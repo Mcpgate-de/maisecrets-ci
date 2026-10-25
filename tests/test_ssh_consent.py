@@ -652,7 +652,8 @@ class ConsentFlowTests(unittest.TestCase):
                 hooks.user_prompt({"prompt": "maisecrets: allow ssh db1", "session_id": "S1", **CLAUDE})
                 self.assertFalse(consent_store.covered("S1", None, ["db1"]))
             out = hooks.user_prompt({"prompt": "maisecrets: allow ssh db1", "session_id": "S1", **CODEX})
-            self.assertIn("needs the code", out["reason"], "Codex sends no source: only the code proves the person")
+            self.assertIn("needs the 6-digit code", out["reason"],
+                          "Codex sends no source: only the code proves the person")
             self.assertFalse(consent_store.covered("S1", None, ["db1"]))
             self.assertIsNone(hooks.user_prompt({"prompt": "please maisecrets: allow ssh db1", "session_id": "S1",
                                                  **CLAUDE}).get("decision"), "inside other text it grants nothing")
