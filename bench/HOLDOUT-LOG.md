@@ -147,3 +147,10 @@ are not published: the numbers of record come from the release baseline (`script
 | 2026-10-26 | maisecrets 0.8.2 a52ea5a814dcd140498d0e5c1cacda33d8615935 (gate stopped: CPU time, two spans worse) | holdout-v2 | 872 | 0.6473 | 0.9957 | 3 |
 | 2026-10-26 | maisecrets 0.8.2 357bbe2429be50fefd8033b1dac4b9432527de40 (gate stopped: two spans worse) | holdout-v2 | 872 | 0.6473 | 0.9957 | 3 |
 | 2026-10-26 | maisecrets 0.8.2 097e68dd8960b4ca37c3d3c605920dd691c51ed4 | holdout-v2 | 872 | 0.6473 | 0.9957 | 3 |
+| 2026-10-26 | maisecrets 0.8.2 097e68dd8960b4ca37c3d3c605920dd691c51ed4 | nym | 31294 | 0.1863 | 0.9954 | 97 |
+| 2026-10-26 | maisecrets 0.8.2 097e68dd8960b4ca37c3d3c605920dd691c51ed4 | nym | 6211 | 0.1859 | 0.996 | 17 |
+| 2026-10-26 | maisecrets 0.8.2 097e68dd8960b4ca37c3d3c605920dd691c51ed4 | dialogpii | 638 | 0.04 | 1.0 | 0 |
+| 2026-10-26 | maisecrets 0.8.2 097e68dd8960b4ca37c3d3c605920dd691c51ed4 | structured-b | 2000 | 0.5286 | 0.9797 | 92 |
+| 2026-10-26 | maisecrets 0.8.2 097e68dd8960b4ca37c3d3c605920dd691c51ed4 | ghissues | 25401 | 0.7198 | 0.6514 | 1468 |
+| 2026-10-26 | maisecrets 0.8.2 097e68dd8960b4ca37c3d3c605920dd691c51ed4 | nym | 1239 | 0.1859 | 0.9976 | 2 |
+| 2026-10-26 | maisecrets 0.8.2 097e68dd8960b4ca37c3d3c605920dd691c51ed4 | dialogpii | 124 | 0.0507 | 1.0 | 0 |

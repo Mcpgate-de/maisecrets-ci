@@ -1,0 +1,81 @@
+{
+  "version": "0.8.2",
+  "commit": "097e68dd8960b4ca37c3d3c605920dd691c51ed4",
+  "trees": [
+    {
+      "dir": "maisecrets",
+      "tree": "8970da3414cf5e016d5bbbb4d255c54964f28dea"
+    },
+    {
+      "dir": "hooks",
+      "tree": "7cd3f27f0703b5821891d157425b463be947215f"
+    },
+    {
+      "dir": "claude-mod",
+      "tree": "65e6a7572f181a3c5467fbcb6491ae8910e9de78"
+    },
+    {
+      "dir": "commands",
+      "tree": "83bed596a926a2aec0adfb58246211fd4b46c431"
+    },
+    {
+      "dir": "skills",
+      "tree": "f831c2667556f0d072e9ec1063c1a2bab3a5a649"
+    }
+  ],
+  "tools": {
+    "detect-secrets": {
+      "version": "1.5.0",
+      "python_version": "3.15.0"
+    },
+    "pii-anon": {
+      "version": "1.7.0rc1",
+      "commit": "2171ace5847a0d2add555419c02b41c47155cabe",
+      "python_version": "3.15.0"
+    },
+    "preserve": {
+      "version": "0.6.1",
+      "commit": "01dbd7710de79e21bef851aaa8b6cbfb4b1188ad",
+      "python_version": "3.15.0"
+    },
+    "presidio": {
+      "version": "2.2.364",
+      "python_version": "3.11.17"
+    },
+    "secret-scan": {
+      "version": "0.4.2",
+      "commit": "7d8b5c1874501c1e2edc99c8b6ec2949decc4fc9",
+      "python_version": "3.15.0"
+    },
+    "maisecrets": {
+      "version": "0.7.2",
+      "commit": "097e68dd8960b4ca37c3d3c605920dd691c51ed4",
+      "python_version": "3.15.0"
+    },
+    "gitleaks": {
+      "version": "8.30.1",
+      "binary_sha256": "ba52fb1bfabbcde42f032afad3d6e0b19dff8ed105229a16e7caa338bbc0e84f"
+    },
+    "betterleaks": {
+      "version": "1.9.0",
+      "binary_sha256": "70d2103c2915aababa0e1eea121bd3db0ff0da86bee40ddc6f5982181acaf6d0"
+    },
+    "trufflehog": {
+      "version": "3.99.2",
+      "binary_sha256": "21146dfb0467efc1882eca5518c7580947f088fd7af499682b070f78fccd8493"
+    },
+    "kingfisher": {
+      "version": "2.11.1",
+      "binary_sha256": "e623faaa8f78cec953179d5529665b60507118e4a15a4ab475d5ca4c230e3cf9"
+    },
+    "kingfisher1": {
+      "version": "1.113.0",
+      "binary_sha256": "8195131b65f19c8d73c94608568ee1bcbfe07a433caf55daaa81c5dc598f77b0"
+    },
+    "noseyparker": {
+      "version": "0.24.0",
+      "binary_sha256": "d32eb8c9b8f74dede65f5d421823fafbba8099edd4d8019284e7c2eb386050c1"
+    }
+  },
+  "environment": "environment.json.gz"
+}
