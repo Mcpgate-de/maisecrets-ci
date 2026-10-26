@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import bisect
 import contextvars
+import functools
 import itertools
 import hashlib
 import json
@@ -765,6 +766,9 @@ def _card_shaped(text: str, start: int, secret: str) -> bool:
 
 # a Presidio pattern with no boundary: PESEL's eleven digits matched inside a longer digit run
 PRESIDIO_DIGIT_BOUNDED = {"pl-pesel"}
+# the digits of a phone number after its +: a licence or passport pattern took them from the phone rule. A + right
+# after a letter or a digit is a separator (EDIFACT segments), and a number after it stays a document number
+PRESIDIO_NOT_AFTER_PLUS = {"us-license", "us-passport"}
 # single patterns that need a context word although their recognizer does not: DE and nine digits that pass the
 # checksum are also FIX tags and XML identifiers; a real VAT ID stands next to USt-IdNr or VAT. The spaced form
 # (de-vat-id#1) has a low score and needs its word already
@@ -773,6 +777,15 @@ PRESIDIO_PATTERN_CONTEXT = {"de-vat-id#0"}
 # statement reached the model. The number must still pass Luhn. A short word that means something else in a
 # neighbour language (kort: short in Danish and Dutch) stays out
 PRESIDIO_EXTRA_CONTEXT = {
+    # the context words of Presidio's US recognizers joined as a key spells them (driverLicense, passport_no lowered:
+    # driverlicense, passportnumber), and the names of the document in the EU label languages of id-number-after-label
+    "us-license": ("driverlicense", "driverslicense", "driverlicence", "driverslicence",
+                   "licensenumber", "licenseno", "licencenumber", "dlnumber", "dlno",
+                   "führerschein", "fuehrerschein", "fahrerlaubnis", "fahrerlaubnisnummer",
+                   "permis de conduire", "rijbewijs", "körkort", "korkort", "patente di guida", "conducir", "condução"),
+    "us-passport": ("passportnumber", "passportno", "passportnum", "passportid", "reisepass", "passnummer",
+                    "reisepassnummer", "passeport", "pasaporte", "passaporte", "passaporto", "paspoort", "paszport"),
+    "us-itin": ("itinnumber", "taxpayerid", "taxid", "taxidnumber"),
     # 2026-10-19, Benchmark V1: a CSV or JSON key `steuer_id` over a valid tax id; the checksum still decides
     "de-tax-id": ("steuer_id", "steuer_identifikationsnummer", "steuer-identifikationsnummer", "steuer_idnr"),
     "credit-card": ("karte", "kreditkarte", "kartennummer", "kartennr", "debitkarte", "bankkarte", "ec-karte",
@@ -916,6 +929,9 @@ def _presidio_regex(rec_id: str, regex: str) -> str:
         # Mendeley's 2,081 such numbers (Luhn-valid, each after a card word) stayed in the clear (2026-10-20). It
         # keeps the rule's Luhn check and its card word: alone in a tool result the issuer check takes 16 digits only
         return "(?:" + regex.replace(_CARD_FIRST_UPSTREAM, first) + r")|\b4\d{18}\b"
+    if rec_id in PRESIDIO_NOT_AFTER_PLUS:
+        # a + after a letter or a digit is a field separator (EDIFACT: NAD+XX+<number>), not a phone number's
+        return r"(?:(?<!\+)|(?<=[A-Za-z0-9]\+))(?:" + regex + ")"
     return regex
 
 
@@ -1114,36 +1130,88 @@ def _load_detect_secrets(languages: tuple[str, ...] = ("en",)) -> list[Rule]:
     out: list[Rule] = []
     for r in data["rules"]:
         flags = re.IGNORECASE if r.get("ignorecase") else 0
-        # the product's own name carries "secret": `/maisecrets:shortcut` was stored as a secret
-        # named "shortcut" (field report, 2026-09-27); "mai" + keyword is never a label
-        keywords = "(?<!mai)(" + "|".join([denylist] + [lab.regex for lab in labels]) + ")"
-        regex = r["regex"].replace("(" + denylist + ")", keywords, 1)
-        # the vendored value group must start with a word character, so `$+4jJzBixvQD9#`,
-        # `@f6a-VtyEOYr!` and `-NA#C-X-gb4T%` were never values (2026-09-27); any first character
-        # a character a password starts with may start one (not {, [, (, \\, /, <: code and paths), and
-        # _ds_value_ok refuses a shell variable ($VAR, ${VAR}) as before
-        regex = regex.replace("(?=\\w+)", "(?=[\\w!#$%&*+\\-@^~?.])")
-        # French typography puts a space (often a no-break space) before the colon, and people type
-        # `password : x` in every language; the vendored colon rules allowed none, so
-        # `mot de passe : <value>` and `password : <value>` were no hit (2026-09-28)
-        regex = regex.replace(_COLON_AFTER_LABEL, _COLON_AFTER_LABEL_SPACED, 1)
-
-        if _COLON_AFTER_LABEL_SPACED in regex:
-            regex = regex.replace(_COLON_AFTER_LABEL_SPACED, _COLON_AFTER_LABEL_ESCAPED, 1)
-            for q in _COLON_THEN_QUOTE:   # the skip goes right before the group of the opening quote
-                at = q.rindex("([")
-                regex = regex.replace(q, q[:at] + _ESCAPED_QUOTE_SKIP + q[at:], 1)
-            if cjk:
-                regex = regex.replace(_COLON_AFTER_LABEL_ESCAPED, _COLON_AFTER_LABEL_ESCAPED[:-1] + "[:\uff1a]", 1)
-        if regex.startswith(keywords + "\\w*") and len(regex) > len(keywords) + 3:
-            rx = _KeywordTail(regex, keywords, list(data["denylist"]) + [lab.regex for lab in labels], flags)
-        else:
-            rx = _Lazy(regex, flags)
+        rx = _keyword_regex(r["regex"], denylist, labels, flags, cjk)
+        if labels:
+            rx = _LabelSubset(rx, labels, lambda labs, r=r, flags=flags: _keyword_regex(r["regex"], denylist, labs,
+                                                                                         flags, cjk))
         out.append(Rule(id=r["id"], type="SECRET", regex=rx,
                         keywords=() if r["id"] == "ds-basic-auth" else kws,
                         secret_group=int(r["group"]), validator="ds_value",
                         quote_group=_DS_QUOTE_GROUP.get(r["id"], 0)))
     return out
+
+
+def _keyword_regex(vendored: str, denylist: str, labels: list, flags: int, cjk: bool):
+    """The regex of a vendored keyword rule with the label words of `labels` beside its denylist."""
+    # the product's own name carries "secret": `/maisecrets:shortcut` was stored as a secret
+    # named "shortcut" (field report, 2026-09-27); "mai" + keyword is never a label
+    keywords = "(?<!mai)(" + "|".join([denylist] + [lab.regex for lab in labels]) + ")"
+    regex = vendored.replace("(" + denylist + ")", keywords, 1)
+    # the vendored value group must start with a word character, so `$+4jJzBixvQD9#`,
+    # `@f6a-VtyEOYr!` and `-NA#C-X-gb4T%` were never values (2026-09-27); any first character
+    # a character a password starts with may start one (not {, [, (, \\, /, <: code and paths), and
+    # _ds_value_ok refuses a shell variable ($VAR, ${VAR}) as before
+    regex = regex.replace("(?=\\w+)", "(?=[\\w!#$%&*+\\-@^~?.])")
+    # French typography puts a space (often a no-break space) before the colon, and people type
+    # `password : x` in every language; the vendored colon rules allowed none, so
+    # `mot de passe : <value>` and `password : <value>` were no hit (2026-09-28)
+    regex = regex.replace(_COLON_AFTER_LABEL, _COLON_AFTER_LABEL_SPACED, 1)
+
+    if _COLON_AFTER_LABEL_SPACED in regex:
+        regex = regex.replace(_COLON_AFTER_LABEL_SPACED, _COLON_AFTER_LABEL_ESCAPED, 1)
+        for q in _COLON_THEN_QUOTE:   # the skip goes right before the group of the opening quote
+            at = q.rindex("([")
+            regex = regex.replace(q, q[:at] + _ESCAPED_QUOTE_SKIP + q[at:], 1)
+        if cjk:
+            regex = regex.replace(_COLON_AFTER_LABEL_ESCAPED, _COLON_AFTER_LABEL_ESCAPED[:-1] + "[:\uff1a]", 1)
+    if regex.startswith(keywords + "\\w*") and len(regex) > len(keywords) + 3:
+        return _KeywordTail(regex, keywords, denylist.split("|") + [lab.regex for lab in labels], flags)
+    return _Lazy(regex, flags)
+
+
+class _LabelSubset:
+    """A keyword rule with the label words of every label language, matched with only the labels whose prefilter
+    literal the text holds (the denylist always). A label matches only where its literal is, and no label has a group
+    of its own, so the matches and their groups are those of the whole regex. With 19 languages the whole alternation
+    made the keyword rules a third slower on a 1 MB text (2026-10-25). `pattern` and `flags` are those of the whole
+    regex, so the ruleset digest stays the same."""
+    __slots__ = ("_full", "_labels", "_build", "_find", "_cache", "pattern", "flags")
+
+    def __init__(self, full, labels: list, build) -> None:
+        self._full, self._labels, self._build = full, labels, build
+        self.pattern, self.flags = full.pattern, full.flags
+        self._find = None
+        self._cache: dict = {}
+
+    def _for(self, text: str):
+        if self._find is None:
+            self._find = re.compile("|".join(re.escape(p) for p in sorted({lab.prefilter for lab in self._labels},
+                                                                          key=len, reverse=True)))
+        low = _lower(text)
+        # overlapping literals (pass, passe): each literal is looked for on its own where the alternation found one
+        found = frozenset(lab.prefilter for lab in self._labels if lab.prefilter in low) \
+            if self._find.search(low) else frozenset()
+        rx = self._cache.get(found)
+        if rx is None:
+            if len(self._cache) > 512:
+                self._cache.clear()
+            rx = self._cache[found] = self._build([lab for lab in self._labels if lab.prefilter in found])
+        return rx
+
+    def finditer(self, text: str):
+        return self._for(text).finditer(text)
+
+    def search(self, text: str):
+        return self._for(text).search(text)
+
+    @property
+    def groups(self) -> int:
+        # no label has a group: the regex of the denylist alone has the groups of the whole, and compiling the whole
+        # (a head per alternative) took 6 s of a hook's first scan
+        rx = self._cache.get(frozenset())
+        if rx is None:
+            rx = self._cache[frozenset()] = self._build([])
+        return rx.groups
 
 
 def _load_prefixes() -> list[Rule]:
@@ -1948,6 +2016,24 @@ def code_words() -> frozenset:
 
 
 # the index of a text (_text_index, _newlines, _line_start, _line_end, _positions) is in text_index.py
+def _keyword_lines(text: str, low: list, keywords: tuple) -> list:
+    """Per line of `text`, whether its lower-case form holds one of `keywords`. Computed once per text and keyword
+    tuple: the seven keyword rules share one tuple, and with the label words of 19 languages the test of each word in
+    each line by each rule cost a fifth of a 1 MB scan (release gate of 0.8.2)."""
+    cache = _text_index(text)
+    key = ("keyword lines", keywords)
+    got = cache.get(key)
+    if got is None:
+        rx = _keyword_finder(keywords)
+        got = cache[key] = [rx.search(line) is not None for line in low]
+    return got
+
+
+@functools.lru_cache(maxsize=32)
+def _keyword_finder(keywords: tuple):
+    return re.compile("|".join(re.escape(k) for k in sorted(keywords, key=len, reverse=True)))
+
+
 def _split_lines(text: str) -> tuple:
     """The lines of `text` and of its lower-case form, split once per text: the seven keyword rules each split a
     megabyte again (review of 3e5d53e, 2026-09-30)."""
@@ -2093,11 +2179,11 @@ def _matches(rule: Rule, text: str, channel: str = "prompt"):
         return
     pos = 0
     lines, low = _split_lines(text)
-    low = low if rule.keywords else None
+    has = _keyword_lines(text, low, rule.keywords) if rule.keywords and len(low) == len(lines) else None
     for i, line in enumerate(lines):
         # the regex needs one of the rule's keywords in this line (every denylist word contains
         # one); skipping the other lines cut a history scan from 71 s to a fraction (2026-09-27)
-        if low is not None and len(low) == len(lines) and not any(k in low[i] for k in rule.keywords):
+        if has is not None and not has[i]:
             pos += len(line) + 1
             continue
         for m in rule.regex.finditer(line):
@@ -2419,7 +2505,34 @@ def scan(text: str, enabled: set[str] | None = None, channel: str = "prompt", pa
     spans = _fields.checked(text, fields)
     # the channel and the path travel as arguments: a nested scan (is_fixture) or a scan in another thread has its own
     hits = _scan(text, enabled, rule_list=rule_list, channel="tool" if channel == "tool" else "prompt", path=path or "")
-    return _fields.added(text, hits, spans, lambda t: scan(t, enabled, channel, "", rule_list)) if spans else hits
+    hits = _fields.added(text, hits, spans, lambda t: scan(t, enabled, channel, "", rule_list)) if spans else hits
+    if channel == "tool" and rule_list is None and "|" in text:
+        hits = _md_key_value_hits(text, hits, lambda t: scan(t, enabled, channel, "", rule_list))
+    return hits
+
+
+# a row of a two-column Markdown table whose first cell names the second: | Date of Birth | 1984-07-12 |. The cell is
+# a label as `Date of Birth: 1984-07-12` would be (the field rule of fields.py), and only personal data comes of it
+_MD_KV_ROW_RE = _LazyRx(r"(?m)^[ \t]*\|[ \t]*(\*{0,2})([A-Za-z][A-Za-z ()/#.'_-]{1,40}?)\1[ \t]*:?[ \t]*\|[ \t]*"
+                        r"([^|\n]{1,120}?)[ \t]*\|[ \t]*$")
+
+
+def _md_key_value_hits(text: str, hits: list, scanner) -> list:
+    spans = []
+    for m in _MD_KV_ROW_RE.finditer(text):
+        if set(m.group(3)) <= set("-: "):
+            continue
+        label = _fields._label((m.group(2).strip(),))
+        if label:
+            spans.append((m.start(3), m.end(3), label))
+    if not spans:
+        return hits
+    from .vocabulary import TYPES
+    before = {(h.start, h.end) for h in hits}
+    out = _fields.added(text, hits, tuple(spans), scanner)
+    # a name stays with the record rules of the Markdown table: a first name alone in a form is no person
+    return [h for h in out if (h.start, h.end) in before
+            or (h.type != "NAME" and TYPES.get(h.type, {}).get("family") == "pii")]
 
 
 # a label rule (LABEL_RULES): its header labels the cell, so a word in it is stored quiet and a fixture in test code
@@ -2717,6 +2830,10 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
                     and not _label_value_ok(secret)):
                 continue   # {\"passwordLastChanged\":\"2024-10-01T12:00:00Z\"}: the new escaped path, no password
             if rule.quote_group and not m.group(rule.quote_group):
+                if secret and _is_cjk(secret[0]) and sum(map(_is_cjk, secret)) >= 2:
+                    # 密码：至少8位（含1个大写字母）: a sentence in Chinese or Japanese after the label is a rule for
+                    # the password, no value (a value of CJK letters alone is no password a person types)
+                    continue
                 if _has_cjk(secret) and not _is_cjk(secret[0]):
                     # 密码：<value>，请保密: Chinese and Japanese put no space after the value, so its end is the
                     # first CJK letter or fullwidth sign. A value that starts with one is cut by no rule here
@@ -2968,17 +3085,22 @@ def _personal_hits(text: str, enabled, found: list, taken_starts: list, taken_en
             continue   # a form that only completes a hit another rule made: alone it would mask company addresses
         if overlaps(start, end):
             # an address takes the postcode that a region rule found inside it (de-plz): the whole address is the
-            # value. A phone number wrapped over two lines takes the first line that the phone rule found. Any other
-            # hit keeps its span
+            # value. A phone number wrapped over two lines takes the first line that the phone rule found. A phone
+            # number after a phone word takes a US licence or passport number that a document rule found in its
+            # digits (`phone: 555 1234567` near a licence word lost all but its last seven digits, release gate of
+            # 0.8.2). Any other hit keeps its span
             lo, hi = bisect.bisect_left(taken_starts, start), bisect.bisect_left(taken_starts, end)
-            if (typ != personal.ADDRESS and kind != "phone-wrapped-line") or hi == lo or hi - lo > 32 or (
-                    lo > 0 and taken_ends[lo - 1] > start):
+            if (typ != personal.ADDRESS and kind not in ("phone-wrapped-line", "phone-after-phone-word")) \
+                    or hi == lo or hi - lo > 32 or (lo > 0 and taken_ends[lo - 1] > start):
                 continue
             if by_start is None:   # once per scan: a list scan per overlap was quadratic in the hits (review)
                 by_start = {f.start: f for f in found}
             inside = [by_start[x] for x in taken_starts[lo:hi] if x in by_start]
             inside = [f for f in inside if f.end <= end and f.type not in SECRET_TYPES]
-            wider = typ == personal.ADDRESS or all(f.type == typ for f in inside)
+            if kind == "phone-after-phone-word":
+                wider = all(f.type in PHONE_TAKES_DOCUMENT for f in inside)
+            else:
+                wider = typ == personal.ADDRESS or all(f.type == typ for f in inside)
             if not wider or not inside or hi - lo != len(inside):
                 continue
             gone.update(id(f) for f in inside)   # removed from `found` once, after the loop
@@ -3007,6 +3129,8 @@ _VAT_GAP_RE = _LazyRx(r"(?i)" + _SEP + r"(?:(?:deutschland|germany)" + _SEP + r"
 _COMPANY_REACH = 800
 _CUSTOMER_VALUE_RE = _LazyRx(r"(?i)(?<![\w-])(?:kunde|customer)[\"']?[ \t]{0,3}[:=][ \t\"']{0,3}$")
 COMPANY_NUMBER_TYPES = frozenset({"DE_PLZ", "DE_VAT_ID"})
+# the document numbers whose pattern is a plain digit run: a phone number after a phone word takes such a hit inside it
+PHONE_TAKES_DOCUMENT = frozenset({"US_DRIVER_LICENSE", "US_PASSPORT"})
 
 
 def _free_company_numbers(text: str, found: list, taken_starts: list, taken_ends: list, company: list,

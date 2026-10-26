@@ -82,35 +82,45 @@ class ResolveTests(unittest.TestCase):
         with mock.patch.object(regions, "system_locale", return_value=locale):
             return regions.resolve(cfg)
 
+    def assertLanguages(self, got: tuple, first: tuple, msg=None):
+        """English, the languages of the system and the regions first, then every other label file (since 0.8.2)."""
+        self.assertEqual(got[:len(first)], first, msg)
+        self.assertEqual(sorted(got), regions.label_languages_available(), msg)
+        self.assertEqual(len(got), len(set(got)), msg)
+
     def test_auto_is_the_country_of_the_system_setting(self):
         a = self.resolve({"regions": ["auto"], "regions_from": "default"}, "de_DE")
-        self.assertEqual((a.regions, a.languages), (("generic", "de"), ("en", "de")))
+        self.assertEqual(a.regions, ("generic", "de"))
+        self.assertLanguages(a.languages, ("en", "de"))
         self.assertIn("auto = de from the system setting", a.source)
 
     def test_without_a_system_setting_only_english_and_the_generic_rules(self):
         a = self.resolve({"regions": ["auto"]}, "C.UTF-8")
-        self.assertEqual((a.regions, a.languages), (("generic",), ("en",)))
+        self.assertEqual(a.regions, ("generic",))
+        self.assertLanguages(a.languages, ("en",))
         self.assertIn("no system setting", a.source)
         self.assertEqual(self.resolve({}, None).regions, ("generic",), "no config key is auto")
 
     def test_the_language_of_each_region_and_of_the_system_count(self):
         # an English system in Austria: German labels come from the region
         a = self.resolve({"regions": ["at", "us"]}, "en_US")
-        self.assertEqual((a.regions, a.languages), (("generic", "at", "us"), ("en", "de")))
+        self.assertEqual(a.regions, ("generic", "at", "us"))
+        self.assertLanguages(a.languages, ("en", "de"))
         # a German system with US rules only: German labels come from the system language
         a = self.resolve({"regions": ["us"]}, "de_DE")
-        self.assertEqual((a.regions, a.languages), (("generic", "us"), ("en", "de")))
+        self.assertEqual(a.regions, ("generic", "us"))
+        self.assertLanguages(a.languages, ("en", "de"))
 
     def test_codes_are_normalised_and_a_language_without_a_label_file_adds_nothing(self):
         a = self.resolve({"regions": [" GB ", "generic", "auto", "uk", "ar"]}, "hi_IN")
         self.assertEqual(a.regions, ("generic", "uk", "in", "ar"))
-        self.assertEqual(a.languages, ("en",), "no hi.txt and no es for ar: a Hindi system gets English labels")
+        self.assertLanguages(a.languages, ("en", "cs"), "no hi.txt and no es for ar: English, then the files in order")
 
     def test_a_russian_chinese_or_japanese_system_turns_its_labels_on(self):
         for loc, want in [("ru_RU.UTF-8", ("en", "ru")), ("zh_CN", ("en", "zh")), ("zh-Hans_CN", ("en", "zh")),
                           ("zh_TW.UTF-8", ("en", "zh")), ("ja_JP", ("en", "ja")), ("en_JP", ("en", "ja"))]:
             with self.subTest(loc):
-                self.assertEqual(self.resolve({}, loc).languages, want)
+                self.assertLanguages(self.resolve({}, loc).languages, want)
 
     def test_each_region_with_a_label_file_turns_its_language_on(self):
         for region, want in [("it", ("en", "it")), ("fr", ("en", "fr")), ("lu", ("en", "fr")),
@@ -120,10 +130,10 @@ class ResolveTests(unittest.TestCase):
                              ("ru", ("en", "ru")), ("cn", ("en", "zh")), ("tw", ("en", "zh")), ("hk", ("en", "zh")),
                              ("mo", ("en", "zh")), ("jp", ("en", "ja"))]:
             with self.subTest(region):
-                self.assertEqual(self.resolve({"regions": [region]}, "C").languages, want)
+                self.assertLanguages(self.resolve({"regions": [region]}, "C").languages, want)
         # a Norwegian system setting names the language "no" or "nb"; the file is nb.txt
         for loc in ("no_NO", "nb_NO"):
-            self.assertEqual(self.resolve({"regions": []}, loc).languages, ("en", "nb"), loc)
+            self.assertLanguages(self.resolve({"regions": []}, loc).languages, ("en", "nb"), loc)
         every = {x for r in regions.REGION_LANGUAGE for x in regions._region_languages(r)}
         self.assertEqual(every - set(regions.label_languages_available()), set(),
                          "a region names a language that has no label file")
@@ -224,6 +234,17 @@ class DetectorTests(unittest.TestCase):
             with self.subTest(label):
                 self.assertEqual(self.found(f"{label}: {value}", ("en",)), [value])
                 self.assertEqual(self.found(f"{label}: {value}", ("en", "de")), [value])
+
+    def test_a_label_of_another_language_than_the_system_is_a_label_by_default(self):
+        # since 0.8.2 the config of this computer turns every label file on: a German system (the pinned test
+        # locale) reads a Dutch, Polish, Swedish or Portuguese password label, in a tool result and in a prompt
+        value = fake_value()
+        with mock.patch.object(regions, "system_locale", return_value="de_DE"):
+            active = regions.resolve({"regions": ["auto"]})
+        for label in ("wachtwoord", "hasło", "lösenord", "senha"):
+            with self.subTest(label):
+                self.assertEqual(self.found(f"{label}: {value}", active.languages), [value])
+                self.assertEqual(self.found(f"{label}: {value}", ("en", "de")), [], "the label needs its language")
 
     def test_the_regions_select_the_presidio_rules(self):
         ids = {r.id.split("#")[0] for r in detect._load_presidio(("generic", "us"))}

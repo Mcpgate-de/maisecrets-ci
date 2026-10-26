@@ -177,6 +177,112 @@ class WordValuesNotHuntedTests(unittest.TestCase):
         self.assertNotIn(RANDOM_TOOL, self.bash(f'password = Some("{RANDOM_TOOL}"),\n', "s1"))
         self.assertTrue(self.blocked(f"the value is {RANDOM_TOOL}", "s2"))
 
+    def post(self, tool: str, response: dict, session: str) -> str:
+        """A tool result of another tool than Bash; the answer as text, or the result as it was when none came."""
+        out = self.hook("post-tool", {"tool_name": tool, "session_id": session, **CLAUDE, "tool_input": {},
+                                      "tool_response": response})
+        return json.dumps(out, ensure_ascii=False) if out else json.dumps(response, ensure_ascii=False)
+
+    # field report, 2026-10-25: label lines in a Bash result stored ordinary words, and later WebFetch, WebSearch and
+    # Agent results of other sessions showed a placeholder for them. The word list holds base words of 4 to 8 letters
+    # and only a value of 8 or more is hunted: an ending or a compound made it no dictionary word, and the word for
+    # password in another language kept its accent
+    PROSE = ("compar" + "ing", "specific" + "ally", "evaluat" + "ing", "direct" + "ly", "benchmark" + "ing",
+             "contrase" + "ña")
+
+    def store_from_a_tool_result(self, session: str) -> None:
+        """Each prose word and the control WORD after a label in one Bash result; each is masked at its label, with
+        a placeholder of its own and the type SECRET, as before the fix."""
+        import re
+        lines = [f"password: {w}" for w in (*self.PROSE, WORD)]
+        out = self.hook("post-tool", {"tool_name": "Bash", "session_id": session, **CLAUDE,
+                                      "tool_input": {"command": "x"},
+                                      "tool_response": {"stdout": "\n".join(lines) + "\n", "stderr": "",
+                                                        "interrupted": False, "isImage": False}})
+        stdout = out["hookSpecificOutput"]["updatedToolOutput"]["stdout"]
+        masked = stdout.splitlines()
+        self.assertEqual(len(masked), len(lines))
+        keys = [re.fullmatch(r"password: ⟦(SECRET_c\d+)⟧", line) for line in masked]
+        self.assertTrue(all(keys), masked)
+        self.assertEqual(len({k.group(1) for k in keys}), len(lines), "one key per value")
+
+    def test_a_word_from_one_session_is_not_hunted_in_the_web_and_agent_results_of_others(self):
+        self.store_from_a_tool_result("A")
+        for word in self.PROSE:
+            text = f"for {word} PII detectors, and {word} again."
+            fetched = {"code": 200, "result": text, "url": "https://example.org/a"}
+            self.assertEqual(self.post("WebFetch", fetched, "B"), json.dumps(fetched, ensure_ascii=False))
+            searched = {"query": "q", "results": [f"{text}\n\n- **Bench** {text}"]}
+            self.assertEqual(self.post("WebSearch", searched, "B"), json.dumps(searched, ensure_ascii=False))
+        launched = {"isAsync": True, "status": "async_launched", "agentId": "a" + "1b2c3d4e5f6071" + "8a",
+                    "description": "labels", "prompt": "count " + ", ".join(self.PROSE * 2)}
+        self.assertEqual(self.post("Agent", launched, "C"), json.dumps(launched, ensure_ascii=False))
+        # the control: a word outside the list is still hunted in each of those results
+        self.assertNotIn(WORD, self.post("WebFetch", {"code": 200, "result": f"Das {WORD} ist morgen."}, "B"))
+        self.assertNotIn(WORD, self.post("WebSearch", {"query": "q", "results": [f"{WORD} und {WORD}"]}, "B"))
+        self.assertNotIn(WORD, self.post("Agent", {**launched, "prompt": f"plan the {WORD}"}, "C"))
+
+    def put_by_hand(self, value: str) -> None:
+        """/maisecrets:put from stdin: the entry kind `manual`."""
+        # put copies the placeholder: the fake clipboard on PATH, and MS_TEST_CLIP for clip.exe on Windows (hook)
+        env = {**os.environ, "MAISECRETS_HOME": str(self.home), "MS_TEST_CLIP": str(Path(self.home, "clip")),
+               "PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}", "PYTHONUTF8": "1"}
+        # the answer names the placeholder; on Windows a pipe has the code page cp1252, which has no ⟦ (UTF-8 both ways)
+        r = subprocess.run([sys.executable, "-m", "maisecrets.cli", "put"], input=value, capture_output=True,
+                           text=True, encoding="utf-8", env=env, cwd=str(ROOT), timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def marks(self) -> dict:
+        idx = json.loads(Path(self.home, "index.json").read_text())
+        return {k: (m["kind"], m.get("weak"), m.get("quiet")) for k, m in idx["entries"].items()}
+
+    def test_the_migration_at_the_start_is_idempotent_and_weakens_only_quiet_words(self):
+        hand = "explicit" + "ly"
+        self.store_from_a_tool_result("s1")
+        self.put_by_hand(hand)
+        index = Path(self.home, "index.json")
+        idx = json.loads(index.read_text())
+        for meta in idx["entries"].values():     # as 0.8.1 stored them: no word of a tool result weak
+            meta["weak"] = False
+        index.write_text(json.dumps(idx))
+        self.hook("session-start", {"session_id": "s2", **CLAUDE})
+        first = self.marks()
+        self.hook("session-start", {"session_id": "s3", **CLAUDE})
+        self.assertEqual(self.marks(), first, "a second start changes no mark")
+        for kind, weak, quiet in first.values():
+            if kind == "manual":
+                self.assertEqual((weak, quiet), (False, False), "a value stored by hand is never weakened")
+            else:
+                self.assertTrue(quiet, "a weak entry stays quiet: it never blocks a prompt")
+        self.assertNotIn(hand, self.bash(f"covered {hand}\n", "s4"), "the value stored by hand stays hunted")
+        self.assertNotIn(WORD, self.bash(f"Das {WORD} ist morgen.\n", "s4"), "a word outside the list stays hunted")
+        self.assertEqual(self.bash(f"for {self.PROSE[0]} tools\n", "s4"), f"for {self.PROSE[0]} tools\n")
+
+    def test_a_weak_word_the_person_then_gives_is_hunted_again(self):
+        stored, typed = "compar" + "ing", "evaluat" + "ing"
+        for word in (stored, typed):
+            self.bash(f"password: {word}\n", "s1")
+            self.assertEqual(self.bash(f"for {word} tools\n", "s2"), f"for {word} tools\n", "weak: not hunted")
+        self.put_by_hand(stored)                  # the person stores the same word as a password
+        self.assertNotIn(stored, self.bash(f"for {stored} tools\n", "s3"))
+        self.blocked(f"password: {typed}", "s4")  # the person gives it after a label in a prompt
+        self.assertNotIn(typed, self.bash(f"for {typed} tools\n", "s5"))
+
+    def test_a_quiet_word_with_an_ending_an_older_version_stored_is_weak_after_the_next_start(self):
+        words = ("compar" + "ing", "contrase" + "ña")
+        for word in words:
+            self.bash(f"password: {word}\n", "s1")
+        index = Path(self.home, "index.json")
+        idx = json.loads(index.read_text())
+        for meta in idx["entries"].values():     # as 0.8.1 stored them: quiet, not weak
+            self.assertTrue(meta["quiet"])
+            meta["weak"] = False
+        index.write_text(json.dumps(idx))
+        self.assertNotIn(words[0], self.bash(f"for {words[0]} tools\n", "s2"), "hunted before the start")
+        self.hook("session-start", {"session_id": "s3", **CLAUDE})
+        for word in words:
+            self.assertEqual(self.bash(f"for {word} tools\n", "s3"), f"for {word} tools\n")
+
 
 if __name__ == "__main__":
     unittest.main()

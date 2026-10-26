@@ -29,7 +29,7 @@ from bench import cases as casefmt  # noqa: E402
 from bench import score, sources  # noqa: E402
 
 ADAPTERS = ("maisecrets", "detect_secrets", "secret_scan", "pii_anon", "preserve", "presidio", "maisecrets_ner",
-            "ai_gateway")
+            "ai_gateway", "gitleaks", "betterleaks", "trufflehog", "kingfisher", "kingfisher1", "noseyparker")
 HOLDOUT_LOG = ROOT / "bench" / "HOLDOUT-LOG.md"
 MANIFEST = ROOT / "bench" / "holdout.manifest"
 
@@ -135,11 +135,14 @@ def main(argv=None) -> int:
     ap.add_argument("--scanner", choices=ADAPTERS, default="maisecrets")
     ap.add_argument("--maisecrets", type=Path, default=ROOT, help="the checkout the maisecrets adapter scans with")
     ap.add_argument("--regions", default="de,us")
-    ap.add_argument("--source", required=True, choices=sources.SOURCES + ("holdout", "holdout-v2"))
+    ap.add_argument("--languages", default="", help="maisecrets only: the label languages (a comma list); empty "
+                    "keeps the checkout's default label languages for the regions")
+    ap.add_argument("--source", required=True, choices=sources.SOURCES + ("holdout", "holdout-v2", "structured-b"))
     ap.add_argument("--split", choices=casefmt.SPLITS + ("all",), default="dev")
     ap.add_argument("--data", type=Path)
     ap.add_argument("--catalogs", type=Path)
-    ap.add_argument("--holdout", type=Path, help="the private bank (source holdout) or the sealed cases (holdout-v2)")
+    ap.add_argument("--holdout", type=Path, help="the private bank (source holdout), the sealed cases (holdout-v2) "
+                    "or the sealed cases file of structured-b")
     ap.add_argument("--release-candidate", action="store_true",
                     help="holdout-v2 only: this run measures a release candidate (bench/holdout_v2.py)")
     ap.add_argument("--limit", type=int, default=0, help="read at most N records of a dataset (a quick run)")
@@ -165,20 +168,37 @@ def main(argv=None) -> int:
             selected, a.split = holdout_v2.verify(a.holdout), "holdout"
         except holdout_v2.HoldoutError as e:
             raise SystemExit(f"refused: {e}") from None
+    elif a.source == "structured-b":
+        if not a.holdout or not a.release_candidate:
+            raise SystemExit("--source structured-b needs --holdout CASES_FILE and --release-candidate")
+        if a.scanner == "maisecrets":
+            release_candidate(a.maisecrets.resolve())
+        from bench import structured_b
+        try:
+            selected, a.split = structured_b.verify(a.holdout), "holdout"
+        except structured_b.SealError as e:
+            raise SystemExit(f"refused: {e}") from None
     else:
-        selected = [c for c in sources.load(a.source, a.data, a.catalogs, a.limit, stats)
+        selected = [c for c in sources.load(a.source, a.data, a.catalogs, a.limit, stats, split=a.split)
                     if (a.split == "all" or c["split"] == a.split) and in_sample(c["id"], a.every, a.sample_salt)]
     adapter = importlib.import_module(f"bench.adapters.{a.scanner}")
     if a.scanner in ("maisecrets", "maisecrets_ner"):
         desc = adapter.describe(a.maisecrets.resolve(), a.regions)
-        found, timing = adapter.scan(selected, a.maisecrets.resolve(), a.regions)
+        found, timing = (adapter.scan(selected, a.maisecrets.resolve(), a.regions, languages=a.languages)
+                         if a.languages else adapter.scan(selected, a.maisecrets.resolve(), a.regions))
     else:
         desc = adapter.describe()
         found, timing = adapter.scan(selected)
     results = [(c, score.score_case(c, [f[:3] for f in fs], adapter.SCOPE)) for c, fs in zip(selected, found)]
+    if a.source == "ghissues":
+        for (c, sc), fs in zip(results, found):
+            sc["found"] = [(int(f[0]), int(f[1])) for f in fs]   # bench/ghissues.py, the per-candidate counts
     # the private holdout (its source), never the public holdout split of a dataset: `--split holdout` on a dataset
     # wrote rows to bench/HOLDOUT-LOG.md and left out the outcomes per case (found by Benchmark V3, 2026-10-21)
-    holdout = a.source in ("holdout", "holdout-v2")
+    # the sealed holdout of an external set (bench/sealed.py, bench/ghissues.py) is a private holdout too: totals
+    # only, one log row
+    holdout = (a.source in ("holdout", "holdout-v2", "structured-b")
+               or (a.source in sources.HOLDOUT_SETS and a.split == "holdout"))
     out = {
         "date": datetime.date.today().isoformat(), "bench_commit": _commit(), "bench_dirty": _dirty(),
         "scanner": desc, "source_meta": source_meta(selected), "cases_sha256": cases_hash(selected),
@@ -192,6 +212,9 @@ def main(argv=None) -> int:
     }
     # Benchmark V3: precision only where the source labels it; a sample counts only with a salt (without one a sample
     # of 1 in 10 or a multiple of it lies in `dev` alone, the fault of V1 and V2)
+    if a.source == "ghissues":
+        from bench import ghissues
+        out["ghissues"] = ghissues.metrics(results)
     if not holdout and (a.every <= 1 or a.sample_salt):
         from bench import v3
         out["v3"] = v3.metrics(a.source, results)
@@ -199,7 +222,7 @@ def main(argv=None) -> int:
         out.pop("by_region")
         out.pop("by_context")
         with open(HOLDOUT_LOG, "a", encoding="utf-8") as f:
-            m = out["metrics"].get("all", {})
+            m = out.get("ghissues") or out["metrics"].get("all", {})
             f.write(f"| {out['date']} | {desc.get('scanner')} {desc.get('version')} {desc.get('commit') or ''} | "
                     f"{a.source} | {len(selected)} | {m.get('recall_strict')} | {m.get('precision')} | "
                     f"{m.get('fp')} |\n")

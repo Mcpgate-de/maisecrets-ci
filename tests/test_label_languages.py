@@ -1,7 +1,7 @@
-"""The label files of the languages that the pinned test locale does not turn on.
+"""The label files of the languages other than those of the pinned test locale (English and German).
 
-tests/detection_matrix.py takes the label files of the active languages only, and the tests pin
-MAISECRETS_LOCALE=de_DE (tests/_isolate.py): English and German. Here each other label file runs
+tests/detection_matrix.py takes the label files of English and German, the languages of the pinned test locale
+(MAISECRETS_LOCALE=de_DE, tests/_isolate.py). Here each other label file runs
 through the detector with its language on: every example, with generated values in the shapes of
 the matrix, gives exactly its value (and the e-mail address after it); ordinary sentences with the
 word as prose give no hit. The prose includes the words left out of the files on purpose (clave,
@@ -106,8 +106,9 @@ PROSE = {
 
 
 def _other_languages() -> list[str]:
-    active = set(detect.active_regions().languages)
-    return [lang for lang in regions.label_languages_available() if lang not in active]
+    # the languages of the pinned locale (de_DE) have the matrix and their own tests; since 0.8.2 every label file is
+    # on by default, so this is the list of the others, not of the files the default leaves off
+    return [lang for lang in regions.label_languages_available() if lang not in ("en", "de")]
 
 
 def _scan(languages: tuple[str, ...], texts: list[str]) -> list[list[tuple[str, str]]]:
@@ -206,6 +207,63 @@ class LabelLanguageTests(unittest.TestCase):
 # a value with a capital, a digit and a sign, built from pieces: the sentence rules need all three
 _SENTENCE_V = "Kx" + "9#" + "pL" + "2v" + "!"
 _COLON_V = "Qz" + "7m" + "Lp" + "4x" + "Rt" + "9k"
+
+
+class LabelSubsetTests(unittest.TestCase):
+    """The keyword rules match each text with only the labels whose literal it holds (core._LabelSubset): the matches
+    and groups are those of the whole regex, for every example of every language and for lines without a label."""
+
+    def test_the_subset_finds_what_the_whole_regex_finds(self):
+        from maisecrets.detection import core
+        langs = tuple(regions.label_languages_available())
+        rules = [r for r in core._load_detect_secrets(langs) if isinstance(r.regex, core._LabelSubset)]
+        self.assertGreaterEqual(len(rules), 6, "the keyword rules take the labels through the subset")
+        # three rules of the three separators: each subset compiles a head per alternative, which takes time
+        rules = [r for r in rules if r.id in ("ds-keyword-colon", "ds-keyword-equal-signs",
+                                              "ds-keyword-quotes-and-semicolon")]
+        self.assertEqual(len(rules), 3)
+        # each language's cases as one text (the whole-text path) and its first case as a line (the path of a line);
+        # a subset is compiled once, so a text per subset keeps this test short
+        cases = {lang: _cases(lang, n=24) for lang in langs}
+        texts = ["\n".join(c.text for c in cs) for cs in cases.values()] + [cs[0].text for cs in cases.values()]
+        texts += ["\n".join(p for ps in PROSE.values() for p in ps)]
+        v = [dm._value(random.Random(f"subset-{i}"), "mixed") for i in range(3)]
+        texts += [f"password = '{v[0]}' and wachtwoord: '{v[1]}'", "no label here at all", f"PASSE: {v[2]}"]
+        self.assertGreaterEqual(sum(t.count("\n") + 1 for t in texts), 400)
+        import re
+        for r in rules:
+            # the vendored regex with every label: no text here has a word run of 200 characters, where _KeywordTail
+            # takes its own loop (tests/test_scan_bounds.py compares that loop with the regex)
+            whole = re.compile(r.regex.pattern, r.regex.flags)
+            for t in texts:
+                got = [(m.span(), m.groups()) for m in r.regex.finditer(t)]
+                want = [(m.span(), m.groups()) for m in whole.finditer(t)]
+                if got != want:
+                    self.fail(f"{r.id}: the subset differs from the whole regex on a text of {len(t)} characters")
+
+    def test_a_text_without_a_label_literal_takes_the_denylist_alone(self):
+        from maisecrets.detection import core
+        rule = next(r for r in core._load_detect_secrets(tuple(regions.label_languages_available()))
+                    if r.id == "ds-keyword-colon")
+        self.assertEqual(rule.regex.pattern, rule.regex._full.pattern, "the digest reads the whole regex")
+        list(rule.regex.finditer("nothing to see"))
+        self.assertEqual(list(rule.regex._cache), [frozenset()])
+        # the groups come from the denylist's regex: the whole one, a head per alternative, is never compiled
+        self.assertGreater(rule.regex.groups, 0)
+        self.assertIsNone(rule.regex._full._any)
+
+
+class CjkSentenceAfterALabelTests(unittest.TestCase):
+    """A sentence in Chinese or Japanese after a password label is a rule for the password, not a value: with every
+    label file on by default, the hint of a sign-up form (密码：至少8位…) reached every person's detector."""
+
+    def test_a_sentence_after_the_label_gives_no_hit_and_a_value_is_still_one(self):
+        value = dm._value(random.Random("cjk-sentence"), "mixed")
+        for text in ("密码：至少8位（含1个大写字母）", "パスワード：８文字以上で入力してください",
+                     "密码: 请联系管理员获取"):
+            with self.subTest(text[:4]):
+                self.assertEqual(_scan(("en", "zh", "ja"), [text]), [[]])
+        self.assertEqual(_scan(("en", "zh", "ja"), [f"密码：{value}"]), [[("SECRET", value)]])
 
 
 class SentenceFormsWithoutSpacesTests(unittest.TestCase):

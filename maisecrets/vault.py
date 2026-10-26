@@ -133,7 +133,19 @@ DEFAULT_WORDS = frozenset({
     "forbidden", "refreshed", "temporary", "operator", "punctuation", "tokenizer", "nexttoken", "token", "tokens",
     "required", "optional", "database", "service", "server", "client", "local", "localhost", "development",
     "production", "staging", "mindestens", "unbedingt", "vergessen", "unbekannt", "abgelaufen", "erforderlich",
-    "geheim", "kennwort"})
+    "geheim", "kennwort",
+    # the word for password in other languages, compared without accents (_folded): a list of label translations
+    # in a tool result stored the word for password itself, and it was hunted in every later tool result
+    # (field report, 2026-10-25)
+    "senha", "heslo", "geslo", "lozinka", "sifre", "haslo", "parola", "parool", "salasana", "jelszo", "losenord",
+    "passord", "adgangskode", "wachtwoord", "contrasena", "motdepasse", "sifra", "parole", "geheimnis"})
+
+
+def _folded(value: str) -> str:
+    """``value`` in lower case without accents: Contraseña gives contrasena, hasło gives haslo."""
+    import unicodedata
+    v = unicodedata.normalize("NFKD", value.strip().lower().replace("ł", "l").replace("ı", "i"))
+    return "".join(c for c in v if not unicodedata.combining(c))
 
 
 _DICT_PART_RE = LazyRx(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])")
@@ -157,8 +169,38 @@ def is_dictionary_word(value: str) -> bool:
     parts = [w.lower() for p in re.split(r"[_.-]+", v) if p for w in _DICT_PART_RE.findall(p)]
     if not parts or "".join(parts) != re.sub(r"[_.-]+", "", v).lower():
         return False
-    return all(len(w) >= 2 and (w in known or (w.endswith("s") and w[:-1] in known)
-                                or (w.endswith("es") and w[:-2] in known)) for w in parts)
+    return all(len(w) >= 2 and _known_word(w, known) for w in parts)
+
+
+# English endings and what the base word ends with before them (comparing: compare, specifically: specific). The
+# list holds base words of 4 to 8 letters, and a hunted value has 8 letters or more: without the endings 25 of 28
+# common prose words were no dictionary words, and a label rule's hit on one was hunted in every later tool result
+# (field report, 2026-10-25)
+_ENDINGS = (("ically", ("ic",)), ("ally", ("", "al")), ("ily", ("y",)), ("ly", ("", "le")), ("ies", ("y",)),
+            ("ied", ("y",)), ("ier", ("y",)), ("ing", ("", "e")), ("ed", ("", "e")), ("ers", ("", "e")),
+            ("er", ("", "e")), ("est", ("", "e")), ("es", ("",)), ("s", ("",)), ("ations", ("e", "")),
+            ("ation", ("e", "")), ("ions", ("", "e")), ("ion", ("", "e")), ("ness", ("",)), ("ments", ("",)),
+            ("ment", ("",)), ("ful", ("",)), ("less", ("",)), ("ity", ("", "e")), ("ive", ("", "e")),
+            ("able", ("", "e")), ("ible", ("", "e")), ("al", ("",)), ("ance", ("", "e")), ("ence", ("", "e")),
+            ("ant", ("", "e")), ("ent", ("", "e")), ("ise", ("", "y")), ("ize", ("", "y")), ("ised", ("", "y")),
+            ("ized", ("", "y")), ("ising", ("", "y")), ("izing", ("", "y")))
+
+
+def _known_word(w: str, known, depth: int = 2) -> bool:
+    """Whether ``w`` is a word of ``known``, a word of it with an English ending (two at most: configurations), or
+    two words of at least 4 letters each (benchmark: bench + mark)."""
+    if w in known:
+        return True
+    if depth:
+        for end, bases in _ENDINGS:
+            if w.endswith(end) and len(w) - len(end) >= 3:
+                stem = w[:-len(end)]
+                if any(_known_word(stem + b, known, depth - 1) for b in bases):
+                    return True
+                # a doubled last consonant: running, stopped
+                if len(stem) >= 4 and stem[-1] == stem[-2] and stem[-1] not in "aeiou" and stem[:-1] in known:
+                    return True
+    return any(w[:i] in known and w[i:] in known for i in range(4, len(w) - 3))
 
 
 def code_word_spellings() -> list[str]:
@@ -175,7 +217,7 @@ def is_weak(kind: str, value: str, tool: bool = False) -> bool:
     from .registry import is_label
     if not is_label(kind):
         return False
-    if value.strip().lower() in DEFAULT_WORDS:
+    if _folded(value) in DEFAULT_WORDS:
         return True
     return tool and is_dictionary_word(value)
 
@@ -659,8 +701,9 @@ class Vault:
     @_mutating
     def weaken_quiet_words(self) -> int:
         """Mark weak the live quiet entries (a label rule took them in a tool result) that are English words
-        (is_dictionary_word). Before 0.6.38 such a word was hunted in every later tool result for a day. Reads
-        the value of each such entry once; a store that refuses the read leaves it as it is. Returns the count."""
+        (is_dictionary_word) or default words (DEFAULT_WORDS). Before 0.6.38 such a word was hunted in every later
+        tool result for a day. Reads the value of each such entry once; a store that refuses the read leaves it as it
+        is. Returns the count."""
         todo = [k for k, m in self._index["entries"].items()
                 if m.get("quiet") and not m.get("weak") and not m.get("purged")]
         n = 0
@@ -671,7 +714,7 @@ class Vault:
                 from . import incidents
                 incidents.note("store.mark-weak", exc)
                 continue
-            if value is not None and is_dictionary_word(value):
+            if value is not None and (is_dictionary_word(value) or _folded(value) in DEFAULT_WORDS):
                 self._index["entries"][key]["weak"] = True
                 n += 1
         return n
@@ -712,6 +755,7 @@ class Vault:
             if session and session not in e.sessions:
                 e.sessions.append(session)
             e.quiet = False             # a value given outside a tool result: hunted in prompts again
+            e.weak = e.weak and is_weak(kind, value)   # and in every text, unless it is a default word
             self._touch(e)
             return e
         e = self._put_new(value, type_, kind, session, ttl)
@@ -766,6 +810,9 @@ class Vault:
                     e.sessions.append(session)
                 if not tool:
                     e.quiet = False     # a value the person gives in a prompt is hunted in prompts again
+                    # a word a tool result stored weak is a chosen password once the person gives it (field report,
+                    # 2026-10-25: the weak words of the list grew from base words to words with endings)
+                    e.weak = e.weak and is_weak(kind, value)
                 # a tool result keeps the mark of an existing entry. An entry without one (stored by an older version,
                 # or a mark an older process dropped) reads as quiet=False and stays hunted: its origin is unknown,
                 # and only a new entry from a tool result is known to come from one (final codex review of 0.6.17)

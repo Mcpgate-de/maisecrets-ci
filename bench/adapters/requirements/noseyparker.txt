@@ -1,0 +1,3 @@
+# release binary, not a Python distribution: https://github.com/praetorian-inc/noseyparker/releases/download/v0.24.0/noseyparker-v0.24.0-aarch64-apple-darwin.tar.gz
+# darwin-arm64 archive sha256 b19f983d586a738f127bc8c53ef1331055010db4926ac1789791f717fcc107b7 (the release lists no checksum; measured on download)
+noseyparker==0.24.0

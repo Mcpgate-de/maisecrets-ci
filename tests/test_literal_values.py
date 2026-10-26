@@ -70,7 +70,7 @@ class PasswordLiteralTests(unittest.TestCase):
         for text in ("pass: 95.2%", "pass: 118/124", "PASS: 41/41", "unit tests pass: 312/312", "Season pass: 2025/26",
                      "Boarding pass: 14C/27", "pw: 8-64", "Passwort: \u00a73.2", "password: ~30d", "password: 12:30",
                      "password: 24h/7d", "Passwort: Seite#3", "Passwort: s.o.", 'password = "senhaAtual"',
-                     'wachtwoord: "geheimpje"', '<password>wachtwoord</password>',
+                     'wachtwoord: "geheim' + 'pje"', '<password>wachtwoord</password>',
                      '<password>contrasenaNueva</password>',
                      'if pw == "Xk9qTz2wLm":', 'if (pw != "Xk9qTz2wLm")'):
             with self.subTest(text=text):

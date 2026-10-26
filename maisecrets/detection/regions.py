@@ -6,9 +6,11 @@ language (`passwort:`, `kennwort:`). English labels are always on, because the v
 are English and people write English labels in every language.
 
 The config key `regions` is a list of country codes. The entry "auto" is the country of the system
-setting. The label languages are English, the language of the system setting, and the language of
-each region. A machine without a system setting (a CI container with the C locale) gets English
-labels and the generic PII rules only.
+setting. The label languages are all languages with a label file, whatever the system setting and the
+regions: a person writes a label in another language than the one of the system, and a tool result
+holds the field names of a foreign system. English comes first, then the language of the system setting
+and of each region, then the others. A machine without a system setting (a CI container with the C
+locale) gets the generic PII rules only.
 """
 from __future__ import annotations
 
@@ -133,10 +135,11 @@ def resolve(cfg: dict, locale: str | None = None) -> Active:
             regions.append(r)
     regions = list(dict.fromkeys(regions))
     lang = _LANGUAGE_ALIAS.get(lang, lang) if lang else None
-    languages = ["en"] + ([lang] if lang else []) + [x for r in regions for x in _region_languages(r)]
-    available = set(label_languages_available())
+    # every label file is on (since 0.8.2): a label word of one language in a text of another is common
+    available = label_languages_available()
+    languages = ["en"] + ([lang] if lang else []) + [x for r in regions for x in _region_languages(r)] + available
     return Active(regions=("generic", *regions),
-                  languages=tuple(x for x in dict.fromkeys(languages) if x in available),
+                  languages=tuple(x for x in dict.fromkeys(languages) if x in set(available)),
                   source=source)
 
 

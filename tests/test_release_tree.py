@@ -133,7 +133,7 @@ class ReleaseTreeTests(unittest.TestCase):
                       "CLAUDE.md", "pyproject.toml",
                       "docs/TESTING.md", "docs/REPO-STANDARDS.md", "docs/DIAGNOSTICS.md", "docs/BENCHMARKS.md",
                       "docs/BENCHMARK-V1.md", "docs/BENCHMARK-V2.md", "docs/BENCHMARK-V3.md",
-                      "docs/BENCHMARK-V3-DRAFT.md",
+                      "docs/BENCHMARK-V3-DRAFT.md", "docs/BENCHMARK-STRUCTURED.md",
                       "docs/NER-EXPERIMENT.md",
                       "docs/DETECTION-SPEC-DRAFT.md", "docs/DETECTION-CONTRACT-PROPOSAL.md",
                       "docs/rule-limits.json", "docs/ratchet-exceptions.json",

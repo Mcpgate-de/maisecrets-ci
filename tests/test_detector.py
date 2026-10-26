@@ -458,7 +458,8 @@ print(json.dumps([[m.kind for m in de.findings(text, channel="tool", path="/tmp/
 class FreshProcessTests(unittest.TestCase):
     def test_two_explicit_detectors_import_only_core_modules(self):
         env = {k: v for k, v in os.environ.items() if not k.startswith(("CLAUDE", "CODEX"))}
-        text = TEXTS["regions us"] + "\n" + TEXTS["references"]
+        # a blank line between them: two `key: value` lines are one record of the line formats (kv-personal-field)
+        text = TEXTS["regions us"] + "\n\n" + TEXTS["references"]
         r = subprocess.run([sys.executable, "-I", "-c", _TWO_DETECTORS_IN_A_FRESH_PROCESS, str(ROOT), text],
                            capture_output=True, text=True, env=env, timeout=120)
         self.assertEqual(r.returncode, 0, r.stderr)

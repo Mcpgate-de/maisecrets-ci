@@ -2,7 +2,7 @@
 belief = "c2-a-word-in-a-tool-result-is-not-hunted-a-random-value-is"
 kind = "invariant"
 control = "C2"
-statement = "A word that a label rule takes in a tool result or a file, and that is stored new from there, blocks no later typed prompt (field report on 0.6.16); it is still masked in every later tool result, except a default word or an English word of the word list (weak), which is masked only where it was found (field report, 2026-10-17); a quiet English word an older version stored turns weak at the next session start. A random value after a label stays hunted in prompts too, and so does a word the person gives in a prompt, also when a tool result held it first. An entry whose origin is unknown (no quiet mark, as an older version writes it) stays hunted: no mark is inferred."
+statement = "A word that a label rule takes in a tool result or a file, and that is stored new from there, blocks no later typed prompt (field report on 0.6.16); it is still masked in every later tool result, except a default word or an English word of the word list (weak), which is masked only where it was found (field report, 2026-10-17); a quiet English word an older version stored turns weak at the next session start. An English word counts with an ending or as two words (field report, 2026-10-25), and the word for password in another language is a default word, also with accents. The start weakens only quiet entries, and a second start changes nothing; a weak word the person then gives (put, or after a label in a prompt) is hunted again. A random value after a label stays hunted in prompts too, and so does a word the person gives in a prompt, also when a tool result held it first. An entry whose origin is unknown (no quiet mark, as an older version writes it) stays hunted: no mark is inferred."
 runner = [
   "tests/test_word_values_not_hunted.py::WordValuesNotHuntedTests::test_a_word_after_a_password_label_in_a_tool_result_blocks_no_later_prompt",
   "tests/test_word_values_not_hunted.py::WordValuesNotHuntedTests::test_a_random_value_after_a_label_is_still_hunted_in_a_later_prompt",
@@ -16,6 +16,10 @@ runner = [
   "tests/test_word_values_not_hunted.py::WordValuesNotHuntedTests::test_an_english_word_from_a_tool_result_is_masked_only_where_it_was_found",
   "tests/test_word_values_not_hunted.py::WordValuesNotHuntedTests::test_an_english_word_the_person_gives_after_a_label_stays_hunted",
   "tests/test_word_values_not_hunted.py::WordValuesNotHuntedTests::test_a_quiet_english_word_an_older_version_stored_is_weak_after_the_next_start",
+  "tests/test_word_values_not_hunted.py::WordValuesNotHuntedTests::test_a_word_from_one_session_is_not_hunted_in_the_web_and_agent_results_of_others",
+  "tests/test_word_values_not_hunted.py::WordValuesNotHuntedTests::test_the_migration_at_the_start_is_idempotent_and_weakens_only_quiet_words",
+  "tests/test_word_values_not_hunted.py::WordValuesNotHuntedTests::test_a_weak_word_the_person_then_gives_is_hunted_again",
+  "tests/test_word_values_not_hunted.py::WordValuesNotHuntedTests::test_a_quiet_word_with_an_ending_an_older_version_stored_is_weak_after_the_next_start",
 ]
 
 [[proof]]
@@ -82,4 +86,40 @@ replace = "    return is_dictionary_word(value)"
 path = "a quiet English word an older version stored stays hunted after the next start"
 file = "hooks/dispatch.py"
 find = "        v.weaken_quiet_words()\n"
+replace = ""
+
+[[proof]]
+path = "an English word with an ending or of two words is no dictionary word, as in 0.8.1"
+file = "maisecrets/vault.py"
+find = "    return all(len(w) >= 2 and _known_word(w, known) for w in parts)"
+replace = "    return all(len(w) >= 2 and (w in known or (w.endswith(\"s\") and w[:-1] in known)) for w in parts)"
+
+[[proof]]
+path = "the word for password in another language is compared with its accents"
+file = "maisecrets/vault.py"
+find = "    if _folded(value) in DEFAULT_WORDS:"
+replace = "    if value.strip().lower() in DEFAULT_WORDS:"
+
+[[proof]]
+path = "a quiet default word an older version stored stays hunted after the next start"
+file = "maisecrets/vault.py"
+find = "            if value is not None and (is_dictionary_word(value) or _folded(value) in DEFAULT_WORDS):"
+replace = "            if value is not None and is_dictionary_word(value):"
+
+[[proof]]
+path = "the start weakens a value stored by hand too"
+file = "maisecrets/vault.py"
+find = "                if m.get(\"quiet\") and not m.get(\"weak\") and not m.get(\"purged\")]"
+replace = "                if not m.get(\"weak\") and not m.get(\"purged\")]"
+
+[[proof]]
+path = "a weak word the person stores by hand stays weak"
+file = "maisecrets/vault.py"
+find = "            e.weak = e.weak and is_weak(kind, value)   # and in every text, unless it is a default word\n"
+replace = ""
+
+[[proof]]
+path = "a weak word the person gives after a label in a prompt stays weak"
+file = "maisecrets/vault.py"
+find = "                    e.weak = e.weak and is_weak(kind, value)\n"
 replace = ""

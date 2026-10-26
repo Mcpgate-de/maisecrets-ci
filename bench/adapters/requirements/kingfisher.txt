@@ -1,0 +1,3 @@
+# release binary, not a Python distribution: https://github.com/mongodb/kingfisher/releases/download/v2.11.1/kingfisher-darwin-arm64.tgz
+# darwin-arm64 archive sha256 131de009409be38ae595550acfa8811ff3d43912715687758ff6a84157f1ef5e (matches the digest GitHub lists for the asset)
+kingfisher==2.11.1

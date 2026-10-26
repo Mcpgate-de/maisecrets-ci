@@ -99,6 +99,92 @@ report (`no_ml.json`, `doc.json`). The rest of a file is negative text. Split by
 `dev` 114, `val` 35, `holdout` 50. Channel `tool`, the path is the file name, the context comes from the extension.
 The labels are the output of one scanner, so its precision is probably a lower bound; no read sample checks it yet.
 
+### ghissues (real secrets in GitHub issues, added 2026-10-25)
+
+The set of "Secret Leak Detection in Software Issue Reports using LLMs" (MSR 2026, arXiv:2410.23657; its authors
+credited as listed in the Zenodo record),
+Zenodo record 17430335, licence CC BY 4.0. `Data/main_data.csv` holds 54,203 candidate strings from 50,680 public
+GitHub issues. The SecretBench regexes found the candidates, and people labelled each one by hand: 5,873 true
+secrets, 48,330 not. Each row has the full issue body, so the place of a value is known. **The values are real
+leaked secrets of third parties.** No script prints a value or a text, and the data stays outside the repository.
+
+- **Seal.** `python3 bench/ghissues.py seal ZIP DATA_DIR` writes two halves, split by issue with a keyed hash
+  (`bench/HOLDOUT-LOG.md`, "GitHub-issues holdout"). `bench/ghissues.py` pins the sha256 of the zip and of each half.
+  The loader refuses a half that differs, and it reads one half at a time. Use `--split dev` or `--split holdout`.
+- **Holdout.** A run with `--split holdout` writes totals only and one row to `bench/HOLDOUT-LOG.md`. Nobody reads a
+  holdout case, and no rule changes because of a holdout result.
+- **Spans.** A case is one issue body. Each place of a true value is a span, class by the SecretBench regex name
+  (`CLASS_OF_TYPE`; a private key block is `secret.private_key`). Many candidates are the whole regex match with the
+  key name and quotes. So each span has a `core`: the secret inside the match (`core_of`). Strict recall needs the
+  core masked whole. A value labelled both ways is neutral.
+- **Precision.** A false candidate is listed in the case's `negatives`. A finding on it is a false positive. A finding
+  on text that no candidate covers is out of the dataset's scope and is counted apart: the regexes did not look there.
+  `precision_secret_findings` counts only findings with a secret class, for a scanner that also finds personal data.
+- **Metrics** (`ghissues` block of the result): strict and lenient recall, precision, F1, F0.5, and the same per
+  candidate (a candidate is flagged when a finding overlaps it).
+
+```bash
+python3 bench/run.py --scanner gitleaks --source ghissues --data DATA_DIR --split dev --out dev-gitleaks.json
+```
+
+### Scanners that run as release binaries (added 2026-10-25)
+
+`bench/adapters/_filescan.py` writes each case to a file and runs the binary once over the folder. On macOS it runs
+under `sandbox-exec` with the network denied. The binary comes from an environment variable and its version must match
+the pin (`bench/adapters/requirements/<name>.txt` names the archive and its sha256): `BENCH_GITLEAKS` (8.30.1),
+`BENCH_BETTERLEAKS` (1.9.0), `BENCH_TRUFFLEHOG` (3.99.2, `--no-verification`), `BENCH_KINGFISHER` (2.11.1,
+`--no-validate`), `BENCH_KINGFISHER1` (1.113.0, the last release with its own rule catalog; 2.x ships the rules of
+betterleaks and Veles) and `BENCH_NOSEYPARKER` (0.24.0). The source `catalogs-example` gives the catalog examples as
+each catalog wrote them, with their key names, for the scanners whose rules need a key name near the value.
+
+## External PII sets (added 2026-10-25)
+
+Two public PII sets for gap discovery, not for a leaderboard. The data stays outside the repository. Each set has
+three sealed splits (`bench/sealed.py`): `dev` (60 %, read by aggregates and shapes), `val` (20 %, aggregate counts
+only) and `holdout` (20 %, never read, totals only, one row in `bench/HOLDOUT-LOG.md`). The split takes
+HMAC-SHA256 of a group, so a group never crosses splits. The splits were sealed before any example was read; their
+hashes are in the loaders and in `bench/HOLDOUT-LOG.md`. Run one split at a time:
+`bench/run.py --source nym|dialogpii --split dev --data DIR`. Both sets run in the tool channel like the other PII
+sets: maisecrets takes names, addresses and birth dates in a tool result only (`maisecrets/detection/personal.py`,
+`hits`).
+
+### nym (`Wismut/nym-pii-multilingual-data`)
+
+805,000 synthetic texts in about 23 languages, MIT, revision `abe23bf08c305f5824b1643dc4f079f06ccb2ad1`. A local LLM
+wrote templates with label slots, and Faker filled them, so the offsets are exact (Python character offsets, checked:
+every end lies in the text). About 13 % of the texts have no span, and about 20 % carry OCR or typing noise inside the
+values. The group is the sequence of a text's labels (5,444 sequences for the card's 5,959 templates), so the fills of
+one template stay in one split. The label map follows Nemotron's where the names agree; city, state, country, ZIP,
+dates, times, age, gender, company, URL, MAC, CVV, PIN, SWIFT, customer and employee ids and plates are neutral.
+Spans lose the white space at their ends (5,741 spans on `dev`).
+
+Limitations found on `dev` (aggregates only): 92 % of the e-mail addresses use the reserved domains `example.com`,
+`.org` or `.net` (Faker's default), which maisecrets leaves alone on purpose (`value_checks.py`, `_reserved_domain`).
+5 % of the card numbers fail the Luhn check and 9 % of the IBANs fail mod 97 (the noise). `GOVERNMENT_ID` is a run of
+8 to 11 random digits with no format. The rows carry no language. A text in Chinese or Japanese has no space before a
+value, so 177,417 spans start inside a run of letters. A few templates hold a literal e-mail address or phone number
+without a slot; a finding there counts as a false positive.
+
+### DialogPII (Zenodo 20863452, version 1.0)
+
+Synthetic dialogues in 11 languages, eight scenarios, 147 dialogues per language, each as written and as a
+speech-recognition transcript; CC BY 4.0, doi:10.5281/zenodo.20863452; `DialogPII.zip` sha256
+`70e7d3a419e40034352af550c4d5658fc5f8b663b6731fec689c28b236c9221c`. Two annotators labelled the English text, an LLM
+translated it with the labels, and a reviewer per language corrected them. The group is the dialogue
+(`<scenario>/<chat_number>`), so a dialogue lies in one split in all languages and both forms. A case is one dialogue,
+one turn per line as `<speaker>: <text>`; the speakers are role labels. Every offset of `dev` matches the text of its
+span. Scored: `PERSON` (names, also a title alone, `pii.name`), `PERSON_EMAIL`, `CODE_PHONE`, `LOC_STREET` and
+`LOC_HOUSENUMBER` (`pii.address`). Neutral: `CODE` (ids of many kinds), the other places, dates, ages, organisations,
+professions, products, quantities, relations and `MISC`. A transcript spells an e-mail address as words (no `@`) and
+splits a phone number into groups (guideline 6 labels each fragment), so its e-mail and phone spans are not values in
+written form.
+
+### Results
+
+This file gives no results for ghissues, nym and DialogPII. The numbers of record come from the release
+baseline (`scripts/extended_baseline.py`), in a section of their own apart from the V3 tables above: these sets
+are not in the denominators of V3 and not in its comparisons with earlier releases.
+
 ## Repeat
 
 ```bash

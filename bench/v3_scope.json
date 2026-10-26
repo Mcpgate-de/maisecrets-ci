@@ -36,6 +36,39 @@
    "secret.token"
   ]
  },
+ "dialogpii": {
+  "excluded_shapes": {},
+  "labelled": [
+   "CODE_PHONE",
+   "LOC_HOUSENUMBER",
+   "LOC_STREET",
+   "PERSON",
+   "PERSON_EMAIL"
+  ],
+  "lower_bound": [],
+  "not_labelled": [
+   "CODE",
+   "CODE_URL",
+   "DATETIME",
+   "DATETIME_AGE",
+   "LOC_CITY",
+   "LOC_COUNTRY",
+   "LOC_OTHER",
+   "LOC_ZIP",
+   "MISC",
+   "ORG",
+   "PERSON_SOCIAL_RELATION",
+   "PRODUCT",
+   "PROFESSION",
+   "QUANTITY"
+  ],
+  "scored": [
+   "pii.address",
+   "pii.email",
+   "pii.name",
+   "pii.phone"
+  ]
+ },
  "gretel": {
   "excluded_shapes": {},
   "labelled": [
@@ -216,6 +249,68 @@
    "pii.username",
    "secret.generic",
    "secret.password"
+  ]
+ },
+ "nym": {
+  "excluded_shapes": {},
+  "labelled": [
+   "ACCOUNT_NUMBER",
+   "API_KEY",
+   "BUILDING_NUMBER",
+   "CREDIT_DEBIT_CARD",
+   "DATE_OF_BIRTH",
+   "DRIVERS_LICENSE",
+   "EMAIL",
+   "FAX_NUMBER",
+   "GIVEN_NAME",
+   "GOVERNMENT_ID",
+   "IBAN",
+   "MEDICAL_RECORD_NUMBER",
+   "PASSPORT",
+   "PASSWORD",
+   "PHONE",
+   "ROUTING_NUMBER",
+   "SECONDARY_ADDRESS",
+   "SSN",
+   "STREET_ADDRESS",
+   "STREET_NAME",
+   "SURNAME",
+   "TAX_ID",
+   "USERNAME"
+  ],
+  "lower_bound": [],
+  "not_labelled": [
+   "AGE",
+   "CITY",
+   "COMPANY_NAME",
+   "COUNTRY",
+   "CUSTOMER_ID",
+   "CVV",
+   "DATE",
+   "EMPLOYEE_ID",
+   "GENDER",
+   "LICENSE_PLATE",
+   "MAC_ADDRESS",
+   "PIN",
+   "STATE",
+   "SWIFT_BIC",
+   "TIME",
+   "URL",
+   "ZIP_CODE"
+  ],
+  "scored": [
+   "pii.address",
+   "pii.bank_account",
+   "pii.birth_date",
+   "pii.card",
+   "pii.email",
+   "pii.iban",
+   "pii.name",
+   "pii.national_id",
+   "pii.phone",
+   "pii.username",
+   "secret.password",
+   "secret.token"
   ]
  },
  "piilo": {

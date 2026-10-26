@@ -121,6 +121,8 @@ VALUES = {
     "git_sha": lambda r: rd(r, 40, HEX),
     "sha256": lambda r: rd(r, 64, HEX),
     "uuid": guid,
+    "first": lambda r: r.choice(FIRST),
+    "last": lambda r: r.choice(LAST),
 }
 
 # (id, channel, context, split, difficulty, tags, template); {kind|class} is an expected span, {kind} is filler that
@@ -211,6 +213,45 @@ T = [
      "the image digest is sha256:{sha256} and the commit is {git_sha}\n"),
     ("neg/test-fixture", "tool", "code", "dev", "hard", ["negative", "form:test"],
      "def test_login():\n    assert login(\"testuser\", \"testpass\") is True\n"),
+    # --- structural labels: a field name in markup or SQL names the value (structural label gaps, 2026-10-25)
+    ("tool/html-table-contacts", "tool", "doc", "dev", "medium", ["form:html"],
+     "<table>\n<tr><th>Name</th><th>E-Mail</th><th>Phone</th></tr>\n"
+     "<tr><td>{name|pii.name}</td><td>{email|pii.email}</td><td>{phone_de|pii.phone}</td></tr>\n</table>\n"),
+    ("tool/html-table-field-value", "tool", "doc", "dev", "hard", ["form:html"],
+     "<table>\n<tr><th>Full name</th><td>{name|pii.name}</td></tr>\n"
+     "<tr><th>Date of birth</th><td>{birth_date|pii.birth_date}</td></tr>\n</table>\n"),
+    ("tool/sql-insert-columns", "tool", "code", "dev", "medium", ["form:sql"],
+     "INSERT INTO customers (first_name, last_name, email) VALUES ('{first|pii.name}', '{last|pii.name}', "
+     "'{email|pii.email}');\n"),
+    ("tool/sql-insert-dump", "tool", "code", "dev", "hard", ["form:sql", "form:mysqldump"],
+     "CREATE TABLE `users` (\n  `id` int NOT NULL,\n  `full_name` varchar(100),\n  `email` varchar(100),\n"
+     "  `phone` varchar(30)\n);\nINSERT INTO `users` VALUES (1,'{name|pii.name}','{email|pii.email}',"
+     "'{phone_de|pii.phone}'),(2,'{name|pii.name}','{email|pii.email}','{phone_de|pii.phone}');\n"),
+    ("tool/sql-insert-bare", "tool", "code", "dev", "hard", ["form:sql", "form:mysqldump"],
+     "INSERT INTO `customers` VALUES (7,'{name|pii.name}','{email|pii.email}','{phone_de|pii.phone}',"
+     "'{address|pii.address}');\n"),
+    ("tool/sql-where-password","tool", "code", "dev", "medium", ["form:sql"],
+     "SELECT id FROM accounts WHERE \"username\" = '{username|pii.username}' AND \"password\" = '{password|secret.password}';\n"),
+    ("tool/sql-where-name", "tool", "code", "dev", "hard", ["form:sql"],
+     "SELECT * FROM patients WHERE full_name = '{name|pii.name}' AND dob = '{birth_date|pii.birth_date}';\n"),
+    ("tool/xml-element-label", "tool", "doc", "dev", "medium", ["form:xml"],
+     "<payment>\n  <card_holder>{name|pii.name}</card_holder>\n  <amount>12.50</amount>\n</payment>\n"),
+    ("tool/json-camel-keys", "tool", "json", "dev", "medium", ["form:json"],
+     '{{"givenName": "{first|pii.name}", "familyName": "{last|pii.name}", "locale": "de-DE"}}'),
+    ("tool/json-snake-keys", "tool", "json", "dev", "medium", ["form:json"],
+     '{{"first_name": "{first|pii.name}", "last_name": "{last|pii.name}", "plan": "basic"}}'),
+    ("neg/html-table-products", "tool", "doc", "dev", "hard", ["negative", "form:html"],
+     "<table>\n<tr><th>Name</th><th>Version</th><th>Owner</th></tr>\n"
+     "<tr><td>Garden Hose</td><td>2.1.0</td><td>Platform Team</td></tr>\n</table>\n"),
+    ("neg/sql-dump-products", "tool", "code", "dev", "hard", ["negative", "form:sql", "form:mysqldump"],
+     "INSERT INTO `products` VALUES (1,'Garden Hose','Green Valley','2024-05-01'),(2,'Rain Barrel','Blue Ridge',"
+     "'2024-06-01');\n"),
+    ("neg/sql-where-status", "tool", "code", "dev", "hard", ["negative", "form:sql"],
+     "SELECT * FROM orders WHERE status = 'Pending Review' AND region = 'North America';\n"),
+    ("neg/xml-product", "tool", "doc", "dev", "hard", ["negative", "form:xml"],
+     "<item>\n  <product_name>Garden Hose</product_name>\n  <owner>Platform Team</owner>\n</item>\n"),
+    ("neg/json-role-keys", "tool", "json", "dev", "hard", ["negative", "form:json"],
+     '{{"owner": "platform-team", "contact": "Release Desk", "author": "Build Bot"}}'),
 ]
 
 

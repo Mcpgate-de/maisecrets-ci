@@ -22,7 +22,9 @@ def main(argv: list[str]) -> int:
     checkout, text_file = argv
     sys.path.insert(0, checkout)
     from maisecrets.detection import NO_REFERENCES, NO_SOURCES, Active, Detector, Host
-    det = Detector(regions=Active(regions=("generic", "de", "us"), languages=("en", "de"), source="time"),
+    from maisecrets.detection.regions import resolve
+    languages = resolve({"regions": ["de", "us"]}, locale="C").languages   # each checkout's own default
+    det = Detector(regions=Active(regions=("generic", "de", "us"), languages=languages, source="time"),
                    sources=NO_SOURCES, references=NO_REFERENCES, host=Host(user="time", year=2026))
     text = open(text_file, encoding="utf-8").read()
     det.findings(text[:20000], channel="tool", path="")   # loads and compiles the rules: not part of a scan

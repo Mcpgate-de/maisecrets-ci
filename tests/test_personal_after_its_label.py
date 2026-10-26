@@ -236,7 +236,11 @@ class SingleNameTests(Base):
                 ("First name: Mark", "Mark")):
             with self.subTest(text=text):
                 self.assertMasked(text, value)
-                self.assertIn("name-single-after-label", {m.kind for m in scan(text)})
+                # a JSON record with a first-name and a last-name field is a person's record since 2026-10-25, and
+                # the record rule reports the same value
+                # and two `key: value` lines of a first and a last name are such a record too (kv-personal-field)
+                self.assertTrue({"name-single-after-label", "json-personal-field", "kv-personal-field"}
+                                & {m.kind for m in scan(text)})
 
     def test_a_word_a_type_a_state_or_a_documentation_name_stays_text(self):
         for text in ("first_name: String", "last name: Required", 'first_name = "John"', "last_name: Doe",
@@ -287,7 +291,10 @@ class DutchAndSwedishNameLabelTests(Base):
         name = "Daan " + "Bakker"
         for text in ("Naam: " + name + "\nAdres: Kerkstraat 1", "Namn: " + name + "\n"):
             with self.subTest(text=text):
-                self.assertEqual(text.replace(name, "•"), masked(text))
+                # the name stops at its line; the street after Adres: is masked by its own rule
+                out = masked(text)
+                self.assertEqual(text.replace(name, "•").split("\n", 1)[0], out.split("\n", 1)[0])
+                self.assertNotIn(name, out)
 
     def test_words_after_naam_stay_text(self):
         for text in ("Naam: Product Owner\n", "naam: Build Pipeline"):
@@ -471,8 +478,11 @@ class MarkdownTableTests(Base):
 
     def test_a_name_part_field_without_a_person_or_with_a_form_word_stays_text(self):
         first, last = NAME.split()
-        # a first and a last name alone make no record; a form word is no name
-        self.assertText("| Field | Value |\n|---|---|\n| First Name | " + first + " |\n| Last Name | " + last + " |\n")
+        # a first or a last name alone makes no record; a form word is no name. Since 2026-10-25 a record with a
+        # first-name and a last-name field is a person (both values read as name parts): that case moved to
+        # tests/test_pii_structural_labels.py, FirstAndLastNameColumnTests
+        self.assertText("| Field | Value |\n|---|---|\n| First Name | " + first + " |\n| Plan | basic |\n")
+        self.assertText("| Field | Value |\n|---|---|\n| Last Name | " + last + " |\n| Plan | basic |\n")
         # (the date of birth there is a person's and is masked; the form words stay text)
         form = ("| Field | Value |\n|---|---|\n| First Name | Required |\n| Last Name | Optional |\n"
                 "| Date of Birth | " + BIRTH + " |\n")

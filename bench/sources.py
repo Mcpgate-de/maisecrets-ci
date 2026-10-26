@@ -8,7 +8,13 @@ repository.
     aparte llmredactor credsweeper  the labelled secret datasets of scripts/measure_datasets.py (docs/BENCHMARK-V3.md,
                                   "Secret datasets")
     catalogs                      the rule examples of six secret catalogs (scripts/measure_catalog_coverage.py)
-    traces                        protocol traces made at run time by bench/traces.py (development data)"""
+    catalogs-example              the same examples as each catalog wrote them, with their own context
+    ghissues                      real secrets in GitHub issues, two sealed halves dev and holdout (bench/ghissues.py)
+    traces                        protocol traces made at run time by bench/traces.py (development data)
+    nym dialogpii                 external PII sets, sealed dev, val and holdout splits (bench/nym.py,
+                                  bench/dialogpii.py), one split at a time
+    structured                    structured text made at run time by bench/structgen.py, template set A
+                                  (development data, docs/BENCHMARK-STRUCTURED.md)"""
 from __future__ import annotations
 
 import collections
@@ -21,7 +27,9 @@ from bench import cases
 ROOT = Path(__file__).resolve().parent.parent
 BANK = ROOT / "bench" / "bank"
 DATASETS = ("nemotron", "gretel", "mendeley", "piilo", "privy", "aparte", "llmredactor", "credsweeper")
-SOURCES = ("bank",) + DATASETS + ("catalogs", "traces")
+SEALED_SETS = ("nym", "dialogpii")
+HOLDOUT_SETS = SEALED_SETS + ("ghissues",)   # sources with a sealed holdout split: totals only
+SOURCES = ("bank",) + DATASETS + ("catalogs", "catalogs-example", "traces", "ghissues", "structured") + SEALED_SETS
 
 # a type to its class, from the published vocabulary (docs/DETECTION.md, "The type vocabulary"): the types of
 # scripts/measure_datasets.py and those maisecrets finds (bench/adapters/maisecrets.py). A dataset's SECRET span takes
@@ -110,9 +118,10 @@ def _catalog_state(root: Path) -> tuple:
     return head.stdout.strip(), bool(status.stdout.strip())
 
 
-def catalog_cases(catalogs: Path, max_examples: int = 6):
+def catalog_cases(catalogs: Path, max_examples: int = 6, forms=("bare", "label")):
     """Each example of a secret catalog twice: the secret alone and after `token = `, as
-    scripts/measure_catalog_coverage.py probes it. The expected span is the catalog's secret."""
+    scripts/measure_catalog_coverage.py probes it. The expected span is the catalog's secret. The form `example` is
+    the example text as the catalog wrote it (its key names and context), for a scanner whose rules need them."""
     sys.path.insert(0, str(ROOT / "scripts"))
     import measure_catalog_coverage as mcc
     missing = [cat for cat in mcc.CATALOGS if not (Path(catalogs) / cat).is_dir()]
@@ -128,12 +137,14 @@ def catalog_cases(catalogs: Path, max_examples: int = 6):
         for r in mcc.load_catalog(cat, root):
             rule = r["rule"]
             for i, ex in enumerate(r["pos"][:max_examples]):
-                yield from _catalog_forms(cat, commit, rule, i, ex["secret"], url, licence)
+                yield from _catalog_forms(cat, commit, rule, i, ex["secret"], url, licence, ex.get("text"), forms)
 
 
-def _catalog_forms(cat: str, commit: str, rule: str, i: int, secret: str, url: str = "", licence: str = ""):
+def _catalog_forms(cat: str, commit: str, rule: str, i: int, secret: str, url: str = "", licence: str = "",
+                   example: str | None = None, forms=("bare", "label")):
     if secret:
-        for form, body in (("bare", secret), ("label", "token = " + secret)):
+        bodies = {"bare": secret, "label": "token = " + secret, "example": example}
+        for form, body in ((f, bodies[f]) for f in forms if bodies.get(f) and secret in bodies[f]):
             start = body.index(secret)
             cls = "secret.webhook" if secret.startswith("http") else "secret.token"
             record = f"{cat}/{rule}/{i}/{form}"
@@ -145,8 +156,28 @@ def _catalog_forms(cat: str, commit: str, rule: str, i: int, secret: str, url: s
 
 
 def load(name: str, data: Path | None = None, catalogs: Path | None = None, limit: int = 0,
-         stats: collections.Counter | None = None):
+         stats: collections.Counter | None = None, split: str | None = None):
     stats = stats if stats is not None else collections.Counter()
+    if name == "ghissues":
+        # one sealed half at a time: the holdout half is read only when it is asked for by name
+        from bench import ghissues
+        if data is None:
+            raise SystemExit("the ghissues source needs --data DIR (the directory with dev/ and holdout/)")
+        try:
+            return list(ghissues.load(Path(data), split or "dev", stats, limit))
+        except ghissues.DataError as e:
+            raise SystemExit(f"ghissues: {e}") from None
+    if name in SEALED_SETS:
+        # one sealed split at a time: the holdout is read only when it is asked for by name
+        import importlib
+        from bench import sealed
+        mod = importlib.import_module(f"bench.{name}")
+        if data is None:
+            raise SystemExit(f"the {name} source needs --data DIR (the directory with dev/, val/ and holdout/)")
+        try:
+            return list(mod.load(Path(data), split or "dev", stats, limit))
+        except sealed.DataError as e:
+            raise SystemExit(f"{name}: {e}") from None
     if name == "bank":
         return iter(cases.load_bank(BANK))
     if name in DATASETS:
@@ -155,8 +186,15 @@ def load(name: str, data: Path | None = None, catalogs: Path | None = None, limi
     if name == "traces":
         from bench import traces
         return traces.generate()
+    if name == "structured":
+        from bench import structgen
+        return structgen.generate()
     if name == "catalogs":
         if catalogs is None:
             raise SystemExit("the catalogs source needs --catalogs DIR (one clone per catalog)")
         return catalog_cases(catalogs)
+    if name == "catalogs-example":
+        if catalogs is None:
+            raise SystemExit("the catalogs-example source needs --catalogs DIR (one clone per catalog)")
+        return catalog_cases(catalogs, forms=("example",))
     raise SystemExit(f"no source {name}; known: {', '.join(SOURCES)}")

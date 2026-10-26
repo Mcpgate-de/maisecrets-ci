@@ -51,8 +51,19 @@ _BIRTH_RE = re.compile(r"(?i)(?:\bd\.?o\.?b\b|date[ _-]?of[ _-]?birth|birth[ _-]
                        r"|\bbday\b" + _VCARD_PARAMS
                        + r"|\bgeb(?:\.|oren am|urtsdatum)"
                        r"|n[ée]\(?e?\)? le|date de naissance|fecha de nacimiento|\bnac[ií](?:d[oa])? el"
-                       r"|data de nascimento|data di nascita|\bnato il)[\"'\]]?"
-                       r"\s{0,3}(?:(?:is|was|as)\s{1,3})?[:=]?\s{0,3}[\"'(]?\s{0,3}"
+                       r"|data de nascimento|data di nascita|\bnat[oa] il|\bnascid[oa] em"
+                       # the label in the other label languages and in Greek, Romanian, Ukrainian and Arabic (nym dev,
+                       # 2026-10-25: 1,693 of 2,140 birth dates stayed text, most after such a label). A verb of birth
+                       # with its preposition only (geboren op, född den), as `born on`: alone it is history
+                       r"|geboortedatum|\bgeboren op|f[öo]delsedatum|\bf[öo]dd den|f[øo]dselsdato"
+                       r"|syntym[äa]aika(?:ni|nsa|si)?|data urodzenia|\burodzon[ya] dnia|datum narozen[íi]"
+                       r"|\bnarozen[ýáa]? dne|do[ğg]um tarih(?:i|im|iniz)?|дат[аеуы] рождения|дата народження"
+                       r"|data na[șşs]terii|data na[șşs]tere|ημερομηνία γέννησης|تاريخ (?:ال)?ميلاد\w*"
+                       r"|生年月日|出生日期|생년월일(?:은|는)?)[\"'\]]?"
+                       # a comma (Date of birth, 1984-07-12, …) and Markdown bold around the colon (**DOB:**)
+                       r"\*{0,2}\s{0,3}(?:(?:is|was|as|ist|war|est|es|era|è|é|er|var|är|on|oli|jest|je|este|είναι)"
+                       r"\s{1,3})?"
+                       r"[:=,\uff1a]?\*{0,2}\s{0,3}[\"'(]?\s{0,3}"
                        r"(" + _DATE + r"|(?:19|20)\d{6})(?!\d)")   # and YYYYMMDD after the label (Gretel, 2026-10-19)
 
 # --------------------------------------------------------------------------------- ID number after a label --
@@ -174,6 +185,10 @@ _US_ONE_LINE_RE = re.compile(
     r",?[ \t]+(?:[A-Z][a-z'.-]{1,30} ){0,3}[A-Z][a-z'.-]{1,30}, (?:" + _US_STATES + r") \d{5}(?:-\d{4})?"
     r"|(?:PSC \d{3,5}, Box \d{3,5}|Unit \d{3,5} Box \d{3,5}|US(?:NS|NV|CGC|S) [A-Z][a-z]{1,30})"
     r",?[ \t]+(?:APO|FPO|DPO) (?:AA|AE|AP) \d{5})(?![\w-])")
+# a label that names a person's home right before the address (residential address (…), home address: …): the address
+# is the person's, whatever company the sentence names before it
+_HOME_ADDRESS_BEFORE_RE = re.compile(r"(?i)(?<![a-z])(?:residential|home|permanent|private)[ _-]?(?:address|addr\.?)"
+                                     r"[\"']?[ \t]{0,3}[:(=-]?[ \t]{0,3}$")
 _NAMED_PLACE_BEFORE_RE = re.compile(r"\bat the (?:[A-Z][\w'&.-]*[ \t]+){0,4}[A-Z][\w'&.-]*,[ \t]*$")
 _DEPARTMENT_LINE_RE = re.compile(r"(?i)[ \t]*(?:abteilung|abt\.|department|dept\.?|division|bereich)[ \t]")
 _ADDRESS_FORMS = tuple(
@@ -318,6 +333,52 @@ _WEAK_LABELS = (r"fn" + _VCARD_PARAMS
 _NAME_LABEL_RE = re.compile(
     r"(?i:(?<![a-z_./-])(?:(" + _PERSON_LABELS + r")|(" + _WEAK_LABELS + r")))"
     r"[\"']?[ \t]{0,3}[:=][ \t]{0,3}[\"']?[ \t]{0,3}" + _NAME_VALUE + r"(?![\w'’])")
+# a key that names a role only a person has: the value after it is that person (payer: …, "policyholder": "…")
+_ROLE_KEYS = (r"payer|payee|policyholder|policy[ _-]?holder|borrower|insured|physician|recipient|consignee"
+              r"|shipper|buyer|seller|sender|guarantor")
+_ROLE_KEY_NAME_RE = re.compile(r"(?i:(?<![\w.-])(?:" + _ROLE_KEYS + r"))[\"']?[ \t]{0,3}[:=][ \t]{0,3}[\"']?[ \t]{0,3}"
+                               + _NAME_VALUE + r"(?![\w'’])")
+# a key of words joined by _ - or camel case before a name; the key is judged after folding (_COMPOUND_PERSON_KEY_RE)
+_COMPOUND_NAME_KEY_RE = re.compile(r"(?<![\w.-])[\"']?([A-Za-z][A-Za-z0-9]{0,30}(?:[_-]{1,3}[A-Za-z0-9]{1,30}){0,4})"
+                                   r"[\"']?[ \t]{0,3}[:=][ \t]{0,3}[\"']?[ \t]{0,3}" + _NAME_VALUE + r"(?![\w'’])")
+# a person's role, then name (account_holder_name, investorName, card_holder_name), or a full name (full__name). Not
+# account, company, fund or issuer: their name is no person's; not user (a login) or agent (a program)
+_COMPOUND_PERSON_KEY_RE = re.compile(
+    r"(?:[a-z0-9]+_){0,3}(?:account_holder|card_holder|cardholder|holder|investor|contact|client|customer|cust"
+    r"|recipient|sender|trader|beneficiary|payer|payee|applicant|patient|employee|owner|policyholder|policy_holder"
+    r"|insured|borrower|member|student|passenger|tenant|guarantor|signer|consignee|shipper|buyer|seller|person"
+    r"|representative|rep|manager|advisor|adviser|physician|doctor|witness)_(?:full_)?name"
+    r"|full_name")
+# an element whose name is a person label, around a name alone: <card_holder>, <customerName>, <ns:fullName>
+_XML_NAME_ELEMENT_RE = re.compile(r"<([A-Za-z_][\w.:-]{0,64})(?:\s[^<>]{0,200})?>[ \t]*" + _NAME_VALUE
+                                  + r"[ \t]*</\1>")
+_PERSON_TAG_RE = re.compile(r"(?i)(" + _PERSON_LABELS + r")|(" + _WEAK_LABELS + r")")
+# the parent of a name element that is a thing, not a person: a pom.xml project, a product, a package, and the
+# instruments and parties of a financial message (a party or a counterparty is a company as often as a person)
+_THING_PARENTS = frozenset({"project", "product", "item", "package", "plugin", "dependency", "module", "artifact",
+                            "application", "app", "service", "component", "repository", "organization",
+                            "organisation", "company", "team", "group", "parent", "build", "profile", "site",
+                            "instrument", "security", "commodity", "unit", "issuer", "party", "counterparty", "fund",
+                            "asset"})
+_XML_OPEN_RE = re.compile(r"<(/?)([A-Za-z_][\w.:-]{0,64})(?:\s[^<>]{0,200})?(/?)>")
+
+
+def _xml_parent(text: str, at: int) -> str:
+    """The local name of the element still open at `at`, looking at most 2000 characters back."""
+    depth = 0
+    tags = list(_XML_OPEN_RE.finditer(text, max(0, at - 2000), at))
+    for t in reversed(tags):
+        if t.group(3):
+            continue
+        if t.group(1):
+            depth += 1
+        elif depth:
+            depth -= 1
+        else:
+            return t.group(2).rsplit(":", 1)[-1].lower()
+    return ""
+# a lower-case word right after a value, or after its comma: the sentence goes on, the value is no field of a record
+_PROSE_GOES_ON_RE = re.compile(r"(?:,[ \t]?| )[a-zà-ÿ]")
 # the end of a word that makes it a noun, not a name: Streaming, Expedition, Management, Wörterbuch, Verwaltung
 _NOUN_END_RE = re.compile(r"(?i)(?:ing|tion|sion|ment|ness|ity|ism|ogy|ware|ance|ence|able|ible|buch|ung|heit|keit"
                           r"|schaft|isch|tät|ive|ics|ers|ies)$")
@@ -420,7 +481,15 @@ _CUE_NAME = r"((?:" + _NAME_STEM + r")(?: (?:" + _NAME_STEM + r")){0,3})"
 _PERSON_CUE_RES = (
     re.compile(r"(?<![\w,])I, " + _CUE_NAME + r", (?=(?:hereby|am|the undersigned|residing|currently|born|a resident"
                r"|being|declare|certify|of legal age)\b)"),
-    re.compile(r"(?<![\w])(?i:my (?:full )?name is) " + _CUE_NAME + r"(?![\w'’-])"),
+    # and in the other label languages (nym dev, 2026-10-25: a self-introduction in another language stayed text)
+    # (not `ich heiße`: ich heiße Neue Kollegen willkommen is a welcome)
+    re.compile(r"(?<![\w])(?i:my (?:full )?name is|mein (?:vollständiger )?name ist"
+               r"|je m['’]appelle|mon nom (?:complet )?est|mi nombre (?:completo )?es|me llamo"
+               r"|il mio nome (?:completo )?è|mi chiamo|mijn (?:volledige )?naam is|ik heet|jag heter"
+               r"|mitt (?:fullständiga )?namn är|jeg heter|jeg hedder|mit (?:fulde )?navn er|mitt navn er"
+               r"|nazywam się|mam na imię|(?:o )?meu nome (?:completo )?é|chamo-me|eu me chamo|jmenuji se"
+               r"|nimeni on|numele meu (?:complet )?este|mă numesc) " + _CUE_NAME
+               + r"(?![\w'’-])"),
     re.compile(_CUE_NAME + r", (?=(?:born on|born in|date of birth|a resident of|residing at|resides at|who resides"
                r"|who lives|currently residing|currently resides)\b)"),
     # a title before a full name (Mr Dana Okafor, Mrs. …); not Dr, which is also a street (… Dr. We are)
@@ -623,6 +692,79 @@ _MD_ALIASES = {"telephone_number": "telephone", "mobile_number": "mobile", "cell
                "förnamn": "first_name", "efternamn": "last_name", "namn": "name", "adress": "address",
                "födelsedatum": "date_of_birth",
                "sobrenome": "last_name", "endereço": "endereco", "data_de_nascimento": "date_of_birth"}
+# the field names of a person in the languages of the label files and their common short forms, written without
+# diacritics (a name is looked up as written and folded: hasło, haslo). Each maps to a name the lists above hold, so
+# the policy stays one: a weak column counts only beside a strong one and a person (structured corpus, set A dev,
+# 2026-10-25). Left out: words that name a thing as often as a person's field (via, str, login, uid, titular)
+_MD_ALIASES_FOLDED = {
+    # first, last and full names
+    "fname": "first_name", "first_nm": "first_name", "firstnm": "first_name", "vname": "first_name",
+    "forename": "first_name", "rufname": "first_name", "imie": "first_name", "tilltalsnamn": "first_name",
+    "roepnaam": "first_name", "primeiro_nome": "first_name", "nombre_pila": "first_name",
+    "nombre_de_pila": "first_name",
+    "lname": "last_name", "last_nm": "last_name", "lastnm": "last_name", "nname": "last_name",
+    "familienname": "last_name", "nazwisko": "last_name", "apelido": "last_name", "primer_apellido": "last_name",
+    "segundo_apellido": "last_name", "nom_famille": "last_name", "cust_nm": "customer_name",
+    "custnm": "customer_name", "customer_nm": "customer_name", "kundenname": "customer_name",
+    "kundnamn": "customer_name", "klantnaam": "customer_name", "nome_cliente": "customer_name",
+    "nombre_cliente": "customer_name", "nom_client": "customer_name", "nominativo": "full_name",
+    "nome_completo": "full_name", "nombre_completo": "full_name", "nom_complet": "full_name",
+    "volledige_naam": "full_name", "imie_i_nazwisko": "full_name", "vollstandiger_name": "full_name",
+    "fullstandigt_namn": "full_name",
+    # user names
+    "uname": "username", "usr": "username", "gebruikersnaam": "username", "anvandarnamn": "username",
+    "benutzername": "username", "anmeldename": "username", "nom_utilisateur": "username",
+    "identifiant": "username", "nombre_usuario": "username", "nombre_de_usuario": "username",
+    "usuario": "username", "nome_utente": "username", "utente": "username", "utilizador": "username",
+    "nome_usuario": "username", "nome_de_usuario": "username", "nazwa_uzytkownika": "username",
+    "login_name": "username", "loginname": "username", "benutzer": "username",
+    # addresses
+    "addr": "address", "adr": "address", "domicilio": "address", "postadress": "address", "postadres": "address",
+    "hemadress": "address", "woonadres": "address", "adres_zamieszkania": "address", "residenza": "address",
+    "wohnadresse": "address", "wohnort": "address", "morada": "address", "endereco_residencial": "address",
+    "straatnaam": "street", "gatuadress": "street_address", "calle": "street", "ulica": "street", "rue": "street",
+    "strasse_hausnummer": "street",
+    # dates of birth
+    "geb_dat": "date_of_birth", "gebdat": "date_of_birth", "geb_datum": "date_of_birth",
+    "data_urodzenia": "date_of_birth", "fecha_nacimiento": "date_of_birth", "f_nac": "date_of_birth",
+    "fec_nac": "date_of_birth", "data_nascita": "date_of_birth", "data_nascimento": "date_of_birth",
+    "date_naissance": "date_of_birth", "fodelsedag": "date_of_birth", "fodelsedatum": "date_of_birth",
+    "geburtsdatum": "geburtsdatum", "dob_date": "date_of_birth",
+    # phones
+    "tel": "telephone", "tel_no": "telephone", "tel_nr": "telephone", "telnr": "telephone", "nr_tel": "telephone",
+    "numer_telefonu": "telephone", "telefonnummer": "telephone", "numero_de_telephone": "telephone",
+    "numero_telephone": "telephone", "numero_de_telefono": "telephone", "numero_telefono": "telephone",
+    "numero_di_telefono": "telephone", "mobilnummer": "mobile", "mobiltelefon": "mobile", "gsm": "mobile",
+    "cellulare": "mobile", "movil": "mobile", "celular": "mobile", "telemovel": "mobile", "portable": "mobile",
+    "mobiel": "mobile", "komorka": "mobile", "telefon_komorkowy": "mobile",
+    # national ids
+    "ssn_no": "ssn", "ssn_nr": "ssn", "personnummer": "national_id", "bsn": "national_id",
+    "burgerservicenummer": "national_id", "dni": "national_id", "pesel": "national_id",
+    "codice_fiscale": "national_id", "numero_securite_sociale": "national_id", "nie": "national_id",
+    "cpf": "national_id", "nif": "tax_id", "henkilotunnus": "national_id"}
+
+
+def _fold(name: str) -> str:
+    """A field name without its diacritics: hasło haslo, lösenord losenord, straße strasse."""
+    import unicodedata
+    name = name.replace("ß", "ss").replace("ł", "l").replace("ø", "o").replace("æ", "ae")
+    return "".join(c for c in unicodedata.normalize("NFKD", name) if not unicodedata.combining(c))
+
+
+# an entity before a field name (customer__surname, kunde.geburtsdatum, klient__nazwisko): the field alone names the
+# value. Only the entities of a person: company_name and account_name stay text
+_PERSON_PREFIX_RE = re.compile(r"(?:customer|cust|client|cliente|klient|klant|kunde|kunden|kund|patient|paciente"
+                               r"|member|person|persona|persoon|employee|mitarbeiter|applicant|student|guest|buyer"
+                               r"|contact|kontakt|user|utente|usuario|benutzer)_(?=[a-z])")
+
+
+def _known_column(name: str) -> str:
+    """The column of a folded name in the lists, or ""."""
+    for n in (name, _fold(name)):
+        n = _MD_ALIASES.get(n, _MD_ALIASES_FOLDED.get(n, n))
+        if n in _STRONG_COLS or n in _WEAK_COLS or _ACCOUNT_NUMBER_COL_RE.fullmatch(n):
+            return n
+    return ""
 
 
 def _md_column(cell: str) -> str:
@@ -631,7 +773,17 @@ def _md_column(cell: str) -> str:
     cell = re.sub(r"^\s*[A-Za-z][\w.-]{0,40}:(?=[A-Za-z_])", "", cell.replace("\\_", "_"))
     name = re.sub(r"[\s/.-]+", "_", cell.strip().strip("*_`'\" ").strip().lower()).strip("_")
     name = re.sub(r"_?\(.*\)$", "", name)   # Date of Birth (YYYY-MM-DD)
-    return _MD_ALIASES.get(name, name)
+    alias = _MD_ALIASES.get(name, name)
+    if alias in _STRONG_COLS or alias in _WEAK_COLS or len(name) > 64:
+        return alias
+    # a doubled separator (customer__date__of__birth), a name in another language or a short form, a person's
+    # entity before the field
+    name = re.sub(r"_{2,}", "_", name)
+    known = _known_column(name)
+    if not known:
+        p = _PERSON_PREFIX_RE.match(name)
+        known = _known_column(name[p.end():]) if p else ""
+    return known or alias
 
 
 def _md_cells(line: str) -> list:
@@ -694,7 +846,7 @@ def _md_table_hits(text: str) -> list:
             head = [(pos[hdr_line] + a, pos[hdr_line] + b) for a, b in _md_cells(hdr)]
             kv = [r for r in [head] + rows if len(r) == 2]
             fields = [_md_column(text[r[0][0]:r[0][1]].strip("*` ")) for r in kv]
-            if sum(f in _STRONG_COLS or f in _WEAK_COLS for f in fields) >= 2:
+            if sum(f in _STRONG_COLS or f in _WEAK_COLS for f in fields) >= 2 or any(map(_password_column, fields)):
                 out += _grid_hits(text, fields, [[r[1] for r in kv]], "md-table-personal-column", strip="*`")
     return out
 
@@ -710,6 +862,43 @@ class _lazy:
         if self._rx is None:
             object.__setattr__(self, "_rx", re.compile(*self._args))
         return getattr(self._rx, name)
+
+
+# a column or field that names a password holds one on each row, whatever the other columns are (structured corpus,
+# set A dev, 2026-10-25: tables and SQL found 0 of 230 passwords). The word last, after at most two parts
+# (db_password, admin_user_pwd); a stored hash (password_hash, hashed_password) is no password
+# `pass` alone names a boarding pass or a test result: only after a part that names an account (db_pass)
+_PASSWORD_WORDS = ("password|passwort|passwd|pwd|kennwort|wachtwoord|losenord|haslo|contrasena|mot_de_passe"
+                   "|mdp|senha|palavra_passe|parola_d_ordine|adgangskode|passord|salasana|heslo|sifre|passphrase")
+_PASSWORD_COL_RE = re.compile(r"(?:(?!(?:hash|hashed|encrypted|enc|crypt|crypted|salted|salt)_)[a-z0-9]{1,16}_){0,2}"
+                              r"(?:" + _PASSWORD_WORDS + r")|(?:[a-z0-9]{1,16}_)?(?:db|database|user|admin|root|login"
+                              r"|account|mail|smtp|ftp|wifi|wlan|app|api|sql|redis|ldap)_pass")
+# a value that is no password: a hash or a reference to one, a placeholder or a type
+_NOT_A_PASSWORD_RE = re.compile(
+    r"(?i)\$(?:2[abxy]?|argon2\w*|pbkdf2[\w-]*|scrypt|[156]|sha\d+)\$|(?:pbkdf2|bcrypt|argon2|sha\d+|md5)[_$:]"
+    r"|\{[A-Z0-9-]+\}|[0-9a-f]{32,}$|[$%{<\[(*]|\w+\(\d*\)$|^(?:enc|env|vault|secret|ref|file|op):|^x{4,}$")
+
+
+_TABLE_KINDS = frozenset({"csv-personal-column", "md-table-personal-column", "html-table-personal-column",
+                          "sql-insert-personal-column"})
+
+
+def _password_column(name: str) -> bool:
+    return bool(_PASSWORD_COL_RE.fullmatch(_fold(re.sub(r"_{2,}", "_", name))))
+
+
+def _password_cell(v: str) -> bool:
+    """A cell under a password column that reads as one: no space, 6 to 128 characters, a letter and a digit (a single
+    word, `required` or `string`, is none), no slash, and no hash, placeholder or type."""
+    if not 6 <= len(v) <= 128 or any(c.isspace() for c in v) or v.lower() in _NOT_A_CELL:
+        return False
+    kinds = sum((any(c.islower() for c in v), any(c.isupper() for c in v), any(c.isdigit() for c in v),
+                 any(not c.isalnum() for c in v)))
+    from .core import _ds_value_ok
+    # a letter and a digit: a word with a sign (Seat:, rgb/top) is a heading or a value of another table
+    return kinds >= 2 and any(c.isdigit() for c in v) and any(c.isalpha() for c in v) and "/" not in v \
+        and not _NOT_A_PASSWORD_RE.match(v) and not _NOT_A_PASSWORD_RE.search(v[:1]) and len(set(v)) > 2 \
+        and _ds_value_ok(v, min_len=6)
 
 
 _BIRTH_ANCHOR_COLS = frozenset({"dob", "date_of_birth", "birth_date", "birthdate", "geburtsdatum"})
@@ -737,13 +926,21 @@ def _grid_hits(text: str, names: list, rows, kind: str, anchors=(NAME, ID_NUMBER
     out = []
     strong = {i for i, h in enumerate(names) if h in _STRONG_COLS}
     cols = strong | {i for i, h in enumerate(names) if h in _WEAK_COLS} if strong else set()
+    # the one exception to "a name part alone is no person": a record with a first-name and a last-name column. Its
+    # row is a person when both cells read as name parts (the placeholder pair check below still applies)
+    pair = not strong and any(h in _FIRST_PART_COLS for h in names) and \
+        any(h in _NAME_PART_COLS - _FIRST_PART_COLS for h in names)
+    if pair:
+        cols = {i for i, h in enumerate(names) if h in _NAME_PART_COLS}
     accounts = {i for i, h in enumerate(names) if _ACCOUNT_NUMBER_COL_RE.fullmatch(h)} if accounts_column else set()
     # a table of software with one personal column (| Product | Certificate License Number | Version |): only a name
     # makes a row a person's there, neither an id nor a date of birth (codex Gate A, 2026-10-22). A record of an order
     # (sku, product, customer_name, dob, ssn) has more personal columns and stays a person's (the traces, 2026-10-22)
     software = any(h in _SOFTWARE_COLS for h in names) and \
         sum(h in _STRONG_COLS or h in _WEAK_COLS for h in names) < 2
-    if not cols and not accounts:
+    # a password column in a table; a record of JSON, XML or lines has its `key: value` read by the keyword rules
+    secrets = {i for i, h in enumerate(names) if _password_column(h)} if kind in _TABLE_KINDS else set()
+    if not cols and not accounts and not secrets:
         return out
     for n, cells in enumerate(rows):
         if n >= _CSV_ROWS:
@@ -756,6 +953,8 @@ def _grid_hits(text: str, names: list, rows, kind: str, anchors=(NAME, ID_NUMBER
             s0 = a + text[a:b].index(v) if v else a
             if col in accounts and _account_cell(v):
                 out.append((s0, s0 + len(v), kind, ID_NUMBER))
+            if col in secrets and _password_cell(v):
+                out.append((s0, s0 + len(v), "secret-under-password-column", "SECRET"))
             if col in cols:
                 typ = _column_type(names[col])
                 if v.lower() not in _NOT_A_CELL and len(v) >= 2 and _cell_ok(v, typ, names[col]):
@@ -770,6 +969,10 @@ def _grid_hits(text: str, names: list, rows, kind: str, anchors=(NAME, ID_NUMBER
         # birth, not "birthday", which a table of releases has (Benchmark V3 Phase C, 2026-10-22)
         # in a table of software the ids this lexicon took on 2026-10-22 and a date of birth under its name are no
         # person; the anchors a format had before keep their role (a CSV row's birth date, an SSN)
+        if pair:
+            if len({names[h[4]] in _FIRST_PART_COLS for h in row if h[3] == NAME}) == 2:
+                out += [h[:4] for h in row]
+            continue
         if any(c in strong for *_, c in row) and any(
                 (h[3] in anchors and not (software and names[h[4]] in _NEW_ID_COLS))
                 or (not software and _birth_anchor(text, names, h)) for h in row):
@@ -783,10 +986,37 @@ _SQL_INSERT_RE = _lazy(r"(?i)\binsert\s+into\s+[\w.`\"\[\]]{1,128}\s*\(([^()]{1,
 _SQL_CELL_RE = _lazy(r"\s*(?:'((?:[^'\n]|''){0,512})'|(-?[\w.:+-]{1,64}))\s*([,)])")
 
 
+# a dump (mysqldump, pg_dump --inserts) writes INSERT INTO t VALUES (…) without a column list: the CREATE TABLE of t
+# above it names the columns
+_SQL_INSERT_BARE_RE = _lazy(r"(?i)\binsert\s+into\s+([\w.`\"\[\]]{1,128})\s+values\s*")
+_SQL_CREATE_RE = _lazy(r"(?is)\bcreate\s+table\s+(?:if\s+not\s+exists\s+)?([\w.`\"\[\]]{1,128})\s*\((.{1,20000}?)\)\s*"
+                       r"(?:[\w=\s]{0,200})?;")
+_SQL_NOT_A_COLUMN = frozenset({"primary", "key", "unique", "constraint", "foreign", "index", "check", "fulltext"})
+
+
+def _sql_create_columns(text: str) -> dict:
+    """{table: [column names]} of each CREATE TABLE in the text."""
+    out = {}
+    for m in _SQL_CREATE_RE.finditer(text):
+        cols = []
+        for item in re.split(r",\s*(?![^()]*\))", m.group(2)):
+            w = item.strip().split(None, 1)
+            if w and w[0].strip("`\"[]").lower() not in _SQL_NOT_A_COLUMN:
+                cols.append(_md_column(w[0].strip("`\"[]")))
+        out[m.group(1).strip("`\"[]").lower()] = cols
+    return out
+
+
 def _sql_insert_hits(text: str) -> list:
     out = []
-    for m in _SQL_INSERT_RE.finditer(text):
-        names = [_md_column(c.strip().strip("`\"[]")) for c in m.group(1).split(",")]
+    found = [(m, [_md_column(c.strip().strip("`\"[]")) for c in m.group(1).split(",")])
+             for m in _SQL_INSERT_RE.finditer(text)]
+    tables = _sql_create_columns(text) if "create" in text.lower() else {}
+    for m in _SQL_INSERT_BARE_RE.finditer(text) if tables else ():
+        cols = tables.get(m.group(1).strip("`\"[]").lower())
+        if cols:
+            found.append((m, cols))
+    for m, names in found:
         rows, j = [], m.end()
         while j < len(text) and len(rows) < _CSV_ROWS and text[j] == "(":
             cells, j = [], j + 1
@@ -845,6 +1075,17 @@ def _html_table_hits(text: str) -> list:
                 rows.append([_html_cell_text(text, *c.span(2)) for c in cells])
         if names:
             out += _grid_hits(text, names, rows, "html-table-personal-column")
+            continue
+        # a table of fields and values (<tr><th>Full name</th><td>…</td></tr>, one field per row) is one record, as
+        # a two-column Markdown table is
+        fields, values = [], []
+        for r in _HTML_ROW_RE.finditer(text, t.start(1), t.end(1)):
+            cells = list(_HTML_CELL_RE.finditer(text, r.start(1), r.end(1)))
+            if len(cells) == 2 and cells[0].group(1).lower() == "th" and cells[1].group(1).lower() == "td":
+                fields.append(_md_column(text[slice(*_html_cell_text(text, *cells[0].span(2)))]))
+                values.append(_html_cell_text(text, *cells[1].span(2)))
+        if sum(f in _STRONG_COLS or f in _WEAK_COLS for f in fields) >= 2:
+            out += _grid_hits(text, fields, [values], "html-table-personal-column")
     return out
 
 
@@ -962,6 +1203,116 @@ def _xml_record_hits(text: str) -> list:
     return out
 
 
+# the records of the line formats: YAML, .env, INI, a compose `environment:` list, PHP print_r (one `key: value`,
+# `KEY=value` or `[key] => value` per line, a run of lines at one indent is one record, `- ` opens the next), a log
+# line with two `key=value` pairs or more (one record per line), and the pairs of a SQL UPDATE … SET … WHERE and of a
+# WHERE clause (one record per statement). The same policy as the tables (_grid_hits): structured corpus, set A dev,
+# 2026-10-25, 3,226 values under a known field name stayed text because no reader read these formats
+_KV_LINE_RE = _lazy(r"(?m)^([ \t]*)(?:(-[ \t]+)|export[ \t]+)?(?:\[([^\]\n]{1,64})\][ \t]*=>|([^\W\d][\w.-]{0,63}"
+                    r"(?: [^\W\d][\w.-]{0,30}){0,3})[ \t]*([:=]))[ \t]*(?:\"([^\"\n]{1,512})\"|'([^'\n]{1,512})'"
+                    r"|([^\s\"'#|>&][^\n]{0,511}?))[ \t]*$")
+_KV_INLINE_RE = _lazy(r"(?<![\w.:/-])([^\W\d][\w.-]{0,63})=(?:\"([^\"\n]{1,512})\"|'([^'\n]{1,512})'"
+                      r"|([^\s\"',;&]{1,512}))")
+_SQL_STMT_RE = _lazy(r"(?is)\b(?:update\s+[\w.`\"\[\]]{1,128}\s+set|select\s[^;]{1,2000}?\swhere|delete\s+from\s"
+                     r"[^;]{1,200}?\swhere)\s([^;]{1,4000})")
+_SQL_PAIR_RE = _lazy(r"([\w.`\"\[\]-]{1,64})\s*=\s*(?:'((?:[^'\n]|''){1,512})'|(-?[\w.]{1,64}))")
+
+
+def _kv_line_hits(text: str) -> list:
+    out, rows = [], 0
+    record: list = []
+    indent = None
+    last_end = -1
+
+    def flush():
+        nonlocal record, rows
+        if len(record) >= 2 and rows < _JSON_RECORDS_MAX:
+            rows += 1
+            return _grid_hits(text, [_md_column(k) for k, _ in record], [[s for _, s in record]],
+                              "kv-personal-field")
+        return []
+
+    for m in _KV_LINE_RE.finditer(text):
+        ind = len(m.group(1)) + (len(m.group(2)) if m.group(2) else 0)
+        between = text[last_end:m.start()] if last_end >= 0 else ""
+        # a line between two pairs that is not deeper than the record (a heading) or a blank line ends the record; a
+        # deeper one (the lines of a block scalar) does not
+        lines = between.split("\n")[1:-1]
+        gap = any(not ln.strip() or len(ln) - len(ln.lstrip()) <= (indent or 0) for ln in lines)
+        if record and ((m.group(2) and m.group(5) != "=") or ind != indent or gap):
+            out += flush()
+            record = []
+        indent = ind
+        last_end = m.end()
+        key = m.group(3) or m.group(4)
+        g = next(i for i in (6, 7, 8) if m.group(i) is not None)
+        record.append((key, m.span(g)))
+    out += flush()
+    return out
+
+
+def _kv_inline_hits(text: str) -> list:
+    out, rows = [], 0
+    start = 0
+    for line in text.split("\n"):
+        a, start = start, start + len(line) + 1
+        # a line with two `=` at least: a regex for that line backtracked over every long line with one (a base64
+        # block with its padding) and took quadratic time
+        if line.count("=") < 2:
+            continue
+        pairs = []
+        for m in _KV_INLINE_RE.finditer(text, a, a + len(line)):
+            g = next(i for i in (2, 3, 4) if m.group(i) is not None)
+            pairs.append((m.group(1), m.span(g)))
+        if len(pairs) >= 2 and rows < _JSON_RECORDS_MAX:
+            rows += 1
+            out += _grid_hits(text, [_md_column(k) for k, _ in pairs], [[s for _, s in pairs]], "kv-personal-field")
+    return out
+
+
+def _sql_pair_hits(text: str) -> list:
+    out = []
+    for st in _SQL_STMT_RE.finditer(text):
+        pairs = []
+        for m in _SQL_PAIR_RE.finditer(text, st.start(1), st.end(1)):
+            g = 2 if m.group(2) is not None else 3
+            pairs.append((m.group(1).strip("`\"[]").rsplit(".", 1)[-1], m.span(g)))
+        if pairs:
+            out += _grid_hits(text, [_md_column(k) for k, _ in pairs], [[s for _, s in pairs]], "kv-personal-field")
+    return out
+
+
+def _kv_record_hits(text: str) -> list:
+    out = []
+    if ":" in text or "=" in text:
+        out += _kv_line_hits(text)
+    if text.count("=") >= 2:
+        out += _kv_inline_hits(text)
+    if "=" in text and ("SET" in text or "set" in text or "WHERE" in text or "where" in text):
+        out += _sql_pair_hits(text)
+    return out
+
+
+# JSON inside a JSON string and a Python dict repr: the JSON reader on a copy of the same length
+_JSON_STRING_RE = _lazy(r'"((?:[^"\\\n]|\\.){8,200000})"')
+
+
+def _quoted_json_hits(text: str) -> list:
+    """JSON inside a JSON string (\\"key\\": \\"value\\") and a Python dict repr ({'key': 'value'}) read as JSON: a
+    copy of the same length with the quotes made plain, so each span is the span of the text."""
+    out = []
+    if '\\":' in text:
+        # each string that holds JSON, alone: the text around it blanked, its escaped quotes plain
+        inner = [" "] * len(text)
+        for m in _JSON_STRING_RE.finditer(text):
+            if '\\":' in m.group(1):
+                inner[m.start(1):m.end(1)] = m.group(1).replace('\\"', ' "')
+        out += _json_record_hits("".join(inner))
+    if "{'" in text and "': " in text:
+        out += _json_record_hits(text.replace("'", '"'))
+    return out
+
+
 # ------------------------------------------------------------------------------------------ the forms of 0.6.24 --
 # A value in a fixed form or after a label that names it, from the holdout values that 0.6.21 still leaked
 # (2026-10-15). Each rule declares (type, channel, region, needs): channel "tool" (tool results and files) or "both".
@@ -1004,6 +1355,8 @@ FORMS = {
     "html-table-personal-column": ("COLUMN", "tool", "generic", "label"),
     "json-personal-field": ("COLUMN", "tool", "generic", "label"),
     "xml-personal-field": ("COLUMN", "tool", "generic", "label"),
+    "kv-personal-field": ("COLUMN", "tool", "generic", "label"),
+    "secret-under-password-column": ("SECRET", "tool", "generic", "label"),
     "username-after-label": (USERNAME, "tool", "generic", "label"),
     "secret-password-with-sign": ("SECRET", "tool", "generic", "label"),
 }
@@ -1146,6 +1499,15 @@ _SINGLE_NAME_RE = _lazy(r"(?i:(?<![a-z_./-])(?:" + _SINGLE_NAME_LABELS + r"))[\"
                         r"(?:-[" + _UP + r"][" + _LO + r"\u1e00-\u1eff\u0300-\u036f'’]{1,30})?)"
                         r"(?![\w'’-])"   # Nguyễn, Ạnh, and a combining accent
                         r"(?![ \t]{1,2}[" + _UP + r"])")
+# a first or last name that is also a word (Grace, Hunter, Rose): capitalised, no noun ending, the whole value of its
+# field (the line, the quotes or the cell end after it). It counts only in a person's record (_form_hits)
+_FIELD_END_RE = _lazy(r"[\"']?[ \t]*(?:[,;}\]|]|$)", re.M)
+_WORD_NAME_NEAR = 300
+
+
+def _word_as_name(text: str, m, v: str) -> bool:
+    return v[:1].isupper() and v[1:] == v[1:].lower() and len(v) >= 3 and not _NOUN_END_RE.search(v) \
+        and bool(_FIELD_END_RE.match(text, m.end(1)))
 # a user name after a label that names one (`"username": "jdoe42"`, `user_name: jdoe42`): the label of a record, not
 # the word `user` or `login` alone (`"user": {`, `login: true`). The whole value is read first (a quoted string, else
 # the scalar up to a space, a comma, a semicolon or a bracket) and judged as one: it is masked whole or not at all, so
@@ -1159,8 +1521,16 @@ _USERNAME_LABEL_RE = _lazy(r"(?i)(?<![a-z_.-])(?:user[ _-]?name|benutzername|nut
 # the label in a sentence ("the user name jdoe84", "your user name is j.harlow"): only a value with a digit, a dot or
 # an underscore, as a sentence goes on after the label with a word ("the user name field"). Benchmark V1, Nemotron
 # dev split: about 1,800 user names missed after these forms, 2026-10-20
-_USERNAME_PROSE_RE = _lazy(r"(?i)(?<![a-z_.-])(?:user[ _-]?name|username)(?:[ \t]+(?:is|was))?[ \t]+"
-                           r"([A-Za-z][\w.@+-]{1,62}[A-Za-z0-9])(?=[\s,;:!?)]|\.(?:\s|$)|$)")
+_USERNAME_PROSE_RE = _lazy(r"(?i)(?<![a-z_.-])(?P<label>user[ _-]?name|username)(?:[ \t]+(?:is|was))?"
+                           # an apposition too: the user name, jdoe42, … and the user name (jdoe42)
+                           r"(?P<sep>[ \t]+|[ \t]*[,(][ \t]*)"
+                           r"(?P<v>[A-Za-z][\w.@+-]{1,62}[A-Za-z0-9])(?=[\s,;:!?)]|\.(?:\s|$)|$)")
+# a user id that is an account name (user_id: jdoe42, userId: "j.harlow"): letters first, a dot, an underscore or up to
+# four digits in it; a number, a UUID or a hash after the label stays text
+_USER_ID_VALUE = r"[A-Za-z]{2,}(?:[._][A-Za-z]{2,}){0,2}\d{0,4}"
+_USER_ID_LABEL_RE = _lazy(r"(?i)(?<![a-z_.-])user[ _-]?id[\"']?([ \t]{0,3}[:=][ \t]{0,3})(?:\"(" + _USER_ID_VALUE
+                          + r")\"|'(" + _USER_ID_VALUE + r")'|(" + _USER_ID_VALUE + r")(?=[\s,;}\])]|$))")
+_USER_ID_WORD_RE = _lazy(r"user[ _-]?id")
 _EXAMPLE_KEY_RE = _lazy(r"(?i)[\"']?examples?[\"']?[ \t]{0,3}:[ \t]*(?:\{|\|)?")
 _USERNAME_SHAPE_RE = _lazy(r"[\w][\w.@+\\/-]{1,63}")
 # a name in code, not a value: `username = os.environ[...]`, `user_name: self.user.name`
@@ -1293,12 +1663,55 @@ _STREET_LINE = (r"(?:\d{1,6}[A-Za-z]?(?:-\d{1,4})? (?:(?:[A-Z][A-Za-z'.-]{0,30}|
                 r"|[A-ZÄÖÜ][\wäöüß-]{1,40}(?:straße|strasse|str\.|weg|gasse|platz|allee|ring|damm) \d{1,4}[a-z]?"
                 r"|(?:Calle|Avenida|Via|Viale|Piazza|Rua|Carrer) (?:[A-ZÀ-Þ][\wà-ÿ'’-]{1,30} |d[aeio]l?l?[aeo]? |de "
                 r"|das? |dos? ){1,5}?\d{1,5}[A-Za-z]?)(?![\w-])")
+# the street forms of more EU languages, after an address label or a verb of residence only, and not in a
+# business's record or before a template (_eu_street_ok): Dutch and Swedish names that end in their street word
+# (Kerkstraat 12, Storgatan 5), a comma between a Romance street name and its number (Calle Mayor, 12) and the
+# French form with the number first (12 rue de la Paix)
+_STREET_LINE_EU = (r"(?:[A-ZÅÄÖ][\wåäöé-]{1,40}(?:straat|laan|gracht|plein|kade|singel|dijk|gatan|vägen|gränd|torget"
+                   r"|backe),? \d{1,4}[a-zA-Z]?"
+                   r"|(?:Calle|Avenida|Via|Viale|Piazza|Corso|Vicolo|Largo|Plaza|Paseo|Rua|Carrer) "
+                   r"(?:[A-ZÀ-Þ][\wà-ÿ'’-]{1,30} |d[aeio]l?l?[aeo]? |de |das? |dos? ){0,4}?[A-ZÀ-Þ][\wà-ÿ'’-]{1,30},? "
+                   r"\d{1,5}[A-Za-z]?"
+                   r"|\d{1,4}(?: ?(?:bis|ter))?,? (?:rue|avenue|boulevard|bd|chemin|allée|place|impasse|quai|cours) "
+                   r"(?:(?:de la|de l'|des|du|de|d'|la|le|les) ?)?[A-ZÀ-Þ][\wà-ÿ'’-]{1,30}"
+                   r"(?: [A-ZÀ-Þ][\wà-ÿ'’-]{1,30}){0,3}"
+                   r")(?![\w-])")
+_STREET_LINE_RE = _lazy(_STREET_LINE)
+# a company, a supplier or a legal form in the record before an EU street form: a business's address
+_EU_BUSINESS_RE = _lazy(r"(?i)(?<![a-z])(?:fornitore|azienda|societ[aà]|ditta|proveedor|empresa|entreprise"
+                        r"|soci[eé]t[eé]|fournisseur|bedrijf|leverancier|f[oö]retag|leverant[oö]r|provider|supplier|vendor|company"
+                        r"|s\.?p\.?a\.?|s\.?r\.?l\.?|ab|nv|bv|sarl|sas|sl|s\.l\.|gmbh|ag|inc|ltd|llc)(?![a-z])")
 _STREET_LABEL_RE = _lazy(
     r"(?i)(?<![a-z_])(?:(?:street|home|residential|mailing|postal|billing|shipping|delivery|permanent|current)[ _-]?"
     r"address|address(?: on file)?|anschrift|wohnadresse|wohnanschrift|adresse|domicilio|direcci[oó]n|indirizzo"
-    r"|endere[cç]o|adres)[\"']?[ \t]{0,3}(?:is[ \t]{1,3}|[:=][ \t]{0,3})[\"']?[ \t]{0,2}(?-i:(" + _STREET_LINE + "))"
-    r"|(?<![a-z])(?:resides?|residing|reside|lives?|living|domiciled|wohnt|wohnhaft)"
-    r"(?: (?:at|in|on|im|am|in der|an der))?[ \t]{1,3}(?-i:(" + _STREET_LINE + "))")
+    r"|endere[cç]o|adres|adress|gatuadress|straatadres|stra(?:ß|ss)e|residenza)[\"']?[ \t]{0,3}"
+    r"(?:is[ \t]{1,3}|[:=][ \t]{0,3})[\"']?[ \t]{0,2}(?-i:(" + _STREET_LINE + "|" + _STREET_LINE_EU + "))"
+    r"|(?<![a-z])(?:resides?|residing|reside|lives?|living|domiciled|wohnt|wohnhaft"
+    # a place word before a street line: the property located at, situated at (the company check below holds)
+    r"|located|situated|property)"
+    r"(?: (?:at|in|on|im|am|in der|an der))?[ \t]{1,3}(?-i:(" + _STREET_LINE + "|" + _STREET_LINE_EU + "))")
+
+
+def _eu_street_ok(text: str, a: int, b: int) -> bool:
+    """An EU street form after its label is a person's street when no template follows it on its line or the next
+    ([city], <postal code>) and no business or legal form stands in its record before it."""
+    end = text.find("\n", text.find("\n", b) + 1)
+    after = text[b:end if end != -1 else len(text)][:200]
+    if "[" in after or "<" in after or "{" in after:
+        return False
+    line = text.rfind("\n", 0, a) + 1
+    lo = max(_block_back(text, line), a - 300)
+    return not (_EU_BUSINESS_RE.search(text, lo, a) or _not_a_home(text, lo, a))
+
+
+# e.g, i.e: an abbreviation, no account name
+_ABBREVIATION_RE = _lazy(r"(?i)[a-z]{1,2}(?:\.[a-z]{1,2})+")
+
+
+# a place word (located at, situated at, property at) after a business, its goods or a bank code: no home
+_PLACE_OF_A_BUSINESS_RE = _lazy(r"(?i)(?<![a-z])(?:provider|insurance|insurer|vendor|supplier|contractor|swift|bic|iban"
+                                r"|commercial|assets?|equipment|inventory|goods|facility|facilities|plant|premises"
+                                r"|warehouse|branch|headquarters?|office|offices)(?![a-z])")
 
 
 # the state of a form field after its label, not a name: the word list holds the stems only (require, mandate)
@@ -1362,7 +1775,8 @@ _THING_SUBJECT_RE = _lazy(r"(?i)(?<![a-z])(?:server|service|function|file|files|
                           r"[ \t]{1,3}$")
 _HOME_LABEL_RE = _lazy(r"(?i)home|residential|permanent|wohn|resid|liv|domicil")
 _STREET_LABEL_WORDS = ("address", "anschrift", "adresse", "domicilio", "direcci", "indirizzo", "endere", "adres",
-                       "resid", "live", "living", "domiciled", "wohn")
+                       "adress", "straße", "strasse", "residenza",
+                       "resid", "live", "living", "domiciled", "wohn", "located", "situated", "property")
 _PHONE_WORDS = ("phone", "tel", "mobil", "cell", "fax", "handy", "portable", "rufnummer", "whatsapp", "hotline",
                 "contact", "call", "reach", "text", "dial",
                 # the personal cues of phone-after-phone-word without a phone word (my number is, … him at)
@@ -1831,8 +2245,14 @@ def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> l
         for rx in (_PHONE_TIGHT_RE, _PHONE_LOOSE_RE):
             for m in rx.finditer(text):
                 v = m.group(1).rstrip(" .-/")
-                if _US_PHONE_RE.fullmatch(v) or (_NANP_SHAPE_RE.fullmatch(v) and not us):
-                    continue   # (312) 846-2291 is phone-us-national's; a North American number needs us or ca
+                if _US_PHONE_RE.fullmatch(v):
+                    # (312) 846-2291 is phone-us-national's when its phone word is there; after a cue of this rule
+                    # only (reached at, me at) it is this rule's. The 555 exchange stays an example, as there
+                    if not us or re.search(r"\)\s?555[-. ]", v) or _PHONE_WORD_RE.search(
+                            text, max(0, m.start(1) - 30), m.start(1)):
+                        continue
+                elif _NANP_SHAPE_RE.fullmatch(v) and not us:
+                    continue   # a North American number needs us or ca
                 gap = text[m.start():m.start(1)]
                 sep = [x.start() for x in _GAP_SEP_RE.finditer(gap)] if rx is _PHONE_LOOSE_RE else ()
                 if sep and not _PHONE_GAP_END_RE.search(_PAREN_END_RE.sub("", gap[:sep[-1]]).rstrip(" )\"'")):
@@ -1849,7 +2269,7 @@ def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> l
                     out.append((m.start(1), m.start(1) + len(v), "phone-after-phone-word", PHONE))
     if "name-single-after-label" in want and ("name" in low or "nom" in low or "apellido" in low or "cognome" in low
                                               or "voornaam" in low or "achternaam" in low or "namn" in low):
-        found = []
+        found, wordy = [], []
         for m in _SINGLE_NAME_RE.finditer(text):
             v = m.group(1)
             low_v = v.lower().strip("'’-")
@@ -1865,15 +2285,25 @@ def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> l
                 continue   # first_name: Too long (maximum…), Renamed to given_name: a sentence, not a name
             if low_v in _PLACEHOLDER_NAME_WORDS or low_v in PLACEHOLDER_NAMES \
                     or low_v in _NOT_A_NAME_START or low_v in _NOT_A_NAME_WORD or low_v in _SHORT_EN \
-                    or len(low_v) < 2 or _reads_as_words(_no_marks(v)) or _inflected_word(low_v):
+                    or len(low_v) < 2 or _inflected_word(low_v):
+                continue
+            if _reads_as_words(_no_marks(v)):
+                if _word_as_name(text, m, v):
+                    wordy.append((m.start(1), m.end(1), "name-single-after-label", NAME))
                 continue
             # a double surname is words when each part is a word (Self-Employed, Non-Applicable), as in name-after-label
             parts = [w for w in _no_marks(v).split("-") if w]
             if len(parts) > 1 and all(_reads_as_words(w) or _inflected_word(w.lower()) for w in parts):
                 continue
             found.append((m.start(1), m.end(1), "name-single-after-label", NAME))
+        # a name that is also a word counts only in a person's record: a name part that is no word, and it or an
+        # e-mail address within 300 characters (first_name: Unique / last_name: Index is a schema)
         out += found
-    if "username-after-label" in want and "name" in low:
+        for h in wordy if found else ():
+            lo, hi = max(0, h[0] - _WORD_NAME_NEAR), h[0] + _WORD_NAME_NEAR
+            if any(abs(f[0] - h[0]) <= _WORD_NAME_NEAR for f in found) or text.find("@", lo, hi + 1) >= 0:
+                out.append(h)
+    if "username-after-label" in want and ("name" in low or _USER_ID_WORD_RE.search(low)):
         for m in _USERNAME_LABEL_RE.finditer(text):
             g = next(i for i in (2, 3, 4) if m.group(i) is not None)
             # inside an `example:` value (OpenAPI, Swagger): the value of the documentation, not of a person
@@ -1881,12 +2311,22 @@ def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> l
                 continue
             if _username_value_ok(m.group(g), g != 4, m.group(1)):
                 out.append((m.start(g), m.end(g), "username-after-label", USERNAME))
+        for m in _USER_ID_LABEL_RE.finditer(text):
+            g = next(i for i in (2, 3, 4) if m.group(i) is not None)
+            v = m.group(g)
+            if re.search(r"[\d._]", v) and not _under_example_key(text, m.start()) \
+                    and _username_value_ok(v, g != 4, m.group(1)):
+                out.append((m.start(g), m.end(g), "username-after-label", USERNAME))
         for m in _USERNAME_PROSE_RE.finditer(text):
-            v = m.group(1)
+            v = m.group("v")
+            # an apposition after `user_name` is the next argument of a call (login(user_name, api_key)), and
+            # (e.g. …) is no value
+            if m.group("sep").strip() and ("_" in m.group("label") or _ABBREVIATION_RE.fullmatch(v)):
+                continue
             if (re.search(r"[\d._]", v) and "@" not in v and not _VERSION_RE.match(v)
                     and not _under_example_key(text, m.start())
                     and _username_value_ok(v, False, " ")):
-                out.append((m.start(1), m.end(1), "username-after-label", USERNAME))
+                out.append((m.start("v"), m.end("v"), "username-after-label", USERNAME))
     if "address-street-after-label" in want and any(w in low for w in _STREET_LABEL_WORDS):
         for m in _STREET_LABEL_RE.finditer(text):
             g = 1 if m.group(1) is not None else 2
@@ -1895,7 +2335,10 @@ def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> l
                     or _PLACEHOLDER_STREET_RE.match(v) \
                     or _PARENT_NOT_A_STREET_RE.search(text, max(0, m.start() - 60), m.start()) \
                     or _NOT_A_STREET_LABEL_RE.search(text, max(0, m.start() - 12), m.start()) \
-                    or (g == 2 and _THING_SUBJECT_RE.search(text, max(0, m.start() - 40), m.start())):
+                    or (g == 2 and _THING_SUBJECT_RE.search(text, max(0, m.start() - 40), m.start())) \
+                    or (g == 2 and m.group().lower().startswith(("located", "situated", "property"))
+                        and _PLACE_OF_A_BUSINESS_RE.search(text, max(0, m.start() - 60), m.start())) \
+                    or (not _STREET_LINE_RE.fullmatch(v) and not _eu_street_ok(text, m.start(g), m.end(g))):
                 continue
             # the company's name often stands on the line before its address label (Acme Inc.\nAddress: ...): the
             # window holds that line too, as for street-address, at most 160 characters back
@@ -1919,6 +2362,10 @@ def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> l
         out += _json_record_hits(text)
     if "xml-personal-field" in want and ("</" in text or "/>" in text):
         out += _xml_record_hits(text)
+    if "json-personal-field" in want and ('\\":' in text or "{'" in text):
+        out += _quoted_json_hits(text)
+    if "kv-personal-field" in want:
+        out += _kv_record_hits(text)
     if "phone-wrapped-line" in want and "-\n" in text:
         for m in _PHONE_WRAP_RE.finditer(text):
             d = re.sub(r"\D", "", m.group())
@@ -1932,7 +2379,9 @@ def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> l
 # ------------------------------------------------------------------------------------------------- the scan --
 # words one of which a text must hold before a rule's regex runs (a cheap test on the lowered text)
 _BIRTH_WORDS = ("dob", "d.o.b", "birth", "born", "bday", "geb", "n\u00e9", "ne le", "nee le", "naissance", "nacimiento",
-                "naci", "nac\u00ed", "nascimento", "nascita", "nato")
+                "naci", "nac\u00ed", "nascimento", "nascita", "nato", "nata il", "nascid", "geboorte", "geboren",
+                "delsedatum", "dd den", "dselsdato", "syntym", "urodz", "narozen", "tarih", "рождения", "народження",
+                "na\u0219ter", "na\u015fter", "naster", "γέννησης", "ميلاد", "生年月日", "出生日期", "생년월일")
 _ID_WORDS = ("mrn", "member", "passport", "licen", "dl", "sin", "tfn", "nir", "tax", "insurance", "account",
              "patient", "id on file", "beneficiary", "medical", "national", "tin", "social",
              "reisepass", "passnummer", "pass-nr", "pass nr", "hrerschein", "passeport", "permis", "pasaporte",
@@ -2030,7 +2479,9 @@ def hits(text: str, channel: str, regions: tuple, company: list | None = None) -
             v = m.group(1)
             # 17 digits and more: a snowflake id of a chat platform or a database key, no document number
             if sum(c.isdigit() for c in v) >= 5 and not (v.isdigit() and len(v) >= 17) and not _placeholder_digits(v):
-                out.append((m.start(1), m.end(1), "id-number-after-label", ID_NUMBER))
+                # MRN4829173: the label glued to the number is the id's own prefix, masked with it
+                start = m.start() if text[m.start():m.start(1)].isalpha() else m.start(1)
+                out.append((start, m.end(1), "id-number-after-label", ID_NUMBER))
     if "user-in-url" in want and "://" in text:
         for m in _URL_USER_RE.finditer(text):
             u = m.group(1)
@@ -2052,7 +2503,8 @@ def hits(text: str, channel: str, regions: tuple, company: list | None = None) -
             line = text.rfind("\n", 0, m.start()) + 1
             lo = max(_block_back(text, line), m.start() - 160)
             # a company, an office or a public place on the lines above or before it keeps the address text
-            if _NOT_A_HOME_RE.search(text, lo, m.start()) or _BUSINESS_RE.search(text, lo, m.start()):
+            home = _HOME_ADDRESS_BEFORE_RE.search(text, max(line, m.start() - 40), m.start())
+            if not home and (_NOT_A_HOME_RE.search(text, lo, m.start()) or _BUSINESS_RE.search(text, lo, m.start())):
                 _company_window(text, lo, m.start(), m.end(), "address-us-two-lines", company)
             else:
                 out.append((m.start(), m.end(), "address-us-two-lines", ADDRESS))
@@ -2061,8 +2513,9 @@ def hits(text: str, channel: str, regions: tuple, company: list | None = None) -
             line = text.rfind("\n", 0, m.start()) + 1
             lo = max(_block_back(text, line), m.start() - 160)
             # "at the Harbor View Inn, 12 …": a named place before the address, as a venue's name on the line above
-            if (_NOT_A_HOME_RE.search(text, lo, m.start()) or _BUSINESS_RE.search(text, lo, m.start())
-                    or _NAMED_PLACE_BEFORE_RE.search(text, max(line, m.start() - 60), m.start())):
+            home = _HOME_ADDRESS_BEFORE_RE.search(text, max(line, m.start() - 40), m.start())
+            if not home and (_NOT_A_HOME_RE.search(text, lo, m.start()) or _BUSINESS_RE.search(text, lo, m.start())
+                             or _NAMED_PLACE_BEFORE_RE.search(text, max(line, m.start() - 60), m.start())):
                 _company_window(text, lo, m.start(), m.end(), "address-us-one-line", company)
             else:
                 out.append((m.start(), m.end(), "address-us-one-line", ADDRESS))
@@ -2120,11 +2573,47 @@ def hits(text: str, channel: str, regions: tuple, company: list | None = None) -
                 cut = short.group(0)
                 if not _reads_as_words(cut) or not _reads_as_words(re.sub(r"-[^\s]*", "", cut)):
                     v, words_only = cut, False
+            if m.group(1) and m.group(1).lower() == "student" and _PROSE_GOES_ON_RE.match(text, m.start(3) + len(v)):
+                continue   # Student: Informatik Bachelor an der …: a course of study in a sentence, not a name
             if _name_ok(v) and not words_only:
                 out.append((m.start(3), m.start(3) + len(v), "name-after-label", NAME))
+    if "name-after-label" in want and (":" in text or "=" in text):
+        for m in _ROLE_KEY_NAME_RE.finditer(text):
+            v = m.group(1).rstrip("'’")
+            plain = re.sub(r"-[^\s]*", "", v)
+            if _name_ok(v) and not (_reads_as_words(v, every=True) and _reads_as_words(plain, every=True)):
+                out.append((m.start(1), m.start(1) + len(v), "name-after-label", NAME))
+    if "name-after-label" in want and "name" in low and (":" in text or "=" in text):
+        # account_holder_name: …, "investorName": "…": a key whose last words name a person in a role and a name
+        for m in _COMPOUND_NAME_KEY_RE.finditer(text):
+            key = re.sub(r"[_\s.-]+", "_", re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", m.group(1)).lower()).strip("_")
+            if not _COMPOUND_PERSON_KEY_RE.fullmatch(key):
+                continue
+            v = m.group(2).rstrip("'’")
+            plain = re.sub(r"-[^\s]*", "", v)
+            if _name_ok(v) and not (_reads_as_words(v, every=True) and _reads_as_words(plain, every=True)):
+                out.append((m.start(2), m.start(2) + len(v), "name-after-label", NAME))
+    if "name-after-label" in want and "</" in text:
+        # <card_holder>Jane Roe</card_holder>: the element's name is the label of its text
+        for m in _XML_NAME_ELEMENT_RE.finditer(text):
+            person = _PERSON_TAG_RE.fullmatch(m.group(1).rsplit(":", 1)[-1])
+            if not person:
+                continue
+            if _xml_parent(text, m.start()) in _THING_PARENTS:
+                continue   # <project><name>, <security><fullName>: the name of a thing
+            v = m.group(2).rstrip("'’")
+            plain = re.sub(r"-[^\s]*", "", v)
+            every = bool(person.group(1))
+            if _name_ok(v) and not (_reads_as_words(v, every=every) and _reads_as_words(plain, every=every)):
+                out.append((m.start(2), m.start(2) + len(v), "name-after-label", NAME))
     if "name-next-to-a-person-cue" in want and any(w in low for w in ("i, ", "name is", "born", "resid", "lives", "mr",
                                                                          "ms", "mx", "miss", "dear", "hi ", "hello",
-                                                                         "hey ")):
+                                                                         "hey ", "name ist", "appelle",
+                                                                         "mon nom", "mi nombre", "llamo", "mio nome",
+                                                                         "chiamo", "mijn naam", "ik heet", "heter",
+                                                                         "mitt namn", "hedder", "navn er", "nazywam",
+                                                                         "na imię", "meu nome", "chamo", "jmenuji",
+                                                                         "nimeni", "numele", "numesc")):
         for rx in _PERSON_CUE_RES:
             for m in rx.finditer(text):
                 words, start = m.group(1).split(" "), m.start(1)

@@ -6,5 +6,5 @@ runner = ["tests/test_weak_entries.py::WeakEntryTests::test_a_random_value_is_st
 
 [proof]
 file = "maisecrets/vault.py"
-find = "    if value.strip().lower() in DEFAULT_WORDS:\n        return True\n"
+find = "    if _folded(value) in DEFAULT_WORDS:\n        return True\n"
 replace = "    return True\n"

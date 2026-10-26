@@ -16,16 +16,17 @@ import random
 import string
 from dataclasses import dataclass, field
 
-# the detect-secrets denylist words, and the examples of each label file of the active languages
+# the detect-secrets denylist words, and the examples of the label files of English and German
 # (maisecrets/detection/rules/labels/*.txt): a new label file adds its words to the matrix
 DENYLIST_LABELS = ["password", "pwd", "passwd", "Password", "PASSWORD", "secret", "api_key", "apikey", "API_KEY",
                    "db_password", "client_secret"]
 
 
 def _file_labels() -> list[str]:
-    from maisecrets import detect, regions
-    return [ex for lang in detect.active_regions().languages for lab in regions.load_labels(lang)
-            for ex in lab.examples]
+    # the languages of the pinned test locale (de_DE); since 0.8.2 every label file is on by default, and
+    # tests/test_label_languages.py runs the examples of the others in the same shapes
+    from maisecrets import regions
+    return [ex for lang in ("en", "de") for lab in regions.load_labels(lang) for ex in lab.examples]
 
 
 LABELS = DENYLIST_LABELS + _file_labels()

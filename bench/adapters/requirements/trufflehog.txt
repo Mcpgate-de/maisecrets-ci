@@ -1,0 +1,3 @@
+# release binary, not a Python distribution: https://github.com/trufflesecurity/trufflehog/releases/download/v3.99.2/trufflehog_3.99.2_darwin_arm64.tar.gz
+# darwin-arm64 archive sha256 b612143d840b4c75d41fe40436c5932efead001951283f18c87013c4145e1675 (matches the release checksums.txt)
+trufflehog==3.99.2

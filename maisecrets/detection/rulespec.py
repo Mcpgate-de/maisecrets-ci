@@ -123,6 +123,10 @@ def presidio_patches(detect) -> dict:
         add(rid, "context_rule", "set", "required", "a plain digit run: a check digit alone passes 1 in 10 to 26")
     for rid in sorted(detect.PRESIDIO_DIGIT_BOUNDED):
         add(rid, "regex", "wrap", "(?<!\\d)...(?!\\d)", "the pattern matched inside a longer digit run")
+    for rid in sorted(detect.PRESIDIO_NOT_AFTER_PLUS):
+        add(rid, "regex", "wrap", "(?:(?<!\\+)|(?<=[A-Za-z0-9]\\+))...",
+            "the digits of a phone number after its + are no document number; a + after a letter or a digit is a "
+            "separator")
     for rid in sorted(detect.PRESIDIO_LEFT_SUBFIELD):
         add(rid, "regex", "replace", "left boundary: also after ?NN", "an MT940 subfield code before the IBAN (0.6.24)")
     for rid in sorted(detect.PRESIDIO_PATTERN_CONTEXT):

@@ -238,7 +238,8 @@ class KeywordLabelTailTests(unittest.TestCase):
         self.assertLess(run(mixed), 2.0 * run(plain) + 0.05)
 
     def test_six_keyword_rules_take_the_linear_path(self):
-        linear = [r.id for r in self.rules() if isinstance(r.regex, detect._KeywordTail)]
+        # a rule with label words runs through detect._LabelSubset, whose regex of the whole is the _KeywordTail
+        linear = [r.id for r in self.rules() if isinstance(getattr(r.regex, "_full", r.regex), detect._KeywordTail)]
         self.assertEqual(len(linear), 6, linear)   # the seventh starts with the value, its \\w* ends the regex
 
     def fuzz_texts(self, rng):
@@ -262,7 +263,7 @@ class KeywordLabelTailTests(unittest.TestCase):
         found = 0
         for langs in (("en",), ("en", "de", "fr")):
             for r in self.rules(langs):
-                if not isinstance(r.regex, detect._KeywordTail):
+                if not isinstance(getattr(r.regex, "_full", r.regex), detect._KeywordTail):
                     continue
                 old = re.compile(r.regex.pattern, r.regex.flags)
                 for t in texts:

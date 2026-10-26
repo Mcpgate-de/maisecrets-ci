@@ -679,9 +679,10 @@ macOS and Windows the system setting, not `LANG`). The default is `["auto"]`.
 An empty list keeps the generic rules only. The old key `pii_regions` still
 works.
 
-Credential labels come in languages. English labels (`password:`, `pass:`,
-`token:`) are always on. maisecrets adds the labels of your system language
-and of each region, for example `passwort:` and `kennwort:` for German. The
+Credential labels come in languages. The labels of every language below are
+on, whatever your system language and regions: `password:`, `passwort:`,
+`wachtwoord:`, `hasło:` and the others (since 0.8.2; before, only English and the
+labels of your system language and of each region). The
 labels are data files in `maisecrets/detection/rules/labels/`, one file per language.
 A new language is one new file. Files exist for Chinese, Czech, Danish, Dutch,
 English, Finnish, French, German, Italian, Japanese, Korean, Norwegian (Bokmål),
@@ -1441,7 +1442,9 @@ Four sources, one scanner (`maisecrets/detection/core.py`):
   value of letters only, with no evidence of chance and, in ASCII, at most one rare letter pair in
   ten (pairs counted in the word list). maisecrets stores it with a quiet mark: it still masks the
   word in every later tool result (a default word such as `postgres`, and since 0.6.38 an English
-  word of the word list such as `fallback`, only where it was found), but does not look for it in a
+  word of the word list such as `fallback`, only where it was found; since 0.8.2 also an English word
+  with an ending or of two words of the list, such as `directly` or `benchmarking`, and the word for
+  password in another language, such as `contraseña`), but does not look for it in a
   typed prompt, also when this
   session used its placeholder in a command. A random value (`xqzvbnmq`) is looked for in prompts
   too, and so is a word the person gives in a prompt after a label, also when a tool result held
@@ -1453,6 +1456,17 @@ Four sources, one scanner (`maisecrets/detection/core.py`):
   letters that reads like one (about 3 in 100 of 8 letters, 1 in 200 of 12), and that a file or a
   tool result held first, is not looked for in a later prompt that has it without a label. It is
   still masked in every tool result.
+  Limit of the word list: only English words count as words that are masked only where they were
+  found. A common word of another language (`Wartungsfenster`), a name, a project term or an
+  invented word that a label rule takes in a tool result is masked in every later tool result of
+  every session until it expires or `/maisecrets:forget` deletes it. The word list makes this rare
+  for English prose; it cannot remove it. A random value that reads like a word and is split into
+  two words of the list or a word with an ending counts as a word too (measured: 369 of 190,508
+  random values of 8 to 14 letters, 0.19 %); it is masked where it was found and not hunted in
+  other texts. A word that a tool result stored and the person then gives as a password (with
+  `/maisecrets:put` or after a label in a prompt) is hunted everywhere again. Since 0.8.2 a
+  further place where the same tool result holds such a word without a label stays text, as for
+  `fallback` since 0.6.38; before, the hunt masked it there too.
 - A key after a label that names a secret, in a form the keyword rules do not read (0.6.16):
   `<clientSecret>…</clientSecret>`, `<AccessToken>…</AccessToken>`, a short value
   (`label-secret-literal`, 8 characters and more); and a quoted key of 12 characters and more

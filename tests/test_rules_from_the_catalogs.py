@@ -186,7 +186,9 @@ class TokenFormatTests(unittest.TestCase):
         """Python reads [[:space:]] as a set of characters; _re2_to_python translates the classes it knows."""
         for rule in detect.rules():
             with self.subTest(rule=rule.id):
-                self.assertNotIn("[:", rule.regex.pattern.replace("[:=]", "").replace("[:,", ""))
+                # the colon and the fullwidth colon of the Chinese and Japanese labels are a set, no POSIX class
+                pattern = rule.regex.pattern.replace("[:\uff1a]", "").replace("[:\\uff1a]", "")
+                self.assertNotIn("[:", pattern.replace("[:=]", "").replace("[:,", ""))
 
     def test_a_token_inside_a_longer_word_is_no_hit(self):
         """The short prefixes: fc-, sl., sk_, cio, oy2, da2- glued to a word before them are part of that word."""

@@ -19,15 +19,22 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", required=True)
     ap.add_argument("--regions", default="de,us")
+    ap.add_argument("--languages", default="", help="the label languages; default: the checkout's own for the regions")
     ap.add_argument("inp")
     ap.add_argument("out")
     a = ap.parse_args()
     sys.path.insert(0, a.root)
     t0 = time.perf_counter()
     regions = tuple(r for r in a.regions.split(",") if r)
-    languages = ("en", "de") if "de" in regions else ("en",)
     try:
         from maisecrets.detection import NO_REFERENCES, NO_SOURCES, Active, Detector, Host
+        try:    # the label languages the checkout turns on by default for these regions, with no system language
+            from maisecrets.detection.regions import resolve
+            languages = resolve({"regions": list(regions)}, locale="C").languages
+        except ImportError:
+            languages = ("en", "de") if "de" in regions else ("en",)
+        if a.languages:
+            languages = tuple(dict.fromkeys(("en",) + tuple(x for x in a.languages.split(",") if x)))
         det = Detector(regions=Active(regions=("generic",) + regions, languages=languages, source="bench"),
                        sources=NO_SOURCES, references=NO_REFERENCES, host=Host(user="benchuser", year=2026))
 

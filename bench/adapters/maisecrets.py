@@ -58,8 +58,9 @@ def _clean_env(home: str) -> dict:
     return _proc.minimal_env(home, {_HOME_VAR: home})
 
 
-def scan(cases, root: Path, regions: str = "de,us", python: str = sys.executable):
-    """One list of (start, end, cls, rule) per case, and the timing of the worker."""
+def scan(cases, root: Path, regions: str = "de,us", python: str = sys.executable, languages: str = ""):
+    """One list of (start, end, cls, rule) per case, and the timing of the worker. languages: the label languages
+    (a comma list); empty keeps the worker's default (en, and de with the region de)."""
     tmp = tempfile.mkdtemp(prefix="bench-ms-")
     try:
         home = os.path.join(tmp, "home")
@@ -70,7 +71,8 @@ def scan(cases, root: Path, regions: str = "de,us", python: str = sys.executable
         with open(inp, "w", encoding="utf-8") as f:
             for c in cases:
                 f.write(json.dumps({"text": c["text"], "channel": c["channel"], "path": c.get("path")}) + "\n")
-        p = _proc.run([python, "-I", str(WORKER), "--root", str(root), "--regions", regions, inp, out], "maisecrets",
+        p = _proc.run([python, "-I", str(WORKER), "--root", str(root), "--regions", regions]
+                      + (["--languages", languages] if languages else []) + [inp, out], "maisecrets",
                       env=_clean_env(home), cwd=tmp)
         if p.returncode:
             raise _proc.AdapterError(f"maisecrets: the worker failed with exit code {p.returncode} (its stderr is "

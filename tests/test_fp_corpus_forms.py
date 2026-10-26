@@ -52,7 +52,8 @@ OWNER = {
     "encoded mail sent to": "email-percent-encoded", "encoded mail csv cell": "email-percent-encoded",
     "card in groups": "credit-card", "card after pan": "credit-card", "card after a swedish word": "credit-card",
     "postman password counter": "secret-postman-variable", "user slash with words": "secret-after-user-slash",
-    "fhir pretty passport": "id-number-fhir-identifier", "name patient_name": "name-non-latin-after-label",
+    # passportNumber in the FHIR system URL is a context word of us-passport, which takes the same value first
+    "fhir pretty passport": "us-passport" + "#1", "name patient_name": "name-non-latin-after-label",
     "dl in json": "id-number-after-record-label", "address level": "address-after-label",
     "encoded mail after a line": "email-percent-encoded",
     "card in a csv row": "credit-card", "encoded mail quoted cell": "email-percent-encoded",
@@ -62,6 +63,8 @@ OWNER = {
     "phone after a phone word": "phone-after-phone-word", "phone national after a label": "phone-after-phone-word",
     "one first name": "name-single-after-label", "street line after a label": "address-street-after-label",
     "markdown table of persons": "md-table-personal-column",
+    "yaml record of a person": "kv-personal-field",
+    "password column in a table": "secret-under-password-column",
     "street postcode city": "address-street-postcode-city",
     "sql insert of persons": "sql-insert-personal-column", "html table of persons": "html-table-personal-column",
     "json record of a person": "json-personal-field", "xml record of a person": "xml-personal-field",

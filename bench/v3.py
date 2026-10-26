@@ -27,7 +27,8 @@ ROOT = Path(__file__).resolve().parent.parent
 FAMILIES = ("secret", "pii")
 
 # the sources this project wrote: they label every class they use, so every class is in scope
-OWN_SOURCES = ("bank", "holdout", "holdout-v2", "traces", "catalogs")
+OWN_SOURCES = ("bank", "holdout", "holdout-v2", "traces", "catalogs", "catalogs-example", "structured",
+               "structured-b")
 
 # a class a dataset reaches only through the label cleaning is out of its scope: Privy has no IBAN label, its 7 IBAN
 # spans are US_BANK_NUMBER labels retyped because the value is a valid IBAN (docs/BENCHMARK-V3-DRAFT.md, finding 1)
@@ -63,6 +64,11 @@ def inventory() -> dict:
         out[name] = {"labelled": kept, "not_labelled": sorted(k for k, t in labels.items() if t == md.OUT_OF_SCOPE),
                      "scored": sorted(classes), "excluded_shapes": EXCLUDED_SHAPES.get(name, {}),
                      "lower_bound": sorted(LOWER_BOUND.get(name, ()))}
+    # the sealed external sets carry their label map in their loader (bench/nym.py, bench/dialogpii.py)
+    from bench import dialogpii, nym
+    for mod in (dialogpii, nym):
+        out[mod.NAME] = {"labelled": sorted(mod.LABEL_CLASS), "not_labelled": sorted(mod.NEUTRAL),
+                         "scored": sorted(set(mod.LABEL_CLASS.values())), "excluded_shapes": {}, "lower_bound": []}
     return out
 
 
