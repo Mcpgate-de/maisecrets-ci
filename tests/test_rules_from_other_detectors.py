@@ -465,8 +465,10 @@ def discord_bot(r):
 # rule id -> (a token, a look-alike that is not one). Every part after the prefix is random
 TOKENS = {
     "google-oauth-access-token": lambda r: (J(["ya", "29."]) + rd(r, 120, B64U), J(["ya", "29."]) + rd(r, 12, AN)),
-    "tailscale-key": lambda r: (J(["tskey", "-auth-"]) + rd(r, 12, AN) + "-" + rd(r, 33, AN),
-                                J(["tskey", "-auth-"]) + rd(r, 12, AN)),
+    "tailscale-key": lambda r: ((J(["tskey", "-auth-"]) + rd(r, 12, AN) + "-" + rd(r, 33, AN),
+                                 J(["tskey", "-auth-"]) + rd(r, 12, AN)) if r.random() < 0.5 else
+                                (J(["tskey", "-k"]) + rd(r, 10, AN) + "CNTRL-" + rd(r, 32, AN),
+                                 J(["tskey", "-k"]) + rd(r, 10, AN) + "CNTRL-" + rd(r, 8, AN))),
     "discord-webhook-url": lambda r: (J(["https://discord.com/api/web", "hooks/"]) + rd(r, 19) + "/" + rd(r, 68, B64U),
                                       J(["https://discord.com/api/web", "hooks/"]) + rd(r, 19)),
     "salesforce-refresh-token": lambda r: (J(["5Aep", "861"]) + rd(r, 80, AN), J(["5Aep", "861"]) + rd(r, 20, AN)),

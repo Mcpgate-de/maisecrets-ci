@@ -89,7 +89,7 @@ from .value_checks import (  # noqa: F401
     _pw_words_of, _COMMON_PAIRS, _common_pairs, reads_as_word, english_words, _Literal, LITERAL_RULES, _LITERAL_IDS,
     _env_key_ok, _laravel_key_ok, _config_key_value_ok, _random_hex, _RESERVED_MAIL_DOMAINS, _RESERVED_MAIL_TLDS,
     _reserved_domain, _SERVICE_MAILBOXES, _SYSTEM_USERS, PLACEHOLDER_VALUES, PLACEHOLDER_PARTS, _TEMPLATE_NAME,
-    _PARTS, _PLACEHOLDER_PART_RE, looks_like_placeholder,
+    _PARTS, _PLACEHOLDER_PART_RE, looks_like_placeholder, _ssh_algorithm_name, _mail_shaped_id,
 )
 from .encoded_mail import (  # noqa: F401
     _ENCODED_MAIL_CONTEXT_RE, _ENCODED_MAIL_TO_RE, _encoded_mail_expected, _MAIL_COLUMN_RE, _OWNER_WORDS,
@@ -507,7 +507,8 @@ VALIDATORS = {
     "public_ip": _public_ip,
     "not_placeholder": lambda v: v.lower() not in {"placeholder", "changeme", "redacted", "example"}
     and not v.startswith("<"),
-    "person_email": lambda v: v.split("@", 1)[0].lower() not in _SYSTEM_USERS and not _reserved_domain(v),
+    "person_email": lambda v: (v.split("@", 1)[0].lower() not in _SYSTEM_USERS and not _reserved_domain(v)
+                               and not _ssh_algorithm_name(v) and not _mail_shaped_id(v)),
     # name%40firma.de in a URL query, a form body or an access log: the same address, percent-encoded
     "person_email_encoded": lambda v: VALIDATORS["person_email"](v.replace("%40", "@")),
     "us_ssn": _us_ssn_ok,
@@ -2359,6 +2360,12 @@ def _names_its_label(text: str, start: int, secret: str) -> bool:
 # a run of capitals without a vowel or with a longer suffix is a value (review of 0.6.24)
 _CONSTANT_NAME_RE = _LazyRx(r"(?:[A-Z]*[AEIOUY][A-Z]*|DB)(?:[-_](?:[A-Z]*[AEIOUY][A-Z]*|DB))+_\d{1,2}")
 _TIME_OR_RATIO_RE = _LazyRx(r"\d+:[a-z]+")
+# a test result, not a password after the label `pass`: `--- PASS: TestUpload/large_file` (go test -v),
+# `PASS: test_login` and `PASS: tests/test_api.py::test_get` in a merge request or a job log (gateway shadow,
+# 2026-10-28). Only the bare word pass: a value after `password:` stays a value
+_PASS_LABEL_RE = _LazyRx(r"(?i:(?<![\w-])pass)[ \t]*:[ \t]*$")
+_TEST_NAME_RE = _LazyRx(r"(?:Test|Benchmark|Example|Fuzz)(?:[A-Z0-9_]\w*)?(?:/\S*)?|test_\w+"
+                        r"|[\w./-]+\.py::\S+")
 _PROSE_AFTER_RE = _LazyRx(r" (?:and|or|of|for|with|to|in|the|is|are|und|oder|der|die|das|mit|für|ist|sind)"
                              r"(?![^\W_])")
 
@@ -2878,14 +2885,17 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
                 continue   # the name of a constant, not its value: PROD-DB-PASS_7
             if "time-or-ratio" in filters and _TIME_OR_RATIO_RE.fullmatch(secret.strip("\"'`")):
                 continue   # 0:default after `secret:`
+            if ("test-result" in filters and _TEST_NAME_RE.fullmatch(secret.strip("\"'`"))
+                    and _PASS_LABEL_RE.search(_before_value(text, start))):
+                continue   # --- PASS: TestUpload
             if (keyword and secret.isalpha() and secret.islower() and _PROSE_AFTER_RE.match(text, end)
                     and _in_table_cell(text, start)):
                 continue   # | token: counts and ... |: a sentence in a markdown table cell goes on after the word
             if "template-value" in filters and secret.startswith("{"):
                 continue   # a template: ?token={body['transfer_id']}, ?token={SLACK_AUTO_TOKEN}
             if ("words-not-token" in filters and not any(c.isdigit() for c in secret)
-                    and re.fullmatch(r"[A-Za-z]+(?:[_-][A-Za-z]+)+", secret)):
-                continue   # words, not a token: Bearer test_access_token
+                    and re.fullmatch(r"[A-Za-z]+(?:[_-][A-Za-z]+)+|[A-Z]?[a-z]+", secret)):
+                continue   # words, not a token: Bearer test_access_token, the heading Basic Responsibilities
             if "derived-label" in filters and (
                     (_UUID_RE.fullmatch(secret.strip("\"'` ")) and rule.id != "label-prose-key"   # its words name a key
                      and not _SECRET_LABEL_RE.search(

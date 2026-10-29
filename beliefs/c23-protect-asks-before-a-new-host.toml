@@ -1,0 +1,10 @@
+# c23-protect-asks-before-a-new-host: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c23-protect-asks-before-a-new-host"
+control = "C23"
+statement = "With secret_destinations protect, a stored secret that goes to a network host it was never seen at, after its first call, asks first in Claude Code; a host becomes known only when a call to it ran."
+runner = ["tests/test_destinations.py::Protect::test_a_new_host_asks_until_a_call_to_it_ran"]
+
+[proof]
+file = "maisecrets/hooks.py"
+find = "        return destinations.new_hosts(keys, found)"
+replace = "        return []"

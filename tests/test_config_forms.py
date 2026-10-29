@@ -102,7 +102,7 @@ class TerraformDefaultTests(unittest.TestCase):
 
 class UrlPasswordSignsTests(unittest.TestCase):
     def test_a_url_password_with_a_reserved_sign_is_a_hit_and_the_user_stays(self):
-        for sign in "!$&+,;=*":
+        for sign in "!$&+,;=*#?":
             pw = key(9) + sign + key(3)
             for url in (f"postgres://app:{pw}@db.internal:5432/orders", f"mysql://app:{pw}@10.0.0.7:3306/app",
                         f"postgres://app:{pw}@localhost/orders", f"amqp://app:{pw}@rabbit:5672"):
@@ -118,7 +118,9 @@ class UrlPasswordSignsTests(unittest.TestCase):
         for text in ("postgres://${DB_USER}:${DB_PASSWORD}@db:5432/app",
                      "postgres://app:$(cat /run/secrets/pw)@db:5432/app",
                      "https://example.com/a?x=1&y=2@foo",
-                     "git clone https://gitlab.com/group/repo.git"):
+                     "git clone https://gitlab.com/group/repo.git",
+                     "http://localhost:3000?next=x#top@foo", "https://example.com:8080?a#b@cdn.example.com",
+                     "https://app.example.com:8443/#/login?next=a@b"):
             self.assertEqual([], [k for k, _ in hits(text) if k == "url-password-signs"], text)
 
 

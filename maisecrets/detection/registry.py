@@ -84,8 +84,8 @@ FILTERS = {
     "private-key-base64": ("base64-wrapped-end",),             # the further lines of a wrapped value
     # JSON inside a string: the value must be escaped too. A constant's name (PROD-DB-PASS_7) and a time or a ratio
     # (0:default) after the label are no value (from a fork, danszymkowiak/maisecrets f2c9ee2, Apache-2.0)
-    "ds-keyword-colon": ("escaped-label-quote", "constant-name", "time-or-ratio"),
-    "ds-keyword-colon-quotes-required": ("escaped-label-quote", "constant-name", "time-or-ratio"),
+    "ds-keyword-colon": ("escaped-label-quote", "constant-name", "time-or-ratio", "test-result"),
+    "ds-keyword-colon-quotes-required": ("escaped-label-quote", "constant-name", "time-or-ratio", "test-result"),
     "ds-keyword-equal-signs": ("constant-name",),
     "generic-api-key": ("word-path", "derived-label"),
     "url-query-secret": ("template-value",),                    # ?token={...}

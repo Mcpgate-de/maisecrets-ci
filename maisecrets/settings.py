@@ -46,7 +46,8 @@ TITLE = {
 MEANING = {
     "ssh_consent": "Ask before each ssh command that changes something on a host.",
     "ssh_autonomous_hosts": "Hosts where the AI may change things over ssh without asking, in every session.",
-    "secret_destinations": "Notes where each stored secret is sent, on this computer only. Never stops a call.",
+    "secret_destinations": "Notes where each stored secret is sent, on this computer only. With protect, asks "
+                           "before a secret goes to a host it never went to.",
     "rehydration": "How a stored value goes into a tool call.",
     "ssh_host_groups": "Hosts that one typed ssh window covers together.",
     "ssh_approval": "When stored values in tool calls is confirm: for ssh, ask for each command, or once per value "
@@ -69,7 +70,7 @@ MEANING = {
     "tips": "A short tip at session start, and a hint when a setting first matters.",
     "shortcut": "The first session start names /maisecrets:shortcut once.",
     "guard": "A synced install registers the guard outside its folder.",
-    "pass_agent_reports": "A subagent's report is not blocked.",
+    "pass_agent_reports": "A subagent's report or a background command's notice is not blocked.",
     "gateway_servers": "MCP servers that resolve placeholders themselves.",
     "client_header": "A key header on your own MCP server once it sends a masked value and supports it, so it "
                      "can give its masked values back into your files and commands, never to the AI.",
@@ -78,6 +79,9 @@ MEANING = {
     "max_resolves_per_hour": "How often stored values may go into tool calls in an hour, all sessions together.",
 }
 CHOICE_TEXT = {
+    "secret_destinations": (("observe", "note where each secret goes; never stops a call"),
+                            ("protect", "also ask before a secret goes to a host it never went to"),
+                            ("off", "note nothing")),
     "rehydration": (("automatic", "use a stored value in a tool call"), ("confirm", "ask before each use"),
                     ("block", "never put a stored value into a tool call")),
     "ssh_approval": (("per-command", "ask for each command"), ("per-session", "ask once per value and session")),
@@ -102,7 +106,7 @@ ADVANCED_GROUPS = (("Stored values", ("ttl_seconds", "renew_on_use", "resolve_in
 # what a prompt may set; any other key is edited in config.json by hand
 _BOOL_WORDS = {"on": True, "true": True, "off": False, "false": False}
 _CHOICES = {"rehydration": ("automatic", "confirm", "block"), "ssh_approval": ("per-command", "per-session"),
-            "secret_destinations": ("observe", "off"), "read_pdf": ("allow", "ask", "block", "convert"),
+            "secret_destinations": ("observe", "protect", "off"), "read_pdf": ("allow", "ask", "block", "convert"),
             "read_image": ("allow", "ask", "block")}
 _BOOL_KEYS = tuple(k for k in DISCOVERABLE + ADVANCED if isinstance(DEFAULT_CONFIG.get(k), bool))
 # a whole number in this range: the limiter (C7). 0 would stop every use; a person who wants that sets rehydration block
@@ -245,7 +249,13 @@ def _card(key: str, cfg: dict) -> list[str]:
         n, total, multi = destinations.summary()
         lines.append(f"    Seen so far: {n} secret(s), {total} destination(s), {multi} with more than one. "
                      "/maisecrets:list shows them.")
-        lines.append("    Asking before a new destination (protect) comes in a later version.")
+        asks, secrets, days = destinations.would_have_asked()
+        if days:
+            # from the record, not from the questions: a record from observe counts as if protect had been on
+            lines.append(f"    protect would have asked about {asks} time(s) in the last {days} day(s), for {secrets} "
+                         "secret(s): an estimate from the record, which holds no declined call.")
+        if value == "observe":
+            lines.append("    Ask before a new host: /maisecrets:settings secret_destinations protect")
         if value == "off":
             lines.append("    Turn on: /maisecrets:settings secret_destinations observe")
     elif key == "ssh_autonomous_hosts":
@@ -381,7 +391,7 @@ PROTECTIVE_BOOL = {"ssh_consent": True, "block_at_mentions": True, "scrub_transc
                    "ssh_via_sandbox": False, "renew_on_use": False, "pass_agent_reports": False,
                    "client_header": False}
 STRICTER_LAST = {"rehydration": ("automatic", "confirm", "block"), "ssh_approval": ("per-session", "per-command"),
-                 "secret_destinations": ("off", "observe"),
+                 "secret_destinations": ("off", "observe", "protect"),
                  # convert sends masked text only; ask can send the whole file
                  "read_pdf": ("allow", "ask", "convert", "block"), "read_image": ("allow", "ask", "block")}
 NEUTRAL = ("tips", "shortcut", "rewrite_prompts")

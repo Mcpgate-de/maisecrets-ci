@@ -45,12 +45,13 @@ def _list_values() -> int:
     print(f"{'placeholder':<14} {'type':<7} {'found by':<9} {'age':>5} {'uses':>4} {'expires in':>10}  shown as")
     from . import destinations
     shown_before = time.time() - destinations.NEW_SECONDS
+    protect = v.cfg.get("secret_destinations", "observe") == "protect"
     for e in sorted(rows, key=lambda x: x.created):
         exp = "expired" if e.purged else f"{int(max(0, e.expires - time.time()) // 3600)}h"
         print(f"{e.key:<14} {e.type:<7} {_found_by(e.kind):<9} {_age(e.created):>5} {e.uses:>4} {exp:>10}  "
               f"{e.display or '-'}")
         if not e.purged:
-            for line in _destination_lines(destinations.of(e.key), shown_before):
+            for line in _destination_lines(destinations.of(e.key), shown_before, protect):
                 print(line)
     if v.backend.test_mode:
         print("\nbackend: jsonfile (TEST MODE, plaintext under ~/.maisecrets/)")
@@ -73,9 +74,10 @@ def _found_by(kind: str) -> str:
     return "label" if kind == EXPORT_RULE else how_found(kind)
 
 
-def _destination_lines(rec: dict, shown_before: float) -> list[str]:
-    """Where a secret was sent (secret_destinations, observe). A record, never a permission: the heading says so,
-    the count is coarse, and a local use is listed apart because nothing protects it."""
+def _destination_lines(rec: dict, shown_before: float, protect: bool = False) -> list[str]:
+    """Where a secret was sent (secret_destinations). With observe a record, never a permission: the heading says
+    so. With protect these hosts ask no more, and the heading says that. The count is coarse, and a local use is
+    listed apart because nothing protects it."""
     from . import destinations
     seen = sorted(rec.get("seen", {}).values(), key=lambda d: -d.get("last", 0))
     network = [d for d in seen if d.get("kind") == "network"]
@@ -89,7 +91,8 @@ def _destination_lines(rec: dict, shown_before: float) -> list[str]:
                 f"{destinations.uses_text(d.get('uses', 0)):<6} "
                 f"last {destinations.when_text(d.get('last', 0))}{new}")
     if network:
-        out.append("    Sent to (a record only; it allows nothing)")
+        out.append("    Sent to (protect asks before a host not listed, or one cut with ...)" if protect
+                   else "    Sent to (a record only; it allows nothing)")
         out += [row(d) for d in network]
     if local:
         out.append("    Used on this computer")

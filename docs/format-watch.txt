@@ -233,6 +233,8 @@ kraken-access-token
 kubernetes-secret-yaml
 kucoin-access-token
 kucoin-secret-key
+labelbox-api-key
+labelbox-recursion-api-key
 langchain-langsmith-personal-access-token
 langchain-langsmith-service-key
 langfuse-public-key.1
@@ -412,6 +414,11 @@ tableau-personal-access-token-name.1
 tableau-personal-access-token.1
 tableau-server-host.1
 tailscale-api-key.1
+tailscale-auth-key
+tailscale-key
+tailscale-oauth-client-secret
+tailscale-scim-key
+tailscale-webhook-secret
 telegram-bot-api-token
 telnyx-api-v2-key.1
 temporal-cloud-api-key.1

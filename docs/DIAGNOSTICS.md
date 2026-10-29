@@ -147,6 +147,7 @@ site fails. `scrub.write` is a string of code in the child and is checked by its
 | `hook.<event>.watchdog` | the watchdog's answer won (a marker) | fail-closed |
 | `hook.session-start` | the SessionStart path in `dispatch.py:96` (no watchdog there: its recording has its own 0.3 s limit) | best-effort |
 | `destinations.pend`, `destinations.commit` | `pend` and `commit` (`destinations.py` 233, 253) return a closed result instead of swallowing it | best-effort |
+| `destinations.protect` | `_protect_fresh` (`hooks.py`): the record could not be read for a protect check, so every network host of the call asks | fail closed |
 | `scrub.start` | the catch after `Popen` in `_scrub_transcript_later` (`hooks.py:224`) and the catch in `_scrub_failed_prompt_now` (`hooks.py:3787`), queued in process | best-effort |
 | `scrub.write` | the scrub child (a marker) | best-effort |
 | `prompt.pending` | the catch at `hooks.py:402` | best-effort |

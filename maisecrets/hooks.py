@@ -1342,12 +1342,15 @@ def _updated(payload: dict, new_input: dict) -> dict:
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": new_input}}
 
 
-def _rehydrated(payload: dict, cfg: dict, path: str, new_input: dict, reason: str) -> dict:
+def _rehydrated(payload: dict, cfg: dict, path: str, new_input: dict, reason: str, fresh: list[str] = ()) -> dict:
     """The decision for a call that got its values, by the rehydration policy of the path. A deny here
-    means the early refusal was skipped: fail closed, the rewritten input stays in the hook."""
+    means the early refusal was skipped: fail closed, the rewritten input stays in the hook. `fresh`: the new hosts
+    of secret_destinations protect, which turn a call that would pass into a question."""
     decision = rehydration.outcome(client_of(payload), rehydration.policy(cfg, path))
-    if decision == "ask":
-        return _ask(new_input, reason)
+    if fresh and client_of(payload) == "codex":
+        return _protect_refusal(fresh, "Nothing ran.")       # Codex takes no ask with a rewritten input
+    if decision == "ask" or (fresh and decision in ("defer", "allow")):
+        return _ask(new_input, _protect_text(fresh) + reason)
     if decision in ("defer", "allow"):
         return _updated(payload, new_input)
     return _deny("maisecrets: the setting rehydration does not let a stored value into this call. Nothing ran.")
@@ -1418,28 +1421,102 @@ def _expand_groups(hosts: list[str], groups: dict) -> list[str]:
     return sorted(out)
 
 
-def _note_destinations(cfg: dict, payload: dict, tool: str, tool_input: dict, keys: list[str],
-                       ssh_command: str | None = None) -> None:
-    """secret_destinations (Mcpgate-de/maisecrets#13): note where each value of this call goes. Observe only: it
-    never changes the answer, and a failure here never stops the call. The value is handed out here, before the
-    client asks the person; so the call waits as pending and becomes `seen` only when a PostToolUse or
-    PostToolUseFailure of the same tool_use_id says it ran (_commit_destinations). A call the person declines has
-    no such event and leaves no record. A client that sends no tool_use_id leaves no record either."""
-    if cfg.get("secret_destinations", "observe") != "observe" or not keys:
-        return
+_RECORDING = ("observe", "protect")
+
+
+def _ssh_hosts(ssh_command: str | None, ssh_dest: str | None) -> list[str]:
+    """The ssh hosts of a command as ssh_consent reads them, and for the ssh route (the only form that takes a value to
+    ssh) the destination it names: ssh_consent may read none ([2001:db8::1]) or only the host of a copy beside it
+    (Fable review of protect)."""
+    from . import ssh_consent
+    hosts: list[str] = []
+    if ssh_command and ssh_consent._TOKEN_RE.search(ssh_command):
+        hosts = list(ssh_consent.classify(ssh_command, _parse_for_consent).hosts)
+    return list(dict.fromkeys(hosts + ([ssh_dest] if ssh_dest else [])))
+
+
+def _found_destinations(tool: str, tool_input: dict, ssh_command: str | None,
+                        ssh_dest: str | None = None) -> list[tuple[str, str]]:
+    from . import destinations
+    return destinations.destinations_of(tool, tool_input, _ssh_hosts(ssh_command, ssh_dest))
+
+
+def _protect_fresh(cfg: dict, tool: str, tool_input: dict, keys: list[str],
+                   ssh_command: str | None = None, ssh_dest: str | None = None) -> list[str]:
+    """secret_destinations protect: the network hosts of this call that a key never went to
+    (destinations.new_hosts), checked before any value is resolved, as the confirm refusal of Codex is. The caller
+    asks; Codex, which cannot ask with a rewritten input, refuses. A check that fails names every network host, or
+    one that it could not read: it fails closed, so the person decides."""
+    if cfg.get("secret_destinations", "observe") != "protect" or not keys:
+        return []
+    from . import destinations, incidents
+    found: list[tuple[str, str, bool]] = []
     try:
-        from . import destinations, ssh_consent
-        ssh_hosts: list[str] = []
-        if ssh_command and ssh_consent._TOKEN_RE.search(ssh_command):
-            ssh_hosts = list(ssh_consent.classify(ssh_command, _parse_for_consent).hosts)
-        found = destinations.destinations_of(tool, tool_input, ssh_hosts)
+        found = destinations.exact_destinations(tool, tool_input, _ssh_hosts(ssh_command, ssh_dest))
+        return destinations.new_hosts(keys, found)
+    except Exception as exc:  # noqa: BLE001 - a record that cannot be read asks
+        incidents.note("destinations.protect", exc)
+        hosts = ", ".join(label for kind, label, _x in found if kind == "network") or "a host it could not read"
+        return [f"{hosts} (the destination record could not be read, so every host asks; /maisecrets:status)"]
+
+
+def _note_destinations(cfg: dict, payload: dict, tool: str, tool_input: dict, keys: list[str],
+                       ssh_command: str | None = None, ssh_dest: str | None = None) -> bool:
+    """secret_destinations (Mcpgate-de/maisecrets#13): note where each value of this call goes, with observe and with
+    protect. It never changes the answer, and a failure here never stops the call (protect decided before, in
+    _protect_fresh). The value is handed out here, before the client asks the person; so the call waits as pending
+    and becomes `seen` only when a PostToolUse or PostToolUseFailure of the same tool_use_id says it ran
+    (_commit_destinations). A call the person declines has no such event and leaves no record, so a new host that
+    the person declined asks again. A client that sends no tool_use_id leaves no record either."""
+    if cfg.get("secret_destinations", "observe") not in _RECORDING or not keys:
+        return True
+    try:
+        from . import destinations
+        found = _found_destinations(tool, tool_input, ssh_command, ssh_dest)
         call = payload.get("tool_use_id")
         if isinstance(call, str) and call:
-            destinations.pend(call, keys, payload.get("session_id"), payload.get("agent_id"), found)
+            return destinations.pend(call, keys, payload.get("session_id"), payload.get("agent_id"), found)
         # no call id, no record: without it nothing can show that the call ran, and a declined call must not be
         # listed (ChatGPT review of 0.6.8). Claude Code and Codex send one in PreToolUse and PostToolUse
     except Exception as exc:  # noqa: BLE001 - observing must never stop a call
         _debug(f"destinations: {type(exc).__name__}")
+    return False      # not noted: protect asks (_unnoted)
+
+
+def _unnoted(cfg: dict, noted: bool, keys: list[str], did_not: str) -> dict | None:
+    """protect: a first call whose pending record could not be written (a busy lock) would leave its key with no
+    first call in flight, so a later call could claim another first host. Refused, on both clients and also for a
+    file: nothing asks about a host the call does not have (codex review of protect). A key with a record has had
+    its first call; a failed note costs it only the record of this call, as with observe."""
+    if noted or cfg.get("secret_destinations", "observe") != "protect":
+        return None
+    from . import destinations
+    try:
+        if all(destinations.of_strict(k) for k in keys):
+            return None
+    except Exception:  # noqa: BLE001 - a record that cannot be read: refuse
+        pass
+    return _deny("maisecrets: the destination record could not be written for the first use of a stored secret, "
+                 f"and secret_destinations is protect. {did_not} Try it once more; if this comes again, tell the "
+                 "user (/maisecrets:status).")
+
+
+def _protect_text(fresh: list[str]) -> str:
+    """The sentence that opens a protect question: the hosts are labels maisecrets cleaned (destinations_of)."""
+    if not fresh:
+        return ""
+    if "(the destination record could not be " in fresh[0]:
+        return (f"maisecrets: a stored secret goes to {fresh[0]}. secret_destinations is protect, so you decide. "
+                "Allow it only if you asked for this host. ")
+    return (f"maisecrets: a stored secret goes to a host it was never used with: {', '.join(fresh)}. "
+            "secret_destinations is protect, so you decide. Allow it only if you asked for this host. ")
+
+
+def _protect_refusal(fresh: list[str], did_not: str) -> dict:
+    """Codex cannot ask with a rewritten input: a new host under protect is refused before any value is served."""
+    return _deny(f"maisecrets: a stored secret would go to a host it was never used with ({', '.join(fresh)}), and "
+                 f"secret_destinations is protect. Codex cannot ask the user first. {did_not} Ask the user to run "
+                 "this step themselves, or to allow new hosts for this step with their own prompt (observe).")
 
 
 def _commit_destinations(payload: dict) -> None:
@@ -1447,7 +1524,8 @@ def _commit_destinations(payload: dict) -> None:
     its pending destinations become `seen`. It reads and writes only the record; it never changes an answer."""
     try:
         call = payload.get("tool_use_id")
-        if not (isinstance(call, str) and call) or load_config().get("secret_destinations", "observe") != "observe":
+        mode = load_config().get("secret_destinations", "observe")
+        if not (isinstance(call, str) and call) or mode not in _RECORDING:
             return
         from . import destinations
         destinations.commit(call, payload.get("session_id"), payload.get("agent_id"))
@@ -1689,9 +1767,14 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
     stop = rehydration.refusal(cfg, path, client_of(payload), keys, "The command did not run.")
     if stop:
         return _deny(stop)
+    uniq = list(dict.fromkeys(k for k, _a, _b in refs))
+    # a server value is not noted (C27), so it asks nothing here either
+    fresh = _protect_fresh(cfg, "Bash", tool_input, [k for k in uniq if k not in server_keys], ssh_command=command,
+                           ssh_dest=ssh_plan["dest"] if ssh_plan else None)
+    if fresh and client_of(payload) == "codex":
+        return _protect_refusal(fresh, "The command did not run.")
     vault = Vault(cfg)
     session = payload.get("session_id")
-    uniq = list(dict.fromkeys(k for k, _a, _b in refs))
     failed = _precheck(vault, [k for k in uniq if k not in server_keys], session,
                        extra=_server_limit_keys(server_keys, session))
     if failed:
@@ -1750,7 +1833,11 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
     _released, why = _server_release(vault, got, session, "Bash", command)
     if why:
         return _deny(why + " The command did not run.")
-    _note_destinations(cfg, payload, "Bash", tool_input, [k for k in plan if k not in fetched], ssh_command=command)
+    noted = _note_destinations(cfg, payload, "Bash", tool_input, [k for k in plan if k not in fetched],
+                               ssh_command=command, ssh_dest=ssh_plan["dest"] if ssh_plan else None)
+    stop = _unnoted(cfg, noted, [k for k in plan if k not in fetched], "The command did not run.")
+    if stop:
+        return stop
     # phase 3: serve and rewrite
     prelude: list[str] = []
     var_by_key: dict[str, str] = {}
@@ -1804,15 +1891,17 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
     new_input["command"] = "; ".join(prelude) + "; " + rewritten
     if needs_yes:
         # one question for both: the consent and the value; a consent window never skips C16 (plan review M4)
-        return _ask(new_input, _consent_text(consent) + f" The command also gets the value of {keys}; the command "
+        return _ask(new_input, _protect_text(fresh) + _consent_text(consent)
+                    + f" The command also gets the value of {keys}; the command "
                                "shown here carries no value.")
     if ssh_plan:
         base = (f"maisecrets: this command sends the value of {keys} on stdin to ssh "
                 f"{ssh_plan['dest']}: {ssh_plan['line'][:400]}. It runs only inside the Claude "
                 "Code sandbox, so the connection reaches only a host your sandbox allows. ")
-        if ssh_auto:
+        if ssh_auto and not fresh:
             # automatic, or approved once in this session: the normal permission rules of the client decide
             return _updated(payload, new_input)
+        base = _protect_text(fresh) + base
         if ssh_token:
             from . import ssh_approval
             return _ask(new_input, base + "If you allow it, these values go on stdin to ssh without asking again "
@@ -1823,7 +1912,7 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
                                       "that host and that command.")
     return _rehydrated(payload, cfg, "bash", new_input,
                        f"maisecrets: if you allow it, this command gets the value of {keys}. The command shown "
-                       "here holds only the placeholder. Check where the command sends the value.")
+                       "here holds only the placeholder. Check where the command sends the value.", fresh)
 
 
 def key_nonce() -> str:
@@ -1959,6 +2048,9 @@ def _pre_mcp(payload: dict, cfg: dict, tool: str, tool_input: dict) -> dict:
                                ", ".join("⟦" + k + "⟧" for k in dict.fromkeys(found)), "The call did not run.")
     if stop:
         return _deny(stop)
+    fresh = _protect_fresh(cfg, tool, tool_input, list(dict.fromkeys(found)))
+    if fresh and client_of(payload) == "codex":
+        return _protect_refusal(fresh, "The call did not run.")
     vault = Vault(cfg)
     session = payload.get("session_id")
     context = json.dumps(tool_input, ensure_ascii=False)
@@ -1976,7 +2068,10 @@ def _pre_mcp(payload: dict, cfg: dict, tool: str, tool_input: dict) -> dict:
         values[key] = value
     if failed:
         return _deny(_deny_reason(failed))
-    _note_destinations(cfg, payload, tool, tool_input, list(values))
+    stop = _unnoted(cfg, _note_destinations(cfg, payload, tool, tool_input, list(values)), list(values),
+                    "The call did not run.")
+    if stop:
+        return stop
 
     def substitute(s: str) -> str:
         out = s
@@ -1996,7 +2091,7 @@ def _pre_mcp(payload: dict, cfg: dict, tool: str, tool_input: dict) -> dict:
             "page). The real value goes out with it." if text_fields else "")
     return _rehydrated(payload, cfg, "mcp", new_input,
                        f"maisecrets: this call gets the real value of {names} in {', '.join(fields)} "
-                       f"of {tool}.{warn} Check the target and the value before you allow it.")
+                       f"of {tool}.{warn} Check the target and the value before you allow it.", fresh)
 
 
 def _ref_fields(node: Any, path: str = "") -> list[str]:
@@ -2231,7 +2326,10 @@ def _pre_file_tool(payload: dict, cfg: dict, tool: str, tool_input: dict, cwd: s
     fetched, why = _server_release(vault, got, session, tool, f"{tool} {path}")
     if why:
         return _deny(why + " Nothing was written.")
-    _note_destinations(cfg, payload, tool, tool_input, list(values))
+    stop = _unnoted(cfg, _note_destinations(cfg, payload, tool, tool_input, list(values)), list(values),
+                    "Nothing was written.")
+    if stop:
+        return stop
     values.update(fetched)
 
     def substitute(v: str) -> str:

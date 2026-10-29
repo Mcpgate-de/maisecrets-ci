@@ -16,11 +16,19 @@ from .lazy_regex import LazyRx as _LazyRx
 # every value in it was in a model's context already, and blocking it protects nothing. The hook payload
 # has no origin field (Claude Code 2.1.284), so the report proves itself: one notification block, a tool
 # use id that this session's transcript gives to an Agent or SendMessage call, an output file in this
-# session's subagents folder, and a result equal to that subagent's last answer. A typed or pasted text,
-# a background command, a monitor event: none of them passes, and no value outside the result passes
-# (docs/THREAT-MODEL.md C19).
+# session's subagents folder, and a result equal to that subagent's last answer. A background command reports
+# the same way, and its summary is the command (or its description) as the model wrote it: a block lost the
+# notice, and the session waited for a command that had ended (2026-10-26). It passes when the summary equals
+# that Bash call of this transcript and the output file is in this session's tasks folder. A typed or pasted
+# text and a monitor event do not pass, and no value outside the model's text passes (docs/THREAT-MODEL.md C19).
 _NOTIFICATION_RE = _LazyRx(r"<task-notification>\n(?P<body>.*?)\n</task-notification>", re.S)
 _AGENT_TOOLS = ("Agent", "Task", "SendMessage")
+_COMMAND_TOOLS = ("Bash",)
+# the summary of a background command (Claude Code transcripts, 2026-10): `Background command "<description or
+# command>" completed (exit code 0)`, also with `: No matches found` after the code, or `failed with exit code 1`
+_COMMAND_END_RE = _LazyRx(r'" (?:(?P<completed>completed) \(exit code \d{1,3}(?:: [^()<"]{0,80})?\)'
+                         r'|(?P<failed>failed) with exit code \d{1,3})\Z')
+_COMMAND_START = 'Background command "'
 
 
 def _notification_tag(body: str, name: str) -> str | None:
@@ -40,6 +48,14 @@ def _result_span(body: str) -> tuple[int, int] | None:
 
 def _plain(text: str) -> str:
     return text.replace("\r\n", "\n").strip()
+
+
+def _same_text(raw: str, said: str) -> bool:
+    """Whether a notice carries `said` as the client writes it: the text itself or its escaped form. Decoding the
+    notice would take any entity (`&CounterClockwiseContourIntegral;` is one sign), and a stored value written as
+    an entity name left the check with the span (codex review, 2026-10-26)."""
+    said = _plain(said)
+    return bool(said) and _plain(raw) in (said, html.escape(said, quote=False), html.escape(said))
 
 
 def _last_answer(path: str) -> str | None:
@@ -73,6 +89,11 @@ def _last_answer(path: str) -> str | None:
 
 
 def _called_an_agent(transcript: str, tool_use_id: str) -> bool:
+    return _tool_input(transcript, tool_use_id, _AGENT_TOOLS) is not None
+
+
+def _tool_input(transcript: str, tool_use_id: str, names: tuple) -> dict | None:
+    """The input of the call with this id in the transcript, when the call is one of `names`."""
     try:
         with open(transcript, encoding="utf-8") as f:
             for line in f:
@@ -86,11 +107,11 @@ def _called_an_agent(transcript: str, tool_use_id: str) -> bool:
                     continue
                 for b in (rec.get("message") or {}).get("content") or []:
                     if (isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id") == tool_use_id
-                            and b.get("name") in _AGENT_TOOLS):
-                        return True
+                            and b.get("name") in names):
+                        return b.get("input") if isinstance(b.get("input"), dict) else {}
     except OSError:
-        return False
-    return False
+        return None
+    return None
 
 
 def _one_report_proves_itself(body: str, transcript: str) -> bool:
@@ -112,9 +133,38 @@ def _one_report_proves_itself(body: str, transcript: str) -> bool:
         if not os.path.isfile(real):
             return False
     answer = _last_answer(real)
-    if answer is None or _plain(answer) != _plain(html.unescape(body[span[0]:span[1]])):
+    if answer is None or not _same_text(body[span[0]:span[1]], answer):
         return False
     return _called_an_agent(transcript, tool_use_id)
+
+
+def _command_span(body: str, transcript: str) -> tuple[int, int] | None:
+    """The span of the model's text in the summary of a background command's notice, when the notice proves itself:
+    the tool use id is a Bash call of this transcript, the summary holds its command or its description, and the
+    output file is in this session's tasks folder. None otherwise."""
+    tool_use_id = _notification_tag(body, "tool-use-id")
+    out = _notification_tag(body, "output-file")
+    if not tool_use_id or not out or _notification_tag(body, "status") not in ("completed", "failed"):
+        return None
+    session = os.path.basename(transcript[: -len(".jsonl")])
+    parts = os.path.normpath(out).replace("\\", "/").split("/")
+    if len(parts) < 3 or parts[-3] != session or parts[-2] != "tasks" or not parts[-1].endswith(".output"):
+        return None
+    a = body.find("<summary>")
+    b = body.rfind("</summary>")
+    if a < 0 or b < a:
+        return None
+    a += len("<summary>")
+    end = _COMMAND_END_RE.search(body, a, b)
+    # the status and the summary name the same outcome
+    if not body.startswith(_COMMAND_START, a) or end is None or not end.group(_notification_tag(body, "status")):
+        return None
+    span = (a + len(_COMMAND_START), end.start())
+    call = _tool_input(transcript, tool_use_id, _COMMAND_TOOLS)
+    if call is None:
+        return None
+    said = (str(call.get(k) or "") for k in ("description", "command"))
+    return span if any(_same_text(body[span[0]:span[1]], t) for t in said) else None
 
 
 def _report_rest(payload: dict, prompt: str) -> str | None:
@@ -140,14 +190,19 @@ def _report_rest(payload: dict, prompt: str) -> str | None:
         pos = m.end()
     if prompt[pos:].strip() or opened != len(blocks):
         return None
-    if not all(_one_report_proves_itself(m.group("body"), transcript) for m in blocks):
-        return None
-    # only a result is the subagent's text: a value in another field (a real report pasted again, with a value
-    # added to its summary) was typed by a person and must be blocked (review, 2026-09-29)
+    # only a result is the subagent's text, and only the command in the summary is the model's: a value in another
+    # field (a real report pasted again, with a value added to its summary) was typed by a person and must be
+    # blocked (review, 2026-09-29)
     rest, pos = [], 0
     for m in blocks:
         body = m.group("body")
-        a, b = _result_span(body)
+        if _one_report_proves_itself(body, transcript):
+            a, b = _result_span(body)
+        else:
+            span = _command_span(body, transcript)
+            if span is None:
+                return None
+            a, b = span
         rest.append(prompt[pos:m.start("body") + a])
         pos = m.start("body") + b
     rest.append(prompt[pos:])

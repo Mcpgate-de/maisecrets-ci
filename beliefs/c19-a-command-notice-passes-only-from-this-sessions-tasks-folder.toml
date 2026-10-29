@@ -1,0 +1,10 @@
+# c19-a-command-notice-passes-only-from-this-sessions-tasks-folder: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c19-a-command-notice-passes-only-from-this-sessions-tasks-folder"
+control = "C19"
+statement = "A background command's notice passes only when its output file is in this session's tasks folder; another session's folder or no tasks folder is blocked."
+runner = ["tests/test_agent_reports.py::CommandNoticeTests::test_a_notice_that_does_not_prove_itself_is_blocked"]
+
+[proof]
+file = "maisecrets/agent_reports.py"
+find = "parts[-3] != session or parts[-2] != \"tasks\""
+replace = "False"

@@ -332,13 +332,14 @@ FALLBACK_RULES: list[dict] = [
               r"(?=[A-Za-z0-9_-]{0,200}?[A-Za-z0-9]{16})[A-Za-z0-9_-]{20,}"},
     {"id": "slack-token-relaxed", "type": "SECRET",
      "regex": r"(?<![\w-])(?:xoxb-|xoxp-|xoxa-|xoxr-)\d{2,}-[A-Za-z0-9-]{12,}"},
-    # the password of a URL with a sign that RFC 3986 reserves (! $ & + , ; = *; an @ after it stays in it): a database
-    # URL as people write it, unescaped (postgres://app:<value>@db:5432). ds-basic-auth stops at these signs and the
-    # e-mail rule took `<rest>@host` (Benchmark V3, aparte and llmredactor dev). Only the password, as there: the user
-    # stays text. A template (${DB_PASSWORD}, $(cat …)) fails the value check
+    # the password of a URL with a sign that RFC 3986 reserves (! $ & + , ; = * # ?; an @ after it stays in it): a
+    # database URL as people write it, unescaped (postgres://app:<value>@db:5432). ds-basic-auth stops at these signs
+    # and the e-mail rule took `<rest>@host` (Benchmark V3, aparte and llmredactor dev). Only the password, as there:
+    # the user stays text. A template (${DB_PASSWORD}, $(cat …)) fails the value check; a port before a query or a
+    # fragment (host:3000?next=a@b) is no password
     {"id": "url-password-signs", "type": "SECRET", "secret_group": 1, "validator": "ds_value",
      "regex": r"(?<![\w+.-])[A-Za-z][A-Za-z0-9+.-]{1,15}://[^\s:/?#\[\]@'\"`<>]{1,64}:"
-              r"(?=[^\s/@'\"`<>]{0,127}[!$&*+,;=])((?:[^\s/@'\"`<>]|@(?=[^\s/@'\"`<>]*@)){3,128})"
+              r"(?=[^\s/@'\"`<>]{0,127}[!$&*+,;=#?])(?!\d{1,5}[?#])((?:[^\s/@'\"`<>]|@(?=[^\s/@'\"`<>]*@)){3,128})"
               r"@(?=[A-Za-z0-9\[_])"},
     # the application keys of two frameworks in an .env file (Benchmark V3, aparte dev: 11 keys in the clear). Laravel's
     # APP_KEY=base64:<the base64 of 32 bytes>: `key` alone is a weak label, which the literal rules take only quoted.

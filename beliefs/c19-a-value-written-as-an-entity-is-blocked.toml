@@ -1,0 +1,10 @@
+# c19-a-value-written-as-an-entity-is-blocked: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c19-a-value-written-as-an-entity-is-blocked"
+control = "C19"
+statement = "A report's result and a notice's command match the model's text only as written or in its escaped form; a notice that decodes to it through an entity name (a stored value as `&Name;`) is blocked."
+runner = ["tests/test_agent_reports.py::CommandNoticeTests::test_a_stored_value_written_as_an_entity_is_blocked", "tests/test_agent_reports.py::AgentReportTests::test_a_stored_value_written_as_an_entity_in_a_result_is_blocked"]
+
+[proof]
+file = "maisecrets/agent_reports.py"
+find = "    return bool(said) and _plain(raw) in (said, html.escape(said, quote=False), html.escape(said))\n"
+replace = "    return bool(said) and _plain(html.unescape(raw)) == said\n"

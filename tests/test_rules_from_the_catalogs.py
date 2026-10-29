@@ -134,6 +134,10 @@ TOKENS = {
     "gitlab-ci-job-token-any": lambda r: (J(["gl", "cbt-"]) + rd(r, 24, AN), J(["gl", "cbt-"]) + rd(r, 12, AN)),
     "storyblok-personal-access-token": lambda r: (J(["sb_", "pat_"]) + rd(r, 43, AN + "_"),
                                                   J(["sb_", "pat_"]) + rd(r, 20, AN)),
+    "labelbox-api-key": lambda r: (J(["lb", "x_"]) + rd(r, 42, AN + "_-") + rd(r, 1, "AEIMQUYcgkosw048"),
+                                   J(["lb", "x_"]) + rd(r, 42, AN) + "B"),
+    "labelbox-recursion-api-key": lambda r: (J(["rm", "a_"]) + rd(r, 42, AN + "_-") + rd(r, 1, "AEIMQUYcgkosw048"),
+                                             J(["rm", "a_"]) + rd(r, 30, AN) + "Q"),
     # the legacy Office 365 connector URL of Microsoft Teams; the look-alike lacks the last id
     "microsoft-teams-webhook-legacy": lambda r: (
         J(["https://outlook.of", "fice.com/webhook/"]) + _uuid(r) + "@" + _uuid(r) + "/IncomingWebhook/"

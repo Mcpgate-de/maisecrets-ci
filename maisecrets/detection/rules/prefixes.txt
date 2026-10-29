@@ -11,7 +11,7 @@ cloudflare-user-api-token    cfut_[A-Za-z0-9_-]{30,}
 # Cloud sqco_, the PyPI token and the warehouse source); the rest are formats other detectors know (trufflehog,
 # detect-secrets), each regex written here. A client id (Salesforce 3MVG9, Square sq0idp) is public and has no line.
 google-oauth-access-token    ya29\.[0-9A-Za-z_-]{30,2048}
-tailscale-key                tskey-(?:api|auth|client|scim|webhook)-[0-9A-Za-z]{4,40}-[0-9A-Za-z]{16,64}
+tailscale-key                tskey-(?:(?:api|auth|client|scim|webhook)-[0-9A-Za-z]{4,40}-|k[0-9A-Za-z]{4,16}CNTRL-)[0-9A-Za-z]{16,64}
 discord-webhook-url          https://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/(?:v[0-9]{1,2}/)?webhooks/[0-9]{17,20}/[0-9A-Za-z_-]{60,80}
 salesforce-refresh-token     5(?i:aep861)[0-9A-Za-z._=]{80,400}
 cloudflare-api-token         (?:cfk|cfat)_[0-9A-Za-z]{40,64}
@@ -388,3 +388,7 @@ stripe-claimable-sandbox-restricted-key     rkcs_(?:(?<![A-Za-z0-9_-]rkcs_)|(?<=
 stripe-organization-api-key-bare            sk_org_(?:(?<![A-Za-z0-9_-]sk_org_)|(?<=\\[nrt]sk_org_))[A-Za-z0-9_]{16,255}(?![A-Za-z0-9_-])
 wave-senegal-request-signing-secret         wave_sn_AKS_(?:(?<![A-Za-z0-9_-]wave_sn_AKS_)|(?<=\\[nrt]wave_sn_AKS_))[A-Za-z0-9]{20,256}(?![A-Za-z0-9_-])
 zapier-catch-hook-webhook-url               (?<![\w./-])(?:https?://)?hooks\.zapier\.com\/hooks\/catch\/(?:(?<![A-Za-z0-9_-]hooks\.zapier\.com\/hooks\/catch\/)|(?<=\\[nrt]hooks\.zapier\.com\/hooks\/catch\/))[0-9]+\/[A-Za-z0-9]+\/?(?![A-Za-z0-9_-])
+# 0.8.3: Labelbox API keys (lbx_ and rma_, 43 characters, the last one of a fixed set), from the betterleaks rules on
+# main of 2026-10-28, ahead of its next release
+labelbox-api-key                            lbx_(?:(?<![A-Za-z0-9_-]lbx_)|(?<=\\[nrt]lbx_))[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048](?![A-Za-z0-9_-])
+labelbox-recursion-api-key                  rma_(?:(?<![A-Za-z0-9_-]rma_)|(?<=\\[nrt]rma_))[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048](?![A-Za-z0-9_-])

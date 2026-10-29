@@ -250,7 +250,7 @@ class Recording(unittest.TestCase):
     def test_a_misspelled_mode_is_a_configuration_error_not_off(self):
         _reset(secret_destinations="obesrve")
         cfg = load_config()
-        self.assertIn("secret_destinations must be one of observe, off", cfg["config_warning"])
+        self.assertIn("secret_destinations must be one of observe, off, protect", cfg["config_warning"])
         self.assertEqual(cfg["secret_destinations"], "observe", "the file is ignored, the default stays")
 
 
@@ -574,15 +574,342 @@ class Shown(unittest.TestCase):
         text = settings.render()
         self.assertIn("Where secrets were sent · observe · not decided", text)
         self.assertIn("Seen so far: 1 secret(s), 1 destination(s), 0 with more than one.", text)
-        self.assertIn("comes in a later version", text)
-        self.assertNotIn("secret_destinations protect", text, "0.6.7 offers no protect mode")
+        self.assertIn("protect would have asked about 0 time(s) in the last 1 day(s), for 0 secret(s): an "
+                      "estimate", text)
+        self.assertIn("Ask before a new host: /maisecrets:settings secret_destinations protect", text)
         self.assertEqual(settings.parse_prompt("/maisecrets:settings secret_destinations protect"),
                          ("secret_destinations", "protect"))
-        self.assertIn("takes observe, off", settings.apply_typed("secret_destinations", "protect")[1])
+        self.assertTrue(settings.apply_typed("secret_destinations", "protect")[0])
+        text = settings.render()
+        self.assertIn("Where secrets were sent · protect · set by you", text)
+        self.assertIn("protect would have asked about 0 time(s)", text)
+        self.assertNotIn("Ask before a new host:", text)
+        self.assertIn("takes observe, protect, off", settings.apply_typed("secret_destinations", "ask")[1])
+
+
+class WouldHaveAsked(unittest.TestCase):
+    """The settings card says how often asking before a new host would have asked, from the person's own record."""
+
+    def setUp(self):
+        _reset()
+
+    def _at(self, days_ago: float, key: str, *found: tuple[str, str]) -> None:
+        with mock.patch.object(destinations.time, "time", return_value=self.now - days_ago * 86400):
+            destinations.note([key], "S1", None, list(found))
+
+    def test_a_new_host_of_a_used_secret_asks_and_its_first_hosts_do_not(self):
+        self.now = time.time()
+        self._at(40, "A", ("network", "one.example.com"))
+        self._at(35, "A", ("network", "old.example.com"))                 # before the window
+        self._at(10, "A", ("network", "two.example.com"))
+        self._at(5, "A", ("network", "three.example.com"), ("network", "four.example.com"))   # one call
+        self._at(4, "A", ("network", "two.example.com"), ("local", "a file in ~/x/"))          # nothing new
+        self._at(1, "B", ("network", "one.example.com"), ("network", "two.example.com"))      # its first call
+        self._at(1, "C", ("local", "a command on this computer"))
+        self._at(0.5, "C", ("network", "one.example.com"))     # after a local first call: a new host asks
+        self.assertEqual(destinations.would_have_asked(now=self.now), (3, 2, 30))
+        self._at(0.2, "B", ("network", "five.example.com"))
+        self.assertEqual(destinations.would_have_asked(now=self.now), (4, 3, 30))
+
+    def test_the_days_end_where_the_record_begins(self):
+        self.assertEqual(destinations.would_have_asked(), (0, 0, 0), "no record, no period")
+        self.assertNotIn("protect would have asked", settings.render(), "no record, no count")
+        self.now = time.time()
+        self._at(2.5, "A", ("local", "a file in ~/x/"))
+        self._at(1, "A", ("network", "one.example.com"))
+        self._at(0.5, "A", ("network", "two.example.com"))
+        self.assertEqual(destinations.would_have_asked(now=self.now), (2, 1, 3), "the local call came first")
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _decision(out: dict) -> str | None:
+    return out.get("hookSpecificOutput", {}).get("permissionDecision")
+
+
+class Protect(unittest.TestCase):
+    """secret_destinations protect: a secret that goes to a network host it never went to asks first (Claude Code),
+    or is refused before any value is resolved (Codex). The hosts of its first call are its own."""
+
+    def setUp(self):
+        _reset(secret_destinations="protect")
+
+    def test_a_new_host_asks_until_a_call_to_it_ran(self):
+        ref = _secret()
+        self.assertIsNone(_decision(_ran("Bash", {"command": _curl(ref, "one.example.com")})), "its first host")
+        self.assertIsNone(_decision(_ran("Bash", {"command": _curl(ref, "one.example.com")})), "a known host")
+        out = _pre("Bash", {"command": _curl(ref, "two.example.com")})
+        self.assertEqual(_decision(out), "ask")
+        reason = out["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn("never used with: two.example.com.", reason)
+        self.assertIn("updatedInput", out["hookSpecificOutput"], "the person who says yes runs the real call")
+        self.assertEqual(_decision(_pre("Bash", {"command": _curl(ref, "two.example.com")})), "ask",
+                         "a declined call (no end of the call) leaves the host new")
+        self.assertEqual(_decision(_ran("Bash", {"command": _curl(ref, "two.example.com")})), "ask")
+        self.assertIsNone(_decision(_ran("Bash", {"command": _curl(ref, "two.example.com")})),
+                          "a call that ran makes the host known")
+
+    def test_only_the_new_host_of_a_call_is_named(self):
+        ref = _secret()
+        _ran("Bash", {"command": _curl(ref, "one.example.com")})
+        out = _pre("Bash", {"command": _curl(ref, "one.example.com") + " https://three.example.com/"})
+        reason = out["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn("never used with: three.example.com.", reason)
+        self.assertNotIn("one.example.com", reason)
+
+    @unittest.skipIf(os.name == "nt", "Codex on Windows refuses a shell placeholder (PowerShell quoting is not built)")
+    def test_codex_refuses_a_new_host_before_any_value_is_resolved(self):
+        ref = _secret()
+        self.assertEqual(_decision(_ran("Bash", {"command": _curl(ref, "one.example.com")}, CODEX)), "allow")
+        audit = Path(HOME, "audit.log")
+        before = audit.read_text() if audit.exists() else ""
+        self.assertIn(_key(ref), before, "premise: a use that ran has its audit line")
+        out = _pre("Bash", {"command": _curl(ref, "two.example.com")}, CODEX)
+        self.assertEqual(_decision(out), "deny")
+        self.assertIn("Codex cannot ask the user first", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertNotIn("updatedInput", out["hookSpecificOutput"])
+        self.assertEqual(audit.read_text() if audit.exists() else "", before, "no use was recorded")
+        self.assertNotIn("network:two.example.com", json.dumps(destinations._load()["pending_calls"]))
+
+    def test_an_mcp_tool_asks_and_a_file_never_does(self):
+        ref = _secret()
+        _ran("mcp__gw__gitlab_write_actions", {"token": ref})
+        self.assertIsNone(_decision(_ran("mcp__gw__gitlab_write_actions", {"token": ref})))
+        out = _pre("mcp__gw__jira_write_actions", {"token": ref})
+        self.assertEqual(_decision(out), "ask")
+        self.assertIn("MCP gw · jira_write_actions", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertEqual(_decision(_pre("mcp__gw__jira_write_actions", {"token": ref}, CODEX)), "deny")
+        out = _ran("Write", {"file_path": str(Path.home() / "proj" / ".env"), "content": f"T={ref}\n"})
+        self.assertIsNone(_decision(out), "a file is a local use")
+
+    def test_a_record_that_cannot_be_read_asks(self):
+        ref = _secret()
+        _ran("Bash", {"command": _curl(ref, "one.example.com")})
+        STORE.write_text("{not json")
+        self.addCleanup(lambda: [p.unlink() for p in Path(HOME).glob("destinations.json.corrupt*")])
+        self.assertEqual(_decision(_pre("Bash", {"command": _curl(ref, "one.example.com")})), "ask")
+
+    @unittest.skipIf(os.name == "nt", "the ssh route is POSIX only")
+    def test_a_new_ssh_host_asks_where_the_ssh_route_would_pass(self):
+        ref = _secret()
+
+        def ssh(host: str) -> str:
+            return f"printf '%s' {ref} | ssh {host} 'grep -F -f - /var/log/app.log'"
+        first = _ran("Bash", {"command": ssh("one.example.com")})
+        self.assertIsNone(_decision(first), "premise: the automatic ssh route passes its first host")
+        self.assertIn("updatedInput", first["hookSpecificOutput"])
+        out = _pre("Bash", {"command": ssh("two.example.com")})
+        self.assertEqual(_decision(out), "ask")
+        self.assertIn("never used with: ssh two.example.com.", out["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_the_list_says_the_known_hosts_ask_no_more(self):
+        from maisecrets import cli
+        ref = _secret()
+        _ran("Bash", {"command": _curl(ref, "one.example.com")})
+        with mock.patch("sys.stdout") as stdout:
+            cli.main(["list"])
+        text = "".join(c.args[0] for c in stdout.write.call_args_list)
+        self.assertIn("Sent to (protect asks before a host not listed, or one cut with ...)", text)
+        self.assertNotIn("it allows nothing", text)
+
+    def test_a_secret_used_only_on_this_computer_asks_at_its_first_host(self):
+        ref = _secret()
+        _ran("Write", {"file_path": str(Path.home() / "proj" / ".env"), "content": f"T={ref}\n"})
+        self.assertEqual(_decision(_pre("Bash", {"command": _curl(ref, "one.example.com")})), "ask")
+        self.assertEqual(_decision(_pre("Bash", {"command": _curl(ref, "one.example.com")}, CODEX)), "deny")
+
+    def test_a_parallel_first_call_asks(self):
+        ref = _secret()
+        self.assertIsNone(_decision(_pre("Bash", {"command": _curl(ref, "one.example.com")})), "the first call")
+        self.assertEqual(_decision(_pre("Bash", {"command": _curl(ref, "two.example.com")})), "ask",
+                         "a second call before the first ran claims no first call of its own")
+
+    def test_a_first_call_holds_its_claim_while_it_pends_and_two_checks_before_it_pend_share_one(self):
+        ref = _secret()
+        found = [("network", "one.example.com", True)]
+        self.assertEqual(destinations.new_hosts([_key(ref)], found), [], "the first check claims the first call")
+        self.assertEqual(destinations.new_hosts([_key(ref)], found), ["one.example.com"],
+                         "a second check before the first call pends finds the claim")
+        _reset(secret_destinations="protect")
+        ref = _secret("dest-probe-value-1111111")
+        self.assertIsNone(_decision(_pre("Bash", {"command": _curl(ref, "one.example.com")})), "pends, not yet ran")
+        later = time.time() + destinations.CLAIM_SECONDS + 60
+        with mock.patch.object(destinations.time, "time", return_value=later):
+            out = _pre("Bash", {"command": _curl(ref, "two.example.com")})
+        self.assertEqual(_decision(out), "ask", "the pending first call still holds the key after the claim time")
+
+    def test_a_label_that_does_not_name_its_host_never_counts_as_known(self):
+        ref = _secret()
+        long_host = "a" * 60 + ".b" * 20 + ".example.com"
+        _ran("Bash", {"command": _curl(ref, long_host)})
+        _ran("Bash", {"command": _curl(ref, long_host)})
+        self.assertEqual(_decision(_pre("Bash", {"command": _curl(ref, long_host)})), "ask", "cut at 80 characters")
+        tool = "mcp__gw__smart_actions"
+        _ran(tool, {"token": ref})
+        self.assertIsNone(_decision(_ran(tool, {"token": ref})), "premise: the bare tool is known")
+        for bad in ("ji ra", 0, [], ""):
+            self.assertEqual(_decision(_pre(tool, {"service": bad, "token": ref})), "ask",
+                             f"a service field that is no name ({bad!r}) would share the label of the bare tool")
+        _ran(tool, {"service": "gitlab", "provider": "a", "token": ref})
+        self.assertIsNone(_decision(_ran(tool, {"service": "gitlab", "provider": "a", "token": ref})))
+        self.assertEqual(_decision(_pre(tool, {"service": "gitlab", "provider": "b", "token": ref})), "ask",
+                         "both fields name the destination")
+        self.assertEqual(_decision(_pre(tool + "__other", {"token": ref})), "ask",
+                         "a tool whose name goes on after __ is another tool")
+
+    def test_local_uses_that_fill_the_record_do_not_make_a_secret_new(self):
+        ref = _secret()
+        _ran("Bash", {"command": _curl(ref, "one.example.com")})
+        for i in range(destinations.MAX_PER_SECRET):
+            destinations.note([_key(ref)], "S1", None, [("local", f"a file in ~/p{i}/")])
+        self.assertFalse([d for d in _seen(ref).values() if d["kind"] == "network"], "premise: the host fell out")
+        self.assertEqual(_decision(_pre("Bash", {"command": _curl(ref, "two.example.com")})), "ask")
+
+    def test_a_record_that_parses_but_lost_part_of_a_key_asks(self):
+        ref = _secret()
+        _ran("Bash", {"command": _curl(ref, "one.example.com")})
+        data = json.loads(STORE.read_text())
+        data["secrets"][_key(ref)]["seen"] = "damaged"
+        STORE.write_text(json.dumps(data))
+        self.addCleanup(lambda: [p.unlink() for p in Path(HOME).glob("destinations.json.corrupt*")])
+        out = _pre("Bash", {"command": _curl(ref, "one.example.com")})
+        self.assertEqual(_decision(out), "ask")
+        reason = out["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn("one.example.com (the destination record could not be read", reason)
+        self.assertNotIn("never used with", reason, "a known host is not called new")
+
+    def test_a_null_record_or_damaged_claims_ask_and_never_read_as_a_first_call(self):
+        self.addCleanup(lambda: [p.unlink() for p in Path(HOME).glob("destinations.json.corrupt*")])
+        for damage in ({"secrets": {"KEY": None}}, {"secrets": {}, "claims": {"KEY": "x"}}, {"secrets": []},
+                       {"secrets": {}, "claims": []}):
+            with self.subTest(damage=damage):
+                _reset(secret_destinations="protect")
+                ref = _secret()
+                STORE.write_text(json.dumps(damage).replace("KEY", _key(ref)))
+                self.assertEqual(_decision(_pre("Bash", {"command": _curl(ref, "one.example.com")})), "ask")
+                STORE.write_text(json.dumps(damage).replace("KEY", _key(ref)))
+                self.assertEqual(_decision(_pre("Bash", {"command": _curl(ref, "one.example.com")}, CODEX)), "deny")
+
+    @unittest.skipIf(os.name == "nt", "Codex on Windows refuses a shell placeholder (PowerShell quoting is not built)")
+    def test_a_damaged_claim_of_another_key_does_not_block_this_one(self):
+        ref = _secret()
+        _ran("Bash", {"command": _curl(ref, "one.example.com")}, CODEX)
+        data = json.loads(STORE.read_text())
+        data["claims"] = {"OTHER": True}
+        STORE.write_text(json.dumps(data))
+        self.assertEqual(_decision(_pre("Bash", {"command": _curl(ref, "one.example.com")}, CODEX)), "allow")
+
+    def test_a_first_use_whose_record_could_not_be_written_is_refused_and_a_later_one_is_not(self):
+        for client in (CLAUDE, CODEX):
+            for tool, call in (("Bash", lambda r: {"command": _curl(r, "one.example.com")}),
+                               ("mcp__gw__jira_write_actions", lambda r: {"token": r}),
+                               ("Bash", lambda r: {"command": f"printf '%s' {r} > /tmp/dest-probe.txt"}),
+                               ("Write", lambda r: {"file_path": "/tmp/dest-probe/x.cfg", "content": r})):
+                if os.name == "nt" and client is CODEX and tool == "Bash":
+                    continue          # Codex on Windows refuses a shell placeholder before protect
+                with self.subTest(client="codex" if client is CODEX else "claude", tool=tool):
+                    _reset(secret_destinations="protect")
+                    ref = _secret()
+                    with mock.patch.object(destinations, "pend", return_value=False):
+                        out = _pre(tool, call(ref), client)
+                    self.assertEqual(_decision(out), "deny")
+                    self.assertIn("could not be written", out["hookSpecificOutput"]["permissionDecisionReason"])
+                    self.assertNotIn("updatedInput", out["hookSpecificOutput"])
+        _reset(secret_destinations="protect")
+        ref = _secret()
+        _ran("Bash", {"command": _curl(ref, "one.example.com")})
+        with mock.patch.object(destinations, "pend", return_value=False):
+            self.assertIsNone(_decision(_pre("Bash", {"command": _curl(ref, "one.example.com")})),
+                              "a key that had its first call loses only this record")
+        _reset()
+        ref = _secret()
+        with mock.patch.object(destinations, "pend", return_value=False):
+            self.assertIsNone(_decision(_pre("Bash", {"command": _curl(ref, "one.example.com")})), "observe asks not")
+
+    def test_a_local_first_call_claims_the_first_call(self):
+        ref = _secret()
+        self.assertEqual(destinations.new_hosts([_key(ref)], [("local", "a file in /tmp/", True)]), [])
+        self.assertEqual(destinations.new_hosts([_key(ref)], [("network", "one.example.com", True)]),
+                         ["one.example.com"], "a check before the file call pends finds its claim")
+
+    def test_a_claim_from_the_future_or_a_dropped_pending_call_of_the_key_asks(self):
+        self.addCleanup(lambda: [p.unlink() for p in Path(HOME).glob("destinations.json.corrupt*")])
+        for damage in ({"secrets": {}, "claims": {"KEY": time.time() + 3600}},
+                       {"secrets": {}, "pending_calls": {"x": {"keys": ["KEY"], "t": "late"}}},
+                       {"secrets": {}, "pending_calls": []}):
+            with self.subTest(damage=list(damage)[-1]):
+                _reset(secret_destinations="protect")
+                ref = _secret()
+                STORE.write_text(json.dumps(damage).replace("KEY", _key(ref)))
+                self.assertEqual(_decision(_pre("Bash", {"command": _curl(ref, "one.example.com")}, CODEX)), "deny")
+
+    def test_a_url_in_capitals_names_its_host(self):
+        ref = _secret()
+        _ran("Bash", {"command": _curl(ref, "one.example.com")})
+        out = _pre("Bash", {"command": "curl -s -u " + "u" + ":" + ref + " HTTPS://Two.Example.com/"})
+        self.assertEqual(_decision(out), "ask")
+        self.assertIn("never used with: two.example.com.", out["hookSpecificOutput"]["permissionDecisionReason"])
+
+    @unittest.skipIf(os.name == "nt", "the ssh route is POSIX only")
+    def test_the_ssh_route_names_a_host_the_classifier_cannot_read(self):
+        ref = _secret()
+        _ran("Bash", {"command": _curl(ref, "one.example.com")})
+        cmd = {"command": f"printf '%s' {ref} | ssh [2001:db8::1] 'grep -F -f - /var/log/app.log'"}
+        out = _ran("Bash", cmd)
+        self.assertEqual(_decision(out), "ask")
+        self.assertIn("never used with: ssh [2001:db8::1].", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertIsNone(_decision(_pre("Bash", cmd)), "a call to it ran: known")
+
+    @unittest.skipIf(os.name == "nt", "the ssh route is POSIX only")
+    def test_a_copy_beside_the_ssh_route_does_not_hide_the_route_host(self):
+        ref = _secret()
+        _ran("Bash", {"command": "scp ./a.txt b.example.com:/tmp/ && " + _curl(ref, "one.example.com")})
+        out = _pre("Bash", {"command": f"printf '%s' {ref} | ssh [2001:db8::1] 'grep -F -f - /var/log/x'; "
+                                       "scp ./a.txt b.example.com:/tmp/"})
+        self.assertEqual(_decision(out), "ask")
+        self.assertIn("ssh [2001:db8::1]", out["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_a_command_that_only_mentions_ssh_asks_only_for_its_new_hosts(self):
+        ref = _secret()
+        _ran("Bash", {"command": _curl(ref, "one.example.com")})
+        out = _pre("Bash", {"command": "scp local.txt ./backup/ && " + _curl(ref, "one.example.com")})
+        self.assertIsNone(_decision(out), "a local copy names no host")
+
+    @unittest.skipIf(os.name == "nt", "Codex on Windows refuses a shell placeholder (PowerShell quoting is not built)")
+    def test_a_first_call_refused_after_the_check_does_not_lock_its_key(self):
+        _reset(secret_destinations="protect", max_resolves_per_hour=1)
+        ref1, ref2 = _secret(), _secret("dest-probe-value-7654321")
+        _ran("Bash", {"command": _curl(ref1, "one.example.com")}, CODEX)
+        self.assertEqual(_decision(_pre("Bash", {"command": _curl(ref2, "one.example.com")}, CODEX)), "deny",
+                         "premise: the limiter refuses the first call of the second key")
+        CONFIG.write_text(json.dumps({"backend": "jsonfile", "allow_plaintext_store": True,
+                                      "secret_destinations": "protect"}))
+        later = time.time() + destinations.CLAIM_SECONDS + 1
+        with mock.patch.object(destinations.time, "time", return_value=later):
+            out = _pre("Bash", {"command": _curl(ref2, "one.example.com")}, CODEX)
+        self.assertEqual(_decision(out), "allow", "the refused call left no claim that holds")
+
+    def test_codex_never_gets_a_question_with_a_rewritten_input(self):
+        out = hooks._rehydrated({"session_id": "S1", **CODEX}, {}, "bash", {"command": "x"}, "r",
+                                ["two.example.com"])
+        self.assertEqual(_decision(out), "deny")
+        self.assertNotIn("updatedInput", out["hookSpecificOutput"])
+
+    def test_observe_never_asks(self):
+        _reset()
+        ref = _secret()
+        _ran("Bash", {"command": _curl(ref, "one.example.com")})
+        self.assertIsNone(_decision(_pre("Bash", {"command": _curl(ref, "two.example.com")})))
+
+    def test_confirm_keeps_its_question_and_names_the_new_host(self):
+        _reset(secret_destinations="protect", rehydration="confirm")
+        ref = _secret()
+        _ran("Bash", {"command": _curl(ref, "one.example.com")})
+        out = _pre("Bash", {"command": _curl(ref, "two.example.com")})
+        self.assertEqual(_decision(out), "ask")
+        self.assertIn("never used with: two.example.com.", out["hookSpecificOutput"]["permissionDecisionReason"])
 
 
 class RoundFour(unittest.TestCase):

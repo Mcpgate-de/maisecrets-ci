@@ -2393,7 +2393,6 @@ trufflehog	kong	1	1
 trufflehog	kontent	0	0
 trufflehog	kucoin	0	0
 trufflehog	kylas	0	1
-trufflehog	lambdacloud	0	1
 trufflehog	langfuse	0	0
 trufflehog	langsmith	1	1
 trufflehog	languagelayer	0	1

@@ -1109,6 +1109,37 @@ def _reserved_domain(v: str) -> bool:
             or tld in _RESERVED_MAIL_TLDS)
 
 
+# The domains of SSH algorithm and extension names (RFC 4251 section 6: name@domain), as `ssh -Q kex`, sshd_config and
+# `ssh -vvv` print them: sntrup761x25519-sha512@openssh.com, curve25519-sha256@libssh.org. They name no person, and an
+# agent that saw a placeholder could not tell which algorithms a server offers (field report, 2026-10-27)
+_SSH_NAME_DOMAINS = frozenset({"openssh.com", "libssh.org", "lysator.liu.se", "putty.projects.tartarus.org"})
+_SSH_BARE_NAMES = frozenset({"zlib", "ping", "limits", "keepalive", "no-more-sessions"})
+
+
+def _ssh_algorithm_name(v: str) -> bool:
+    """An SSH name: on an SSH domain, with a dash or a digit in its name (a person there has a short name with
+    neither), or one of the few bare extension names."""
+    local, _, d = v.lower().rpartition("@")
+    if d not in _SSH_NAME_DOMAINS:
+        return False
+    return "-" in local or any(c.isdigit() for c in local) or local in _SSH_BARE_NAMES
+
+
+# Ids in the form of an address that name no person: a room or a shared calendar in a Google Calendar event
+# (c_<id>@resource.calendar.google.com, <id>@group.calendar.google.com), the iCalUID of an event (<event id>@google.com,
+# the id in base32hex) and the Message-ID of a Gmail message (<id>@mail.gmail.com). calendar_list_events gave one
+# finding per room, event and message (gateway shadow, 2026-10-28)
+_ID_MAIL_DOMAINS = frozenset({"resource.calendar.google.com", "group.calendar.google.com",
+                              "group.v.calendar.google.com", "import.calendar.google.com", "mail.gmail.com"})
+_ICAL_UID_RE = _LazyRx(r"[0-9a-v]{20,1024}(?:_\d{8}(?:t\d{6}z)?)?")
+
+
+def _mail_shaped_id(v: str) -> bool:
+    """A calendar resource, a shared calendar, an event's iCalUID or a Gmail Message-ID: an id, not a mailbox."""
+    local, _, d = v.lower().rpartition("@")
+    return d in _ID_MAIL_DOMAINS or (d == "google.com" and bool(_ICAL_UID_RE.fullmatch(local)))
+
+
 _SERVICE_MAILBOXES = frozenset({"alerts", "alert", "monitoring", "backup", "ci", "bot", "renovate", "dependabot",
                                 "release", "deploy", "build", "jenkins", "gitlab-runner", "github-actions"})
 _SYSTEM_USERS = frozenset({"git", "root", "ubuntu", "ec2-user", "admin", "noreply", "no-reply", "postmaster",

@@ -1,9 +1,10 @@
-"""Where each stored secret was sent (setting `secret_destinations`: observe by default, or off).
+"""Where each stored secret was sent (setting `secret_destinations`: observe by default, protect, or off).
 Mcpgate-de/maisecrets#13.
 
-Observe only: this module never decides whether a call runs. It notes, on this computer only, each destination a
-stored secret went to, and shows it in /maisecrets:list. A seen destination is a record, never a permission: `seen`
-and `allowed` are kept apart in the store, and `allowed` is not used by any decision yet (a later protect mode).
+This module never decides whether a call runs. It notes, on this computer only, each destination a stored secret
+went to, and shows it in /maisecrets:list. With observe a seen destination is a record, never a permission. With
+protect the hook asks before a network destination that new_hosts() names: a host the secret was never `seen` at,
+after its first call. `allowed` is kept apart in the store and is not used by any decision yet.
 
 Destinations:
 - network: a host from a URL in a Bash command, an ssh host (as maisecrets/ssh_consent.py reads it), an MCP server
@@ -41,7 +42,7 @@ class _ShortLock(_Lock):
 
 
 _LOCK = _ShortLock(HOME / ".destinations.lock")
-_URL = re.compile(r"https?://[^\s'\"<>`|;)]+")
+_URL = re.compile(r"https?://[^\s'\"<>`|;)]+", re.I)    # HTTPS:// is a URL to curl too (Fable review)
 _MAX_SESSIONS = 50
 
 
@@ -62,6 +63,10 @@ MAX_PER_SECRET = 50       # a call the model writes chooses a label; the record 
 # counts from the hand-out, before the permission dialog, so it is long: a dialog left open is still a call to come
 PENDING_SECONDS = 24 * 3600
 MAX_PENDING = 100
+# protect: the check claims a key's first call before its value is resolved; the call pends (or not) within the same
+# hook run, so a claim that no pending call carries ends after this time, not after a day (a refused first call
+# must not lock its key: Fable review of protect)
+CLAIM_SECONDS = 30
 
 
 def _call_key(call: str, session: str | None, agent: str | None) -> str:
@@ -88,9 +93,15 @@ def _clean(data: dict) -> dict:
             seen = dict(sorted(seen.items(), key=lambda kv: kv[1]["last"])[-MAX_PER_SECRET:])
         kept[key] = {"seen": seen, "allowed": rec.get("allowed") if isinstance(rec.get("allowed"), dict) else {}}
     data["secrets"] = kept
+    claims = data.get("claims") if isinstance(data.get("claims"), dict) else {}
+    data["claims"] = {k: t for k, t in claims.items() if isinstance(k, str) and _a_time(t)}
     calls = data.get("pending_calls") if isinstance(data.get("pending_calls"), dict) else {}
     data["pending_calls"] = {i: c for i, c in calls.items() if isinstance(i, str) and _pending_well_formed(c)}
     return data
+
+
+def _a_time(t) -> bool:
+    return isinstance(t, (int, float)) and not isinstance(t, bool) and math.isfinite(t)
 
 
 def _pending_well_formed(c) -> bool:
@@ -118,7 +129,7 @@ def _load(strict: bool = False) -> dict:
             raise Corrupt(STORE)
         data = {}
     data = _clean(data)
-    for k in ("secrets", "pending_hint", "interactive", "pending_calls"):
+    for k in ("secrets", "pending_hint", "interactive", "pending_calls", "claims"):
         if not isinstance(data.get(k), dict if k != "interactive" else list):
             data[k] = {} if k != "interactive" else []
     return data
@@ -173,6 +184,17 @@ def clean_label(text: str) -> str:
 
 def destinations_of(tool: str, tool_input: dict, ssh_hosts: list[str] | None = None) -> list[tuple[str, str]]:
     """(kind, label) per destination of one call: kind "network" or "local". The label is what the person reads."""
+    return [(k, label) for k, label, _exact in exact_destinations(tool, tool_input, ssh_hosts)]
+
+
+def exact_destinations(tool: str, tool_input: dict,
+                       ssh_hosts: list[str] | None = None) -> list[tuple[str, str, bool]]:
+    """(kind, label, exact) per destination: exact is False when the label does not name the destination one to
+    one (cut at 80 characters, a secret shape hidden, a character replaced, a service field that is no name). Two
+    such destinations can share a label, so protect never takes one as known (codex review of protect)."""
+    def one(kind: str, raw: str, exact: bool = True) -> tuple[str, str, bool]:
+        label = clean_label(raw)
+        return kind, label, exact and label == raw
     if tool in ("Bash", "PowerShell"):
         command = str(tool_input.get("command") or "")
         if tool == "Bash":
@@ -183,16 +205,20 @@ def destinations_of(tool: str, tool_input: dict, ssh_hosts: list[str] | None = N
         # the ssh hosts first: a bounded record keeps the first entries, and many URLs must not push them out (Opus)
         found = [("network", "ssh " + h) for h in sorted(set(ssh_hosts or []))]
         found += [("network", h) for h in hosts_in(command)]
-        return [(k, clean_label(v)) for k, v in found] or [("local", "a command on this computer")]
+        return [one(k, v) for k, v in found] or [("local", "a command on this computer", True)]
     if tool.startswith("mcp__"):
         parts = tool.split("__")
-        server, name = parts[1] if len(parts) > 1 else "?", parts[2] if len(parts) > 2 else "?"
-        service = tool_input.get("service") or tool_input.get("provider")
+        # the whole rest is the tool: mcp__gw__foo__bar is not mcp__gw__foo (codex review of protect)
+        server, name = parts[1] if len(parts) > 1 else "?", "__".join(parts[2:]) or "?"
+        service = "+".join(str(tool_input[f]) for f in ("service", "provider") if tool_input.get(f))
+        # a field that is there must be a name, also a false one (0, []): else it would share the bare tool's label
+        named = all(isinstance(tool_input[f], str) and bool(re.fullmatch(r"[A-Za-z0-9_.-]{1,40}", tool_input[f]))
+                    for f in ("service", "provider") if f in tool_input)
         # a name, not free text: the model writes this field, and a value in it must not land in the record (Opus)
-        if not (isinstance(service, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,40}", service)):
+        if not (named and service):          # both fields, when both are there: service+provider
             service = ""
         label = f"MCP {server} · {name}" + (f" · {service}" if service else "")
-        return [("network", clean_label(label))]
+        return [one("network", label, named)]
     if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch"):
         path = str(tool_input.get("file_path") or tool_input.get("notebook_path") or "")
         folder = os.path.dirname(path) or "."
@@ -201,8 +227,8 @@ def destinations_of(tool: str, tool_input: dict, ssh_hosts: list[str] | None = N
             folder = "~" + folder[len(home):]
         if os.sep == "\\":
             folder = folder.replace("\\", "/")         # one separator in a label: ~/proj/, not ~\proj/ (Windows CI)
-        return [("local", clean_label(f"a file in {folder}/"))]
-    return [("local", clean_label(f"a {tool} call"))]
+        return [one("local", f"a file in {folder}/")]
+    return [one("local", f"a {tool} call")]
 
 
 def note(keys: list[str], session: str | None, agent: str | None, destinations: list[tuple[str, str]]) -> bool:
@@ -224,6 +250,7 @@ def _note_locked(data: dict, keys: list[str], session: str | None, agent: str | 
     pattern_break = False
     for key in dict.fromkeys(keys):
         pattern_break = _note_one(data, key, destinations) or pattern_break
+        data["claims"].pop(key, None)
     if pattern_break and session and not agent and session in data["interactive"]:
         data["pending_hint"][session] = time.time()
     data["pending_hint"] = {s: t for s, t in data["pending_hint"].items() if s in data["interactive"]}
@@ -231,9 +258,10 @@ def _note_locked(data: dict, keys: list[str], session: str | None, agent: str | 
 
 
 def pend(call: str, keys: list[str], session: str | None, agent: str | None,
-         destinations: list[tuple[str, str]]) -> None:
+         destinations: list[tuple[str, str]]) -> bool:
     """The value is handed out to this call: wait for the client to report that it ran. Nothing is `seen` yet and
-    no pattern break is counted. Never raises."""
+    no pattern break is counted. Never raises; False when the record could not be written (protect refuses then:
+    a first call that left no pending record would leave its key free for another first call)."""
     try:
         with _LOCK:
             data = _load_for_write()
@@ -246,9 +274,11 @@ def pend(call: str, keys: list[str], session: str | None, agent: str | None,
                 calls = dict(sorted(calls.items(), key=lambda kv: kv[1]["t"])[-MAX_PENDING:])
             data["pending_calls"] = calls
             _save(data)
+            return True
     except (OSError, LockTimeout, ValueError, TypeError, KeyError) as exc:
         from . import incidents
         incidents.note("destinations.pend", exc)
+        return False
 
 
 def commit(call: str, session: str | None, agent: str | None) -> bool:
@@ -330,6 +360,11 @@ def take_pending(session: str | None) -> bool:
         return False
 
 
+def of_strict(key: str) -> dict | None:
+    """The record of a key, or None; raises when the record cannot be read (protect fails closed)."""
+    return _load(strict=True)["secrets"].get(key)
+
+
 def of(key: str) -> dict:
     return _load()["secrets"].get(key, {"seen": {}, "allowed": {}})
 
@@ -340,6 +375,84 @@ def summary() -> tuple[int, int, int]:
     counts = [sum(1 for d in r.get("seen", {}).values() if d.get("kind") == "network") for r in secrets.values()]
     counts = [c for c in counts if c]
     return len(counts), sum(counts), sum(1 for c in counts if c > 1)
+
+
+def new_hosts(keys: list[str], found: list[tuple[str, str, bool]]) -> list[str]:
+    """The network destinations of a call that ask under protect (found: exact_destinations). A key that never had a
+    call that ran, and that no other call claimed, asks nothing: the destinations of its first call are its own, and
+    this call claims that first call under the lock, so a parallel call of the same key asks. The claim holds while
+    the call pends (until it ran, at most PENDING_SECONDS); a claim that no pending call carries (the call was refused
+    after the check) ends after CLAIM_SECONDS. A key keeps its record while any destination
+    is in it, so local uses that push its network entries out do not make it new. After that, a network destination
+    asks when
+    the key was never `seen` at it, or when its label does not name it exactly. A call the person allowed becomes
+    `seen` when it ran (commit), so the next call to that destination asks nothing. Raises when the record cannot
+    be read, or when it does not hold what its file holds for a key of this call: the caller asks for every network
+    destination (fail closed)."""
+    network = [(label, exact) for kind, label, exact in found if kind == "network"]
+    with _LOCK:            # also for a local call: it is a first call too, and claims it (codex review of protect)
+        data = _load(strict=True)
+        raw = json.loads(_path().read_text(encoding="utf-8")) if _path().exists() else {}
+        # what cleaning dropped for a key of this call, or of the claims, is damage: a null record must not read as
+        # a first call (codex review of protect)
+        secrets, claims = raw.get("secrets", {}), raw.get("claims", {})
+        if not isinstance(secrets, dict) or not isinstance(claims, dict):
+            raise Corrupt(STORE)
+        now = time.time()
+        pending = raw.get("pending_calls", {})
+        if not isinstance(pending, dict):
+            raise Corrupt(STORE)
+        dropped = [c for i, c in pending.items() if i not in data["pending_calls"]]
+        for key in keys:
+            if key in claims and (claims[key] != data["claims"].get(key) or claims[key] > now + 5):
+                raise Corrupt(STORE)        # a claim from the future is damage too (codex review of protect)
+            if any(not isinstance(c, dict) or not isinstance(c.get("keys"), list) or key in c["keys"]
+                   for c in dropped):
+                raise Corrupt(STORE)        # a pending call of this key that cleaning dropped
+            if key in secrets and (key not in data["secrets"] or json.dumps(secrets[key], sort_keys=True)
+                                   != json.dumps(data["secrets"][key], sort_keys=True)):
+                raise Corrupt(STORE)
+        new: list[str] = []
+        claimed = []
+        for key in dict.fromkeys(keys):
+            rec = data["secrets"].get(key)
+            claim = data["claims"].get(key)
+            in_flight = (claim is not None and 0 <= now - claim < CLAIM_SECONDS) or any(
+                key in c["keys"] and now - c["t"] < PENDING_SECONDS for c in data["pending_calls"].values())
+            if rec is None and not in_flight:
+                claimed.append(key)                # its first call: its own destinations
+                continue
+            seen = {d["label"] for d in (rec or {}).get("seen", {}).values() if d.get("kind") == "network"}
+            new += [label for label, exact in network if not exact or label not in seen]
+        if claimed:
+            for key in claimed:
+                data["claims"][key] = now
+            _save(data)
+    return list(dict.fromkeys(new))
+
+
+ASK_DAYS = 30
+
+
+def would_have_asked(days: int = ASK_DAYS, now: float | None = None) -> tuple[int, int, int]:
+    """(questions, secrets, days covered): how often a protect mode would have asked in the last `days` days. It
+    asks when a secret goes to a network host it never went to; the hosts of a secret's first call (local or not) are
+    its own, so a new secret asks nothing. One call is one question, also with two new hosts (a call notes all its
+    destinations at one time). The days covered end at the oldest record: the record begins with its first use, not
+    with the install. A label that does not name its host exactly asks each time under protect and is counted once
+    here."""
+    now = time.time() if now is None else now
+    since = now - days * 86400
+    questions, asked, oldest = 0, 0, now
+    for rec in _load()["secrets"].values():
+        seen = rec.get("seen", {}).values()
+        oldest = min([oldest] + [d["first"] for d in seen])     # a local use is recorded too: it counts as covered
+        begun = min([d["first"] for d in seen] or [now])     # its first call, local or not
+        firsts = {d["first"] for d in seen if d.get("kind") == "network"}
+        n = sum(1 for t in firsts if t > begun and t >= since)
+        questions += n
+        asked += 1 if n else 0
+    return questions, asked, min(days, int((now - oldest) // 86400) + 1) if oldest < now else 0
 
 
 NEW_SECONDS = 24 * 3600   # `new` in the list: first seen in the last day. Not "since the list was opened": the
@@ -367,6 +480,7 @@ def forget(keys: list[str]) -> bool:
             data = _load_for_write()
             for k in keys:
                 data["secrets"].pop(k, None)
+                data["claims"].pop(k, None)
             gone = set(keys)
             for i, c in list(data["pending_calls"].items()):      # a call that did not yet run names the key too
                 c["keys"] = [k for k in c["keys"] if k not in gone]

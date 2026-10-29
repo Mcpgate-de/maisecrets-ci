@@ -24,7 +24,7 @@ CODES = frozenset({
     "store.decrypt", "store.mark-weak", "store.expire",
     "config.policy-invalid", "config.user-ignored",
     "hook.run-dir", "hook.sealed-dir", "hook.payload", "hook.session-start",
-    "destinations.pend", "destinations.commit",
+    "destinations.pend", "destinations.commit", "destinations.protect",
     "scrub.start", "scrub.write", "prompt.pending", "prompt.clipboard", "prompt.tip", "prompt.check-store",
     "launcher.no-python", "launcher.import", "guard.fired",
 } | {f"hook.{e}.{k}" for e in HOOK_EVENTS for k in ("unexpected", "watchdog")})

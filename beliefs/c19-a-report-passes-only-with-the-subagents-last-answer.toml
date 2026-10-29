@@ -6,5 +6,5 @@ runner = ["tests/test_agent_reports.py::AgentReportTests::test_a_result_that_is_
 
 [proof]
 file = "maisecrets/agent_reports.py"
-find = "    if answer is None or _plain(answer) != _plain(html.unescape(body[span[0]:span[1]])):\n"
+find = "    if answer is None or not _same_text(body[span[0]:span[1]], answer):\n"
 replace = "    if answer is None:\n"

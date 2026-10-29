@@ -365,6 +365,24 @@ SCENARIOS = {
         "expect_file": ("used.txt", f"got:{MARK}"),
         "expect_home_json": ("destinations.json", ["secrets", "SECRET_c1", "seen", "network:dest.invalid"]),
     },
+    # secret destinations, protect: the first call of a secret runs and makes its host known; a second call to a host
+    # it never went to asks, even with Bash allowed, and headless refuses the ask, so it does not run
+    "destination_protect_asks": {
+        "prompt": "use the stored token \u27e6SECRET_c1\u27e7",
+        "preload": [(MARK, "SECRET", "gitlab_pat")],
+        "config": {"secret_destinations": "protect"},
+        "allowed_tools": "Bash",
+        "turns": [{"tool": "Bash", "input": {"command": "printf 'got:%s' '\u27e6SECRET_c1\u27e7' > used.txt; "
+                                                        "curl -s --max-time 1 https://dest.invalid/ || true"}},
+                  {"tool": "Bash", "input": {"command": "printf 'got:%s' '\u27e6SECRET_c1\u27e7' > ran.txt; "
+                                                        "curl -s --max-time 1 https://other.invalid/ || true"}},
+                  {"text": "done"}],
+        "expect_requests": 3,
+        "expect_file": ("used.txt", f"got:{MARK}"),
+        "expect_no_file": "ran.txt",
+        "expect_text": "never used with: other.invalid.",
+        "expect_home_json": ("destinations.json", ["secrets", "SECRET_c1", "seen", "network:dest.invalid"]),
+    },
     "ssh_consent_read_runs": {
         "prompt": "check the uptime",
         "config": {"ssh_consent": True},

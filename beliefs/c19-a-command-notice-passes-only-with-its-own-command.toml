@@ -1,0 +1,10 @@
+# c19-a-command-notice-passes-only-with-its-own-command: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c19-a-command-notice-passes-only-with-its-own-command"
+control = "C19"
+statement = "A background command's notice passes only when its summary is the command or the description of that Bash call in this session's transcript; another text in the summary is blocked."
+runner = ["tests/test_agent_reports.py::CommandNoticeTests::test_a_summary_that_is_not_the_command_is_blocked"]
+
+[proof]
+file = "maisecrets/agent_reports.py"
+find = "    return span if any(_same_text(body[span[0]:span[1]], t) for t in said) else None\n"
+replace = "    return span\n"

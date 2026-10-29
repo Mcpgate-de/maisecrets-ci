@@ -1,7 +1,7 @@
 # c19-a-report-passes-only-with-its-agent-call: the test owns the rule; this file names it and the mutation that must turn it red.
 belief = "c19-a-report-passes-only-with-its-agent-call"
 control = "C19"
-statement = "A notification passes only when this session's transcript gives its tool use id to an Agent, Task or SendMessage call; a background command or an unknown id is blocked."
+statement = "A report with a result passes only when this session's transcript gives its tool use id to an Agent, Task or SendMessage call; a background command's notice with a result, or an unknown id, is blocked."
 runner = ["tests/test_agent_reports.py::AgentReportTests::test_a_tool_use_id_the_transcript_does_not_give_to_an_agent_is_blocked"]
 
 [proof]

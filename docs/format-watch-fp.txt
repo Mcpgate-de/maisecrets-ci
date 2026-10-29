@@ -232,7 +232,9 @@ klaviyo-api-key	027d2e9c6836
 kraken-access-token	45a3ee1722bc
 kubernetes-secret-yaml	c6b7fbcff212
 kucoin-access-token	54f3a0d6e0c7
-kucoin-secret-key	94ffa38f29e9
+kucoin-secret-key	bb44c143b6ec
+labelbox-api-key	b1089aefb3cf
+labelbox-recursion-api-key	e262ef87fac7
 langchain-langsmith-personal-access-token	efddd97ae0a9
 langchain-langsmith-service-key	c517d3b3d285
 langfuse-public-key.1	e6659aacef59
@@ -411,7 +413,12 @@ supabase-project-url	5ebc9cf22139
 tableau-personal-access-token-name.1	ba7ac150c102
 tableau-personal-access-token.1	e59b4a132228
 tableau-server-host.1	111c6f10da6f
-tailscale-api-key.1	fd432c495675
+tailscale-api-key.1	2e3c890e1385
+tailscale-auth-key	a4d5d9757a78
+tailscale-key	33d67a8cb9e3
+tailscale-oauth-client-secret	37083fa76818
+tailscale-scim-key	69dd67e12f34
+tailscale-webhook-secret	da5219595be0
 telegram-bot-api-token	f1b562e0ec4c
 telnyx-api-v2-key.1	17e8059b483c
 temporal-cloud-api-key.1	01b33a905a11

@@ -80,7 +80,7 @@ DEFAULT_CONFIG = {
     "read_image": "allow",           # allow | ask | block: an image that the AI reads
     "clean_dirs": [],                # folders whose PDFs and images pass as allow; a typed prompt adds one
     "value_files": [],               # files of values from your own tools (values.py); a typed prompt adds one
-    "secret_destinations": "observe",  # observe: note where each stored secret is sent (destinations.py); off
+    "secret_destinations": "observe",  # note where each secret is sent (destinations.py); protect also asks; off
     "rehydration": "automatic",      # automatic | confirm | block: does maisecrets add a confirm (rehydration.py)
     "guard": True,                   # a synced install registers the guard outside its folder (hooks/guard.py)
     "client_header": True,           # vault references: a key header on user-scope MCP servers (vault_refs.py)
@@ -287,7 +287,7 @@ class ConfigError(RuntimeError):
     """A config value of the wrong type; the message names the key, never a value."""
 
 
-_CONFIG_CHOICES = {"secret_destinations": ("observe", "off")}
+_CONFIG_CHOICES = {"secret_destinations": ("observe", "off", "protect")}
 
 
 def _check_types(cfg: dict, source: str) -> None:

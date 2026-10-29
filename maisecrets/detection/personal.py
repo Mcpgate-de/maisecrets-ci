@@ -1544,9 +1544,14 @@ _USERNAME_NOT_A_NAME_END = ("_actor", "_account", "_owner", "_value", "_name", "
 # the last part of an attribute in code: `username=authn.principal`, `username: current.user`
 _USERNAME_ATTRIBUTE_END = frozenset({"name", "user", "username", "login", "principal", "id", "email", "value",
                                      "current", "subject", "sub", "identity", "account", "owner"})
-# a service account by its form only (the short-name rule of a home path, `ab12`, is no help here: js42 is a person)
+# a service account by its form only (the short-name rule of a home path, `ab12`, is no help here: js42 is a person).
+# The service forms: a short name that ends in a service word (up to 20 characters before it, as before), and a
+# forge's own forms (service_account_<id>, the token bots project_<id>_bot_<hex> and group_<id>_bot_<hex>). A service
+# word alone is no service form in a longer name: a person's handle can end in -bot (a surname), -svc or -worker, and
+# start with svc- or bot- (svc-jsmith, bot-anna99).
 _USERNAME_SERVICE_RE = re.compile(r"(?i)^(?:.{0,12}[-_]?user\d*|user[-_]?\d+|.{0,20}(?:bot|svc|service|admin|runner|"
-                                  r"agent|daemon|worker|deploy|build)(?:[-_]?\d+)?|.*\[bot\])$")
+                                  r"agent|daemon|worker|deploy|build)(?:[-_]?\d+)?|.*\[bot\]"
+                                  r"|service_account_[a-z0-9_]*[a-z0-9][a-z0-9_]*|(?:project|group)_\d+_bot_[0-9a-f]{8,})$")
 _USERNAME_NOT_A_VALUE = frozenset({"string", "null", "none", "true", "false", "required", "optional", "undefined",
                                    "unknown", "changeme", "placeholder", "value", "empty", "text", "varchar",
                                    "your_username", "yourusername", "my_username", "myusername", "username_here",

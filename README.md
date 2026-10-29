@@ -329,9 +329,9 @@ For development:
 ```bash
 claude --plugin-dir /path/to/maisecrets                 # one session, straight from the checkout
 python3 -m unittest discover -s tests -v               # about 30 seconds
-python3 harness/run.py                                 # 38 scenarios against a fake upstream (4 for the PowerShell tool of Windows)
+python3 harness/run.py                                 # 39 scenarios against a fake upstream (4 for the PowerShell tool of Windows)
 python3 harness/codex.py [--real]                      # 15 scenarios through codex exec (five need --real)
-python3 scripts/replay_can_fail.py                     # 368 proofs: each control's test, and each path of the seven invariants, goes red without its guard
+python3 scripts/replay_can_fail.py                     # 373 proofs: each control's test, and each path of the seven invariants, goes red without its guard
 python3 scripts/derived_counts.py                      # the numbers in the docs, measured again
 python3 scripts/lint_plugin.py                         # frontmatter YAML, manifests, hook paths (pre-commit, CI)
 scripts/install-hooks.sh                               # git pre-commit / pre-push
@@ -628,7 +628,7 @@ SECRET_c7      SECRET  format       3d   14        21h  -
       a file in ~/proj/     2–9×   last 3 days ago
 ```
 
-This is a record, not a permission, and it stops nothing. The value is handed
+With the default `observe` this is a record, not a permission, and it stops nothing. The value is handed
 out before the client asks you, so a call waits until the client reports that
 it ran (also when it failed), and only then is it listed. A call you decline in
 Claude Code's dialog is not listed (measured with the real client, whose
@@ -639,8 +639,35 @@ listed: nothing could show that it ran. `new` marks a destination first seen in 
 last 24 hours. When a secret that you used at one destination
 (3 times on one day) goes to a new one for the first time, the AI tells you
 once, in a sentence; this note does not come again. maisecrets does not
-judge whether a destination is safe. Asking before a new destination comes
-in a later version. `/maisecrets:settings secret_destinations off` stops the
+judge whether a destination is safe.
+
+To be asked before a secret goes to a host it never went to, send
+`/maisecrets:settings secret_destinations protect` as your own prompt. The hosts
+of a secret's first call are its own; a first call that only writes a file
+has none, and a second call that starts before the first one ran gets no
+first call of its own. If you decline that first call, it holds the secret's
+first call until it would have expired (24 hours), so until then every host
+asks; a first call that maisecrets refuses for another reason holds it for 30
+seconds only. After that, a call to a new host asks you first in
+Claude Code, and the question names the new host. A host whose name the
+record cannot hold one to one (more than 80 characters, a secret shape in it)
+asks each time. When you allow
+it and the call runs, the host is known and asks no more; a call you decline
+leaves it new. Codex cannot ask with a rewritten input, so there the call is
+refused before any value is resolved; run that step yourself, or switch back
+to `observe` for it. A file or a command without a host never asks. What the
+record already holds when you switch counts as known. `/maisecrets:settings`
+shows about how often protect would have asked in your own last 30 days:
+once per call that took a secret to a host it never went to. It is an
+estimate from the record: a call you declined is not in it. Protect binds
+only what the call shows: a URL with `http://` or `https://`, an ssh host, an
+MCP server and tool. A host without a scheme (`curl host/api`), a host after a
+flag (`psql -h host`), a host built at run time, a variable, a script or a
+proxy shows none, and the port of a URL does not count, so for a hard limit
+use the sandbox's allowed hosts too. If the destination record cannot be
+read, the call asks, and the question says so; if the first use of a secret
+cannot be recorded, it is refused, and you try once more.
+`/maisecrets:settings secret_destinations off` stops the
 record; nothing leaves the computer either way. When a value expires, its
 record goes with it (if the record is busy at that moment, it goes 30 days
 later with the metadata); forget and wipe delete it too.

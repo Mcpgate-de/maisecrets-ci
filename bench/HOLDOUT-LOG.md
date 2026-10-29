@@ -154,3 +154,5 @@ are not published: the numbers of record come from the release baseline (`script
 | 2026-10-26 | maisecrets 0.8.2 097e68dd8960b4ca37c3d3c605920dd691c51ed4 | ghissues | 25401 | 0.7198 | 0.6514 | 1468 |
 | 2026-10-26 | maisecrets 0.8.2 097e68dd8960b4ca37c3d3c605920dd691c51ed4 | nym | 1239 | 0.1859 | 0.9976 | 2 |
 | 2026-10-26 | maisecrets 0.8.2 097e68dd8960b4ca37c3d3c605920dd691c51ed4 | dialogpii | 124 | 0.0507 | 1.0 | 0 |
+| 2026-10-29 | maisecrets 0.7.2 1f9724adb2cbe3f54dba1719cd5eef0c82be2e00 (gate stopped: no PyYAML for the catalog coverage) | holdout-v2 | 872 | 0.6473 | 0.9957 | 3 |
+| 2026-10-29 | maisecrets 0.7.2 1f9724adb2cbe3f54dba1719cd5eef0c82be2e00 | holdout-v2 | 872 | 0.6473 | 0.9957 | 3 |

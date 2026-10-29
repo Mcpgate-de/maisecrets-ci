@@ -6,5 +6,5 @@ runner = ["tests/test_destinations.py::SeenOnlyAfterTheCall::test_a_declined_cal
 
 [proof]
 file = "maisecrets/hooks.py"
-find = "            destinations.pend(call, keys, payload.get(\"session_id\"), payload.get(\"agent_id\"), found)"
-replace = "            destinations.note(keys, payload.get(\"session_id\"), payload.get(\"agent_id\"), found)"
+find = "            return destinations.pend(call, keys, payload.get(\"session_id\"), payload.get(\"agent_id\"), found)"
+replace = "            return destinations.note(keys, payload.get(\"session_id\"), payload.get(\"agent_id\"), found) or True"
