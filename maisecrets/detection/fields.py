@@ -135,8 +135,8 @@ def is_an_id(words) -> bool:
 
 def is_a_revision(words, value: str) -> bool:
     """The label ends in a word of a revision, no word of it names a credential, and the value is hex:
-    MAISECRETS_COMMIT=<git sha>, image_digest (gateway report, 2026-10-30: secrets inside a product name made the label of
-    a commit a secret label). SECRET_SHA, key_rev, MYSECRET_SHA and passwordhash_revision stay labels of a credential."""
+    MAISECRETS_COMMIT=<git sha>, image_digest (gateway report, 2026-10-30: secrets inside a product name made the label
+    of a commit a secret label). SECRET_SHA, key_rev, MYSECRET_SHA and passwordhash_revision stay credential labels."""
     rest = "".join(words[:-1]).replace("maisecrets", "")
     return (len(words) >= 2 and words[-1] in _REVISION_END and not any(c in rest for c in _CREDENTIAL_PARTS)
             and bool(_HEX.fullmatch(value)))
