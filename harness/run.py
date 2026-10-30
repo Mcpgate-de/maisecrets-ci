@@ -305,7 +305,7 @@ SCENARIOS = {
                   {"text": "done"}],
         "expect_requests": 2,
         "expect_no_file": "ran.txt",
-        "expect_text": "approve this ssh write to nohost.invalid",
+        "expect_text": "approve this ssh command to nohost.invalid",
     },
     # the incident report (docs/DIAGNOSTICS.md, section 7): the prompt hook answers the typed command to the person,
     # before the config and the store, and no request carries it (0 requests: the model sees neither report nor link)

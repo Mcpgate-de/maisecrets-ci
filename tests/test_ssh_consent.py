@@ -86,6 +86,22 @@ def _wait_covered(hosts: list[str], agent: str | None = None, want: bool = True)
     return False
 
 
+class WhyNotReadTests(unittest.TestCase):
+    """The question names the first part that keeps a remote command off the read list (field examples, 2026-10-30:
+    a person did not see why a search on a host asked)."""
+
+    def test_the_question_names_what_keeps_the_command_off_the_read_list(self):
+        from maisecrets import hooks
+        for cmd, part in (("ssh web1 'echo \"host: $(hostname)\"'", "uses $ or a backtick"),
+                          ("ssh web1 'grep -rli word /srv | head'", "read list: grep"),
+                          ("ssh web1 'unzip -p /srv/a.jar x'", "read list: unzip"),
+                          ("ssh web1 'cat ~/.bashrc'", "~ outside quotes")):
+            with self.subTest(cmd=cmd):
+                v = ssh_consent.classify(cmd, hooks._parse_for_consent)
+                self.assertEqual("write", v.kind)
+                self.assertIn(part, v.why)
+
+
 class ClassifierMatrixTests(unittest.TestCase):
     """The kind of each command; any other kind in a row is a hole or a needless question."""
 
@@ -579,7 +595,8 @@ class ConsentFlowTests(unittest.TestCase):
         # the native yes allows this one command: the command is unchanged and nothing is recorded
         self.assertEqual(out["hookSpecificOutput"]["updatedInput"]["command"], "ssh web1 'systemctl restart nginx'")
         reason = out["hookSpecificOutput"]["permissionDecisionReason"]
-        self.assertTrue(reason.startswith("maisecrets: approve this ssh write to web1? A yes allows only this command"),
+        self.assertTrue(reason.startswith("maisecrets: approve this ssh command to web1? maisecrets cannot check it "
+                                          "as read-only ("),
                         reason)
         self.assertIn("send this as your own prompt: maisecrets: allow ssh web1", reason)
         self.assertIn("web2", reason, "the ask names the group")
