@@ -176,6 +176,36 @@ def _read_only(remote: str, parse: Parser) -> bool:
     return True
 
 
+_PLAIN_WORD = re.compile(r"[A-Za-z0-9._-]{1,32}")
+
+
+def _why_not_read(remote: str, parse: Parser) -> str:
+    """The first reason _read_only gives no: for the person who approves, so the question names what to look at. The
+    same checks in the same order; a command word that is no plain name is not shown."""
+    remote = _HARMLESS_REDIRECT.sub("", remote)
+    segs, ctxs = parse(remote)
+    unquoted = "".join(ch if ctx == "" else " " for ch, ctx in zip(remote, ctxs))
+    if "$" in remote or "`" in remote:
+        return "it uses $ or a backtick (a variable, or a command inside it)"
+    marks = [c for c in "><()&*?[]{}~" if c in unquoted]
+    if marks:
+        return f"{' '.join(marks)} outside quotes (a redirect, a subshell, a pattern or a home path)"
+    if not segs:
+        return "it has no command the hook can read"
+    for sg in segs:
+        try:
+            words = shlex.split(remote[sg["start"]:sg["end"]])
+        except ValueError:
+            return "its quotes cannot be read"
+        name = words[0] if words and _PLAIN_WORD.fullmatch(words[0]) else "a command"
+        if not words or words[0] not in _READ:
+            return name
+        opts, mode = _READ[words[0]]
+        if not _args_ok(words[0], words[1:], opts, mode):
+            return f"{name} with this option or path"
+    return "the read list does not cover it"
+
+
 def _args_ok(cmd: str, args: list[str], opts: set[str], mode: str) -> bool:
     rest: list[str] = []
     for a in args:
@@ -325,7 +355,7 @@ def _ssh_call(words: list[str], fed: bool, parse: Parser, unquoted: str = "") ->
         return Call("ssh", host, "write", "local data goes to the remote command on stdin")
     if _read_only(remote, parse):
         return Call("ssh", host, "read", "a read-only remote command")
-    return Call("ssh", host, "write", "a remote command that is not on the read list")
+    return Call("ssh", host, "write", f"not on the read list: {_why_not_read(remote, parse)}")
 
 
 # options that take an argument, per copy tool; the ones that send the connection elsewhere or run a program

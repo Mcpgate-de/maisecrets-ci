@@ -1588,10 +1588,12 @@ def _consent_text(c: dict) -> str:
     more = [h for h in c["hosts"] if h not in c["named"]]
     group = f" and the hosts of its group ({', '.join(more)})" if more else ""
     # the first sentence says what a yes means: this command only. The window is a separate, typed act
-    return (f"maisecrets: approve this ssh write to {named}? A yes allows only this command ({c['why']}). "
-            f"To let writes to {named}{group} run without asking for {consent_store.APPROVAL_SECONDS // 3600} hours "
-            f"in this session, send this as your own prompt: maisecrets: allow ssh {c['named'][0]}. For a host where "
-            f"the AI may always work without asking: maisecrets: ssh autonomous {c['named'][0]}. "
+    return (f"maisecrets: approve this ssh command to {named}? maisecrets cannot check it as read-only "
+            f"({c['why']}). A yes allows only this command. "
+            f"To let such commands to {named}{group} run without asking for "
+            f"{consent_store.APPROVAL_SECONDS // 3600} hours in this session, send this as your own prompt: "
+            f"maisecrets: allow ssh {c['named'][0]}. For a host where the AI may always work without asking: "
+            f"maisecrets: ssh autonomous {c['named'][0]}. "
             "The deny list (mkfs, dd to a device, rm -rf /) always stays on.")
 
 
