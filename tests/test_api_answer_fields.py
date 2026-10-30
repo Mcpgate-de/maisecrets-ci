@@ -180,7 +180,8 @@ class RevisionTests(unittest.TestCase):
     label a secret label)."""
     LABELS = ("MAISECRETS_COMMIT", "maisecrets-sha", "deploy_sha", "imageDigest", "BUILD_REVISION", "file-checksum")
     CREDENTIAL_LABELS = ("SECRET_SHA", "key_rev", "token_sha", "SECRETS_COMMIT", "password_revision", "apiKeyDigest",
-                         "MYSECRET_SHA", "APIKEY_DIGEST", "passwordhash_revision", "github_token_rev")
+                         "MYSECRET_SHA", "APIKEY_DIGEST", "passwordhash_revision", "github_token_rev",
+                         "ACCESS_SHA", "access_digest", "accessRevision", "passphrase_sha")
 
     @staticmethod
     def hex_of(n: int, upper: bool = False) -> str:

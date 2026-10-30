@@ -56,7 +56,8 @@ _CREDENTIAL_WORDS = _SECRET_WORDS | {"access", "auth", "authentication", "author
 _REVISION_END = frozenset({"commit", "sha", "sha1", "sha256", "revision", "rev", "digest", "checksum"})
 _HEX = _LazyRx(r"(?i)(?:sha256:)?[0-9a-f]{7,64}")
 # parts of a credential word, also glued to another word (mysecret, apikey, passwordhash); maisecrets is a product name
-_CREDENTIAL_PARTS = ("secret", "passw", "pwd", "token", "key", "auth", "credential", "private", "api")
+_CREDENTIAL_PARTS = ("secret", "pass", "pwd", "token", "key", "auth", "cred", "private", "api", "access", "bearer",
+                     "session", "cookie")
 _TIME_STATE_PAIRS = frozenset({("valid", "from"), ("valid", "until"), ("not", "before"), ("not", "after"),
                                ("last", "used")})
 # a word that is no label alone (`key`); with another word before it, it is one
