@@ -68,15 +68,15 @@ def make_handler(find, info: dict):
     return Handler
 
 
-class UnixHTTPServer(socketserver.UnixStreamServer):
-    def get_request(self):
-        conn, _ = super().get_request()
-        return conn, ("local", 0)
-
-
 def make_server(handler, host: str = "127.0.0.1", port: int = 8765, unix: str | None = None):
     """The server on a Unix socket (mode 0600) or on host:port."""
     if unix:
+        # Windows has no UnixStreamServer, so the class exists only where a socket is asked for
+        class UnixHTTPServer(socketserver.UnixStreamServer):
+            def get_request(self):
+                conn, _ = super().get_request()
+                return conn, ("local", 0)
+
         if os.path.exists(unix):
             os.unlink(unix)
         server = UnixHTTPServer(unix, handler)
