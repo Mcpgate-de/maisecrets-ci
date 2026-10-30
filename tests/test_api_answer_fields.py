@@ -174,6 +174,62 @@ class TimeAndStateTests(unittest.TestCase):
                 self.assertTrue(kinds_after(label, value))
 
 
+class RevisionTests(unittest.TestCase):
+    """A commit, a digest or a checksum after a label whose last word names it and whose words name no credential
+    (gateway report, 2026-10-30: in `ARG MAISECRETS_COMMIT=<sha>` the word secrets inside the product name made the
+    label a secret label)."""
+    LABELS = ("MAISECRETS_COMMIT", "maisecrets-sha", "deploy_sha", "imageDigest", "BUILD_REVISION", "file-checksum")
+    CREDENTIAL_LABELS = ("SECRET_SHA", "key_rev", "token_sha", "SECRETS_COMMIT", "password_revision", "apiKeyDigest",
+                         "MYSECRET_SHA", "APIKEY_DIGEST", "passwordhash_revision", "github_token_rev",
+                         "ACCESS_SHA", "access_digest", "accessRevision", "passphrase_sha")
+
+    @staticmethod
+    def hex_of(n: int, upper: bool = False) -> str:
+        rng = random.Random(31 + n)
+        v = "".join(rng.choice("0123456789abcdef") for _ in range(n))
+        return v.upper() if upper else v
+
+    def values(self) -> list:
+        mixed = "".join(c.upper() if i % 2 else c for i, c in enumerate(self.hex_of(40)))
+        return [self.hex_of(n) for n in (7, 40, 64)] + [self.hex_of(40, upper=True), mixed, "sha256:" + self.hex_of(64),
+                                                        "SHA256:" + self.hex_of(64, upper=True)]
+
+    def test_the_values_are_hits_after_a_credential_label(self):
+        for value in [self.hex_of(40), self.hex_of(64), self.hex_of(40, upper=True)]:
+            with self.subTest(n=len(value)):
+                self.assertTrue(kinds_after("api_key", value))
+                self.assertTrue(detect.scan(f"ARG VAULT_SECRET={value}\n", channel="tool"))
+
+    def test_a_revision_after_its_label_is_no_secret(self):
+        for label in self.LABELS:
+            for value in self.values():
+                with self.subTest(label=label, n=len(value)):
+                    self.assertEqual(kinds_after(label, value), set())
+                    self.assertEqual(detect.scan(f"ARG {label}={value}\n", channel="tool"), [])
+                    self.assertEqual(detect.scan(f'{{"{label}": "{value}"}}', channel="tool"), [])
+
+    def test_a_label_with_a_credential_word_stays_a_credential(self):
+        for label in self.CREDENTIAL_LABELS:
+            for value in (self.hex_of(40), self.hex_of(64)):
+                with self.subTest(label=label, n=len(value)):
+                    self.assertTrue(detect.scan(f"ARG {label}={value}\n", channel="tool"))
+
+    def test_a_hashicorp_password_under_a_revision_label_stays_a_hit(self):
+        value = self.hex_of(16)
+        for label in ("password_revision", "passwordhash_revision"):
+            with self.subTest(label=label):
+                self.assertTrue(detect.scan(f'{label} = "{value}"\n', channel="tool", path="main.tf",
+                                            enabled={"hashicorp-tf-password"}))
+
+    def test_the_revision_check_reads_the_value(self):
+        from maisecrets.detection import fields
+        words = fields.label_words("MAISECRETS_COMMIT")
+        for value in (self.hex_of(7), self.hex_of(64), self.hex_of(40, upper=True), "sha256:" + self.hex_of(64)):
+            self.assertTrue(fields.is_a_revision(words, value), len(value))
+        for value in (self.hex_of(6), self.hex_of(65), opaque()[1], self.hex_of(20) + "G"):
+            self.assertFalse(fields.is_a_revision(words, value), len(value))
+
+
 class VersionQuadTests(unittest.TestCase):
     def ips(self, text: str) -> list:
         return [text[m.start:m.end] for m in detect.scan(text, channel="tool") if m.type == "IP"]
