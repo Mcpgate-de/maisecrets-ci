@@ -174,6 +174,35 @@ class TimeAndStateTests(unittest.TestCase):
                 self.assertTrue(kinds_after(label, value))
 
 
+class RevisionTests(unittest.TestCase):
+    """A commit, a digest or a checksum after a label whose last word names it (gateway report, 2026-10-30: in
+    `ARG MAISECRETS_COMMIT=<sha>` the word secrets in the product name made the label a secret label)."""
+    LABELS = ("MAISECRETS_COMMIT", "SECRETS_COMMIT", "token_sha", "secretDigest", "PASSWORD_REVISION", "key-checksum")
+
+    def hexes(self) -> list:
+        rng = random.Random(31)
+        return ["".join(rng.choice("0123456789abcdef") for _ in range(n)) for n in (40, 64)]
+
+    def test_the_values_are_hits_after_a_credential_label(self):
+        for value in self.hexes():
+            with self.subTest(n=len(value)):
+                self.assertTrue(kinds_after("api_key", value))
+                self.assertTrue(detect.scan(f"ARG VAULT_SECRET={value}\n", channel="tool"))
+
+    def test_a_revision_after_its_label_is_no_secret(self):
+        for label in self.LABELS:
+            for value in self.hexes() + ["sha256:" + self.hexes()[1]]:
+                with self.subTest(label=label, n=len(value)):
+                    self.assertEqual(kinds_after(label, value), set())
+                    self.assertEqual(detect.scan(f"ARG {label}={value}\n", channel="tool"), [])
+
+    def test_a_value_that_is_no_hex_stays_a_hit(self):
+        value = opaque()[1]
+        for label in ("SECRETS_COMMIT", "token_sha"):
+            with self.subTest(label=label):
+                self.assertTrue(kinds_after(label, value))
+
+
 class VersionQuadTests(unittest.TestCase):
     def ips(self, text: str) -> list:
         return [text[m.start:m.end] for m in detect.scan(text, channel="tool") if m.type == "IP"]
