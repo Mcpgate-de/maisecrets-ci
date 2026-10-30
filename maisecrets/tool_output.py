@@ -159,6 +159,55 @@ def _inserted_values(text: str, vault: Vault, prompt: bool = False) -> list[tupl
     return out
 
 
+def _resolved_forms(value: str) -> list[str]:
+    """The forms of a value this session resolved that the exact match replaces: the derived forms, and a value of
+    4 to 7 characters as it is."""
+    forms = _derived_forms(value)
+    if value and 4 <= len(value) < _EXACT_MIN_LEN:
+        forms.append(value)       # 4 to 7 characters: everywhere, also between letters
+    return forms
+
+
+def known_value_spans(text: str, vault: Vault, resolved: list[tuple[str, str]] | None = None) -> list:
+    """(start, end) of each place where _exact_redact would put a placeholder: the forms of the values this session
+    resolved, and the live stored values found by fingerprint. Nothing is changed or admitted. The remote detector
+    (maisecrets/remote_layer.py) sends these places as filler: a password stored with `put` has no shape, and the
+    rules alone would let a name service read it (codex review of the remote detector)."""
+    needles: set = set()
+    spans: list = []
+    for value, _ref in resolved or []:
+        forms = _resolved_forms(value)
+        if value and len(value) < 4:
+            pattern = re.compile(r"(?<![^\W_])" + re.escape(value) + r"(?![^\W_])")
+            spans += [m.span() for m in pattern.finditer(text)]
+        needles.update(f for f in forms if f)
+    live = vault.live_fingerprints()
+    if live:
+        tokens = list(_TOKEN_SPLIT_RE.split(text))
+        for line in text.splitlines():
+            line = line.strip()
+            tokens.append(line)
+            for sep in ("=", ":"):
+                if sep in line:
+                    tokens.append(line.split(sep, 1)[1].strip())
+        seen: set = set()
+        for token in tokens:
+            if len(token) < _EXACT_MIN_LEN:
+                continue
+            for cand in _candidates(token):
+                if len(cand) < _EXACT_MIN_LEN or cand in seen:
+                    continue
+                seen.add(cand)
+                if live.get(vault.fingerprint(cand)) is not None:
+                    needles.add(cand if cand in text else _raw_form(token, cand))
+    for needle in needles:
+        at = text.find(needle)
+        while at >= 0:
+            spans.append((at, at + len(needle)))
+            at = text.find(needle, at + 1)
+    return spans
+
+
 def _exact_redact(text: str, vault: Vault, session: str | None, hit: dict, entries: list,
                   resolved: list[tuple[str, str]] | None = None, values: list[str] | None = None,
                   prompt: bool = False) -> str:
@@ -171,9 +220,7 @@ def _exact_redact(text: str, vault: Vault, session: str | None, hit: dict, entri
         # a value this session itself put in is no guess: it goes at any length. The 8-character floor of
         # _derived_forms is for the encoded forms and the fingerprint search below; a 6-character password
         # stored with `put` came back to the model in plain text (external review, 2026-09-28)
-        forms = _derived_forms(value)
-        if value and 4 <= len(value) < _EXACT_MIN_LEN:
-            forms.append(value)       # 4 to 7 characters: everywhere, also between letters
+        forms = _resolved_forms(value)
         if value and len(value) < 4:
             # under 4 characters only where no letter or digit stands next to it: a plain substring replace
             # of `a` broke every word of the output (Codex review, 2026-09-28)

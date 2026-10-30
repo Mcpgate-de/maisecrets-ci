@@ -451,6 +451,35 @@ the same unit. RAM and latency: one model process; the times of the torch models
 
 - B4 on Windows and Linux.
 
+## The remote path (2026-10-29)
+
+The layer is now a part of the library (`maisecrets/detection/remote.py`, docs/DETECTION.md "A remote detector"):
+a service in the Hugging Face or the Presidio format, asked after the rules, and in the plugin the setting
+`remote_detector` for tool results. Two questions, measured on maisecrets at `f6e0a21d` with D3 as fp32 ONNX
+(`bench/ner/export_onnx.py` of the snapshot `d421f57d`, `model.onnx` sha256 `1e1535af…`), served by
+`examples/ner_service.py`, on the salted V3 samples (`--sample-salt v3/`): `val` of Nemotron, Gretel and Mendeley
+1 in 25, and Privy 1 in 10 (totals only). The holdout split was not read.
+
+**Does the remote path lose or add anything against the experiment's layer?** No. `bench/adapters/maisecrets_remote.py`
+with `BENCH_REMOTE_MASK=0` (the whole text, as the experiment's model read it) against `bench/adapters/maisecrets_ner.py`
+with the same model: the same spans with the same scores in 4,346 of 4,346 cases, and so the same numbers.
+
+**What does the filler cost?** The library sends each finding of the rules as `_` of the same length. The model then
+finds a few names fewer, in every set:
+
+| Data | Names whole: rules alone | + D3, whole text | + D3, with filler | PII false positives: whole text / filler |
+|---|---:|---:|---:|---|
+| Nemotron `val` (1,159) | 365 | 1,054 | 1,044 | 15 / 14 |
+| Gretel `val` (668) | 91 | 316 | 314 | 74 / 74 |
+| Mendeley `val` (633) | 126 | 605 | 600 | 334 / 326 |
+| Privy 1 in 10 (796) | 41 | 507 | 503 | 391 / 391 |
+
+21 of 2,482 names, and 9 false positives fewer; no span worse in any variant (`bench/ner/analyze.py`). So the filler
+stays the default, the one path for every service, and a service on loopback or a Unix socket may read the findings
+as they are (`"mask": false` in the setting); any other host always gets the filler.
+
+The 0.7.3 rows of B2 are not this table's baseline: the rules changed since, so "rules alone" is measured again.
+
 ## Repeat
 
 ```bash

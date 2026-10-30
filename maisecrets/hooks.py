@@ -2518,6 +2518,47 @@ def _pre_tool(payload: dict) -> dict:
 
 
 # -------------------------------------------------------------- PostToolUse --
+def _remote_layer(cfg: dict, response, binary, strip: bool, scan_tool, session: str | None = None):
+    """The remote detector's findings for the strings of this tool result (maisecrets/remote_layer.py), or None when
+    none is set. One request for the whole result; the strings as the walk below sees them (hidden characters
+    removed). A failure here leaves the rules alone: it never stops the redaction."""
+    conf = cfg.get("remote_detector")
+    if not (isinstance(conf, dict) and conf.get("url")):
+        return None
+    leaves: list[str] = []
+
+    def collect(node: Any, at: tuple = ()) -> None:
+        if at in binary:
+            return
+        if isinstance(node, str):
+            leaves.append(strip_hidden(node)[0] if strip else node)
+        elif isinstance(node, list):
+            for i, x in enumerate(node):
+                collect(x, at + (i,))
+        elif isinstance(node, dict):
+            for k, v in node.items():
+                if isinstance(k, str):
+                    collect(k)          # a key is scanned too (walk below): one request covers it
+                collect(v, at + (k,))
+    try:
+        from . import remote_layer
+        from .tool_output import known_value_spans
+        collect(response)
+        protect = None
+        if _has_live(cfg):
+            # the stored values that _exact_redact masks later go out as filler too: a password stored with `put`
+            # has no shape, and the rules alone would let the service read it (codex review)
+            vault = Vault(cfg)
+            resolved = _resolved_values(vault, session)
+
+            def protect(t: str) -> list:
+                return known_value_spans(t, vault, resolved)
+        return remote_layer.prepare(cfg, leaves, scan_tool, protect)
+    except Exception as exc:  # noqa: BLE001 - the rules' redaction runs as without the layer
+        _debug(f"remote layer: {type(exc).__name__}")
+        return None
+
+
 def post_tool(payload: dict) -> dict:
     cfg = load_config()
     response = payload.get("tool_response")
@@ -2552,6 +2593,12 @@ def post_tool(payload: dict) -> dict:
     hidden = {"n": 0}
     hidden_runs: list[str] = []
 
+    def scan_tool(s: str) -> list:
+        return detect.scan(s, channel="tool", path=scan_path)
+
+    binary = _binary_paths(payload)
+    layer = _remote_layer(cfg, response, binary, strip, scan_tool, payload.get("session_id"))
+
     def redact(s: str) -> str:
         nonlocal vault, resolved
         if strip:
@@ -2559,8 +2606,8 @@ def post_tool(payload: dict) -> dict:
             s, gone, runs = strip_hidden(s)
             hidden["n"] += gone
             hidden_runs.extend(runs)
-        matches = [m for m in detect.scan(s, channel="tool", path=scan_path)
-                   if swap or not detect.is_fixture(m, s, path)]
+        found = layer.matches(s, scan_tool) if layer is not None else scan_tool(s)
+        matches = [m for m in found if swap or not detect.is_fixture(m, s, path)]
         if not matches and not _has_live(cfg):
             return s
         if vault is None:
@@ -2590,8 +2637,6 @@ def post_tool(payload: dict) -> dict:
         hidden_runs.extend(runs)
         hit["n"] += hits
         return cleaned
-
-    binary = _binary_paths(payload)
 
     def redact_binary(s: str) -> str:
         """A file as base64: no shape scan, but the exact match of the stored values as before (a value this session

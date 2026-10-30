@@ -1,0 +1,21 @@
+# c30-a-name-service-never-reads-a-finding-of-the-rules: an invariant belief. One goal, several paths; each mutation removes one and must turn at least one owning test red, and each owning test must be red under at least one mutation.
+belief = "c30-a-name-service-never-reads-a-finding-of-the-rules"
+kind = "invariant"
+control = "C30"
+statement = "With the default mask, each finding of the rules and each stored value goes to the service as filler of the same length."
+runner = [
+  "tests/test_remote_detector.py::RemoteDetectorTests::test_the_service_never_sees_a_deterministic_finding_and_offsets_still_fit",
+  "tests/test_remote_layer.py::RemoteLayerTests::test_a_stored_value_without_a_shape_goes_out_as_filler",
+]
+
+[[proof]]
+path = "the filler is left out"
+file = "maisecrets/detection/remote.py"
+find = "            sent[a:b] = FILLER * (b - a)"
+replace = "            pass"
+
+[[proof]]
+path = "the stored values are left out"
+file = "maisecrets/remote_layer.py"
+find = "        occupied += [(off + a, off + b) for s, off in pieces for a, b in protect(s)]"
+replace = "        occupied += []"

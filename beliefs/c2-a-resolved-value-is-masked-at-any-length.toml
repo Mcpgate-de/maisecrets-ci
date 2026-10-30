@@ -6,5 +6,5 @@ runner = ["tests/test_gates.py::ResolvedValueRedactionTests::test_a_short_value_
 
 [proof]
 file = "maisecrets/tool_output.py"
-find = "        if value and 4 <= len(value) < _EXACT_MIN_LEN:\n"
-replace = "        if False:\n"
+find = "    if value and 4 <= len(value) < _EXACT_MIN_LEN:\n"
+replace = "    if False:\n"

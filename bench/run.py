@@ -29,7 +29,8 @@ from bench import cases as casefmt  # noqa: E402
 from bench import score, sources  # noqa: E402
 
 ADAPTERS = ("maisecrets", "detect_secrets", "secret_scan", "pii_anon", "preserve", "presidio", "maisecrets_ner",
-            "ai_gateway", "gitleaks", "betterleaks", "trufflehog", "kingfisher", "kingfisher1", "noseyparker")
+            "maisecrets_remote", "ai_gateway", "gitleaks", "betterleaks", "trufflehog", "kingfisher", "kingfisher1",
+            "noseyparker")
 HOLDOUT_LOG = ROOT / "bench" / "HOLDOUT-LOG.md"
 MANIFEST = ROOT / "bench" / "holdout.manifest"
 
@@ -182,7 +183,7 @@ def main(argv=None) -> int:
         selected = [c for c in sources.load(a.source, a.data, a.catalogs, a.limit, stats, split=a.split)
                     if (a.split == "all" or c["split"] == a.split) and in_sample(c["id"], a.every, a.sample_salt)]
     adapter = importlib.import_module(f"bench.adapters.{a.scanner}")
-    if a.scanner in ("maisecrets", "maisecrets_ner"):
+    if a.scanner in ("maisecrets", "maisecrets_ner", "maisecrets_remote"):
         desc = adapter.describe(a.maisecrets.resolve(), a.regions)
         found, timing = (adapter.scan(selected, a.maisecrets.resolve(), a.regions, languages=a.languages)
                          if a.languages else adapter.scan(selected, a.maisecrets.resolve(), a.regions))

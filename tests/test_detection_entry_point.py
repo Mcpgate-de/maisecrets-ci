@@ -67,10 +67,10 @@ def library(case: dict) -> list:
 # ------------------------------------------------------------------------------------------- a small schema check --
 # jsonschema is no dependency; the schema uses these keywords only, and test_the_schema_uses_only_checked_keywords
 # holds that, so a keyword added later is not silently ignored here
-CHECKED = {"type", "const", "enum", "pattern", "minimum", "required", "properties", "additionalProperties", "items",
-           "oneOf", "$ref"}
+CHECKED = {"type", "const", "enum", "pattern", "minimum", "maximum", "required", "properties", "additionalProperties",
+           "items", "oneOf", "$ref"}
 ANNOTATIONS = {"$schema", "$id", "title", "description", "$defs"}
-TYPE_OF = {"object": dict, "array": list, "string": str, "integer": int}
+TYPE_OF = {"object": dict, "array": list, "string": str, "integer": int, "number": (int, float)}
 
 
 def problems(value, schema: dict, where: str = "") -> list:
@@ -91,6 +91,8 @@ def problems(value, schema: dict, where: str = "") -> list:
         out.append(f"{where}: does not match")
     if "minimum" in schema and value < schema["minimum"]:
         out.append(f"{where}: below the minimum")
+    if "maximum" in schema and value > schema["maximum"]:
+        out.append(f"{where}: above the maximum")
     if isinstance(value, dict):
         out += [f"{where}.{k}: missing" for k in schema.get("required", ()) if k not in value]
         props = schema.get("properties", {})

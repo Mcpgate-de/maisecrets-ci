@@ -241,6 +241,62 @@ the schema, runs one request twice in fresh processes and compares the bytes, an
 wrong field and checks that no output holds it. `scripts/wheel_smoke.py` calls the entry point from the installed
 wheel.
 
+## A remote detector (optional)
+
+The rules find few names (docs/NER-EXPERIMENT.md). A named-entity service can add them after the rules, through
+`maisecrets/detection/remote.py`. It is off unless a caller gives one, and the entry point above never asks one: it
+reads no network.
+
+```python
+from maisecrets.detection import remote
+
+ner = remote.RemoteDetector("http://127.0.0.1:8765/", format="hf", model="d3-onnx-fp32@d421f57d", timeout=0.3)
+result = detector.findings_with(text, channel="tool", remote=ner)
+result.findings          # the findings of the rules as they are, and the spans of the service (Match.score set)
+result.remote.state      # "ok", "unavailable" (result.remote.reason: timeout, refused, http, answer), "too_long"
+response = contract.result_response(detector, result)    # the same as JSON (maisecrets.detect/1)
+```
+
+- **Offsets** of the answer are code points of the text, as a Python service counts them (`str` indices). A service
+  that counts UTF-16 units or bytes masks the wrong place after a character outside the BMP; the rules' findings
+  stay, the name does not get masked.
+- **Wire formats.** `hf`: Hugging Face token classification, `{"inputs": text}` in, `[{"entity_group" (or
+  `entity`), "start", "end", "score"}]` out. `presidio`: Presidio Analyzer, `POST /analyze` with `{"text",
+  "language"}`, `[{"entity_type", "start", "end", "score"}]` out. A label `B-PER` or `I-PER` counts as `PER`.
+- **Classes.** `classes` maps a class of the service to a type of `types.json`. The default is `PER` and `PERSON` to
+  `NAME`, the one class the NER experiment measured; an operator adds more (`{"LOC": "ADDRESS"}`). `min_score` sets
+  the least score per type; there is none by default, and no threshold here was chosen from a benchmark.
+- **It only adds.** A span is kept only where no finding of the rules and no span kept before it lies. A finding of
+  the rules is never removed, made smaller, moved or retyped. A span that ends inside a word is widened to the whole
+  word.
+- **The service never sees a finding of the rules.** Each one goes out as filler (`_`) of the same length, so the
+  offsets of the answer fit the text. `mask=False` sends them as they are: the filler costs the model of the NER
+  experiment 21 of 2,482 names on the V3 samples (docs/NER-EXPERIMENT.md, "The remote path"). The plugin allows it
+  only for a service on loopback or a Unix socket.
+- **A failing service changes nothing.** Slow (over `timeout`, or past the `deadline` of `findings_with`, one budget
+  for several texts), refused, an HTTP error, or an answer with any item it cannot read: the findings of the rules
+  alone, and `result.remote` says `unavailable` and why. A text longer than `max_chars` is not sent (`too_long`).
+  Nothing raises.
+- **No network unless asked.** The URL must be a loopback address (127.0.0.0/8, `::1`, `localhost`) or a Unix socket
+  (`unix:/path`), else `RemoteDetector` raises `ValueError`; `allow_network=True` allows any `http` or `https` host.
+  A host name is looked up at each request: without `allow_network` every address must be loopback, and the
+  connected peer is checked again before a byte is sent, so a `localhost` that a hosts file sends elsewhere is
+  refused.
+- **The deadline holds for the whole request.** Name lookup, connect, send and the answer run in a thread that the
+  caller leaves at the deadline, so a service that sends its answer a byte at a time cannot hold the caller. A wrong
+  setting (`classes`, `min_score`, `timeout`, `max_chars`) raises `ValueError` when the detector is made.
+- **The model version is the operator's word.** Neither format names its model in the answer, so `model` is what the
+  operator states, and `engine.remote.model` of a response is only as true as that setting. The reference service
+  (`examples/ner_service.py`) reports its own at `GET /info`, so an operator can compare.
+- **In a response** (`contract.result_response`), a finding of the service has `score` and `provenance.origin` and
+  `layer` `model`; `engine.remote` holds `format`, `model`, `state` and, when unavailable, `reason`. Without a
+  remote detector the response is the one of the entry point. The schema has both fields as optional.
+
+These names are **new and provisional**: `RemoteDetector`, `RemoteStatus`, `Result`, `Detector.findings_with`,
+`contract.result_response` and `Match.score` (`None` for a finding of the rules). They are not in `__all__`; a
+change to them goes into the changelog under "API" without a deprecation until a minor release makes them stable.
+`tests/test_remote_detector.py` holds the points above against a fake service of each format.
+
 ## The old names
 
 `maisecrets.detect` and `maisecrets.checksums`, `lazy_regex`, `normalise`, `regions`, `registry`, `rulespec`,

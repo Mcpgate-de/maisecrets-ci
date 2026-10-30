@@ -50,7 +50,18 @@
      "properties": {
       "name": {"const": "maisecrets"},
       "version": {"type": "string"},
-      "ruleset": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      "ruleset": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+      "remote": {
+       "type": "object",
+       "required": ["format", "model", "state"],
+       "additionalProperties": false,
+       "properties": {
+        "format": {"enum": ["hf", "presidio"]},
+        "model": {"type": "string"},
+        "state": {"enum": ["ok", "unavailable", "too_long"]},
+        "reason": {"enum": ["timeout", "refused", "http", "answer"]}
+       }
+      }
      }
     },
     "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}}
@@ -64,6 +75,7 @@
     "start": {"type": "integer", "minimum": 0},
     "end": {"type": "integer", "minimum": 1},
     "type": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
+    "score": {"type": "number", "minimum": 0, "maximum": 1},
     "provenance": {
      "type": "object",
      "required": ["rule", "origin", "layer"],

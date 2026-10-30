@@ -193,6 +193,34 @@ def detect(request: dict) -> dict:
                          for s, e, t, k in rows]}
 
 
+_ORIGINS = (("user:", "user"), ("term:", "term"), ("import:", "import"), ("remote:", "model"))
+
+
+def finding(m) -> dict:
+    """One finding of a response: offsets, type and provenance; `score` only for a model finding."""
+    origin = next((o for prefix, o in _ORIGINS if m.kind.startswith(prefix)), "builtin")
+    row = {"start": m.start, "end": m.end, "type": m.type,
+           "provenance": {"rule": m.kind, "origin": origin, "layer": "model" if origin == "model" else "deterministic"}}
+    if m.score is not None:
+        row["score"] = m.score
+    return row
+
+
+def result_response(detector, result) -> dict:
+    """The maisecrets.detect/1 response for a Result of Detector.findings_with, for a host that embeds the library
+    and sends its findings on. A finding of the remote detector carries its `score`; `engine.remote` names the wire
+    format, the model the operator stated (the service's answer names none) and what the service did in this call.
+    The entry point (detect) never asks a remote detector: it reads no network."""
+    engine = {"name": "maisecrets", "version": engine_version(), "ruleset": ruleset(detector)}
+    st = result.remote
+    if st.state != "off":
+        engine["remote"] = {"format": st.format, "model": st.model, "state": st.state}
+        if st.reason:
+            engine["remote"]["reason"] = st.reason
+    rows = sorted(result.findings, key=lambda m: (m.start, m.end, m.type, m.kind))
+    return {"contract": CONTRACT, "engine": engine, "findings": [finding(m) for m in rows]}
+
+
 def error(code: str, path: str, message: str) -> dict:
     return {"contract": CONTRACT, "error": {"code": code, "path": path, "message": message}}
 

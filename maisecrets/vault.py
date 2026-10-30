@@ -215,6 +215,8 @@ def is_weak(kind: str, value: str, tool: bool = False) -> bool:
     a file (tool), an English word (is_dictionary_word): replaced where it was found, never hunted in other
     texts. A word the person gives in a prompt is a chosen password and stays hunted (is_quiet)."""
     from .registry import is_label
+    if kind.startswith("remote:"):
+        return True    # a model's finding (remote_layer.py): masked where it was found, never hunted
     if not is_label(kind):
         return False
     if _folded(value) in DEFAULT_WORDS:
@@ -808,6 +810,8 @@ class Vault:
                 e = Entry.from_meta(self._index["entries"][existing])
                 if session and session not in e.sessions:
                     e.sessions.append(session)
+                if e.weak and e.kind.startswith("remote:") and not is_weak(kind, value, tool):
+                    e.weak = False      # a rule found the model's name too: evidence enough to hunt it
                 if not tool:
                     e.quiet = False     # a value the person gives in a prompt is hunted in prompts again
                     # a word a tool result stored weak is a chosen password once the person gives it (field report,

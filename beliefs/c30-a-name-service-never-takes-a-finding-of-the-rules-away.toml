@@ -1,0 +1,12 @@
+# c30-a-name-service-never-takes-a-finding-of-the-rules-away: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c30-a-name-service-never-takes-a-finding-of-the-rules-away"
+control = "C30"
+statement = "A span of the remote detector is kept only where no finding of the rules and no stored value lies; a finding of the rules is never removed, narrowed, moved or retyped."
+runner = [
+  "tests/test_remote_detector.py::RemoteDetectorTests::test_a_span_over_a_deterministic_finding_is_dropped_and_the_finding_stays",
+]
+
+[proof]
+file = "maisecrets/detection/remote.py"
+find = "            if _overlaps(occ, ends, s, e):\n                continue\n"
+replace = "            if False:\n                continue\n"

@@ -46,7 +46,7 @@ import sys
 import threading
 import time
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import checksums
@@ -106,6 +106,8 @@ class Match:
     value: str     # the exact text to replace
     start: int
     end: int
+    # the score of a model finding (a remote detector, Detector.findings_with); a deterministic finding has none
+    score: float | None = field(default=None, compare=False, repr=False)
 
 
 class _Lazy:
@@ -1859,6 +1861,20 @@ class Detector:
         if fields is None:
             return self._run(findings, text, channel, path)
         return self._run(findings, text, channel, path, fields=fields)
+
+    def findings_with(self, text: str, channel: str = "prompt", path: str = "", *, fields=None, remote=None,
+                      deadline: float | None = None):
+        """findings(), then a remote detector (remote.RemoteDetector) for what the rules left: a Result with the
+        findings and the RemoteStatus of this call. The service only adds a span where no finding lies; it never
+        removes, narrows or retypes one, and a service that fails leaves the findings as they are. `deadline`: a
+        time.monotonic() value that ends the request earlier than its own timeout (one budget for several texts)."""
+        from .remote import OFF, Result
+        found = self.findings(text, channel, path, fields=fields)
+        if remote is None:
+            return Result(found, OFF)
+        spans, status = remote.ask(text, [(m.start, m.end) for m in found], deadline)
+        extra = [Match("remote:" + remote.format, t, text[s:e], s, e, score) for s, e, t, score in spans]
+        return Result(sorted(found + extra, key=lambda m: (m.start, m.end)) if extra else found, status)
 
     def rules(self) -> list[Rule]:
         """The rule list of this detector, sorted by rank (detect.rules)."""

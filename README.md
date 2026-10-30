@@ -331,7 +331,7 @@ claude --plugin-dir /path/to/maisecrets                 # one session, straight 
 python3 -m unittest discover -s tests -v               # about 30 seconds
 python3 harness/run.py                                 # 39 scenarios against a fake upstream (4 for the PowerShell tool of Windows)
 python3 harness/codex.py [--real]                      # 15 scenarios through codex exec (five need --real)
-python3 scripts/replay_can_fail.py                     # 373 proofs: each control's test, and each path of the seven invariants, goes red without its guard
+python3 scripts/replay_can_fail.py                     # 377 proofs: each control's test, and each path of the seven invariants, goes red without its guard
 python3 scripts/derived_counts.py                      # the numbers in the docs, measured again
 python3 scripts/lint_plugin.py                         # frontmatter YAML, manifests, hook paths (pre-commit, CI)
 scripts/install-hooks.sh                               # git pre-commit / pre-push
@@ -2272,6 +2272,50 @@ hold, with three differences:
 The limit: an AI agent that runs as your user can read the key from the
 store, as it can read any stored value. The server's cap, its audit and the
 revoke bound that. A value written into a file is plain text there.
+
+## Names from a local service (optional)
+
+The rules find few names: a name has no shape (docs/NER-EXPERIMENT.md). A
+named-entity service on your computer can add them in tool results. It is off
+until `~/.maisecrets/config.json` names it:
+
+```json
+{
+  "remote_detector": {
+    "url": "http://127.0.0.1:8765/",
+    "format": "hf",
+    "model": "d3-onnx-fp32@d421f57d",
+    "timeout_ms": 300,
+    "max_chars": 20000
+  }
+}
+```
+
+- `format`: `hf` (Hugging Face token classification) or `presidio` (Presidio
+  Analyzer, `POST /analyze`; `language` sets its language, `en` by default).
+- Only names by default (`PER`, `PERSON`). `classes` maps more classes of the
+  service to a type, for example `{"PER": "NAME", "LOC": "ADDRESS"}`, and
+  `min_score` sets the least score per type. No threshold is set for you.
+- `url` must be a loopback address or a Unix socket (`unix:/path/to.sock`).
+  Another host needs `"allow_network": true` in the setting, and then your tool
+  results go there (PRIVACY.md).
+- Tool results only, one request per tool call, within `timeout_ms` (at most
+  5000; the name lookup and a slow answer count too). Each value
+  the rules found goes out as `_` filler of the same length. The filler costs
+  the model a few names (21 of 2,482 on the benchmark samples), so a service on
+  loopback or a Unix socket may read those values as they are with
+  `"mask": false`; any other host always gets the filler. A slow, dead or
+  confused service changes nothing: the rules' result stays as it is. A result
+  longer than `max_chars` is not sent.
+- A name the service finds is masked and stored, so its placeholder resolves,
+  but it is never searched for in other texts: a wrong name such as `Build`
+  costs one mask, where the service saw it. If a rule finds the same value
+  later and would search for its own finding, the name is searched for from
+  then on; a common word after a label stays where it was found.
+- `model` is what you state; the answer of either format names no model.
+  `examples/ner_service.py` is a reference service with the model of the NER
+  experiment and reports its model at `GET /info`. It is an example, not part
+  of the plugin.
 
 ## Known gaps (measured or documented)
 

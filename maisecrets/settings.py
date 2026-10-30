@@ -23,7 +23,8 @@ DISCOVERABLE = ("ssh_consent", "ssh_autonomous_hosts", "secret_destinations", "r
 ADVANCED = ("ssh_host_groups", "ssh_approval", "resolve_in_files", "ssh_via_sandbox", "block_at_mentions",
             "rewrite_prompts", "scrub_transcript", "strip_hidden_characters", "regions", "ttl_seconds",
             "renew_on_use", "tips", "shortcut", "guard", "pass_agent_reports", "gateway_servers", "client_header",
-            "max_keys_per_session", "max_resolves_per_hour", "rule_dirs", "clean_dirs", "value_files")
+            "max_keys_per_session", "max_resolves_per_hour", "rule_dirs", "clean_dirs", "value_files",
+            "remote_detector")
 INTERNAL = ("backend", "allow_plaintext_store", "report_url", "max_ttl_seconds", "max_new_entries_per_result",
             "keep_purged_days", "audit_max_lines", "pii_regions", "client_vault_cafile")
 
@@ -40,7 +41,7 @@ TITLE = {
     "gateway_servers": "Gateway servers", "client_header": "Values back from your MCP servers",
     "rule_dirs": "Rule folders",
     "read_pdf": "PDFs the AI reads", "read_image": "Images the AI reads", "clean_dirs": "Folders with clean files",
-    "value_files": "Value files",
+    "value_files": "Value files", "remote_detector": "Names from a local service",
     "max_keys_per_session": "Values per session and hour", "max_resolves_per_hour": "Uses per hour",
 }
 MEANING = {
@@ -65,6 +66,8 @@ MEANING = {
     "rule_dirs": "Folders with detection rules of your own or of your team, read with ~/.maisecrets/rules.d.",
     "value_files": "Files of values from your own tools (JSON lines), imported at session start when they change. "
                    "An import only adds; your prompt /maisecrets:forget import:ID removes one.",
+    "remote_detector": "A named-entity service on this computer that adds names in tool results after the rules. "
+                       "Off unless config.json names its url (docs/DETECTION.md).",
     "ttl_seconds": "How long a stored value lives.",
     "renew_on_use": "A use of a value extends its life.",
     "tips": "A short tip at session start, and a hint when a setting first matters.",
@@ -100,7 +103,8 @@ ADVANCED_GROUPS = (("Stored values", ("ttl_seconds", "renew_on_use", "resolve_in
                    ("ssh", ("ssh_host_groups", "ssh_approval", "ssh_via_sandbox")),
                    ("Prompts and tool output", ("block_at_mentions", "rewrite_prompts", "scrub_transcript",
                                                 "strip_hidden_characters", "regions", "rule_dirs",
-                                                "clean_dirs", "value_files", "pass_agent_reports")),
+                                                "clean_dirs", "value_files", "pass_agent_reports",
+                                                "remote_detector")),
                    ("Help and updates", ("tips", "shortcut", "guard")))
 
 # what a prompt may set; any other key is edited in config.json by hand

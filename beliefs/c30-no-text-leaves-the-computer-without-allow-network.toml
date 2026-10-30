@@ -1,0 +1,21 @@
+# c30-no-text-leaves-the-computer-without-allow-network: an invariant belief. One goal, several paths; each mutation removes one and must turn at least one owning test red, and each owning test must be red under at least one mutation.
+belief = "c30-no-text-leaves-the-computer-without-allow-network"
+kind = "invariant"
+control = "C30"
+statement = "Without allow_network the remote detector takes only a loopback address or a Unix socket, every address a host name resolves to must be loopback, and nothing is sent to an address that is not."
+runner = [
+  "tests/test_remote_detector.py::RemoteDetectorTests::test_only_a_loopback_or_unix_address_without_allow_network",
+  "tests/test_remote_detector.py::RemoteDetectorTests::test_a_name_that_resolves_off_this_computer_is_refused_before_a_byte_is_sent",
+]
+
+[[proof]]
+path = "the url is not checked"
+file = "maisecrets/detection/remote.py"
+find = "        if allow_network is not True and not is_local(url):"
+replace = "        if False:"
+
+[[proof]]
+path = "the resolved address is not checked"
+file = "maisecrets/detection/remote.py"
+find = "        if not self.allow_network and not all(_loopback(a[4][0]) for a in addrs):"
+replace = "        if False:"

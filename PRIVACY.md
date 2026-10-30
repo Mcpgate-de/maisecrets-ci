@@ -76,6 +76,15 @@ Connections start only from a command you run, or go to an MCP server you added 
   link (no token in that request). No request goes to any other host, and nothing goes out
   before such a server sent a token. `client_header: false` turns this off and removes the
   header.
+- A named-entity service (`remote_detector`, off by default): only when `config.json`
+  names its `url`, the text of a tool result goes to that service after the rules ran, with
+  every value the rules found replaced by filler of the same length (a service on this
+  computer gets them as they are only when the setting says `"mask": false`). A typed prompt never
+  goes there. The plugin accepts only a loopback address (127.0.0.0/8, `::1`, `localhost`)
+  or a Unix socket, so the text stays on this computer, unless you set `allow_network: true`
+  in that setting; then it goes to the host you named. What the service finds is stored like
+  any other value and masked only where the service found it, unless a rule that searches for
+  its own findings finds the same value later.
 - The Windows Credential Locker may roam through a Microsoft account on a machine that is
   not domain-joined. Choose the `encrypted-file` store there if that matters.
 

@@ -1,0 +1,13 @@
+# c30-a-name-of-the-service-is-never-hunted: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c30-a-name-of-the-service-is-never-hunted"
+control = "C30"
+statement = "A finding of the remote detector is stored weak: its placeholder resolves, it is masked where the service found it and never hunted in another text, until a rule whose own finding is hunted finds the same value."
+runner = [
+  "tests/test_remote_layer.py::WeakMarkTests::test_a_model_finding_is_weak_until_a_rule_finds_the_value_too",
+  "tests/test_remote_layer.py::RemoteLayerTests::test_a_name_the_model_found_is_not_hunted_in_a_later_result",
+]
+
+[proof]
+file = "maisecrets/vault.py"
+find = "    if kind.startswith(\"remote:\"):\n        return True"
+replace = "    if False:\n        return True"

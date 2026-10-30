@@ -80,6 +80,7 @@ DEFAULT_CONFIG = {
     "read_image": "allow",           # allow | ask | block: an image that the AI reads
     "clean_dirs": [],                # folders whose PDFs and images pass as allow; a typed prompt adds one
     "value_files": [],               # files of values from your own tools (values.py); a typed prompt adds one
+    "remote_detector": {},           # a named-entity service for names in tool results (remote_layer.py); off: {}
     "secret_destinations": "observe",  # note where each secret is sent (destinations.py); protect also asks; off
     "rehydration": "automatic",      # automatic | confirm | block: does maisecrets add a confirm (rehydration.py)
     "guard": True,                   # a synced install registers the guard outside its folder (hooks/guard.py)
@@ -114,7 +115,7 @@ _CONFIG_TYPES = {
     "ssh_consent": bool, "ssh_host_groups": dict, "ssh_autonomous_hosts": list, "secret_destinations": str,
     "ssh_approval": str, "rehydration": str, "guard": bool, "client_header": bool, "client_vault_cafile": str,
     "pass_agent_reports": bool, "rule_dirs": list,
-    "read_pdf": str, "read_image": str, "clean_dirs": list, "value_files": list,
+    "read_pdf": str, "read_image": str, "clean_dirs": list, "value_files": list, "remote_detector": dict,
 }
 
 

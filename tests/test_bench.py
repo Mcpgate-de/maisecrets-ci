@@ -366,7 +366,8 @@ class AdapterInventoryTests(unittest.TestCase):
             # maisecrets_ner is maisecrets plus the NER experiment's layer: its environments are pinned per backend
             # (NerLayerTests)
             # ai_gateway is a consumer measured from its own checkout at a commit (bench/adapters/ai_gateway.py)
-            if name in ("maisecrets", "maisecrets_ner", "ai_gateway"):
+            # maisecrets_remote is maisecrets plus a running service (examples/ner_service.py): no package of its own
+            if name in ("maisecrets", "maisecrets_ner", "maisecrets_remote", "ai_gateway"):
                 continue
             with self.subTest(adapter=name):
                 mod = importlib.import_module(f"bench.adapters.{name}")
