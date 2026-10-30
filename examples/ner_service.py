@@ -3,13 +3,15 @@ the NER experiment (D3, Davlan/distilbert-base-multilingual-cased-ner-hrl at d42
 bench/ner/export_onnx.py) behind the Hugging Face token-classification format. An example, not part of the plugin:
 it needs numpy, onnxruntime and tokenizers, which the plugin never installs.
 
-    python examples/ner_service.py ONNX_DIR [--port 8765 | --unix /path/to.sock] [--int8] [--model NAME]
+    python examples/ner_service.py ONNX_DIR [--host 127.0.0.1] [--port 8765 | --unix /path/to.sock] [--int8]
+        [--model NAME]
 
     POST /       {"inputs": text}  ->  [{"entity_group": "PER", "start", "end", "score", "word"}, ...]
     GET  /info   {"model", "file", "sha256", "library", "aggregation"}
 
 It answers the PER spans of bench/ner/person_worker.py (backend onnx:ONNX_DIR), so the remote path and the
-experiment see the same spans. It listens on 127.0.0.1 or a Unix socket only, answers one request at a time and
+experiment see the same spans. It listens on 127.0.0.1 or a Unix socket (--host for a container port: the service has
+no authentication, so bind it only to a network that only its callers reach), answers one request at a time and
 writes no log line with text. Then, in ~/.maisecrets/config.json:
 
     "remote_detector": {"url": "http://127.0.0.1:8765/", "format": "hf", "model": "<the model of GET /info>"}
@@ -66,10 +68,21 @@ def make_handler(find, info: dict):
     return Handler
 
 
-class UnixHTTPServer(socketserver.UnixStreamServer):
-    def get_request(self):
-        conn, _ = super().get_request()
-        return conn, ("local", 0)
+def make_server(handler, host: str = "127.0.0.1", port: int = 8765, unix: str | None = None):
+    """The server on a Unix socket (mode 0600) or on host:port."""
+    if unix:
+        # Windows has no UnixStreamServer, so the class exists only where a socket is asked for
+        class UnixHTTPServer(socketserver.UnixStreamServer):
+            def get_request(self):
+                conn, _ = super().get_request()
+                return conn, ("local", 0)
+
+        if os.path.exists(unix):
+            os.unlink(unix)
+        server = UnixHTTPServer(unix, handler)
+        os.chmod(unix, 0o600)
+        return server
+    return HTTPServer((host, port), handler)
 
 
 def main(argv: list) -> int:
@@ -77,24 +90,21 @@ def main(argv: list) -> int:
     ap.add_argument("onnx_dir")
     where = ap.add_mutually_exclusive_group()
     where.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--host", default="127.0.0.1",
+                    help="the address to bind (0.0.0.0 in a container); the service has no authentication")
     where.add_argument("--unix")
     ap.add_argument("--int8", action="store_true", help="model.int8.onnx: a different model in effect (B1)")
     ap.add_argument("--model", default="Davlan/distilbert-base-multilingual-cased-ner-hrl@d421f57d")
     a = ap.parse_args(argv)
+    if a.unix and a.host != "127.0.0.1":
+        ap.error("--host binds a TCP port; a Unix socket has no host")
     backend = f"onnx:{a.onnx_dir}" + ("::int8" if a.int8 else "")
     find, desc = person_worker.load(backend)
     model_file = Path(a.onnx_dir) / desc["model"]
     info = {"model": a.model + (" int8" if a.int8 else " fp32"), "file": desc["model"],
             "sha256": hashlib.sha256(model_file.read_bytes()).hexdigest(), "library": desc["library"],
             "library_version": desc["library_version"], "aggregation": desc["aggregation"]}
-    handler = make_handler(find, info)
-    if a.unix:
-        if os.path.exists(a.unix):
-            os.unlink(a.unix)
-        server = UnixHTTPServer(a.unix, handler)
-        os.chmod(a.unix, 0o600)
-    else:
-        server = HTTPServer(("127.0.0.1", a.port), handler)
+    server = make_server(make_handler(find, info), host=a.host, port=a.port, unix=a.unix)
     print("ready", flush=True)
     server.serve_forever()
     return 0
