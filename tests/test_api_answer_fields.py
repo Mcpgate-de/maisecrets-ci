@@ -178,8 +178,9 @@ class RevisionTests(unittest.TestCase):
     """A commit, a digest or a checksum after a label whose last word names it and whose words name no credential
     (gateway report, 2026-10-30: in `ARG MAISECRETS_COMMIT=<sha>` the word secrets inside the product name made the
     label a secret label)."""
-    LABELS = ("MAISECRETS_COMMIT", "mysecrets_sha", "imageDigest", "BUILD_REVISION", "file-checksum")
-    CREDENTIAL_LABELS = ("SECRET_SHA", "key_rev", "token_sha", "SECRETS_COMMIT", "password_revision", "apiKeyDigest")
+    LABELS = ("MAISECRETS_COMMIT", "maisecrets-sha", "deploy_sha", "imageDigest", "BUILD_REVISION", "file-checksum")
+    CREDENTIAL_LABELS = ("SECRET_SHA", "key_rev", "token_sha", "SECRETS_COMMIT", "password_revision", "apiKeyDigest",
+                         "MYSECRET_SHA", "APIKEY_DIGEST", "passwordhash_revision", "github_token_rev")
 
     @staticmethod
     def hex_of(n: int, upper: bool = False) -> str:
@@ -188,7 +189,9 @@ class RevisionTests(unittest.TestCase):
         return v.upper() if upper else v
 
     def values(self) -> list:
-        return [self.hex_of(n) for n in (7, 40, 64)] + [self.hex_of(40, upper=True), "sha256:" + self.hex_of(64)]
+        mixed = "".join(c.upper() if i % 2 else c for i, c in enumerate(self.hex_of(40)))
+        return [self.hex_of(n) for n in (7, 40, 64)] + [self.hex_of(40, upper=True), mixed, "sha256:" + self.hex_of(64),
+                                                        "SHA256:" + self.hex_of(64, upper=True)]
 
     def test_the_values_are_hits_after_a_credential_label(self):
         for value in [self.hex_of(40), self.hex_of(64), self.hex_of(40, upper=True)]:
@@ -209,6 +212,13 @@ class RevisionTests(unittest.TestCase):
             for value in (self.hex_of(40), self.hex_of(64)):
                 with self.subTest(label=label, n=len(value)):
                     self.assertTrue(detect.scan(f"ARG {label}={value}\n", channel="tool"))
+
+    def test_a_hashicorp_password_under_a_revision_label_stays_a_hit(self):
+        value = self.hex_of(16)
+        for label in ("password_revision", "passwordhash_revision"):
+            with self.subTest(label=label):
+                self.assertTrue(detect.scan(f'{label} = "{value}"\n', channel="tool", path="main.tf",
+                                            enabled={"hashicorp-tf-password"}))
 
     def test_the_revision_check_reads_the_value(self):
         from maisecrets.detection import fields

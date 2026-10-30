@@ -54,7 +54,9 @@ _AT_ON_AFTER = frozenset({"created", "updated", "changed", "expires", "expired",
 _CREDENTIAL_WORDS = _SECRET_WORDS | {"access", "auth", "authentication", "authorization", "api", "credential",
                                      "credentials", "private"}
 _REVISION_END = frozenset({"commit", "sha", "sha1", "sha256", "revision", "rev", "digest", "checksum"})
-_HEX = _LazyRx(r"(?:sha256:)?[0-9a-f]{7,64}|(?:SHA256:)?[0-9A-F]{7,64}")
+_HEX = _LazyRx(r"(?i)(?:sha256:)?[0-9a-f]{7,64}")
+# parts of a credential word, also glued to another word (mysecret, apikey, passwordhash); maisecrets is a product name
+_CREDENTIAL_PARTS = ("secret", "passw", "pwd", "token", "key", "auth", "credential", "private", "api")
 _TIME_STATE_PAIRS = frozenset({("valid", "from"), ("valid", "until"), ("not", "before"), ("not", "after"),
                                ("last", "used")})
 # a word that is no label alone (`key`); with another word before it, it is one
@@ -133,8 +135,9 @@ def is_an_id(words) -> bool:
 def is_a_revision(words, value: str) -> bool:
     """The label ends in a word of a revision, no word of it names a credential, and the value is hex:
     MAISECRETS_COMMIT=<git sha>, image_digest (gateway report, 2026-10-30: secrets inside a product name made the label of
-    a commit a secret label). SECRET_SHA, key_rev and password_revision stay labels of a credential (Codex review)."""
-    return (len(words) >= 2 and words[-1] in _REVISION_END and not any(w in _CREDENTIAL_WORDS for w in words)
+    a commit a secret label). SECRET_SHA, key_rev, MYSECRET_SHA and passwordhash_revision stay labels of a credential."""
+    rest = "".join(words[:-1]).replace("maisecrets", "")
+    return (len(words) >= 2 and words[-1] in _REVISION_END and not any(c in rest for c in _CREDENTIAL_PARTS)
             and bool(_HEX.fullmatch(value)))
 
 
