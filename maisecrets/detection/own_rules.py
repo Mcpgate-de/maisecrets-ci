@@ -88,6 +88,11 @@ OWN_RULES: list[dict] = [
      # a CJK letter before or after the number is a boundary, as in the e-mail rule
      "regex": r"(?:(?<=[" + _CJK + r"])|(?<!\w))(?<!\+)\+(?!0)\d{1,3}[ \-]?(?:\(?\d{1,5}\)?[ \-]?)\d{2,5}"
               r"(?:[ \-]?\d{2,5}){1,4}(?![\w.](?<![xX])\d|" + _NOT_CJK_WORD + r")"},
+    # a BitLocker recovery key: 48 digits in 8 groups of 6; each group is a 16-bit number times 11 (Microsoft Graph
+    # bitlockerRecoveryKey, manage-bde -protectors -get). 65,536 of the 10^6 groups pass the check, so a random
+    # 8 x 6 digit run passes about once in 2.9 billion. ASCII digits only; a hyphen after it ends a sentence
+    {"id": "bitlocker-recovery-key", "type": "SECRET", "validator": "bitlocker_key",
+     "regex": r"(?<![0-9])(?<![0-9]-)[0-9]{6}(?:-[0-9]{6}){7}(?![0-9])(?!-[0-9])"},
     # bare token prefixes newer than the vendored rulesets live in rules/prefixes.txt (see _load_prefixes)
     {"id": "auth-scheme", "type": "SECRET", "secret_group": 3,
      "regex": r"(?<![\w-])(Bearer|Basic)([ \t]+)([A-Za-z0-9._~+/=-]{16,})"},

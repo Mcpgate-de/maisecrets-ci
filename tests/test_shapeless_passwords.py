@@ -235,10 +235,10 @@ class NoPasswordAfterTheNewLabelsTests(unittest.TestCase):
                 with self.subTest(text=text[:20], value=pw[:5]):
                     self.assertEqual(found(text), [("SECRET", pw)])
 
-    def test_a_date_after_a_plain_json_label_is_as_in_0_6_14(self):
-        # the shared ds path is not changed: it took this value in 0.6.14 too
+    def test_a_date_after_a_plain_json_label_is_no_value(self):
+        # 0.6.14 to 0.8.4 took this value; a calendar date is no secret (gateway field report, 2026-10-29)
         stamp = J(["2024-10-01", "T12:00:00Z"])
-        self.assertEqual(found(J(['{"', PW, 'LastChanged":"', stamp, '"}'])), [("SECRET", stamp)])
+        self.assertEqual(found(J(['{"', PW, 'LastChanged":"', stamp, '"}'])), [])
 
 
 if __name__ == "__main__":

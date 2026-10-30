@@ -126,6 +126,42 @@ def _iban_ok(raw: str) -> bool:
     return int("".join(str(ord(c) - 55) if c.isalpha() else c for c in rearranged)) % 97 == 1
 
 
+# the label before a value, one token: `lastPasswordChangeDateTime: `, `"next_page_token": "`. A quote before it is
+# group 1: a JSON or YAML key. Words a space joins are prose (`Key rotated: <the new key>`) and give no such label
+_LABEL_WORDS_TAIL_RE = _LazyRx(r"(\\?[\"'])?([A-Za-z_][\w.-]*)\\?[\"']?\s*(?::=|=>|[:=])\s*\\?[\"'`]?$")
+
+
+# a version in four parts, not an address, only with evidence: a label with `version` in it (`version: `,
+# `os_version: `, `versionName: `, AssemblyVersion), `ver`, `release` or `build` before it, an update word in the 40
+# characters before it that ends in `to` right before the number (`Upgrade MyPkg to `; "updated. The IPv4 address is"
+# is an address, Nemotron, release gate of 0.8.5), or the extension of a package file after it or after the same number
+# later on its line (`/1.3.0.0/mypkg.1.3.0.0.nupkg`, `/metadata/mypkg/1.3.0.0.json`, the GitLab NuGet API; gateway
+# field report, 2026-10-29)
+_VERSION_BEFORE_RE = _LazyRx(r"(?i)(?:\b(?:[a-z0-9]+[_-])*version(?:[_-]?[a-z0-9]+)*|(?<=[a-z0-9])(?-i:Version)\w*"
+                             r"|\bver|\brelease|\bbuild)[\"']?[ \t]*[:=]?[ \t]*[\"']?v?$")
+_UPDATE_WORD_RE = _LazyRx(r"(?i)\b(?:upgrade[sd]?|downgrade[sd]?|update[sd]?|bump(?:ed|s)?|install(?:ed|s)?"
+                          r"|pin(?:ned|s)?)\b[^\n.;]{0,30}?\bto[ \t]+v?$")
+_PACKAGE_EXT = r"\.(?:nupkg|nuspec|json|dll|exe|msi|jar|war|zip|tar|tgz|gz|whl|so|dylib|pkg|deb|rpm|apk|ipa)\b"
+_PACKAGE_AFTER_RE = _LazyRx(r"(?i)" + _PACKAGE_EXT)
+
+
+def _a_version(text: str, start: int, end: int, value: str) -> bool:
+    line_start = text.rfind("\n", 0, start) + 1
+    line_end = text.find("\n", end)
+    line_end = len(text) if line_end < 0 else line_end
+    window = max(line_start, start - 40)
+    return bool(_PACKAGE_AFTER_RE.match(text, end) or _VERSION_BEFORE_RE.search(text, window, start)
+                or _UPDATE_WORD_RE.search(text, window, start)
+                or re.search(re.escape(value) + "(?i:" + _PACKAGE_EXT + ")", text[end:line_end]))
+
+
+def _bitlocker_key_ok(v: str) -> bool:
+    """Each of the 8 groups is divisible by 11 and below 65536 * 11 (the key is 8 16-bit words, each times 11)."""
+    groups = v.split("-")
+    return len(groups) == 8 and all(g.isascii() and g.isdigit() and int(g) % 11 == 0 and int(g) < 720896
+                                    for g in groups)
+
+
 # public resolvers: a server every network uses, never a person's address
 _RESOLVER_IPS = frozenset({"8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1", "9.9.9.9", "149.112.112.112",
                            "208.67.222.222", "208.67.220.220", "2001:4860:4860::8888", "2001:4860:4860::8844",

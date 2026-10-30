@@ -1,0 +1,12 @@
+# c1-a-message-to-another-session-goes-out-with-placeholders: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c1-a-message-to-another-session-goes-out-with-placeholders"
+control = "C1"
+statement = "A SendMessage call to another Claude session goes out with a placeholder for each value the receiving prompt hook would block, in message, content and summary; the sending model is told; a message without a value is left alone."
+runner = ["tests/test_send_message.py::SendMessageTests::test_a_value_in_the_message_goes_out_as_a_placeholder", "tests/test_send_message.py::SendMessageTests::test_every_text_field_is_masked"]
+
+[proof]
+file = "maisecrets/hooks.py"
+find = '''    if tool == "SendMessage":
+        return _pre_send_message(payload, cfg, tool_input)'''
+replace = '''    if False:
+        return _pre_send_message(payload, cfg, tool_input)'''

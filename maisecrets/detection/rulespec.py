@@ -109,7 +109,7 @@ def betterleaks_patches(table: dict, upstream: dict) -> dict:
 
 
 def presidio_patches(detect) -> dict:
-    """{recognizer id or pattern id: (Patch, ...)} from the six Presidio tables of detect.py, which the loader
+    """{recognizer id or pattern id: (Patch, ...)} from the Presidio patch tables of detect.py, which the loader
     applies."""
     out: dict = {}
 
@@ -127,6 +127,13 @@ def presidio_patches(detect) -> dict:
         add(rid, "regex", "wrap", "(?:(?<!\\+)|(?<=[A-Za-z0-9]\\+))...",
             "the digits of a phone number after its + are no document number; a + after a letter or a digit is a "
             "separator")
+    for rid in sorted(detect.PRESIDIO_SKIP_PATTERNS):
+        add(rid, "load", "skip", "", "a code shape that fired on developer text next to a common context word")
+    for rid, words in sorted(detect.PRESIDIO_CONTEXT_DROP.items()):
+        add(rid, "context", "remove", " ".join(words), "an ordinary word of a developer, not a context of the value")
+    for rid in sorted(detect.PRESIDIO_LABEL_CONSUMED):
+        add(rid, "regex", "replace", "(?<=LABEL)VALUE -> (?:LABEL)(VALUE)",
+            "a look-behind of variable width, which Python's re refuses; the hit is the value group")
     for rid in sorted(detect.PRESIDIO_LEFT_SUBFIELD):
         add(rid, "regex", "replace", "left boundary: also after ?NN", "an MT940 subfield code before the IBAN (0.6.24)")
     for rid in sorted(detect.PRESIDIO_PATTERN_CONTEXT):

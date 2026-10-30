@@ -1,0 +1,24 @@
+{
+ "top": [
+  "cwd",
+  "effort",
+  "hook_event_name",
+  "permission_mode",
+  "prompt_id",
+  "session_id",
+  "tool_input",
+  "tool_name",
+  "tool_use_id",
+  "transcript_path"
+ ],
+ "tool_input": [
+  "content",
+  "message",
+  "recipient",
+  "recipient_kind",
+  "summary",
+  "to",
+  "type"
+ ],
+ "tool_response": "NoneType"
+}

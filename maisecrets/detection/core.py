@@ -66,6 +66,7 @@ from .own_rules import (  # noqa: F401
     OWN_RULES, FALLBACK_RULES,
 )
 from .value_checks import (  # noqa: F401
+    _a_version, _LABEL_WORDS_TAIL_RE, _bitlocker_key_ok,
     _re2_to_python, _POSIX_CLASSES, shannon_entropy, ENTROPY_BY_ALPHABET, ENTROPY_BY_ALPHABET_RULES, _B62, _ALPHABETS,
     alphabet_of, _base64_of_text, _entropy_ok, _luhn_ok, IBAN_LENGTH, _iban_ok, _RESOLVER_IPS, _public_ip,
     _de_tax_id_ok, _de_social_security_ok, _de_health_insurance_ok, _de_lanr_ok, _de_vat_id_ok, _B64_PEM_PRIVATE_RE,
@@ -505,6 +506,7 @@ VALIDATORS = {
     "de_bsnr": lambda v: len(v.strip()) == 9 and v.strip().isdigit() and v.strip() != "000000000",
     "de_vat_id": _de_vat_id_ok,
     "luhn": lambda v: _luhn_ok(re.sub(r"\D", "", v)),
+    "bitlocker_key": _bitlocker_key_ok,
     "iban": _iban_ok,
     "public_ip": _public_ip,
     "not_placeholder": lambda v: v.lower() not in {"placeholder", "changeme", "redacted", "example"}
@@ -710,6 +712,10 @@ ENTITY_TYPE = {"EMAIL_ADDRESS": "EMAIL", "IBAN_CODE": "IBAN", "CREDIT_CARD": "CA
 # address with its postcode is personal.py's
 PRESIDIO_SKIP = {"email", "url", "date", "mac-address", "uuid", "phone", "de-id-card", "de-passport",
                  "crypto", "de-handelsregister", "uk-postcode"}
+# 2.2.365 (rulespec.presidio_patches has the reasons): own label rules cover the member and the tax id; the claim
+# and prior authorization ids took any number after the word (474 false alarms on Mendeley val, #17)
+PRESIDIO_SKIP |= {"us-health-insurance-member-id", "us-provider-tax-id", "us-claim-number",
+                  "us-prior-authorization-number"}
 # validator id per presidio recognizer id; a recognizer with a validator we did not port
 # keeps its pattern score and is treated as weak (context required)
 PRESIDIO_VALIDATOR = {"iban": "iban", "credit-card": "luhn", "ip": "public_ip",
@@ -772,6 +778,17 @@ PRESIDIO_DIGIT_BOUNDED = {"pl-pesel"}
 # the digits of a phone number after its +: a licence or passport pattern took them from the phone rule. A + right
 # after a letter or a digit is a separator (EDIFACT segments), and a number after it stays a document number
 PRESIDIO_NOT_AFTER_PLUS = {"us-license", "us-passport"}
+# Presidio runs the `regex` package; these patterns start with a look-behind of variable width over their label
+# ("claim number: "), which Python's `re` refuses (their other patterns have none). The label becomes a consumed
+# group before the value, and the hit is the value group (2.2.365: the scan raised on every text and the whole suite
+# went red)
+PRESIDIO_LABEL_CONSUMED = frozenset({"us-prescription-number", "us-referral-number"})
+# 2.2.365 patterns that fired on developer text next to a common context word: a code in the shape of an ID number
+# (PA123456 near "auth", A1B2C3 near "zip"). The labelled forms of the same recognizers stay
+PRESIDIO_SKIP_PATTERNS = frozenset({"ca-postal-code#1", "us-claim-number#1", "us-prescription-number#2",
+                                    "us-prior-authorization-number#1", "us-referral-number#1"})
+# context words that are ordinary words of a developer: `dfa` (a state machine), `registration` (a sign-up)
+PRESIDIO_CONTEXT_DROP = {"ph-passport": ("dfa",), "za-license-plate": ("registration",)}
 # single patterns that need a context word although their recognizer does not: DE and nine digits that pass the
 # checksum are also FIX tags and XML identifiers; a real VAT ID stands next to USt-IdNr or VAT. The spaced form
 # (de-vat-id#1) has a low score and needs its word already
@@ -922,6 +939,26 @@ _CARD_FIRST_UPSTREAM = r"((4\d{3})|(5[0-5]\d{2})|"
 PRESIDIO_CARD_FIRST = {"credit-card": r"((4\d{3})|(5[0-5]\d{2})|(2(?:22[1-9]|2[3-9]\d|[3-6]\d\d|7[01]\d|720))|(2131)|"}
 
 
+def _label_consumed(regex: str) -> tuple[str, int]:
+    """`(?<=LABEL)VALUE` as `(?i:LABEL)(VALUE)` and the number of the value group."""
+    depth, i, in_class = 1, 4, False
+    while depth:
+        c = regex[i]
+        if c == "\\":
+            i += 1
+        elif in_class:
+            in_class = c != "]"
+        elif c == "[":
+            in_class = True
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+        i += 1
+    label = regex[4:i - 1]   # Presidio matches with IGNORECASE: Claim number, CLAIM NUMBER
+    return f"(?i:{label})({regex[i:]})", re.compile(label).groups + 1
+
+
 def _presidio_regex(rec_id: str, regex: str) -> str:
     left = PRESIDIO_LEFT_SUBFIELD.get(rec_id)
     if left and regex.startswith(_IBAN_LEFT):
@@ -949,15 +986,22 @@ def _load_presidio(regions: tuple[str, ...] = DEFAULT_PII_REGIONS) -> list[Rule]
         weak = rec["id"] in PRESIDIO_ALWAYS_CONTEXT or (rec["validator"] and validator is None)
         for i, pat in enumerate(rec["patterns"]):
             rule_id = rec["id"] if len(rec["patterns"]) == 1 else f"{rec['id']}#{i}"
+            if rule_id in PRESIDIO_SKIP_PATTERNS:
+                continue
+            regex, group = _re2_to_python(pat["regex"]), 0
+            if rec["id"] in PRESIDIO_LABEL_CONSUMED and regex.startswith("(?<="):
+                regex, group = _label_consumed(regex)
             out.append(Rule(
                 id=rule_id,
                 type=ENTITY_TYPE.get(rec["entity"], rec["entity"]),
-                regex=_Lazy(rf"(?<!\d)(?:{_re2_to_python(pat['regex'])})(?!\d)" if rec["id"] in PRESIDIO_DIGIT_BOUNDED
-                            else _presidio_regex(rec["id"], _re2_to_python(pat["regex"]))),
-                validator=validator, score=float(pat["score"]),
-                context=tuple(c.lower() for c in rec.get("context", [])) + PRESIDIO_EXTRA_CONTEXT.get(rec["id"], ()),
+                regex=_Lazy(rf"(?<!\d)(?:{regex})(?!\d)" if rec["id"] in PRESIDIO_DIGIT_BOUNDED
+                            else _presidio_regex(rec["id"], regex)),
+                validator=validator, score=float(pat["score"]), secret_group=group,
+                context=tuple(c.lower() for c in rec.get("context", [])
+                              if c.lower() not in PRESIDIO_CONTEXT_DROP.get(rec["id"], ()))
+                + PRESIDIO_EXTRA_CONTEXT.get(rec["id"], ()),
                 require_context=weak or rule_id in PRESIDIO_PATTERN_CONTEXT,
-                whole_match=True, region=region,
+                whole_match=not group, region=region,
             ))
     return out
 
@@ -2405,12 +2449,30 @@ _MEASURE_LABEL_RE = _LazyRx(r"(?i)(?<![a-z])(?:ttl|timeout|expir\w*|lifetime|max
 _SECRET_LABEL_RE = _LazyRx(r"(?i)(?:token|secret[_-]?key|secret|secret[_-]?value|api[_-]?key|apikey|access[_-]?key"
                               r"|auth[_-]?key|\w+[_-]key|password|passwd|pwd|passphrase)\\?[\"']?\s*(?::=|=>|[:=])\s*\\?[\"'`]?$")
 _ELISION_RE = _LazyRx(r"(?:\.\.\.|\u2026)$")
+def _names_no_secret(text: str, start: int) -> bool:
+    """The label before the value names a cursor, a key that is an identifier, or the time or the state of a secret
+    (fields.names_no_secret; gateway field report, 2026-10-29: in maisecrets mode a masked cursor could not be sent
+    back, so paging broke)."""
+    m = _LABEL_WORDS_TAIL_RE.search(text, max(_line_start(text, start), start - 80), start)
+    if not m:
+        return False
+    label, words = m.group(2), _fields.label_words(m.group(2))
+    if _fields.is_time_or_state(words) or _fields.is_an_id(words):
+        return True
+    # a cursor or an identifier key only in the spelling of an API: a quoted key or camelCase. GITHUB_SYNC_TOKEN= in an
+    # env file and repo_sync_token: in a CI file name a credential (Fable review, 2026-10-30)
+    api = bool(m.group(1)) or ("_" not in label and "-" not in label and label != label.upper()
+                               and label != label.lower())
+    return api and (_fields.is_cursor(words) or _fields.is_handle_key(words))
+
+
 # a label that names a derived thing: secret_id, password_hash, token_type, hashed_secret. Anchored at the value: in
 # `secret_name: x, password: <value>` the password stays a hit
 _DERIVED_LABEL_RE = _LazyRx(
-    r"(?i)(?:(?:secret|password|passwd|pwd|token|key)[_-]?(?:id|name|hash|hashed|len|length|path|file|arn|ref|url|uri"
+    r"(?i)(?:(?:secret|password|passwd|pwd|token|key)s?[_-]?(?:id|name|hash|hashed|len|length|path|file|arn|ref|url|uri"
     r"|version|type|policy|rules?|last(?:_\w+)?)|hashed_(?:secret|password|token)|(?:secret|password|token|key)Id"
-    r"|(?:secret|password|token)Name)\\?[\"']?\s*(?::=|=>|[:=])\s*\\?[\"'`]?$")
+    r"|(?:secret|password|token)Name)"
+    r"\\?[\"']?\s*(?::=|=>|[:=])\s*\\?[\"'`]?$")
 
 
 def _yyyymmdd(v: str) -> bool:
@@ -2917,8 +2979,9 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
                      and not _SECRET_LABEL_RE.search(
                         text, max(_line_start(text, start), start - 60), start))
                     or (_ELISION_RE.search(secret) and len(secret.rstrip(".\u2026")) < 20)
+                    or _names_no_secret(text, start)
                     or _DERIVED_LABEL_RE.search(text, max(_line_start(text, start), start - 60), start)):
-                continue   # a UUID, an elided value (sk-...), or a label that names a derived thing (secret_id)
+                continue   # a UUID, an elided value (sk-...), or a label of a derived thing (secret_id, nextPageToken)
             if "user-equals-password" in filters and _pass_equals_user(m.group(0), secret):
                 continue
             if ("sigv4-scope" in filters and _SIGV4_CREDENTIAL_RE.search(text, max(0, start - 24), start)
@@ -2937,6 +3000,8 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
                 continue
             if rule.type == "IP" and _SECTION_BEFORE_RE.search(text, max(0, start - 24), start):
                 continue   # a section number: RFC 6749 4.1.2.1, OIDC Core 3.1.2.1, section 7.1.2.3
+            if rule.id == "ip#2" and _a_version(text, start, end, secret):
+                continue
             if overlaps(start, end):
                 continue
             if rule.entropy and not _entropy_ok(rule, secret, channel):
@@ -3388,7 +3453,7 @@ def findings(text: str, channel: str = "prompt", path: str = "", *, fields=None)
     spans = _fields.checked(text, fields)
     hits = scan(text, channel=channel, path=path)   # the call of before: a caller may wrap detect.scan
     if spans:
-        hits = _fields.added(text, hits, spans, lambda t: scan(t, channel=channel))
+        hits = _fields.added(text, hits, spans, lambda t: scan(t, channel=channel, path=""), same_scan=not path)
     return [m for m in hits if not is_fixture(m, text, path)]
 
 

@@ -639,6 +639,9 @@ def _without_guard(hooks: dict) -> dict:
 
 # hook groups only Codex has a tool for: the guard watches Claude Code, which has no apply_patch
 CODEX_ONLY_MATCHERS = {"apply_patch"}
+# hook groups the guard leaves alone: with maisecrets gone, a message to another session with a value is blocked by
+# the receiving session's own prompt hook, and a guard that blocked every message would stop the sessions talking
+UNGUARDED_MATCHERS = {"SendMessage"}
 
 
 def _guard_entries() -> dict:
@@ -649,7 +652,7 @@ def _guard_entries() -> dict:
     hooks: dict = {}
     for event in ("UserPromptSubmit", "PreToolUse", "PostToolUse"):
         for entry in plugin_hooks.get(event, []):
-            if entry.get("matcher") in CODEX_ONLY_MATCHERS:
+            if entry.get("matcher") in CODEX_ONLY_MATCHERS | UNGUARDED_MATCHERS:
                 continue
             new = {"hooks": [{"type": "command", "command": GUARD_COMMAND, "timeout": GUARD_TIMEOUTS[event]}]}
             hooks.setdefault(event, []).append({"matcher": entry["matcher"], **new} if entry.get("matcher") else new)

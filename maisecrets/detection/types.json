@@ -10,6 +10,7 @@
   "AU_TFN": {"family": "pii", "class": "pii.national_id"},
   "BIRTH_DATE": {"family": "pii", "class": "pii.birth_date"},
   "CARD": {"family": "pii", "class": "pii.card"},
+  "CA_POSTAL_CODE": {"family": "pii", "class": "pii.address"},
   "CA_SIN": {"family": "pii", "class": "pii.national_id"},
   "CH_AHV": {"family": "pii", "class": "pii.national_id"},
   "CH_UID": {"family": "pii", "class": "pii.tax_id"},
@@ -54,6 +55,7 @@
   "NG_NIN": {"family": "pii", "class": "pii.national_id"},
   "NG_VEHICLE_REGISTRATION": {"family": "pii", "class": "pii.national_id"},
   "PHONE": {"family": "pii", "class": "pii.phone"},
+  "PH_PASSPORT": {"family": "pii", "class": "pii.national_id"},
   "PH_TIN": {"family": "pii", "class": "pii.national_id"},
   "PH_UMID": {"family": "pii", "class": "pii.national_id"},
   "PL_PESEL": {"family": "pii", "class": "pii.national_id"},
@@ -77,7 +79,16 @@
   "US_MBI": {"family": "pii", "class": "pii.national_id"},
   "US_NPI": {"family": "pii", "class": "pii.national_id"},
   "US_PASSPORT": {"family": "pii", "class": "pii.national_id"},
+  "US_PRESCRIPTION_NUMBER": {"family": "pii", "class": "pii.national_id"},
+  "US_REFERRAL_NUMBER": {"family": "pii", "class": "pii.national_id"},
   "US_SSN": {"family": "pii", "class": "pii.national_id"},
-  "ZA_ID_NUMBER": {"family": "pii", "class": "pii.national_id"}
+  "ZA_COMPANY_REGISTRATION": {"family": "pii", "class": "pii.national_id"},
+  "ZA_DRIVER_LICENSE": {"family": "pii", "class": "pii.national_id"},
+  "ZA_ID_NUMBER": {"family": "pii", "class": "pii.national_id"},
+  "ZA_INCOME_TAX_NUMBER": {"family": "pii", "class": "pii.tax_id"},
+  "ZA_LICENSE_PLATE": {"family": "pii", "class": "pii.national_id"},
+  "ZA_PASSPORT": {"family": "pii", "class": "pii.national_id"},
+  "ZA_TRAFFIC_REGISTER_NUMBER": {"family": "pii", "class": "pii.national_id"},
+  "ZA_VAT_NUMBER": {"family": "pii", "class": "pii.national_id"}
  }
 }

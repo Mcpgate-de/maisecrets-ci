@@ -1,5 +1,5 @@
 {
- "presidio_version": "2.2.364",
+ "presidio_version": "2.2.365",
  "recognizers": [
   {
    "id": "au-abn",
@@ -91,6 +91,36 @@
     "tfn"
    ],
    "validator": true
+  },
+  {
+   "id": "ca-postal-code",
+   "class": "CaPostalCodeRecognizer",
+   "entity": "CA_POSTAL_CODE",
+   "language": "en",
+   "patterns": [
+    {
+     "name": "CA Postal Code (strict, with space)",
+     "score": 0.3,
+     "regex": "\\b[ABCEGHJ-NPRSTVXY]\\d[ABCEGHJ-NPRSTV-Z] \\d[ABCEGHJ-NPRSTV-Z]\\d\\b"
+    },
+    {
+     "name": "CA Postal Code (weak, no space)",
+     "score": 0.1,
+     "regex": "\\b[ABCEGHJ-NPRSTVXY]\\d[ABCEGHJ-NPRSTV-Z]\\d[ABCEGHJ-NPRSTV-Z]\\d\\b"
+    }
+   ],
+   "context": [
+    "postal code",
+    "postcode",
+    "zip",
+    "canada",
+    "ontario",
+    "quebec",
+    "alberta",
+    "british columbia",
+    "code postal"
+   ],
+   "validator": false
   },
   {
    "id": "ca-sin",
@@ -972,7 +1002,7 @@
    "id": "kr-passport",
    "class": "KrPassportRecognizer",
    "entity": "KR_PASSPORT",
-   "language": "kr",
+   "language": "ko",
    "patterns": [
     {
      "name": "Passport Number (Current)",
@@ -1060,6 +1090,34 @@
     "plate",
     "vehicle",
     "registration"
+   ],
+   "validator": false
+  },
+  {
+   "id": "ph-passport",
+   "class": "PhPassportRecognizer",
+   "entity": "PH_PASSPORT",
+   "language": "en",
+   "patterns": [
+    {
+     "name": "PH Passport (weak: 1L7D1L or 2L7D)",
+     "score": 0.1,
+     "regex": "\\b(?:[A-Z]\\d{7}[A-Z]|[A-Z]{2}\\d{7})\\b"
+    }
+   ],
+   "context": [
+    "passport",
+    "passport number",
+    "passport no",
+    "passport no.",
+    "passport#",
+    "passport id",
+    "travel document",
+    "philippine passport",
+    "philippines passport",
+    "pasaporte",
+    "pasaporte number",
+    "dfa"
    ],
    "validator": false
   },
@@ -1186,6 +1244,61 @@
    "validator": true
   },
   {
+   "id": "za-company-registration",
+   "class": "ZaCompanyRegistrationRecognizer",
+   "entity": "ZA_COMPANY_REGISTRATION",
+   "language": "en",
+   "patterns": [
+    {
+     "name": "South African Company Registration (modern)",
+     "score": 0.4,
+     "regex": "\\b(?:19|20)\\d{2}/\\d{6}/\\d{2}\\b"
+    },
+    {
+     "name": "South African Company Registration (legacy)",
+     "score": 0.3,
+     "regex": "\\b(?:CK|K|T|W|B|M|N|NR)\\d{4}/\\d{6}\\b"
+    }
+   ],
+   "context": [
+    "cipc",
+    "company registration",
+    "registration number",
+    "close corporation",
+    "company reg",
+    "enterprise number"
+   ],
+   "validator": true
+  },
+  {
+   "id": "za-driver-license",
+   "class": "ZaDriverLicenseRecognizer",
+   "entity": "ZA_DRIVER_LICENSE",
+   "language": "en",
+   "patterns": [
+    {
+     "name": "South African Driver's Licence",
+     "score": 0.3,
+     "regex": "\\b\\d{6,10}[A-Z0-9]{2,5}\\b"
+    }
+   ],
+   "context": [
+    "licence",
+    "license",
+    "driving licence",
+    "driving license",
+    "driver's licence",
+    "driver's license",
+    "drivers licence",
+    "drivers license",
+    "enatis",
+    "natis",
+    "licence number",
+    "license number"
+   ],
+   "validator": true
+  },
+  {
    "id": "za-id-number",
    "class": "ZaIdNumberRecognizer",
    "entity": "ZA_ID_NUMBER",
@@ -1206,6 +1319,134 @@
     "rsa id",
     "smart id",
     "national id"
+   ],
+   "validator": true
+  },
+  {
+   "id": "za-income-tax-number",
+   "class": "ZaIncomeTaxNumberRecognizer",
+   "entity": "ZA_INCOME_TAX_NUMBER",
+   "language": "en",
+   "patterns": [
+    {
+     "name": "South African Income Tax Number",
+     "score": 0.05,
+     "regex": "\\b[01239]\\d{9}\\b"
+    }
+   ],
+   "context": [
+    "sars",
+    "tax reference",
+    "income tax",
+    "tax number",
+    "itr",
+    "taxpayer",
+    "tax registration"
+   ],
+   "validator": true
+  },
+  {
+   "id": "za-license-plate",
+   "class": "ZaLicensePlateRecognizer",
+   "entity": "ZA_LICENSE_PLATE",
+   "language": "en",
+   "patterns": [
+    {
+     "name": "ZA Licence Plate (compact)",
+     "score": 0.3,
+     "regex": "\\b[A-Z]{2,4}\\d{2,4}[A-Z]{0,4}(?:GP|ZN|WP|EC|NC|FS|LP|MP|NW)\\b"
+    },
+    {
+     "name": "ZA Licence Plate (spaced)",
+     "score": 0.3,
+     "regex": "\\b[A-Z]{2}\\s?\\d{2}\\s?[A-Z]{2}\\s?(?:GP|ZN|WP|EC|NC|FS|LP|MP|NW)\\b"
+    },
+    {
+     "name": "ZA Licence Plate (prefix digits)",
+     "score": 0.3,
+     "regex": "\\b[A-Z]{2,3}\\s?\\d{2,3}\\s?(?:GP|ZN|WP|EC|NC|FS|LP|MP|NW)\\b"
+    },
+    {
+     "name": "ZA Licence Plate (EC numeric prefix)",
+     "score": 0.3,
+     "regex": "\\b\\d{2,3}\\s?[A-Z]{2,3}\\s?EC\\b"
+    }
+   ],
+   "context": [
+    "licence plate",
+    "license plate",
+    "number plate",
+    "registration",
+    "vehicle registration",
+    "natis",
+    "enatis",
+    "plate number"
+   ],
+   "validator": true
+  },
+  {
+   "id": "za-passport",
+   "class": "ZaPassportRecognizer",
+   "entity": "ZA_PASSPORT",
+   "language": "en",
+   "patterns": [
+    {
+     "name": "South African Passport",
+     "score": 0.2,
+     "regex": "\\b[ADMT]\\d{8}\\b"
+    }
+   ],
+   "context": [
+    "passport",
+    "passport number",
+    "travel document",
+    "dha",
+    "south african passport",
+    "rsa passport"
+   ],
+   "validator": true
+  },
+  {
+   "id": "za-traffic-register-number",
+   "class": "ZaTrafficRegisterNumberRecognizer",
+   "entity": "ZA_TRAFFIC_REGISTER_NUMBER",
+   "language": "en",
+   "patterns": [
+    {
+     "name": "South African Traffic Register Number",
+     "score": 0.05,
+     "regex": "\\b\\d{13}\\b"
+    }
+   ],
+   "context": [
+    "traffic register",
+    "traffic register number",
+    "trn",
+    "enatis",
+    "natis",
+    "vehicle register"
+   ],
+   "validator": true
+  },
+  {
+   "id": "za-vat-number",
+   "class": "ZaVatNumberRecognizer",
+   "entity": "ZA_VAT_NUMBER",
+   "language": "en",
+   "patterns": [
+    {
+     "name": "South African VAT Number",
+     "score": 0.3,
+     "regex": "\\b4\\d{9}\\b"
+    }
+   ],
+   "context": [
+    "vat",
+    "vat number",
+    "vat registration",
+    "tax invoice",
+    "sars",
+    "value added tax"
    ],
    "validator": true
   },
@@ -1450,7 +1691,7 @@
     {
      "name": "NINO (medium)",
      "score": 0.5,
-     "regex": "\\b(?!bg|gb|nk|kn|nt|tn|zz|BG|GB|NK|KN|NT|TN|ZZ) ?([a-ceghj-pr-tw-zA-CEGHJ-PR-TW-Z]{1}[a-ceghj-npr-tw-zA-CEGHJ-NPR-TW-Z]{1}) ?([0-9]{2}) ?([0-9]{2}) ?([0-9]{2}) ?([a-dA-D]{1})\\b"
+     "regex": "\\b(?!bg|gb|nk|kn|nt|tn|zz|BG|GB|NK|KN|NT|TN|ZZ)([a-ceghj-pr-tw-zA-CEGHJ-PR-TW-Z]{1}[a-ceghj-npr-tw-zA-CEGHJ-NPR-TW-Z]{1}) ?([0-9]{2}) ?([0-9]{2}) ?([0-9]{2}) ?([a-dA-D]{1})\\b"
     }
    ],
    "context": [
@@ -1644,6 +1885,153 @@
     "cdls",
     "lic#",
     "driving"
+   ],
+   "validator": false
+  },
+  {
+   "id": "us-health-insurance-member-id",
+   "class": "UsHealthInsuranceMemberIdRecognizer",
+   "entity": "US_HEALTH_INSURANCE_MEMBER_ID",
+   "language": "en",
+   "patterns": [
+    {
+     "name": "Health insurance member ID (weak)",
+     "score": 0.1,
+     "regex": "\\b(?=[A-Z0-9-]{6,20}\\b)(?=[A-Z0-9-]*[A-Z])(?=[A-Z0-9-]*\\d)[A-Z]{1,5}-?[A-Z0-9]{5,14}\\b"
+    }
+   ],
+   "context": [
+    "member",
+    "subscriber",
+    "insurance",
+    "policy"
+   ],
+   "validator": false
+  },
+  {
+   "id": "us-claim-number",
+   "class": "UsClaimNumberRecognizer",
+   "entity": "US_CLAIM_NUMBER",
+   "language": "en",
+   "patterns": [
+    {
+     "name": "Claim number (labelled)",
+     "score": 0.35,
+     "regex": "(?<=\\b(?:claim|medical\\s+claim|healthcare\\s+claim)(?:\\s*(?:#|no\\.?|number|id)\\s*:?\\s*|\\s*:\\s*|\\s+))(?:CLM-?)?\\d{6,15}\\b"
+    },
+    {
+     "name": "Claim number (weak prefixed)",
+     "score": 0.1,
+     "regex": "\\bCLM-?\\d{6,15}\\b"
+    }
+   ],
+   "context": [
+    "claim",
+    "billing"
+   ],
+   "validator": false
+  },
+  {
+   "id": "us-prescription-number",
+   "class": "UsPrescriptionNumberRecognizer",
+   "entity": "US_PRESCRIPTION_NUMBER",
+   "language": "en",
+   "patterns": [
+    {
+     "name": "Prescription number (Rx labelled)",
+     "score": 0.6,
+     "regex": "(?<=\\brx(?:\\s*(?:#|no\\.?|number|id)\\s*:?\\s*|\\s*:\\s*|\\s+))(?:RX-?)?\\d{6,12}\\b"
+    },
+    {
+     "name": "Prescription number (labelled)",
+     "score": 0.35,
+     "regex": "(?<=\\bprescription(?:\\s*(?:#|no\\.?|number|id)\\s*:?\\s*|\\s*:\\s*|\\s+))(?:RX-?)?\\d{6,12}\\b"
+    },
+    {
+     "name": "Prescription number (weak prefixed)",
+     "score": 0.1,
+     "regex": "\\bRX-?\\d{6,12}\\b"
+    }
+   ],
+   "context": [
+    "prescription",
+    "pharmacy",
+    "medication"
+   ],
+   "validator": false
+  },
+  {
+   "id": "us-prior-authorization-number",
+   "class": "UsPriorAuthorizationNumberRecognizer",
+   "entity": "US_PRIOR_AUTHORIZATION_NUMBER",
+   "language": "en",
+   "patterns": [
+    {
+     "name": "Prior authorization number (labelled)",
+     "score": 0.35,
+     "regex": "(?<=\\b(?:prior\\s+authorization|prior\\s+auth|preauthorization|pre-auth|authorization)(?:\\s*(?:#|no\\.?|number|id)\\s*:?\\s*|\\s*:\\s*|\\s+))(?:PA-?)?\\d{6,12}\\b"
+    },
+    {
+     "name": "Prior authorization number (weak prefixed)",
+     "score": 0.1,
+     "regex": "\\bPA-?\\d{6,12}\\b"
+    }
+   ],
+   "context": [
+    "authorization",
+    "auth",
+    "preauthorization",
+    "approval"
+   ],
+   "validator": false
+  },
+  {
+   "id": "us-provider-tax-id",
+   "class": "UsProviderTaxIdRecognizer",
+   "entity": "US_PROVIDER_TAX_ID",
+   "language": "en",
+   "patterns": [
+    {
+     "name": "Provider tax ID (labelled)",
+     "score": 0.35,
+     "regex": "(?<=\\b(?:(?:(?:billing|rendering|healthcare)\\s+provider|provider\\s+organization|provider)\\s+(?:tax\\s*(?:id|number|identification\\s+number)|tin|ein)|billing\\s+provider)(?:\\s*(?:#|no\\.?|number|id)\\s*:?\\s*|\\s*:\\s*|\\s+))(?:0[1-6]|1[0-6]|2[0-7]|3[0-9]|4[0-8]|5[0-9]|6[0-8]|7[1-7]|8[0-8]|9[0-5]|9[89])-\\d{7}\\b"
+    },
+    {
+     "name": "Provider tax ID (weak valid EIN)",
+     "score": 0.1,
+     "regex": "\\b(?:0[1-6]|1[0-6]|2[0-7]|3[0-9]|4[0-8]|5[0-9]|6[0-8]|7[1-7]|8[0-8]|9[0-5]|9[89])-\\d{7}\\b"
+    }
+   ],
+   "context": [
+    "tax",
+    "tin",
+    "ein",
+    "billing"
+   ],
+   "validator": false
+  },
+  {
+   "id": "us-referral-number",
+   "class": "UsReferralNumberRecognizer",
+   "entity": "US_REFERRAL_NUMBER",
+   "language": "en",
+   "patterns": [
+    {
+     "name": "Referral number (labelled)",
+     "score": 0.35,
+     "regex": "(?<=\\b(?:referral|infusion\\s+referral)(?:\\s*(?:#|no\\.?|number|id)\\s*:?\\s*|\\s*:\\s*|\\s+))(?:(?:REF|INF)-?)?\\d{6,12}\\b"
+    },
+    {
+     "name": "Referral number (weak prefixed)",
+     "score": 0.1,
+     "regex": "\\b(?:REF|INF)-?\\d{6,12}\\b"
+    }
+   ],
+   "context": [
+    "referral",
+    "infusion",
+    "specialty",
+    "referring"
    ],
    "validator": false
   },
@@ -2062,6 +2450,25 @@
     "url",
     "website",
     "link"
+   ],
+   "validator": false
+  },
+  {
+   "id": "uuid",
+   "class": "UuidRecognizer",
+   "entity": "UUID",
+   "language": "en",
+   "patterns": [
+    {
+     "name": "UUID (hyphenated)",
+     "score": 0.5,
+     "regex": "\\b[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\\b"
+    }
+   ],
+   "context": [
+    "uuid",
+    "guid",
+    "unique identifier"
    ],
    "validator": false
   }

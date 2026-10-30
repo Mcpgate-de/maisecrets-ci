@@ -95,7 +95,7 @@ FILTERS = {
     "aws-access-token": ("sigv4-scope",),                       # the key id of a SigV4 credential scope
     "label-cli-password": ("pg-password-switch",),              # psql --password <database>
     "url-password-no-user": ("url-password-value",),
-    "hashicorp-tf-password": ("password-value",),               # detect-secrets' value check
+    "hashicorp-tf-password": ("password-value", "derived-label"),               # detect-secrets' value check
     "email-percent-encoded": ("encoded-mail-context",),         # name%40host only where an address is expected
     "phone": ("phone-shape",),
     "email": ("cjk-head",),                                     # an address glued to CJK text: the words are no part

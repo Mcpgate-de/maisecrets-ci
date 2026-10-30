@@ -72,10 +72,11 @@ class FieldEvidenceTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(leaf(CURSOR, name), [])
 
-    def test_key_and_token_alone_are_no_label_but_with_a_word_before_they_are(self):
-        # in text `token: <identifier>` is a SECRET; in API data a field `key` or `token` names an identifier as often
+    def test_key_alone_is_no_label_but_with_a_word_before_it_is(self):
+        # in text `key: <identifier>` is a SECRET; in API data a field `key` names an identifier as often. `token`
+        # alone stays a label: under it a 64-hex value or a UUID is found by the label only (gateway, 2026-10-30)
         for value in ("PBE-3697", "img_7f3a9c21b4", "onboarding_step_3_title", PASSWORD):
-            for name in ("key", "token", "Token", " key "):
+            for name in ("key", "Key", " key "):
                 with self.subTest(name=name, value=value[:3]):
                     self.assertEqual(spans(leaf(value, name)), spans(D.findings(value, channel="tool")))
         for name in ("api_key", "apiKey", "access_token", "auth-token", "secret_key"):

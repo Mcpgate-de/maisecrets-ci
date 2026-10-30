@@ -367,6 +367,19 @@ SCENARIOS = {
     },
     # secret destinations, protect: the first call of a secret runs and makes its host known; a second call to a host
     # it never went to asks, even with Bash allowed, and headless refuses the ask, so it does not run
+    # a message to another Claude session with a value of a secret's shape: the receiving session's prompt hook would
+    # block it, and the sender never learned it (2026-10-30). The message goes out with a placeholder, the value is
+    # stored, and the sender is told. REPORT_VALUE, not the marker: the scripted model writes the value itself
+    "send_message_masks_a_value": {
+        "prompt": "Tell the peer session the status.",
+        "allowed_tools": "SendMessage,ListAgents",
+        "turns": [{"tool": "SendMessage", "input": {"to": "nobody-probe",
+                                                    "message": f"status: the token is {REPORT_VALUE}"}},
+                  {"text": "done"}],
+        "expect_requests": 2,
+        "expect_post_input": ("SendMessage", "message", "\u27e6SECRET_c1\u27e7", REPORT_VALUE),
+        "expect_in_requests": ["the message went out with placeholders"],
+    },
     "destination_protect_asks": {
         "prompt": "use the stored token \u27e6SECRET_c1\u27e7",
         "preload": [(MARK, "SECRET", "gitlab_pat")],
@@ -838,6 +851,14 @@ def run_scenario(name: str, sc: dict, update_golden: bool) -> list[str]:
     if partial:
         fails.append(f"{len(partial)} hook payload(s) not written whole (a hook was stopped while it wrote): "
                      + ", ".join(partial))
+    if sc.get("expect_post_input"):
+        tool, field, want, absent = sc["expect_post_input"]
+        seen = [str((json.loads(pf.read_text()).get("tool_input") or {}).get(field, ""))
+                for pf in dump.glob(f"*PostToolUse_{tool}.json")]
+        if not seen:
+            fails.append(f"no PostToolUse for {tool}: the call did not run")
+        elif not all(want in v and absent not in v for v in seen):
+            fails.append(f"{tool}.{field} after the hook: the placeholder is missing or the value is still there")
     for pf in dump.glob("*.json"):
         text = pf.read_text(errors="ignore")
         payload = json.loads(text)

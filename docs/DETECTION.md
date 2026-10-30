@@ -87,12 +87,14 @@ d.findings("0171 4829173", channel="tool")                                      
   back a hit that the text around the value took away, or parse anything: the core reads JSON and the other formats of
   the text itself, as without fields. A field that names what the core read itself adds no second hit.
 - **Names that add nothing:** a name the label rules give no evidence for (`id`, `value`, `data`, `title`, an unknown
-  word), `key` and `token` alone (in API data they name a ticket key, an object key or a cursor as often as a
-  credential; `api_key`, `access_token`, `secret_key` are labels as in text), the cursor of a paged list
-  (`nextPageToken`, `syncToken`, `continuationToken`), and a name with a line break, `:`, `=` or a quote, or longer
-  than 64 characters. `build_number` stays text.
+  word), `key` alone (in API data it names a ticket key, an object key or a translation key as often as a credential;
+  `api_key`, `secret_key` are labels as in text, and so is `token` alone), the cursor of a paged list
+  (`nextPageToken`, `syncToken`, `continuationToken`, `purchaseToken`; not `PrevAuthToken`), and a name with a line
+  break, `:`, `=` or a quote, or longer than 64 characters. `build_number` stays text.
 - **Without `fields`** (or with an empty list) a scan is the one of before: `scripts/detection_fingerprint.py` gives
-  the same bytes. Each field costs two scans of its value, one with the label and one bare.
+  the same bytes. Each field costs two scans of its value, one with the label and one bare. In `findings()` with no
+  `path`, a field over the whole text costs one, since the scan of the text is its bare scan; `scan(..., fields=)`
+  scans twice.
 - `tests/test_detection_fields.py` holds these points; `tests/conformance/cases.json` has cases with
   `context.fields` in the gateway's shapes (a leaf with its field path, and a JSON text with fields of its own keys).
 

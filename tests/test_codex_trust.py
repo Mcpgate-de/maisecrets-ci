@@ -79,7 +79,7 @@ FIXTURE_DECLARATION_WITH_STATUS = "sha256:83d7f545053b1aed0efd9310af7bc57f2986db
 # not a change of the first matcher: that would make the whole PreToolUse hook "Modified" on Codex 0.163 and older, and
 # it would protect no tool until the person trusts it again. Where Codex maps apply_patch to Write or Edit, both groups
 # run on it (measured on codex-cli 0.163.0, macOS: two equal rewrites, two audit lines).
-ADDED_GROUPS = {("PreToolUse", "apply_patch")}
+ADDED_GROUPS = {("PreToolUse", "apply_patch"), ("PreToolUse", "SendMessage")}
 
 
 def codex_hashes(platform: str) -> dict:

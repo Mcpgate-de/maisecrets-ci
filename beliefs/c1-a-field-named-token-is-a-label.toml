@@ -1,0 +1,10 @@
+# c1-a-field-named-token-is-a-label: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c1-a-field-named-token-is-a-label"
+control = "C1"
+statement = "A field named token alone is a label under fields=: a 64-hex value, a UUID or a legacy GitLab token under it is found, though the bare value is no hit; a field named key alone adds nothing."
+runner = ["tests/test_api_answer_fields.py::FieldLabelTests::test_a_credential_under_a_bare_token_field_is_found", "tests/test_detection_fields.py::FieldEvidenceTests::test_key_alone_is_no_label_but_with_a_word_before_it_is"]
+
+[proof]
+file = "maisecrets/detection/fields.py"
+find = '''_NO_LABEL_ALONE = frozenset({"key"})'''
+replace = '''_NO_LABEL_ALONE = frozenset({"key", "token"})'''

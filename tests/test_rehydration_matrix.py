@@ -406,6 +406,8 @@ class DecisionSitesTests(unittest.TestCase):
             "_pre_bash": ["_ask", "_ask", "_ask", "_ask", "_updated"],
             # ssh consent outside Bash (PowerShell text, a file under ~/.ssh): asks with the input unchanged
             "_consent_gate": ["_ask"],
+            # a message to another session: values out, placeholders in; no value goes into the call
+            "_pre_send_message": ["_updated"],
         })
         src = Path(ROOT, "maisecrets", "hooks.py").read_text(encoding="utf-8")
         self.assertEqual(src.count('"permissionDecision": "allow"'), 1, "allow is written in _updated only")

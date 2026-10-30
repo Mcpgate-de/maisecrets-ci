@@ -138,6 +138,10 @@ TOKENS = {
                                    J(["lb", "x_"]) + rd(r, 42, AN) + "B"),
     "labelbox-recursion-api-key": lambda r: (J(["rm", "a_"]) + rd(r, 42, AN + "_-") + rd(r, 1, "AEIMQUYcgkosw048"),
                                              J(["rm", "a_"]) + rd(r, 30, AN) + "Q"),
+    # Composio: oak_ needs a capital and a digit among its 20 characters; the look-alikes have 20 without one
+    "oak-api-key": lambda r: (J(["o", "ak_"]) + rd(r, 1, D) + rd(r, 18, B64U) + rd(r, 1, U),
+                                       J(["o", "ak_"]) + rd(r, 20, r.choice((L + D, string.ascii_letters + "_-")))),
+    "composio-user-api-key": lambda r: (J(["u", "ak_"]) + rd(r, 43, B64U), J(["u", "ak_"]) + rd(r, 20, AN)),
     # the legacy Office 365 connector URL of Microsoft Teams; the look-alike lacks the last id
     "microsoft-teams-webhook-legacy": lambda r: (
         J(["https://outlook.of", "fice.com/webhook/"]) + _uuid(r) + "@" + _uuid(r) + "/IncomingWebhook/"

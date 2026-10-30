@@ -57,5 +57,58 @@ class VendoredRulesTests(unittest.TestCase):
         self.assertIn("betterleaks.json: no rules", cvr.problems(self.root))
 
 
+
+class PresidioPatternsCompileTests(unittest.TestCase):
+    """Presidio runs the `regex` package and maisecrets runs `re`: a pattern `re` refuses raised in every scan, and a
+    sync (2.2.365) turned the whole suite red without naming the rule."""
+
+    def setUp(self):
+        sys.path.insert(0, str(ROOT))
+        from maisecrets.detection import core
+        self.core = core
+        data = json.loads((ROOT / cvr.RULES / "presidio.json").read_text(encoding="utf-8"))
+        self.regions = tuple(sorted({core.presidio_region(r["id"]) for r in data["recognizers"]}))
+
+    def test_every_presidio_pattern_of_every_region_compiles(self):
+        import re
+        rules = self.core._load_presidio(self.regions)
+        self.assertGreater(len(rules), 100)
+        for rule in rules:
+            with self.subTest(rule.id):
+                re.compile(rule.regex.pattern)
+
+    def test_a_consumed_label_is_no_part_of_the_hit(self):
+        consumed = self.core.PRESIDIO_LABEL_CONSUMED
+        rules = [r for r in self.core._load_presidio(("us",)) if r.id.split("#")[0] in consumed]
+        self.assertTrue(any(r.secret_group for r in rules))
+        n = "".join(str((7 * i + 3) % 10) for i in range(8))
+        for text, value in ((f"referral no. REF-{n[:7]}", f"REF-{n[:7]}"), (f"Referral Number: {n}", n),
+                            (f"REFERRAL #: {n}", n), (f"Prescription number: {n}", n)):
+            with self.subTest(text):
+                self.assertEqual([m.value for m in self.core.scan(text, channel="tool", rule_list=rules)], [value])
+
+    def test_a_code_next_to_a_common_word_of_a_developer_is_no_id(self):
+        rules = self.core._load_presidio(("us", "ca", "ph", "za"))
+        for text in ("zip artifact A1B2C3 uploaded", "dfa state AB1234567 accepted", "registration failed for AB12CDGP",
+                     "auth request PA123456 failed", "billing job CLM-123456 done", "pharmacy sync RX-1234567 ok",
+                     "referral link REF-1234567 sent"):
+            with self.subTest(text=text):
+                self.assertEqual([m.kind for m in self.core.scan(text, channel="tool", rule_list=rules)], [])
+
+    def test_a_number_after_the_word_claim_or_authorization_is_no_id(self):
+        # 474 false alarms on Mendeley val, 39 on Nemotron val (release gate, 2026-10-30)
+        rules = self.core._load_presidio(("us",))
+        n = "".join(str((3 * i + 1) % 10) for i in range(9))
+        for text in (f"The insurance claim {n} was settled.", f"Claim number: {n}", f"prior authorization {n} ok"):
+            with self.subTest(text=text[:12]):
+                self.assertEqual([m.kind for m in self.core.scan(text, channel="tool", rule_list=rules)], [])
+
+    def test_the_spaced_postal_code_and_a_passport_after_its_word_stay_hits(self):
+        rules = self.core._load_presidio(("ca", "ph"))
+        for text in ("postal code: K1A 0B1", "passport no. AB1234567"):
+            with self.subTest(text=text):
+                self.assertTrue(self.core.scan(text, channel="tool", rule_list=rules))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -392,3 +392,9 @@ zapier-catch-hook-webhook-url               (?<![\w./-])(?:https?://)?hooks\.zap
 # main of 2026-10-28, ahead of its next release
 labelbox-api-key                            lbx_(?:(?<![A-Za-z0-9_-]lbx_)|(?<=\\[nrt]lbx_))[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048](?![A-Za-z0-9_-])
 labelbox-recursion-api-key                  rma_(?:(?<![A-Za-z0-9_-]rma_)|(?<=\\[nrt]rma_))[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048](?![A-Za-z0-9_-])
+# 0.8.5: Composio API keys (org oak_ with 20 characters, user uak_ with 43; Stripe OAK tokens start with oak_ too, so
+# that line names no vendor), from the trufflehog detector of
+# 2026-10-28. oak_ also needs a capital and a digit, so a short identifier is no hit. The project key ak_ has no line:
+# its prefix is shorter than four characters.
+oak-api-key                                 oak_(?:(?<![A-Za-z0-9_-]oak_)|(?<=\\[nrt]oak_))(?=[A-Za-z_-]{0,19}[0-9])(?=[a-z0-9_-]{0,19}[A-Z])[A-Za-z0-9_-]{20}(?![A-Za-z0-9_-])
+composio-user-api-key                       uak_(?:(?<![A-Za-z0-9_-]uak_)|(?<=\\[nrt]uak_))[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])

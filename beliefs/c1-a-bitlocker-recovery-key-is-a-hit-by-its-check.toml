@@ -1,0 +1,11 @@
+# c1-a-bitlocker-recovery-key-is-a-hit-by-its-check: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c1-a-bitlocker-recovery-key-is-a-hit-by-its-check"
+control = "C1"
+statement = "48 digits in 8 groups of 6, each group divisible by 11 and below 720896, are a BitLocker recovery key and a hit bare, after a label and in JSON; one group that fails the check makes them no key."
+runner = ["tests/test_bitlocker_recovery_key.py::BitLockerRecoveryKeyTests::test_a_recovery_key_is_found_bare_after_a_label_and_in_json", "tests/test_bitlocker_recovery_key.py::BitLockerRecoveryKeyTests::test_a_group_that_fails_the_check_is_no_key"]
+
+[proof]
+file = "maisecrets/detection/value_checks.py"
+find = '''    return len(groups) == 8 and all(g.isascii() and g.isdigit() and int(g) % 11 == 0 and int(g) < 720896
+                                    for g in groups)'''
+replace = '''    return len(groups) == 8'''

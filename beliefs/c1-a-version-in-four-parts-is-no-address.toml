@@ -1,0 +1,10 @@
+# c1-a-version-in-four-parts-is-no-address: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c1-a-version-in-four-parts-is-no-address"
+control = "C1"
+statement = "Four numbers joined by dots are a version, not an IP address, only with evidence: a label with version in it (version, os_version, versionName, AssemblyVersion), an update word before them, or a package extension after them or after the same number on the line; an address after ip, SSH to, endpoint= or conversion stays a hit, x.y.z.0 included."
+runner = ["tests/test_api_answer_fields.py::VersionQuadTests::test_a_version_in_four_parts_is_no_address", "tests/test_api_answer_fields.py::VersionQuadTests::test_an_address_stays_a_hit"]
+
+[proof]
+file = "maisecrets/detection/core.py"
+find = '''            if rule.id == "ip#2" and _a_version(text, start, end, secret):'''
+replace = '''            if False:'''

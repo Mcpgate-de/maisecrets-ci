@@ -91,6 +91,12 @@ It works as a plugin for Claude Code (and Cowork) and for Codex, from the same
    A form where the value could turn into code is refused; every other form
    runs without a maisecrets prompt, unless you set a stricter
    [rehydration policy](#rehydration-policy-optional).
+4. **The model sends a message to another Claude session.** That session's
+   prompt hook would block a message with a value, and the sender would not
+   learn it. A `PreToolUse` hook on `SendMessage` replaces each value with a
+   placeholder before the message leaves, stores the value, and tells the
+   sending model. The receiving session's prompt hook then lets the message
+   through; that session cannot use the placeholder in its own tool calls.
 
 Everything a hook runs is readable source in this folder. No download, no
 package install, no dependency outside the Python standard library and the
@@ -329,9 +335,9 @@ For development:
 ```bash
 claude --plugin-dir /path/to/maisecrets                 # one session, straight from the checkout
 python3 -m unittest discover -s tests -v               # about 30 seconds
-python3 harness/run.py                                 # 39 scenarios against a fake upstream (4 for the PowerShell tool of Windows)
+python3 harness/run.py                                 # 40 scenarios against a fake upstream (4 for the PowerShell tool of Windows)
 python3 harness/codex.py [--real]                      # 15 scenarios through codex exec (five need --real)
-python3 scripts/replay_can_fail.py                     # 377 proofs: each control's test, and each path of the seven invariants, goes red without its guard
+python3 scripts/replay_can_fail.py                     # 387 proofs: each control's test, and each path of the seven invariants, goes red without its guard
 python3 scripts/derived_counts.py                      # the numbers in the docs, measured again
 python3 scripts/lint_plugin.py                         # frontmatter YAML, manifests, hook paths (pre-commit, CI)
 scripts/install-hooks.sh                               # git pre-commit / pre-push

@@ -2509,12 +2509,49 @@ def _pre_tool(payload: dict) -> dict:
             return {}
     if tool in _FILE_TOOLS or tool == "apply_patch":
         return _pre_file_tool(payload, cfg, tool, tool_input, str(payload.get("cwd") or ""))
+    if tool == "SendMessage":
+        return _pre_send_message(payload, cfg, tool_input)
     if tool.startswith("mcp__"):
         # Every server, a gateway too: a placeholder that reaches a gateway action unresolved is parsed as
         # text (measured 2026-09-26 with gmail_create_draft: the recipient was split at the colon). A token
         # of the server range stays as it is; it goes back to the server that minted it (PROTOCOL §4).
         return _pre_mcp(payload, cfg, tool, tool_input)
     return {}
+
+
+# The text fields of a message to another Claude session: it arrives there as a prompt, and the maisecrets of that
+# session blocks a prompt with a value. The sender was not told, and the message was lost (2026-10-30)
+_MESSAGE_FIELDS = ("message", "content", "summary")
+
+
+def _pre_send_message(payload: dict, cfg: dict, tool_input: dict) -> dict:
+    """A message to another session goes out with placeholders instead of the values the receiving prompt hook would
+    block, so it arrives; the values are stored as in a typed prompt. The sender is told what was replaced."""
+    if not isinstance(tool_input, dict):
+        return {}
+    session = payload.get("session_id")
+    new_input, replaced = dict(tool_input), []
+    vault = None
+    for field in _MESSAGE_FIELDS:
+        text = tool_input.get(field)
+        if not isinstance(text, str) or not text:
+            continue
+        matches = _prompt_hits(text)
+        if vault is None and (matches or _has_live(cfg)):
+            vault = Vault(cfg)
+        rewritten, entries, _values, stored, _m = _take_values_out(text, matches, cfg, vault, session)
+        if rewritten != text:
+            new_input[field] = rewritten
+            replaced.extend(e.ref for e in entries)
+    if new_input == tool_input:
+        return {}
+    out = _updated(payload, new_input)
+    shown = ", ".join(dict.fromkeys(replaced)) or "the stored values"
+    out["hookSpecificOutput"]["additionalContext"] = (
+        f"maisecrets: the message went out with placeholders ({shown}) instead of the values, because the "
+        "receiving session would have dropped it. The receiver cannot use the placeholders in its tool calls; if it "
+        "needs a value, the person gives it there.")
+    return out
 
 
 # -------------------------------------------------------------- PostToolUse --

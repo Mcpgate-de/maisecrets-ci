@@ -158,3 +158,6 @@ are not published: the numbers of record come from the release baseline (`script
 | 2026-10-29 | maisecrets 0.7.2 1f9724adb2cbe3f54dba1719cd5eef0c82be2e00 | holdout-v2 | 872 | 0.6473 | 0.9957 | 3 |
 | 2026-10-30 | maisecrets 0.7.2 4496bb984a86239c3059d332589550b8a8acd40f (gate stopped: a damaged catalog clone) | holdout-v2 | 872 | 0.6473 | 0.9957 | 3 |
 | 2026-10-30 | maisecrets 0.7.2 4496bb984a86239c3059d332589550b8a8acd40f | holdout-v2 | 872 | 0.6473 | 0.9957 | 3 |
+| 2026-10-30 | maisecrets 0.7.2 460b3fb8740a360a753504d57123f0adc610eb94 (gate stopped: us-claim-number false alarms on Mendeley and Nemotron) | holdout-v2 | 872 | 0.6473 | 0.9971 | 2 |
+| 2026-10-30 | maisecrets 0.7.2 c35e409985217157c4f14a96ab6333a6cad75999 (gate stopped: two IP addresses lost on Nemotron) | holdout-v2 | 872 | 0.6473 | 0.9971 | 2 |
+| 2026-10-30 | maisecrets 0.7.2 0cbbde0f03da21106501abb388264640427abae1 | holdout-v2 | 872 | 0.6473 | 0.9971 | 2 |
