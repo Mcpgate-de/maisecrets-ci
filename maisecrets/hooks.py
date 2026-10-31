@@ -921,35 +921,24 @@ def rewrite_prompt(payload: dict) -> dict:
 
 
 def _prompt_names(cfg: dict, prompt: str, matches: list, session: str | None) -> list:
-    """The names the service of /maisecrets:ner finds in a prompt the mod rewrites (Claude Code): they become
-    placeholders like the rules' findings, and nothing is blocked for a name. Only a service on this computer reads a
-    prompt: the home page promises that no prompt goes to a server by default, so a service on the network (url) and
-    the setting `"prompts": false` leave the prompt to the rules. The rules' findings and the stored values go out as
-    filler (remote_layer.prepare). Any failure: no names, the rules' rewrite as before."""
-    conf = cfg.get("remote_detector")
-    if not (isinstance(conf, dict) and conf.get("url")) or conf.get("prompts") is False:
-        return []
+    """The names the service of /maisecrets:ner finds in a prompt the mod rewrites (remote_layer.prompt_names)."""
     try:
         from . import remote_layer
-        from .detection import remote
-        if not remote.is_local(str(conf["url"])):
-            return []
-        protect = None
-        if _has_live(cfg):
-            from .tool_output import known_value_spans
-            vault = Vault(cfg)
-            resolved = _resolved_values(vault, session)
-
-            def protect(t: str) -> list:
-                return known_value_spans(t, vault, resolved)
-        layer = remote_layer.prepare(cfg, [prompt], lambda s: list(matches), protect, use_fallback=False,
-                                     kind="prompt")
-        if layer is None:
-            return []
-        return [m for m in layer.found.get(prompt, []) if m.kind.startswith("remote:")]
+        return remote_layer.prompt_names(cfg, prompt, matches, lambda: _protect(cfg, session))
     except Exception as exc:  # noqa: BLE001 - the rules' rewrite runs as without the service
         _debug(f"prompt names: {type(exc).__name__}")
         return []
+
+
+def _protect(cfg: dict, session: str | None):
+    """The spans of the stored values a text holds (tool_output.known_value_spans), for the remote detector: they go
+    out as filler like the rules' findings; None without a live value."""
+    if not _has_live(cfg):
+        return None
+    from .tool_output import known_value_spans
+    vault = Vault(cfg)
+    resolved = _resolved_values(vault, session)
+    return lambda t: known_value_spans(t, vault, resolved)
 
 
 def _name_ttl(cfg: dict) -> int:
@@ -2617,18 +2606,10 @@ def _remote_layer(cfg: dict, response, binary, strip: bool, scan_tool, session: 
                 collect(v, at + (k,))
     try:
         from . import remote_layer
-        from .tool_output import known_value_spans
         collect(response)
-        protect = None
-        if _has_live(cfg):
-            # the stored values that _exact_redact masks later go out as filler too: a password stored with `put`
-            # has no shape, and the rules alone would let the service read it (codex review)
-            vault = Vault(cfg)
-            resolved = _resolved_values(vault, session)
-
-            def protect(t: str) -> list:
-                return known_value_spans(t, vault, resolved)
-        return remote_layer.prepare(cfg, leaves, scan_tool, protect)
+        # the stored values that _exact_redact masks later go out as filler too: a password stored with `put` has no
+        # shape, and the rules alone would let the service read it (codex review)
+        return remote_layer.prepare(cfg, leaves, scan_tool, _protect(cfg, session))
     except Exception as exc:  # noqa: BLE001 - the rules' redaction runs as without the layer
         _debug(f"remote layer: {type(exc).__name__}")
         return None

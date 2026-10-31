@@ -117,3 +117,20 @@ def prepare(cfg: dict, strings: list, scan, protect=None, use_fallback: bool = T
     for s, extra in added.items():
         found[s] = sorted(found[s] + extra, key=lambda m: (m.start, m.end))
     return Layer(found, status)
+
+
+def prompt_names(cfg: dict, prompt: str, matches: list, protect_of) -> list:
+    """The names the service of /maisecrets:ner finds in a prompt the mod rewrites (Claude Code): they become
+    placeholders like the rules' findings (`matches`), and nothing is blocked for a name. Only a service on this
+    computer reads a prompt: the home page promises that no prompt goes to a server by default, so a service on the
+    network (url), a fallback and the setting `"prompts": false` leave the prompt to the rules. The rules' findings
+    and the stored values (`protect_of()`) go out as filler."""
+    conf = cfg.get("remote_detector")
+    if not (isinstance(conf, dict) and conf.get("url")) or conf.get("prompts") is False:
+        return []
+    if not remote.is_local(str(conf["url"])):
+        return []
+    layer = prepare(cfg, [prompt], lambda s: list(matches), protect_of(), use_fallback=False, kind="prompt")
+    if layer is None:
+        return []
+    return [m for m in layer.found.get(prompt, []) if m.kind.startswith("remote:")]
