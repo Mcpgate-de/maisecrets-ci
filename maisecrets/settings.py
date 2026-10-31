@@ -187,10 +187,10 @@ def peer_sender(prompt) -> str | None:
 
 
 def typed_by_the_person(payload: dict) -> bool:
-    """The prompt counts as typed by the person: a `source` the person has, no program started the client, and no
-    other session sent it."""
+    """The prompt counts as typed by the person: a `source` the person has, no program started the client, no other
+    session sent it, and no subagent (came_from names it; codex review of /maisecrets:ner)."""
     return (payload.get("source") in TYPED_SOURCES and nested_program(payload) is None
-            and peer_sender(payload.get("prompt")) is None)
+            and peer_sender(payload.get("prompt")) is None and not payload.get("agent_id"))
 
 
 def not_typed_reason(payload: dict) -> str:

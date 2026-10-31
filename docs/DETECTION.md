@@ -294,9 +294,9 @@ response = contract.result_response(detector, result)    # the same as JSON (mai
   (`docs/NER-EXPERIMENT.md`, "Licence of D3").
 - **More classes than names.** `{"inputs": text}` asks the reference service for persons only. With
   `"parameters": {"labels": [...]}` it answers the spans of those classes, each with its class in `entity_group`; a
-  class that `GET /info` does not list in `labels` is a 400. `RemoteDetector` sends the labels only when `classes`
-  maps a class beyond `PER`/`PERSON`, so a service that knows no labels gets the request it always got. `GET /health`
-  answers `{"status": "ok"}`. The image `mcpgate/ner` runs this service, and in the plugin `/maisecrets:ner` sets it
+  class that `GET /info` does not list in `labels` is a 400. `RemoteDetector` sends the labels only with
+  `ask_labels=True` (the Hugging Face API has no such parameter) and when `classes` maps a class beyond
+  `PER`/`PERSON`, so any other service gets the request it always got. `GET /health` answers `{"status": "ok"}`. The image `mcpgate/ner` runs this service, and in the plugin `/maisecrets:ner` sets it
   up (README, "Names from a service").
 - **In a response** (`contract.result_response`), a finding of the service has `score` and `provenance.origin` and
   `layer` `model`; `engine.remote` holds `format`, `model`, `state` and, when unavailable, `reason`. Without a

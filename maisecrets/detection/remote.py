@@ -138,7 +138,7 @@ class RemoteDetector:
 
     def __init__(self, url: str, format: str = "hf", model: str = "", classes: dict | None = None,
                  min_score: dict | None = None, timeout: float = 0.3, max_chars: int = 20000,
-                 language: str = "en", allow_network: bool = False, mask: bool = True):
+                 language: str = "en", allow_network: bool = False, mask: bool = True, ask_labels: bool = False):
         if format not in FORMATS:
             raise ValueError(f"format must be one of {', '.join(FORMATS)}")
         parts = urlsplit(url)
@@ -146,9 +146,11 @@ class RemoteDetector:
                 not url.startswith("unix:") and not parts.hostname):
             raise ValueError("the url must be http://, https:// or unix:/path")
         try:
-            parts.port
+            port = parts.port
         except ValueError:
             raise ValueError("the url has a port that is no number") from None
+        if port == 0:
+            raise ValueError("the url has port 0")     # _connection would take the default port instead
         if not isinstance(allow_network, bool):
             raise ValueError("allow_network is True or False")    # "false" as a string must not open the network
         if allow_network is not True and not is_local(url):
@@ -169,6 +171,7 @@ class RemoteDetector:
             raise ValueError("max_chars is a whole number above 0")
         self.timeout, self.max_chars, self.language = float(timeout), max_chars, str(language)
         self.mask = bool(mask)
+        self.ask_labels = ask_labels is True
 
     def status(self, state: str, reason: str = "", added: int = 0, ms: float = 0.0) -> RemoteStatus:
         return RemoteStatus(self.format, self.model, state, reason, added, ms)
@@ -227,9 +230,9 @@ class RemoteDetector:
     def _body(self, text: str) -> bytes:
         doc = {"inputs": text} if self.format == "hf" else {"text": text, "language": self.language}
         wanted = [k for k in self.classes if k not in DEFAULT_CLASSES]
-        if self.format == "hf" and wanted:
-            # a class beyond names: ask for it (examples/ner_service.py). Names only sends no parameters, so a service
-            # that knows none, the Hugging Face API among them, gets the request it always got
+        if self.format == "hf" and self.ask_labels and wanted:
+            # a class beyond names, to a service that takes `labels` (examples/ner_service.py, mcpgate/ner): ask for
+            # it. The Hugging Face API has no such parameter, so only `ask_labels` sends it (codex review)
             doc["parameters"] = {"labels": [k for k in self.classes if k != "PERSON"]}
         return json.dumps(doc, ensure_ascii=False).encode("utf-8")
 

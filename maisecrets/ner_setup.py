@@ -6,7 +6,8 @@
     /maisecrets:ner                which source is set, and whether it answers
 
 Codex: `maisecrets: ner local` (or url URL, off) alone as the prompt. The change is a setting, so only a prompt the
-person typed makes it (settings.py); a tool call that carries the sentence is refused. Exactly one source: a
+person typed makes it (settings.py), with the limits of C22 (docs/THREAT-MODEL.md); a tool call that carries the
+sentence is refused. Exactly one source: a
 fallback to another one would send the text somewhere the person did not choose. A source that does not answer
 leaves the rules alone, as before. The tuning keys of the setting (timeout_ms, classes, min_score, max_chars,
 language) stay when the source changes.
@@ -18,7 +19,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import shutil
 import time
@@ -32,7 +32,7 @@ LOCAL_URL = "http://127.0.0.1:8765/"
 IMAGE = "mcpgate/ner"
 START = f"docker run -d --name ner --restart unless-stopped -p 127.0.0.1:8765:8765 {IMAGE}"
 # the keys a source sets; any other key of the setting is the person's tuning and stays
-SOURCE_KEYS = ("url", "format", "model", "allow_network", "mask")
+SOURCE_KEYS = ("url", "format", "model", "allow_network", "mask", "ask_labels")
 
 _NER_RE = re.compile(r"\A\s*(?:/maisecrets:ner|maisecrets:\s*ner)\s+(?:(off|local|on)|url\s+(\S+))\s*\Z", re.I)
 # the same sentence anywhere in a tool call (settings.IN_A_COMMAND_RE)
@@ -51,17 +51,23 @@ def parse(prompt) -> str | None:
 
 def check_url(url: str) -> str:
     """Why maisecrets does not use this URL, or ""."""
-    parts = urlsplit(url)
-    if parts.scheme not in ("http", "https") or not parts.hostname:
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname
+    except ValueError:
+        return "it is no address maisecrets can read"           # an open [ of an IPv6 address
+    if parts.scheme.lower() not in ("http", "https") or not host:
         return "it is no http:// or https:// address with a host"
     if parts.username or parts.password:
         return "it holds a user name or a password; the service takes none"
     if parts.query or parts.fragment:
         return "it holds a ? or a # part"
     try:
-        parts.port
+        port = parts.port
     except ValueError:
-        return "its port is no number from 0 to 65535"
+        return "its port is no number from 1 to 65535"
+    if port == 0:
+        return "its port is no number from 1 to 65535"
     return ""
 
 
@@ -71,7 +77,8 @@ def updated(current, word: str) -> dict:
     if word == "off":
         return keep
     url = LOCAL_URL if word == "local" else word[4:]
-    new = {**keep, "url": url, "format": "hf"}
+    # the service of this command is mcpgate/ner (examples/ner_service.py): it takes `labels` for classes in `classes`
+    new = {**keep, "url": url, "format": "hf", "ask_labels": True}
     if not remote.is_local(url):
         new["allow_network"] = True
     return new
@@ -87,9 +94,24 @@ def describe(conf) -> str:
     return f"names from a service: {url} ({where})"
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None          # a redirect is an answer, not a second address to ask (codex review)
+
+
+# no proxy and no redirect: the probe asks the address of the setting and no other
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+
+
 def _get(url: str, path: str, timeout: float):
-    with urllib.request.urlopen(url.rstrip("/") + path, timeout=timeout) as r:   # noqa: S310 - the person's URL
+    with _OPENER.open(url.rstrip("/") + path, timeout=timeout) as r:
         return r.status, r.read(65536)
+
+
+def _plain(value, limit: int) -> str:
+    """A value of the service's /info as one line of printable text: its answer must not add a line to the output that
+    commands/ner.md reads (codex review: a `start:` line from /info)."""
+    return "".join(c if c.isprintable() else "?" for c in str(value))[:limit]
 
 
 def probe(conf, timeout: float = 1.0) -> tuple[bool, str]:
@@ -112,9 +134,9 @@ def probe(conf, timeout: float = 1.0) -> tuple[bool, str]:
     try:
         _, body = _get(url, "/info", timeout)
         info = json.loads(body)
-        model = str(info.get("model", "?"))[:120]
+        model = _plain(info.get("model", "?"), 120)
         labels = info.get("labels")
-        kinds = ", ".join(str(x) for x in labels[:10]) if isinstance(labels, list) else "PER"
+        kinds = ", ".join(_plain(x, 20) for x in labels[:10]) if isinstance(labels, list) else "PER"
     except (OSError, urllib.error.URLError, ValueError, AttributeError):
         return True, f"the service: answers ({ms:.0f} ms); /info does not name its model"
     return True, f"the service: answers ({ms:.0f} ms), model {model}, types {kinds}"
@@ -150,6 +172,7 @@ def report(conf, wait: float = 0.0) -> tuple[int, list]:
     if str(url).rstrip("/") == LOCAL_URL.rstrip("/"):
         tool = container_tool()
         if tool:
+            # commands/ner.md runs one of its two fixed commands on exit code 3; this line only names the tool
             lines.append(f"start: {START.replace('docker', tool, 1)}")
             return 3, lines
         lines.append("Neither docker nor podman is installed. Install one of them (Docker Desktop, OrbStack, Podman), "
@@ -165,27 +188,27 @@ DOWN_NOTE = ("maisecrets: the name service set with /maisecrets:ner did not answ
              "tool result; names that only the service finds were not masked. Mention this once, in one sentence, "
              "after your answer, and tell the user that /maisecrets:ner shows the service and how to start it. Do not "
              "start or change the service or the setting yourself.")
-_NOTES_MAX = 200
+_NOTES_MAX = 1000          # sessions; an older one may get the note once more
 
 
 def claim_down_note(home, session) -> bool:
     """True once per session: the first unavailable answer of the service in it. False when the record cannot be
-    written (no note rather than one per tool result)."""
+    written (no note rather than one per tool result). Under a lock: two hooks at once give it once."""
     if not session:
         return False
+    from .home import LockTimeout, _lock_for, atomic_write
     key = hashlib.sha256(str(session).encode("utf-8")).hexdigest()[:16]
     path = home / "ner-down-notes.json"
     try:
-        seen = json.loads(path.read_text(encoding="utf-8"))
-        seen = seen if isinstance(seen, list) else []
-    except (OSError, ValueError):
-        seen = []
-    if key in seen:
-        return False
-    tmp = path.with_name(path.name + f".{os.getpid()}.tmp")
-    try:
-        tmp.write_text(json.dumps((seen + [key])[-_NOTES_MAX:]), encoding="utf-8")
-        os.replace(tmp, path)
-    except OSError:
+        with _lock_for(home / ".ner-down-notes.lock"):
+            try:
+                seen = json.loads(path.read_text(encoding="utf-8"))
+                seen = seen if isinstance(seen, list) else []
+            except (OSError, ValueError):
+                seen = []
+            if key in seen:
+                return False
+            atomic_write(path, json.dumps((seen + [key])[-_NOTES_MAX:]))
+    except (OSError, LockTimeout):
         return False
     return True

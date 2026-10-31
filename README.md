@@ -2294,7 +2294,8 @@ a source, with one command typed as your own prompt:
 
 In Codex, send `maisecrets: ner local` (or `url URL`, `off`) alone as your
 prompt. One source at a time: a new one replaces the old one, and there is no
-fallback to another source. Only a prompt you type changes it.
+fallback to another source. Only a prompt you type changes it, with the limits
+of every setting (threat model, C22).
 
 - **local**: the service is the container `mcpgate/ner` (the model D3 of the
   NER experiment as ONNX; AFL-3.0 and Apache-2.0, its notices are in the
@@ -2331,7 +2332,8 @@ and keeps its other keys. Written by hand, the setting looks like this:
 - Only names by default (`PER`, `PERSON`). `classes` maps more classes of the
   service to a type, for example `{"PER": "NAME", "LOC": "ADDRESS"}`, and
   `min_score` sets the least score per type. No threshold is set for you.
-  With a class beyond names, the `hf` request asks for those classes
+  With a class beyond names and `"ask_labels": true` (the command sets it),
+  the `hf` request asks for those classes
   (`"parameters": {"labels": [...]}`); `mcpgate/ner` answers `PER`, `ORG`,
   `LOC` and `DATE` (its `GET /info` lists them).
 - `url` must be a loopback address or a Unix socket (`unix:/path/to.sock`).
