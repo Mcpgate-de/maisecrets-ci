@@ -226,6 +226,11 @@ class RemoteDetector:
 
     def _body(self, text: str) -> bytes:
         doc = {"inputs": text} if self.format == "hf" else {"text": text, "language": self.language}
+        wanted = [k for k in self.classes if k not in DEFAULT_CLASSES]
+        if self.format == "hf" and wanted:
+            # a class beyond names: ask for it (examples/ner_service.py). Names only sends no parameters, so a service
+            # that knows none, the Hugging Face API among them, gets the request it always got
+            doc["parameters"] = {"labels": [k for k in self.classes if k != "PERSON"]}
         return json.dumps(doc, ensure_ascii=False).encode("utf-8")
 
     def _parse(self, data: bytes, n: int) -> list:
