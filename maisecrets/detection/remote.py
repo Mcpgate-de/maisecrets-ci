@@ -72,6 +72,20 @@ class Result:
     remote: RemoteStatus = OFF
 
 
+_SHARED = ipaddress.ip_network("100.64.0.0/10")
+
+
+def _private(addr: str) -> bool:
+    """A loopback, private (RFC 1918, ULA), link-local or shared (100.64.0.0/10, the range of carrier NAT and of
+    Tailscale) address: plain http to it does not cross the internet."""
+    try:
+        ip = ipaddress.ip_address(addr.split("%", 1)[0])
+    except ValueError:
+        return False
+    return (ip.is_loopback or ip.is_link_local or (ip.is_private and not ip.is_reserved)
+            or (ip.version == 4 and ip in _SHARED))
+
+
 def _loopback(addr: str) -> bool:
     try:
         return ipaddress.ip_address(addr.split("%", 1)[0]).is_loopback
@@ -138,7 +152,8 @@ class RemoteDetector:
 
     def __init__(self, url: str, format: str = "hf", model: str = "", classes: dict | None = None,
                  min_score: dict | None = None, timeout: float = 0.3, max_chars: int = 20000,
-                 language: str = "en", allow_network: bool = False, mask: bool = True, ask_labels: bool = False):
+                 language: str = "en", allow_network: bool = False, mask: bool = True, ask_labels: bool = False,
+                 private_http_only: bool = False):
         if format not in FORMATS:
             raise ValueError(f"format must be one of {', '.join(FORMATS)}")
         parts = urlsplit(url)
@@ -172,6 +187,9 @@ class RemoteDetector:
         self.timeout, self.max_chars, self.language = float(timeout), max_chars, str(language)
         self.mask = bool(mask)
         self.ask_labels = ask_labels is True
+        # plain http only to a private address (the plugin's rule: tool results never cross a public network in
+        # clear text); https anywhere. Checked at each connection, on the addresses the name gives then
+        self.private_http_only = private_http_only is True
 
     def status(self, state: str, reason: str = "", added: int = 0, ms: float = 0.0) -> RemoteStatus:
         return RemoteStatus(self.format, self.model, state, reason, added, ms)
@@ -196,6 +214,8 @@ class RemoteDetector:
             raise ConnectionError("no address")
         if not self.allow_network and not all(_loopback(a[4][0]) for a in addrs):
             raise ConnectionError("not a loopback address")
+        if self.private_http_only and p.scheme == "http" and not all(_private(a[4][0]) for a in addrs):
+            raise ConnectionError("plain http to an address that is not private")
         target = (p.path or "/") + (f"?{p.query}" if p.query else "")
         return _PinnedConnection(p.hostname, port, addrs[0], left, p.scheme == "https", self.allow_network), target
 

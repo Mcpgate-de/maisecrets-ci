@@ -18,6 +18,7 @@ tool result goes there: a team decides that, not a default.
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import re
 import shutil
@@ -35,19 +36,23 @@ START = f"docker run -d --name ner --restart unless-stopped -p 127.0.0.1:8765:87
 # the keys a source sets; any other key of the setting is the person's tuning and stays
 SOURCE_KEYS = ("url", "format", "model", "allow_network", "mask", "ask_labels")
 
-_NER_RE = re.compile(r"\A\s*(?:/maisecrets:ner|maisecrets:\s*ner)\s+(?:(off|local|on)|url\s+(\S+))\s*\Z", re.I)
+_NER_RE = re.compile(r"\A\s*(?:/maisecrets:ner|maisecrets:\s*ner)\s+(?:(off|local|on)|url\s+(\S+)|"
+                     r"fallback\s+(?:(off)|url\s+(\S+)))\s*\Z", re.I)
 # the same sentence anywhere in a tool call (settings.IN_A_COMMAND_RE)
-IN_A_COMMAND = r"(?:/maisecrets:ner|maisecrets:\s*ner)\s+(?:off|local|on|url)\b"
+IN_A_COMMAND = r"(?:/maisecrets:ner|maisecrets:\s*ner)\s+(?:off|local|on|url|fallback)\b"
 
 
 def parse(prompt) -> str | None:
-    """`off`, `local` or `url:<URL>` when the whole prompt is a change of the source, else None."""
+    """`off`, `local`, `url:<URL>`, `fallback:off` or `fallback:url:<URL>` when the whole prompt is a change of the
+    source, else None."""
     m = _NER_RE.match(prompt) if isinstance(prompt, str) else None
     if not m:
         return None
     if m.group(1):
         return "off" if m.group(1).lower() == "off" else "local"
-    return "url:" + m.group(2)
+    if m.group(2):
+        return "url:" + m.group(2)
+    return "fallback:off" if m.group(3) else "fallback:url:" + m.group(4)
 
 
 def check_url(url: str) -> str:
@@ -69,13 +74,30 @@ def check_url(url: str) -> str:
         return "its port is no number from 1 to 65535"
     if port == 0:
         return "its port is no number from 1 to 65535"
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None               # a name: its addresses are checked at each connection (remote.private_http_only)
+    if parts.scheme.lower() == "http" and ip is not None and not remote._private(host):
+        return ("it is plain http to a public address, so tool results would cross the internet in clear text; "
+                "use https or a private address")
     return ""
 
 
 def updated(current, word: str) -> dict:
     """The new value of the setting for `word` (from parse), the tuning keys of `current` kept."""
-    keep = {k: v for k, v in (current if isinstance(current, dict) else {}).items() if k not in SOURCE_KEYS}
+    current = dict(current) if isinstance(current, dict) else {}
+    if word == "fallback:off":
+        current.pop("fallback", None)
+        return current
+    if word.startswith("fallback:url:"):
+        url = word[len("fallback:url:"):]
+        current["fallback"] = {"url": url, "format": "hf", "ask_labels": True,
+                               **({} if remote.is_local(url) else {"allow_network": True})}
+        return current
+    keep = {k: v for k, v in current.items() if k not in SOURCE_KEYS}
     if word == "off":
+        keep.pop("fallback", None)          # off is off: no fallback answers either
         return keep
     url = LOCAL_URL if word == "local" else word[4:]
     # the service of this command is mcpgate/ner (examples/ner_service.py): it takes `labels` for classes in `classes`
@@ -92,7 +114,9 @@ def describe(conf) -> str:
         return "names from a service: off (the rules alone)"
     where = ("on this computer" if remote.is_local(str(url))
              else "on the network; the findings of the rules go there as filler")
-    return f"names from a service: {url} ({where})"
+    fb = conf.get("fallback") if isinstance(conf.get("fallback"), dict) else {}
+    tail = (f"; fallback {fb['url']} while it does not answer, tool results only" if fb.get("url") else "")
+    return f"names from a service: {url} ({where}){tail}"
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -195,6 +219,7 @@ def report(conf, wait: float = 0.0) -> tuple[int, list]:
                      "/maisecrets:ner url URL (a service of your team), as your own prompt.")
         return 0, lines
     lines.append(scope(conf))
+    lines.append(counts_line())
     deadline = time.monotonic() + wait
     ok, line = probe(conf)
     while not ok and time.monotonic() < deadline:
@@ -223,6 +248,11 @@ DOWN_NOTE = ("maisecrets: the name service set with /maisecrets:ner did not answ
              "tool result; names that only the service finds were not masked. Mention this once, in one sentence, "
              "after your answer, and tell the user that /maisecrets:ner shows the service and how to start it. Do not "
              "start or change the service or the setting yourself.")
+FALLBACK_NOTE = ("maisecrets: the name service of this computer did not answer, so the fallback set with "
+                 "/maisecrets:ner checked this tool result; the tool results of this session go there while the "
+                 "local one is down, your prompts never do. Mention this once, in one sentence, after your answer, and "
+                 "tell the user that /maisecrets:ner shows the counts per service. Do not change the setting "
+                 "yourself.")
 _NOTES_MAX = 1000          # sessions; an older one may get the note once more
 
 
@@ -247,3 +277,67 @@ def claim_down_note(home, session) -> bool:
     except (OSError, LockTimeout):
         return False
     return True
+
+
+# --------------------------------------------------------------- the NER log --
+# One line per request: time, source (local, url, fallback, or rules when no service answered), kind (tool or
+# prompt), characters and names. Never text: a sceptic can check where text went, and that no prompt ever went to a
+# fallback (akruse-3b, 2026-10-31). /maisecrets:ner shows today's counts and the last lines.
+LOG_MAX = 1_000_000          # bytes; above it the older half goes
+LAST = {"source": ""}        # the source of the last request of this process (hooks._ner_hint reads it)
+
+
+def _log_path():
+    from .vault import HOME
+    return HOME / "ner.log"
+
+
+def log(source: str, kind: str, chars: int, names: int) -> None:
+    LAST["source"] = source
+    path = _log_path()
+    line = json.dumps({"t": int(time.time()), "source": source, "kind": kind, "chars": chars, "names": names})
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+        if path.stat().st_size > LOG_MAX:
+            from .home import LockTimeout, _lock_for, atomic_write
+            try:
+                with _lock_for(path.with_name(".ner-log.lock")):
+                    lines = path.read_text(encoding="utf-8").splitlines()
+                    atomic_write(path, "\n".join(lines[len(lines) // 2:]) + "\n")
+            except LockTimeout:
+                pass
+    except OSError:
+        pass                 # the log is for the person; a full disk must not stop a tool result
+
+
+def today_counts(now: float | None = None) -> dict:
+    """{source: requests} of today (local time), and prompts per source under "prompt:<source>"."""
+    start = time.mktime(time.localtime(now or time.time())[:3] + (0, 0, 0, 0, 0, -1))
+    counts: dict = {}
+    try:
+        lines = _log_path().read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return counts
+    for line in lines:
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(d, dict) or not isinstance(d.get("t"), int) or d["t"] < start:
+            continue
+        counts[d.get("source", "?")] = counts.get(d.get("source", "?"), 0) + 1
+        if d.get("kind") == "prompt":
+            key = "prompt:" + str(d.get("source", "?"))
+            counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def counts_line(now: float | None = None) -> str:
+    c = today_counts(now)
+    if not c:
+        return "today: no request yet"
+    parts = [f"{k} {c[k]}" for k in ("local", "url", "fallback", "rules") if c.get(k)]
+    prompts = sum(v for k, v in c.items() if k.startswith("prompt:"))
+    return (f"today: {', '.join(parts)} (rules = no service answered); prompts {prompts}, of them to a fallback "
+            f"{c.get('prompt:fallback', 0)}")

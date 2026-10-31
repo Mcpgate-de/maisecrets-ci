@@ -424,7 +424,10 @@ def loosens(key: str, before, after) -> bool:
         # off masks fewer names; a service on the network gets the text of tool results
         old = (before or {}).get("url") if isinstance(before, dict) else None
         new = (after or {}).get("url") if isinstance(after, dict) else None
-        return bool(old and not new) or bool(new and new != old and not ner_setup.remote.is_local(str(new)))
+        old_fb = ((before or {}).get("fallback") or {}).get("url") if isinstance(before, dict) else None
+        new_fb = ((after or {}).get("fallback") or {}).get("url") if isinstance(after, dict) else None
+        return (bool(old and not new) or bool(new and new != old and not ner_setup.remote.is_local(str(new)))
+                or bool(new_fb and new_fb != old_fb and not ner_setup.remote.is_local(str(new_fb))))
 
     def same(dirs) -> set:     # ~/team, /home/me/team/ and /home/me/./team are one folder
         return {os.path.normcase(os.path.normpath(os.path.expanduser(d.strip()))) for d in dirs or []
@@ -489,11 +492,18 @@ def apply_typed(key: str, word: str, route: str = "typed prompt", cwd: str = "")
             if not (word.isdigit() and len(word) <= 8 and low <= int(word) <= high):
                 return False, f"maisecrets: {key} takes a whole number from {low} to {high:,}, or default."
     note = ""
-    if ner_change and word.startswith("ner:url:"):
-        why = ner_setup.check_url(word[8:])
+    if ner_change and word.startswith("ner:fallback:url:") and not (cfg.get("remote_detector") or {}).get("url"):
+        return False, ("maisecrets: a fallback needs a source first: send /maisecrets:ner on, then the fallback. "
+                       "Nothing was changed.")
+    if ner_change and word.startswith(("ner:url:", "ner:fallback:url:")):
+        word_url = word.split("url:", 1)[1]
+        why = ner_setup.check_url(word_url)
         if why:
             return False, f"maisecrets: the address is not used ({why}). Nothing was changed."
-        if not ner_setup.remote.is_local(word[8:]):
+        if word.startswith("ner:fallback:"):
+            note = (" The fallback gets the tool results only while the service of this computer does not answer, "
+                    "and never a prompt you type. The service has no sign-in: use one on a private network only.")
+        elif not ner_setup.remote.is_local(word_url):
             note = (" The text of each tool result goes to that service, the findings of the rules as filler. The "
                     "service has no sign-in: use one on a private network only.")
     if key == "read_pdf" and word == "convert":

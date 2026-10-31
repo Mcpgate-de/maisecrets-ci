@@ -11,6 +11,7 @@ import json
 import os
 import sys
 import threading
+import time
 import unittest
 from contextlib import redirect_stdout
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -380,6 +381,141 @@ class PromptNameTests(unittest.TestCase):
     def test_a_service_that_is_down_leaves_the_rules_rewrite(self):
         self.server.shutdown()
         self.assertEqual(self.rewrite(), {})
+
+
+def _closed_port() -> int:
+    import socket
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+class NameService:
+    """A fake service that finds NAME and records each text; `delay` makes it slow."""
+    NAME = "Thomasina Weinbergerova"
+
+    def __init__(self, delay: float = 0.0):
+        self.received = []
+        svc = self
+
+        class H(BaseHTTPRequestHandler):
+            def do_POST(self):  # noqa: N802 - http.server API
+                text = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))["inputs"]
+                svc.received.append(text)
+                if delay:
+                    time.sleep(delay)
+                at = text.find(svc.NAME)
+                body = json.dumps([] if at < 0 else [{"entity_group": "PER", "start": at, "end": at + len(svc.NAME),
+                                                       "score": 0.99, "word": svc.NAME}]).encode()
+                try:
+                    self.send_response(200)
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                except OSError:
+                    pass
+
+            def log_message(self, *a):
+                pass
+        from http.server import ThreadingHTTPServer
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        self.server.daemon_threads = True
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/"
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+class FallbackTests(unittest.TestCase):
+    """/maisecrets:ner fallback url URL: a second service for tool results while the local one refuses the connection
+    (not running, after a reboot). Never for a prompt, never on a timeout. Each request writes a line without text."""
+
+    def setUp(self):
+        _reset()
+        for f in ("ner.log",):
+            try:
+                os.unlink(Path(HOME, f))
+            except FileNotFoundError:
+                pass
+        self.fb = NameService()
+        self.addCleanup(self.fb.close)
+
+    def post(self, session="S1", text=None):
+        text = text or f"call {NameService.NAME} tomorrow"
+        return json.dumps(hooks._post_tool_guarded({
+            "hook_event_name": "PostToolUse", "tool_name": "Bash", "session_id": session, **CLAUDE,
+            "tool_input": {"command": "cat notes.txt"}, "tool_response": {"stdout": text, "stderr": ""}}))
+
+    def log_lines(self):
+        try:
+            return [json.loads(x) for x in Path(HOME, "ner.log").read_text().splitlines()]
+        except FileNotFoundError:
+            return []
+
+    def test_the_command_sets_and_removes_a_fallback_and_needs_a_source_first(self):
+        out = _prompt(f"/maisecrets:ner fallback url {self.fb.url}")
+        self.assertIn("needs a source first", json.dumps(out))
+        _prompt("/maisecrets:ner on")
+        _prompt("/maisecrets:ner fallback url https://ner.example.com/")
+        self.assertEqual(_conf()["fallback"], {"url": "https://ner.example.com/", "format": "hf", "ask_labels": True,
+                                               "allow_network": True})
+        self.assertEqual(len(_weakened()), 1)              # text may now leave the computer
+        _prompt("/maisecrets:ner fallback off")
+        self.assertNotIn("fallback", _conf())
+        _prompt("/maisecrets:ner fallback url https://ner.example.com/")
+        _prompt("/maisecrets:ner off")
+        self.assertNotIn("fallback", _conf())                # off is off
+
+    def test_plain_http_to_a_public_address_is_refused_for_url_and_fallback(self):
+        _prompt("/maisecrets:ner on")
+        for cmd in ("url http://8.8.8.8:8765/", "fallback url http://8.8.8.8:8765/"):
+            with self.subTest(cmd=cmd):
+                out = _prompt(f"/maisecrets:ner {cmd}")
+                self.assertIn("plain http to a public address", json.dumps(out))
+        self.assertEqual(_conf().get("url"), ner_setup.LOCAL_URL)
+        self.assertNotIn("fallback", _conf())
+
+    def test_a_name_reaches_no_public_host_over_http_at_connection_time(self):
+        # a name that resolves to a public address: refused when it connects, whatever the setting held
+        from maisecrets.detection import remote
+        det = remote.RemoteDetector("http://ner.example.com:8765/", allow_network=True, private_http_only=True)
+        with mock.patch.object(remote.socket, "getaddrinfo",
+                               return_value=[(2, 1, 6, "", ("8.8.8.8", 8765))]):
+            spans, status = det.ask("x " + NameService.NAME, [])
+        self.assertEqual((status.state, status.reason), ("unavailable", "refused"))
+
+    def test_a_local_service_that_is_not_running_hands_the_tool_result_to_the_fallback(self):
+        _reset(remote_detector={"url": f"http://127.0.0.1:{_closed_port()}/", "format": "hf",
+                                "fallback": {"url": self.fb.url, "format": "hf"}})
+        out = self.post()
+        self.assertNotIn(NameService.NAME, out)
+        self.assertEqual(len(self.fb.received), 1)
+        self.assertIn("the fallback set with /maisecrets:ner checked", out)
+        self.assertNotIn("the fallback set with", self.post())          # once per session
+        self.assertEqual([x["source"] for x in self.log_lines()], ["fallback", "fallback"])
+        self.assertFalse(any(NameService.NAME in json.dumps(x) for x in self.log_lines()))
+
+    def test_a_slow_local_service_is_no_reason_to_send_text_to_the_fallback(self):
+        slow = NameService(delay=1.0)
+        self.addCleanup(slow.close)
+        _reset(remote_detector={"url": slow.url, "format": "hf", "timeout_ms": 200,
+                                "fallback": {"url": self.fb.url, "format": "hf"}})
+        self.post()
+        self.assertEqual(self.fb.received, [])
+        self.assertEqual([x["source"] for x in self.log_lines()], ["rules"])
+
+    def test_a_prompt_never_goes_to_the_fallback(self):
+        _reset(remote_detector={"url": f"http://127.0.0.1:{_closed_port()}/", "format": "hf",
+                                "fallback": {"url": self.fb.url, "format": "hf"}})
+        hooks.rewrite_prompt({"prompt": f"{NameService.NAME} is a colleague", "session_id": "S1",
+                              "origin": "composer"})
+        self.assertEqual(self.fb.received, [])
+        self.assertEqual([(x["source"], x["kind"]) for x in self.log_lines()], [("rules", "prompt")])
+        self.assertIn("of them to a fallback 0", ner_setup.counts_line())
 
 
 if __name__ == "__main__":

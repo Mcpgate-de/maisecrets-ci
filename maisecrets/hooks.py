@@ -942,7 +942,8 @@ def _prompt_names(cfg: dict, prompt: str, matches: list, session: str | None) ->
 
             def protect(t: str) -> list:
                 return known_value_spans(t, vault, resolved)
-        layer = remote_layer.prepare(cfg, [prompt], lambda s: list(matches), protect)
+        layer = remote_layer.prepare(cfg, [prompt], lambda s: list(matches), protect, use_fallback=False,
+                                     kind="prompt")
         if layer is None:
             return []
         return [m for m in layer.found.get(prompt, []) if m.kind.startswith("remote:")]
@@ -2674,6 +2675,9 @@ def post_tool(payload: dict) -> dict:
     binary = _binary_paths(payload)
     layer = _remote_layer(cfg, response, binary, strip, scan_tool, payload.get("session_id"))
     _NER_DOWN["v"] = layer is not None and layer.status.state == "unavailable"
+    if layer is not None:
+        from . import ner_setup
+        _NER_DOWN["fallback"] = ner_setup.LAST["source"] == "fallback"
 
     def redact(s: str) -> str:
         nonlocal vault, resolved
@@ -2928,11 +2932,15 @@ _NER_DOWN = {"v": False}
 def _ner_hint(payload: dict) -> str | None:
     """Once per session, when the service of /maisecrets:ner did not answer: the person learns that names went
     unmasked by it. Not in a subagent: it has no conversation with the person."""
+    from . import ner_setup
+    from .vault import HOME
+    if _NER_DOWN.pop("fallback", False) and not payload.get("agent_id"):
+        # the first tool result of the session that the fallback checked: where text goes now (akruse-7a, G)
+        if ner_setup.claim_down_note(HOME, str(payload.get("session_id")) + ":fallback"):
+            return ner_setup.FALLBACK_NOTE
     if not _NER_DOWN["v"] or payload.get("agent_id"):
         return None
     _NER_DOWN["v"] = False
-    from . import ner_setup
-    from .vault import HOME
     return ner_setup.DOWN_NOTE if ner_setup.claim_down_note(HOME, payload.get("session_id")) else None
 
 
