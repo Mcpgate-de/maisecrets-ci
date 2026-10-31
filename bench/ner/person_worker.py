@@ -76,7 +76,8 @@ def load(backend: str):
         nlp.max_length = 10_000_000
 
         def find(text):
-            return [(e.start_char, e.end_char, 1.0) for e in nlp(text).ents if e.label_ == "PERSON"]
+            # English models label a person PERSON, the German ones (de_core_news_*) PER
+            return [(e.start_char, e.end_char, 1.0) for e in nlp(text).ents if e.label_ in ("PER", "PERSON")]
         return find, {"library": "spacy", "library_version": spacy.__version__, "model": arg,
                       "model_version": nlp.meta.get("version"), "threshold": None}
     if kind == "gliner":

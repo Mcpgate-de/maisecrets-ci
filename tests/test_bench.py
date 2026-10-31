@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import types
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -722,6 +723,17 @@ class NerLayerTests(unittest.TestCase):
                                      [[0, 3, "pii.email"]])
         self.assertEqual([[12, 18, 0.8], [19, 21, 0.4]], keep)
         self.assertEqual(["pii.email"], conflicts)
+
+    def test_the_spacy_backend_keeps_the_person_label_of_english_and_german_models(self):
+        w = self.worker()
+        ents = [types.SimpleNamespace(start_char=0, end_char=7, label_="PER"),
+                types.SimpleNamespace(start_char=12, end_char=18, label_="PERSON"),
+                types.SimpleNamespace(start_char=22, end_char=26, label_="LOC")]
+        nlp = mock.MagicMock(side_effect=lambda text: types.SimpleNamespace(ents=ents), meta={"version": "0"})
+        fake = types.SimpleNamespace(load=lambda *a, **k: nlp, __version__="0")
+        with mock.patch.dict(sys.modules, {"spacy": fake}):
+            find, _info = w.load("spacy:de_core_news_md")
+        self.assertEqual([(0, 7, 1.0), (12, 18, 1.0)], find("Ann Lee met Bo Kim in Rome"))
 
     def test_both_environments_of_the_layer_are_pinned(self):
         for env in ("ner-spacy", "ner-gliner"):
