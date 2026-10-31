@@ -38,10 +38,11 @@ def tearDownModule():  # noqa: N802 - unittest hook
 
 def _reset(**user) -> None:
     CONFIG.write_text(json.dumps({**TEST_CONFIG, **user}))
-    try:
-        os.unlink(events.EVENTS)
-    except FileNotFoundError:
-        pass
+    for p in (events.EVENTS, Path(HOME, "ner-down-notes.json")):
+        try:
+            os.unlink(p)
+        except FileNotFoundError:
+            pass
 
 
 def _prompt(text: str, client: dict = CLAUDE, **extra) -> dict:
@@ -205,6 +206,33 @@ class ReportTests(unittest.TestCase):
             cli.cmd_status([])
         self.assertIn(f"names from a service: {svc.url} (on this computer)", buf.getvalue())
         self.assertIn("the service: answers", buf.getvalue())
+
+
+class DownNoteTests(unittest.TestCase):
+    """A service that does not answer leaves the rules alone (fail open); the person learns it once per session."""
+
+    def setUp(self):
+        import socket
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()                                   # nothing listens there now
+        _reset(remote_detector={"url": f"http://127.0.0.1:{port}/", "format": "hf"})
+
+    def post(self, session: str) -> str:
+        out = hooks._post_tool_guarded({"hook_event_name": "PostToolUse", "tool_name": "Bash", "session_id": session,
+                                        **CLAUDE, "tool_input": {"command": "cat notes.txt"},
+                                        "tool_response": {"stdout": "a plain line of text", "stderr": ""}})
+        return json.dumps(out)
+
+    def test_the_first_unanswered_result_of_a_session_tells_the_model_once(self):
+        self.assertIn("did not answer", self.post("A"))
+        self.assertNotIn("did not answer", self.post("A"))
+        self.assertIn("did not answer", self.post("B"))
+
+    def test_a_service_that_is_off_gives_no_note(self):
+        _reset()
+        self.assertNotIn("did not answer", self.post("A"))
 
 
 if __name__ == "__main__":

@@ -2600,6 +2600,7 @@ def _remote_layer(cfg: dict, response, binary, strip: bool, scan_tool, session: 
 
 
 def post_tool(payload: dict) -> dict:
+    _NER_DOWN["v"] = False
     cfg = load_config()
     response = payload.get("tool_response")
     if response is None:
@@ -2638,6 +2639,7 @@ def post_tool(payload: dict) -> dict:
 
     binary = _binary_paths(payload)
     layer = _remote_layer(cfg, response, binary, strip, scan_tool, payload.get("session_id"))
+    _NER_DOWN["v"] = layer is not None and layer.status.state == "unavailable"
 
     def redact(s: str) -> str:
         nonlocal vault, resolved
@@ -2885,10 +2887,26 @@ def _file_read_hint(payload: dict) -> str | None:
     return file_reads.hint(payload, load_config(), client_of(payload) == "codex")
 
 
+# the remote detector of the last post_tool did not answer (set there, read by _ner_hint of the same call)
+_NER_DOWN = {"v": False}
+
+
+def _ner_hint(payload: dict) -> str | None:
+    """Once per session, when the service of /maisecrets:ner did not answer: the person learns that names went
+    unmasked by it. Not in a subagent: it has no conversation with the person."""
+    if not _NER_DOWN["v"] or payload.get("agent_id"):
+        return None
+    _NER_DOWN["v"] = False
+    from . import ner_setup
+    from .vault import HOME
+    return ner_setup.DOWN_NOTE if ner_setup.claim_down_note(HOME, payload.get("session_id")) else None
+
+
 def _with_hint(payload: dict, result: dict) -> dict:
     """Add a hint to the answer of a PostToolUse without changing what the answer does."""
     # both, when both are due: with `or` the destination hint of this call waited for an unrelated later one (codex)
-    hint = "\n\n".join(h for h in (_ssh_hint(payload), _destination_hint(payload), _file_read_hint(payload)) if h)
+    hint = "\n\n".join(h for h in (_ssh_hint(payload), _destination_hint(payload), _file_read_hint(payload),
+                                    _ner_hint(payload)) if h)
     if not hint:
         return result
     result = dict(result)

@@ -16,7 +16,9 @@ tool result goes there: a team decides that, not a default.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
 import shutil
 import time
@@ -156,3 +158,34 @@ def report(conf, wait: float = 0.0) -> tuple[int, list]:
     elif not remote.is_local(str(url)):
         lines.append("Check the address with the team that runs the service.")
     return 1, lines
+
+
+# --------------------------------------------------------- the down note --
+DOWN_NOTE = ("maisecrets: the name service set with /maisecrets:ner did not answer, so the rules alone masked this "
+             "tool result; names that only the service finds were not masked. Mention this once, in one sentence, "
+             "after your answer, and tell the user that /maisecrets:ner shows the service and how to start it. Do not "
+             "start or change the service or the setting yourself.")
+_NOTES_MAX = 200
+
+
+def claim_down_note(home, session) -> bool:
+    """True once per session: the first unavailable answer of the service in it. False when the record cannot be
+    written (no note rather than one per tool result)."""
+    if not session:
+        return False
+    key = hashlib.sha256(str(session).encode("utf-8")).hexdigest()[:16]
+    path = home / "ner-down-notes.json"
+    try:
+        seen = json.loads(path.read_text(encoding="utf-8"))
+        seen = seen if isinstance(seen, list) else []
+    except (OSError, ValueError):
+        seen = []
+    if key in seen:
+        return False
+    tmp = path.with_name(path.name + f".{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps((seen + [key])[-_NOTES_MAX:]), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        return False
+    return True
