@@ -125,6 +125,27 @@ class RemoteDetectorTests(unittest.TestCase):
         self.assertEqual(svc.paths, ["/analyze"])
         self.assertEqual(svc.received[0]["language"], "de")
 
+    def test_names_only_sends_no_parameters_and_more_classes_ask_for_their_labels(self):
+        # the multi-label contract of examples/ner_service.py: an old service and the Hugging Face API never see
+        # the new key unless the person maps a class beyond names
+        svc = Service("hf")
+        self.run_with(svc)
+        self.assertEqual(svc.received[-1].keys(), {"inputs"})
+        more = {"PER": "NAME", "PERSON": "NAME", "ORG": "ORGANIZATION", "LOC": "LOCATION"}
+        # the Hugging Face API has no `labels`: without ask_labels the request stays as it was (codex review)
+        self.det.findings_with(TEXT, channel="tool", remote=rm.RemoteDetector(svc.url, classes=more))
+        self.assertEqual(svc.received[-1].keys(), {"inputs"})
+        self.det.findings_with(TEXT, channel="tool", remote=rm.RemoteDetector(svc.url, classes=more, ask_labels=True))
+        self.assertEqual(svc.received[-1]["parameters"], {"labels": ["PER", "ORG", "LOC"]})
+        # a service whose person class is PERSON keeps it
+        self.det.findings_with(TEXT, channel="tool", remote=rm.RemoteDetector(
+            svc.url, classes={"PERSON": "NAME", "ORG": "ORGANIZATION"}, ask_labels=True))
+        self.assertEqual(svc.received[-1]["parameters"], {"labels": ["PERSON", "ORG"]})
+
+    def test_port_0_is_refused_not_taken_for_the_default_port(self):
+        with self.assertRaises(ValueError):
+            rm.RemoteDetector("http://127.0.0.1:0/")
+
     def test_the_service_never_sees_a_deterministic_finding_and_offsets_still_fit(self):
         svc = Service("hf")
         self.run_with(svc)

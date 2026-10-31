@@ -482,6 +482,11 @@ def cmd_status(_: list[str]) -> int:
     from . import codex_trust
     for line in codex_trust.status_lines(root, codex_vault.codex_home()):
         print(line)
+    from . import ner_setup
+    conf = v.cfg.get("remote_detector")
+    print(ner_setup.describe(conf))
+    if isinstance(conf, dict) and conf.get("url"):
+        print("  " + ner_setup.probe(conf)[1])
     from . import incidents
     groups, damaged = incidents.load()
     markers = incidents.unfolded_markers()
@@ -914,6 +919,23 @@ def cmd_repair(_: list[str]) -> int:
     return 0
 
 
+def cmd_ner(args: list[str]) -> int:
+    """The source of names (/maisecrets:ner): which one is set and whether it answers. It changes nothing: the
+    prompt hook already wrote a change the person typed (maisecrets/ner_setup.py). `--wait N` waits up to N seconds
+    for the service, after a start."""
+    from . import ner_setup
+    wait = 0.0
+    if "--wait" in args:
+        i = args.index("--wait")
+        try:
+            wait = min(float(args[i + 1]), 300.0)
+        except (IndexError, ValueError):
+            wait = 0.0
+    code, lines = ner_setup.report(load_config().get("remote_detector"), wait)
+    print("\n".join(lines))
+    return code
+
+
 def cmd_consent_report(args: list[str]) -> int:
     from . import consent_report
     return consent_report.run(args)
@@ -923,7 +945,8 @@ COMMANDS = {"list": cmd_list, "get": cmd_get, "put": cmd_put, "resolve": cmd_res
             "report": cmd_report, "expire": cmd_expire, "scan": cmd_scan, "config": cmd_config,
             "status": cmd_status, "wipe": cmd_wipe, "repair": cmd_repair, "shortcut": cmd_shortcut,
             "forget": cmd_forget, "guard": cmd_guard, "settings": cmd_settings,
-            "consent-report": cmd_consent_report, "rules": cmd_rules, "terms": cmd_terms, "values": cmd_values}
+            "consent-report": cmd_consent_report, "rules": cmd_rules, "terms": cmd_terms, "values": cmd_values,
+            "ner": cmd_ner}
 
 
 def _stdin_words() -> list[str]:
@@ -946,7 +969,7 @@ def main(argv: list[str] | None = None) -> int:
               " | wipe --yes | repair | shortcut [name] | resolve <KEY> --grant <NONCE> | hook <event>\n"
               "           | consent-report ssh [--last 30d|N] [--json] [--excerpts FILE]\n"
               "           | rules [check [DIR] | test [text] | init DIR | import FILE.toml]\n"
-              "           | terms [suggest FILE] | values [import FILE]")
+              "           | terms [suggest FILE] | values [import FILE] | ner [--wait N]")
         return 0
     if argv[0] == "hook":
         return hook_main(["hook"] + argv[1:])

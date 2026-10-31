@@ -245,6 +245,12 @@ One process per candidate on an idle machine (Apple M5, CPU only), 300 documents
 The deterministic core alone takes 0.25 to 9.8 ms per case (the snapshot). A reused model keeps its speed and its
 memory over 1,000 calls; spaCy's memory jumps on one large input, so a layer would need a chunk budget.
 
+**D3 as ONNX** (measured by the MCP gateway that embeds the detector, 2026-10-31, arm64 container, synthetic text, not
+by `bench/ner/perf.py`): fp32 at 1 thread takes 400 ms for 2,000 characters (the gateway's NER sidecar on a quiet host:
+383 ms). int8 is about 3 times faster: 130 ms at 1 thread, 77 ms at 2 threads. On a small set of 10 texts with 15
+names, fp32 and int8 both found 15 of 15; fp32 added no false positive, int8 added 1 (a capitalised word). The set is
+too small for a precision claim.
+
 ### The three modes
 
 | | A: deterministic only (0.7.3) | B: + optional local PERSON layer (D3) | C: high-recall mode (GLiNER) |
@@ -258,7 +264,7 @@ memory over 1,000 calls; spaCy's memory jumps on one large input, so a layer wou
 | Data protection | local | local, offline (no network at run time, measured) | local, offline |
 | Offline | yes | yes, after a one-time model download | the same |
 | Maintenance | the rules | plus model and torch updates, a second test matrix | the same, and a threshold to keep |
-| Licence | Apache-2.0 project | AFL-3.0 model (to check before shipping, as its training data) | Apache-2.0 model and encoder |
+| Licence | Apache-2.0 project | AFL-3.0 model, accepted (see "Licence of D3" below); attribution required | Apache-2.0 model and encoder |
 | Effect for a user | no names in running text | most names in prose, in the languages measured; slower calls; a larger install | almost every name; many pronouns, role words and sentence starts masked |
 
 **Decision rule of the task, applied:** D3 reduces the name gap substantially (Privy 3.8 % → 63.5 %), its precision
@@ -266,6 +272,26 @@ cost is small on running text in the measured languages and on Privy, it never c
 optional. Operationally it is not yet acceptable as a feature: the cost inside a hook, developer text and the
 packaging are open (answer 10). So: experimental, with a product prototype as the next step, if the maintainer
 wants one.
+
+**Licence of D3 (maintainer decision, 2026-10-31).** The author publishes
+`Davlan/distilbert-base-multilingual-cased-ner-hrl` under AFL-3.0, and we accept that licence as stated. There is no
+further check of the training data (CoNLL 2003 and the other corpora on the model card). Its base model,
+`distilbert-base-multilingual-cased`, is Apache-2.0. What AFL-3.0 requires
+([licence text](https://opensource.org/license/afl-3-0)):
+
+- (a) A download at run time (the operator fetches the model from Hugging Face): the operator receives it from the
+  author under AFL-3.0, and nothing ships from us. Name the model, its revision and its licence in the setup.
+- (b) An image or a package that contains the model: section 1(c) allows the distribution. Keep the copyright,
+  licence and attribution notices of the model (section 6), and keep the Apache-2.0 notices of the base model.
+- (c) A service that runs the model for others: section 5 treats this External Deployment as a distribution, so the
+  duties of (b) apply. AFL-3.0 has no copyleft: the code around the model stays under its own licence.
+- In all cases: the licence ends for a party that sues the author for a patent infringement by the model (section 10).
+
+So each image or package that ships D3 lists both models with their revision and licence (for example in a
+`THIRD_PARTY_LICENSES.txt`) and keeps their notice files. The ONNX export (fp32 or int8) is a derivative work: it
+also says that it is a conversion of D3 at `d421f57d` (section 6). `bench/ner/export_onnx.py` and
+`examples/ner_service.py` download nothing: the operator fetches the snapshot, and the operator who builds an
+image with the export has these duties.
 
 ## Product feasibility (Phase B, 2026-10-21)
 
