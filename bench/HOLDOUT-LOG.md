@@ -161,3 +161,5 @@ are not published: the numbers of record come from the release baseline (`script
 | 2026-10-30 | maisecrets 0.7.2 460b3fb8740a360a753504d57123f0adc610eb94 (gate stopped: us-claim-number false alarms on Mendeley and Nemotron) | holdout-v2 | 872 | 0.6473 | 0.9971 | 2 |
 | 2026-10-30 | maisecrets 0.7.2 c35e409985217157c4f14a96ab6333a6cad75999 (gate stopped: two IP addresses lost on Nemotron) | holdout-v2 | 872 | 0.6473 | 0.9971 | 2 |
 | 2026-10-30 | maisecrets 0.7.2 0cbbde0f03da21106501abb388264640427abae1 | holdout-v2 | 872 | 0.6473 | 0.9971 | 2 |
+| 2026-10-31 | maisecrets 0.7.2 74f3ba0815eedb65056f99cfda8a6cb5c459498d (gate stopped after the holdout: the catalog step had no PyYAML) | holdout-v2 | 872 | 0.6473 | 0.9971 | 2 |
+| 2026-10-31 | maisecrets 0.7.2 74f3ba0815eedb65056f99cfda8a6cb5c459498d | holdout-v2 | 872 | 0.6473 | 0.9971 | 2 |
