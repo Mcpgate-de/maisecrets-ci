@@ -14,6 +14,7 @@ import re
 import time
 from pathlib import Path
 
+from . import ner_setup
 from .home import (CONFIG, DEFAULT_CONFIG, HOME, ConfigError, LockTimeout, _check_types, _lock_for, atomic_write,
                    load_config)
 
@@ -144,6 +145,8 @@ IN_A_COMMAND_RE = re.compile(r"(?:/maisecrets:settings|maisecrets:\s*set)\s+[a-z
 # a term removal makes detection weaker: only the person types it (terms.py)
 IN_A_COMMAND_RE = re.compile(IN_A_COMMAND_RE.pattern + r"|(?:/maisecrets:term|maisecrets:\s*term)\s+remove\s|"
                              r"\bterm_remove_typed\b", re.I)
+# the source of names (ner_setup.py): a tool call must not send the text of tool results somewhere new
+IN_A_COMMAND_RE = re.compile(IN_A_COMMAND_RE.pattern + "|" + ner_setup.IN_A_COMMAND, re.I)
 # who wrote the prompt (Claude Code 2.1.292 UserPromptSubmit `source`): only the person at the composer. A scheduled
 # task, a loop wakeup, a system or poll prompt can carry text the model chose (CronCreate, ScheduleWakeup), and an
 # `sdk` prompt can come from a program a tool started (codex review round 2), so none of them changes anything. A
@@ -363,6 +366,9 @@ def parse_prompt(prompt) -> tuple[str, str] | None:
     m = _VALUE_FILES_RE.match(prompt)
     if m:
         return ("value_files", m.group(1).lower() + ":" + m.group(2))
+    ner = ner_setup.parse(prompt)
+    if ner:
+        return ("remote_detector", "ner:" + ner)
     m = _PROMPT_RE.match(prompt)
     return (m.group(1).lower(), m.group(2).lower()) if m else None
 
@@ -414,6 +420,11 @@ def loosens(key: str, before, after) -> bool:
         return isinstance(before, int) and isinstance(after, int) and after > before
     if key == "ssh_autonomous_hosts":
         return bool(set(after or []) - set(before or []))
+    if key == "remote_detector":
+        # off masks fewer names; a service on the network gets the text of tool results
+        old = (before or {}).get("url") if isinstance(before, dict) else None
+        new = (after or {}).get("url") if isinstance(after, dict) else None
+        return bool(old and not new) or bool(new and new != old and not ner_setup.remote.is_local(str(new)))
 
     def same(dirs) -> set:     # ~/team, /home/me/team/ and /home/me/./team are one folder
         return {os.path.normcase(os.path.normpath(os.path.expanduser(d.strip()))) for d in dirs or []
@@ -444,7 +455,11 @@ def apply_typed(key: str, word: str, route: str = "typed prompt", cwd: str = "")
         return False, (f"maisecrets: {TITLE.get(key, key)} is set by your administrator's policy. It cannot be "
                        "changed here.")
     hosts_change = key in _LIST_KEYS and (word == "default" or word.startswith(("add:", "remove:")))
-    if key not in _BOOL_KEYS and key not in _CHOICES and key not in _INT_KEYS and not hosts_change:
+    ner_change = key == "remote_detector" and word.startswith("ner:")
+    if key not in _BOOL_KEYS and key not in _CHOICES and key not in _INT_KEYS and not hosts_change and not ner_change:
+        if key == "remote_detector":
+            return False, ("maisecrets: send /maisecrets:ner local (or url URL, or off), or in Codex: "
+                           "maisecrets: ner local.")
         if key == "ssh_autonomous_hosts":
             return False, ("maisecrets: send /maisecrets:settings ssh_autonomous_hosts add HOST (or remove HOST), "
                            "or in Codex: maisecrets: ssh autonomous HOST (or ask HOST).")
@@ -460,7 +475,7 @@ def apply_typed(key: str, word: str, route: str = "typed prompt", cwd: str = "")
         if key in MEANING:
             return False, f"maisecrets: {key} is not changed by a prompt; edit {CONFIG} by hand."
         return False, f"maisecrets: {key} is no setting this command changes. /maisecrets:settings --all lists them."
-    if word != "default" and not hosts_change:
+    if word != "default" and not hosts_change and not ner_change:
         if key in _BOOL_KEYS and word not in _BOOL_WORDS:
             return False, f"maisecrets: {key} takes on, off or default."
         if key == "read_image" and word == "convert":
@@ -474,6 +489,13 @@ def apply_typed(key: str, word: str, route: str = "typed prompt", cwd: str = "")
             if not (word.isdigit() and len(word) <= 8 and low <= int(word) <= high):
                 return False, f"maisecrets: {key} takes a whole number from {low} to {high:,}, or default."
     note = ""
+    if ner_change and word.startswith("ner:url:"):
+        why = ner_setup.check_url(word[8:])
+        if why:
+            return False, f"maisecrets: the address is not used ({why}). Nothing was changed."
+        if not ner_setup.remote.is_local(word[8:]):
+            note = (" The text of each tool result goes to that service, the findings of the rules as filler. The "
+                    "service has no sign-in: use one on a private network only.")
     if key == "read_pdf" and word == "convert":
         from .file_reads import INSTALL, pdftotext
         if not pdftotext():
@@ -530,7 +552,9 @@ def apply_typed(key: str, word: str, route: str = "typed prompt", cwd: str = "")
             except ConfigError as exc:
                 # load_config ignores the whole file then: the change would be written and still not count
                 return False, f"maisecrets: {exc}; fix it first. Nothing was changed."
-            if word == "default":
+            if ner_change:
+                user[key] = ner_setup.updated(user.get(key), word[4:])
+            elif word == "default":
                 user.pop(key, None)
             elif hosts_change:
                 verb, host = word.split(":", 1)
@@ -551,6 +575,8 @@ def apply_typed(key: str, word: str, route: str = "typed prompt", cwd: str = "")
     if loosens(key, cfg.get(key), after.get(key)):
         from . import events
         events.record_weakening("setting", key, route)      # the next session start names it to the person
+    if ner_change:
+        return True, f"maisecrets: {ner_setup.describe(after.get(key))}.{note}"
     return True, f"maisecrets: {TITLE.get(key, key)} is {_shown(after.get(key), key)} ({state(key, after)}).{note}"
 
 

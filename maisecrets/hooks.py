@@ -1032,14 +1032,15 @@ def user_prompt(payload: dict) -> dict:
     # report pass, so a report never changes one; blocked, so the prompt does not reach the model
     change = settings_mod.parse_prompt(prompt)
     if change:
-        route = "slash command" if prompt.lstrip().lower().startswith("/maisecrets:settings") else "typed prompt"
+        slash = prompt.lstrip().lower().startswith(("/maisecrets:settings", "/maisecrets:ner"))
+        route = "slash command" if slash else "typed prompt"
         changed, reason = settings_mod.apply_typed(*change, route=route, cwd=str(payload.get("cwd") or "")) if typed \
             else (False, settings_mod.not_typed_reason(payload))
         if changed and change[0] == "clean_dirs" and change[1].startswith("add:"):
             from . import file_reads
             from .user_rules import expand
             file_reads.note_clean_root(session, str(expand(change[1][4:])))   # this session trusts it from now
-        if changed and client_of(payload) != "codex" and prompt.lstrip().lower().startswith("/maisecrets:settings"):
+        if changed and client_of(payload) != "codex" and slash:
             # a success is no refusal: the slash command runs on and shows the new state (a block read as an
             # error, "operation blocked by hook"). The prompt carries no value; the change is already written
             return {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": reason}}
