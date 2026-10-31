@@ -48,7 +48,8 @@ _TYPE_RE = re.compile(r"[A-Z][A-Z0-9_]*")
 
 @dataclass(frozen=True)
 class RemoteStatus:
-    """What the remote detector did in one call. `state`: ok, unavailable (with a `reason`: timeout, refused, http,
+    """What the remote detector did in one call. `state`: ok, unavailable (with a `reason`: timeout, refused (nothing
+    listens), network (name, TLS, route), policy (an address this detector may not use), http,
     answer), too_long, or off (no remote detector). `added` is the count of spans it added."""
     format: str = ""
     model: str = ""
@@ -73,6 +74,10 @@ class Result:
 
 
 _SHARED = ipaddress.ip_network("100.64.0.0/10")
+
+
+class _Policy(ConnectionError):
+    """A connection this detector refuses to make (an address it may not use): reason `policy`."""
 
 
 def _private(addr: str) -> bool:
@@ -213,9 +218,9 @@ class RemoteDetector:
         if not addrs:
             raise ConnectionError("no address")
         if not self.allow_network and not all(_loopback(a[4][0]) for a in addrs):
-            raise ConnectionError("not a loopback address")
+            raise _Policy("not a loopback address")
         if self.private_http_only and p.scheme == "http" and not all(_private(a[4][0]) for a in addrs):
-            raise ConnectionError("plain http to an address that is not private")
+            raise _Policy("plain http to an address that is not private")
         target = (p.path or "/") + (f"?{p.query}" if p.query else "")
         return _PinnedConnection(p.hostname, port, addrs[0], left, p.scheme == "https", self.allow_network), target
 
@@ -321,9 +326,14 @@ class RemoteDetector:
             return [], self.status("unavailable", "timeout", ms=_ms(t0))
         if isinstance(exc, _HttpStatus):
             return [], self.status("unavailable", "http", ms=_ms(t0))
-        if isinstance(exc, (ConnectionError, FileNotFoundError)) or (
-                isinstance(exc, OSError) and not isinstance(exc, ValueError)):
-            return [], self.status("unavailable", "timeout" if "timed out" in str(exc) else "refused", ms=_ms(t0))
+        if isinstance(exc, (ConnectionRefusedError, FileNotFoundError)):
+            # nothing listens there (no service, no socket file): the one reason a caller may take for "not running"
+            return [], self.status("unavailable", "refused", ms=_ms(t0))
+        if isinstance(exc, _Policy):
+            return [], self.status("unavailable", "policy", ms=_ms(t0))
+        if isinstance(exc, (ConnectionError, OSError)) and not isinstance(exc, ValueError):
+            # a name that does not resolve, TLS, a route: the network, not a stopped service
+            return [], self.status("unavailable", "timeout" if "timed out" in str(exc) else "network", ms=_ms(t0))
         return [], self.status("unavailable", "answer", ms=_ms(t0))
 
     @staticmethod

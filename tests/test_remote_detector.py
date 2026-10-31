@@ -186,7 +186,7 @@ class RemoteDetectorTests(unittest.TestCase):
         with mock.patch.object(rm.socket, "getaddrinfo", return_value=fake), \
                 mock.patch.object(rm.socket.socket, "connect") as connect:
             r = self.det.findings_with(TEXT, channel="tool", remote=rm.RemoteDetector(f"http://localhost:{port}/"))
-        self.assertEqual((r.findings, r.remote.reason, svc.received), (self.base, "refused", []))
+        self.assertEqual((r.findings, r.remote.reason, svc.received), (self.base, "policy", []))
         connect.assert_not_called()
         real = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
         with mock.patch.object(rm.socket, "getaddrinfo", return_value=real):

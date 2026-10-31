@@ -20,9 +20,11 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import json
+import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -143,6 +145,19 @@ def _get(url: str, path: str, timeout: float):
         return r.status, r.read(65536)
 
 
+def _http_allowed(url: str) -> bool:
+    """https, or plain http whose host resolves to private addresses only (remote.private_http_only)."""
+    import socket
+    parts = urlsplit(url)
+    if parts.scheme.lower() != "http":
+        return True
+    try:
+        addrs = socket.getaddrinfo(parts.hostname, parts.port or 80, type=socket.SOCK_STREAM)
+    except (OSError, ValueError):
+        return False
+    return bool(addrs) and all(remote._private(a[4][0]) for a in addrs)
+
+
 def _plain(value, limit: int) -> str:
     """A value of the service's /info as one line of printable text: its answer must not add a line to the output that
     commands/ner.md reads (codex review: a `start:` line from /info)."""
@@ -158,6 +173,10 @@ def probe(conf, timeout: float = 1.0) -> tuple[bool, str]:
         return False, "the service: a Unix socket; this command does not probe one"
     if not remote.is_local(url) and conf.get("allow_network") is not True:
         return False, "the service: not asked (not on this computer, and allow_network is not set)"
+    if not remote.is_local(url) and not _http_allowed(url):
+        # the rule the detector applies at each connection: a setting from before 0.8.7 is not shown as working
+        return False, ("the service: not asked; plain http to an address that is not private is not used. Use "
+                       "https or a private address (/maisecrets:ner url URL)")
     t0 = time.monotonic()
     try:
         status, _ = _get(url, "/health", timeout)
@@ -178,16 +197,24 @@ def probe(conf, timeout: float = 1.0) -> tuple[bool, str]:
 
 
 def container_tool() -> str:
-    """docker or podman, the first one on PATH, or ""."""
+    """The absolute path of docker or podman, the first one on PATH, or "". The restart runs this path, not a name
+    that PATH resolves again (codex review of 0.8.7)."""
     for name in ("docker", "podman"):
-        if shutil.which(name):
-            return name
+        found = shutil.which(name)
+        if found:
+            return os.path.abspath(found)
     return ""
 
 
-# a container named ner whose image is mcpgate/ner (any tag), started again; fixed text, no value of the setting in it
-_RESTART = ('case "$({tool} container inspect -f "{{{{.Config.Image}}}}" ner 2>/dev/null)" in '
-            'mcpgate/ner|mcpgate/ner:*) exec {tool} start ner ;; esac')
+# a container named ner whose image is mcpgate/ner (any tag), started again: the plugin's own Python, the container
+# tool by its absolute path, no shell and no value of the setting
+_RESTART = ("import subprocess, sys\n"
+            "t = sys.argv[1]\n"
+            "r = subprocess.run([t, 'container', 'inspect', '-f', '{{.Config.Image}}', 'ner'], capture_output=True,"
+            " text=True, timeout=30)\n"
+            "img = r.stdout.strip()\n"
+            "if r.returncode == 0 and (img == 'mcpgate/ner' or img.startswith('mcpgate/ner:')):\n"
+            "    subprocess.run([t, 'start', 'ner'], capture_output=True, timeout=120)\n")
 
 
 def restart_local(conf) -> bool:
@@ -203,8 +230,8 @@ def restart_local(conf) -> bool:
     ok, _line = probe(conf, timeout=0.3)
     if ok:
         return False
-    subprocess.Popen(["sh", "-c", _RESTART.format(tool=tool)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL, start_new_session=True)
+    subprocess.Popen([sys.executable, "-I", "-c", _RESTART, tool], stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     return True
 
 
@@ -233,7 +260,7 @@ def report(conf, wait: float = 0.0) -> tuple[int, list]:
         tool = container_tool()
         if tool:
             # commands/ner.md runs one of its two fixed commands on exit code 3; this line only names the tool
-            lines.append(f"start: {START.replace('docker', tool, 1)}")
+            lines.append(f"start: {START.replace('docker', os.path.basename(tool), 1)}")
             return 3, lines
         lines.append("Neither docker nor podman is installed. Install one of them (Docker Desktop, OrbStack, Podman), "
                      f"then run: {START}. Or use a service of your team: /maisecrets:ner url URL. Or turn it off: "

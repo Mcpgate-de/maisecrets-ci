@@ -245,6 +245,17 @@ class ReportTests(unittest.TestCase):
         self.assertIn("Your prompts keep the rules alone",
                       ner_setup.scope({"url": ner_setup.LOCAL_URL, "prompts": False}))
 
+    def test_a_plain_http_setting_to_a_public_host_is_not_shown_as_answering(self):
+        # a 0.8.6 setting with plain http to a public address: the detector refuses it at each connection, so the
+        # probe must not say "answers" either, and it sends nothing there (codex review of 0.8.7)
+        import socket
+        with mock.patch.object(socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("8.8.8.8", 8765))]), \
+                mock.patch.object(ner_setup, "_get") as get:
+            ok, line = ner_setup.probe({"url": "http://ner.example.com:8765/", "allow_network": True})
+        self.assertFalse(ok)
+        self.assertIn("plain http to an address that is not private", line)
+        get.assert_not_called()
+
     def test_a_service_on_the_network_without_allow_network_is_not_asked(self):
         ok, line = ner_setup.probe({"url": "http://10.0.0.5:8765/"})
         self.assertFalse(ok)
@@ -273,11 +284,11 @@ class RestartTests(unittest.TestCase):
         return asked, popen
 
     def test_a_stopped_local_service_is_started_in_the_background(self):
-        asked, popen = self.run_restart({"url": ner_setup.LOCAL_URL})
+        asked, popen = self.run_restart({"url": ner_setup.LOCAL_URL}, tool="/usr/local/bin/docker")
         self.assertTrue(asked)
         argv = popen.call_args.args[0]
-        self.assertEqual(argv[:2], ["sh", "-c"])
-        self.assertIn("mcpgate/ner|mcpgate/ner:*) exec docker start ner", argv[2])
+        # the plugin's Python and the tool by its absolute path: no shell, no name PATH resolves again
+        self.assertEqual((argv[0], argv[1], argv[2], argv[-1]), (sys.executable, "-I", "-c", "/usr/local/bin/docker"))
         self.assertTrue(popen.call_args.kwargs["start_new_session"])
 
     def test_nothing_starts_for_a_running_service_another_source_or_no_docker(self):
@@ -290,9 +301,19 @@ class RestartTests(unittest.TestCase):
                 popen.assert_not_called()
 
     def test_the_start_command_checks_the_image_and_names_no_setting_value(self):
-        cmd = ner_setup._RESTART.format(tool="podman")
-        self.assertTrue(cmd.startswith('case "$(podman container inspect -f "{{.Config.Image}}" ner'))
-        self.assertNotIn("8765", cmd)
+        # run the helper with a fake tool that records its calls: an image that is not mcpgate/ner is never started
+        import tempfile
+        for image, starts in (("mcpgate/ner", True), ("mcpgate/ner:v2", True), ("evil/ner", False),
+                              ("mcpgate/nerx", False)):
+            with self.subTest(image=image), tempfile.TemporaryDirectory() as d:
+                tool, log = Path(d, "docker"), Path(d, "calls")
+                tool.write_text(f"#!/bin/sh\necho \"$@\" >> {log}\n[ \"$1\" = container ] && echo {image}\nexit 0\n")
+                tool.chmod(0o755)
+                import subprocess
+                subprocess.run([sys.executable, "-I", "-c", ner_setup._RESTART, str(tool)], check=True, timeout=30)
+                calls = log.read_text().splitlines()
+                self.assertEqual("start ner" in calls, starts)
+        self.assertNotIn("8765", ner_setup._RESTART)
 
 
 class DownNoteTests(unittest.TestCase):
@@ -369,13 +390,22 @@ class PromptNameTests(unittest.TestCase):
         self.assertEqual(self.received, [])
 
     def test_a_service_on_the_network_never_reads_a_prompt(self):
-        # the fake is taken for a host on the network: so the prompt would reach it, if anything asked it
+        # a URL that names this computer but resolves to another host (allow_network set): no connection is made
         from maisecrets.detection import remote
-        _reset(remote_detector={"url": self.url, "format": "hf", "allow_network": True})
-        with mock.patch.object(remote, "is_local", return_value=False):
+        port = self.server.server_address[1]
+        _reset(remote_detector={"url": f"http://localhost:{port}/", "format": "hf", "allow_network": True})
+        tried = []
+
+        class Recorder:
+            def __init__(self, *a, **k):
+                tried.append(a[2])
+                raise ConnectionRefusedError
+        with mock.patch.object(remote.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("10.0.0.5", port))]), \
+                mock.patch.object(remote, "_PinnedConnection", Recorder):
             out = hooks.rewrite_prompt({"prompt": f"{self.NAME} is a colleague of mine", "session_id": "S1",
                                         "origin": "composer"})
         self.assertEqual(out, {})
+        self.assertEqual(tried, [])
         self.assertEqual(self.received, [])
 
     def test_a_service_that_is_down_leaves_the_rules_rewrite(self):
@@ -486,7 +516,7 @@ class FallbackTests(unittest.TestCase):
         with mock.patch.object(remote.socket, "getaddrinfo",
                                return_value=[(2, 1, 6, "", ("8.8.8.8", 8765))]):
             spans, status = det.ask("x " + NameService.NAME, [])
-        self.assertEqual((status.state, status.reason), ("unavailable", "refused"))
+        self.assertEqual((status.state, status.reason), ("unavailable", "policy"))
 
     def test_a_local_service_that_is_not_running_hands_the_tool_result_to_the_fallback(self):
         _reset(remote_detector={"url": f"http://127.0.0.1:{_closed_port()}/", "format": "hf",
@@ -507,6 +537,27 @@ class FallbackTests(unittest.TestCase):
         self.post()
         self.assertEqual(self.fb.received, [])
         self.assertEqual([x["source"] for x in self.log_lines()], ["rules"])
+
+    def test_a_network_primary_or_a_network_error_never_hands_over_to_the_fallback(self):
+        # only "nothing listens on this computer" hands over. Two cases that look alike on the wire: a team service
+        # that refuses (a network primary), and a local name that resolves to another host (a policy refusal)
+        from maisecrets.detection import remote
+        closed = _closed_port()
+        real = remote.socket.getaddrinfo
+
+        def resolve(host, port, *a, **k):
+            if host == "team-ner.internal":
+                return [(2, 1, 6, "", ("127.0.0.1", closed))]        # private, and nothing listens: refused
+            if host == "localhost":
+                return [(2, 1, 6, "", ("10.0.0.5", port))]           # not loopback: refused by policy
+            return real(host, port, *a, **k)
+        for primary, extra in ((f"http://team-ner.internal:{closed}/", {"allow_network": True}),
+                               (f"http://localhost:{closed}/", {})):
+            with self.subTest(primary=primary), mock.patch.object(remote.socket, "getaddrinfo", resolve):
+                _reset(remote_detector={"url": primary, "format": "hf", **extra,
+                                        "fallback": {"url": self.fb.url, "format": "hf"}})
+                self.post()
+                self.assertEqual(self.fb.received, [])
 
     def test_a_prompt_never_goes_to_the_fallback(self):
         _reset(remote_detector={"url": f"http://127.0.0.1:{_closed_port()}/", "format": "hf",

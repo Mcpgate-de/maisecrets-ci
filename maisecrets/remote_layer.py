@@ -98,11 +98,14 @@ def prepare(cfg: dict, strings: list, scan, protect=None, use_fallback: bool = T
         occupied += [(off + a, off + b) for s, off in pieces for a, b in protect(s)]
     spans, status = ner.ask(joined, occupied, time.monotonic() + ner.timeout)
     source = "local" if remote.is_local(ner.url) else "url"
-    if status.state == "unavailable" and status.reason == "refused" and use_fallback:
+    asked = ner
+    # only a local service that nothing answers for (refused: not running) hands over: never a network primary, a
+    # timeout, a name, TLS or a policy refusal (codex review of 0.8.7)
+    if status.state == "unavailable" and status.reason == "refused" and use_fallback and source == "local":
         fb, _why = from_config(cfg, fallback=True)
         if fb is not None:
             spans, status = fb.ask(joined, occupied, time.monotonic() + fb.timeout)
-            source = "fallback"
+            source, asked = "fallback", fb
     from . import ner_setup
     ner_setup.log(source if status.available else "rules", kind, len(joined), len(spans))
     starts = [off for _s, off in pieces]
@@ -112,7 +115,7 @@ def prepare(cfg: dict, strings: list, scan, protect=None, use_fallback: bool = T
         if i >= 0:
             s, off = pieces[i]
             if b <= off + len(s):          # a span over two strings is no name of either: dropped
-                added.setdefault(s, []).append(Match("remote:" + ner.format, type_, s[a - off:b - off], a - off,
+                added.setdefault(s, []).append(Match("remote:" + asked.format, type_, s[a - off:b - off], a - off,
                                                      b - off, score))
     for s, extra in added.items():
         found[s] = sorted(found[s] + extra, key=lambda m: (m.start, m.end))
@@ -130,7 +133,10 @@ def prompt_names(cfg: dict, prompt: str, matches: list, protect_of) -> list:
         return []
     if not remote.is_local(str(conf["url"])):
         return []
-    layer = prepare(cfg, [prompt], lambda s: list(matches), protect_of(), use_fallback=False, kind="prompt")
+    # the network stays shut for a prompt whatever the setting says: a "localhost" that resolves to another host is
+    # refused when it connects (codex review of 0.8.7)
+    local_only = {**cfg, "remote_detector": {**conf, "allow_network": False}}
+    layer = prepare(local_only, [prompt], lambda s: list(matches), protect_of(), use_fallback=False, kind="prompt")
     if layer is None:
         return []
     return [m for m in layer.found.get(prompt, []) if m.kind.startswith("remote:")]

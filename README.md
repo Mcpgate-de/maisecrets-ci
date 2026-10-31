@@ -2316,9 +2316,10 @@ maisecrets does not verify that it is `mcpgate/ner`.
   (RFC 1918, ULA, link-local, 100.64.0.0/10): plain http to a public address is
   refused. An administrator can set the source for everyone in the machine
   policy.
-- **fallback**: used only while the local service refuses the connection, for
-  tool results only. A slow local service never hands text to the fallback,
-  and a prompt never goes there. The AI says once per session when it is used.
+- **fallback**: used only while nothing listens for the local service (it is
+  not running), for tool results only. A slow or broken local service, and a
+  team service as the first source, never hand text to the fallback, and a
+  prompt never goes there. The AI says once per session when it is used.
 - **Which service read what**: `/maisecrets:ner` and `/maisecrets:status`
   count today's requests per service, from `ner.log` (time, service, tool
   result or prompt, characters, names; never text).
