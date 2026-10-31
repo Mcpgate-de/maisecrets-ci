@@ -256,6 +256,29 @@ class ReportTests(unittest.TestCase):
         self.assertIn("plain http to an address that is not private", line)
         get.assert_not_called()
 
+    def test_a_local_name_that_resolves_elsewhere_is_not_probed_and_dns_has_a_deadline(self):
+        # round 2 of the codex review: "localhost" pointed at a public host was shown as answering
+        import socket
+        for conf, words in (({"url": "http://localhost:8765/"}, "resolves to another computer"),
+                            ({"url": "http://localhost:8765/", "allow_network": True}, "plain http to an address")):
+            with self.subTest(conf=conf), \
+                    mock.patch.object(socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("8.8.8.8", 8765))]), \
+                    mock.patch.object(ner_setup, "_get") as get:
+                ok, line = ner_setup.probe(conf)
+                self.assertFalse(ok)
+                self.assertIn(words, line)
+                get.assert_not_called()
+
+        def slow(*a, **k):
+            time.sleep(1.0)
+            return [(2, 1, 6, "", ("127.0.0.1", 8765))]
+        with mock.patch.object(socket, "getaddrinfo", slow), mock.patch.object(ner_setup, "_get") as get:
+            t0 = time.monotonic()
+            ok, line = ner_setup.probe({"url": "http://localhost:8765/"}, timeout=0.2)
+        self.assertLess(time.monotonic() - t0, 0.8)
+        self.assertIn("does not resolve in time", line)
+        get.assert_not_called()
+
     def test_a_service_on_the_network_without_allow_network_is_not_asked(self):
         ok, line = ner_setup.probe({"url": "http://10.0.0.5:8765/"})
         self.assertFalse(ok)

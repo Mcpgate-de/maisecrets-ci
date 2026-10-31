@@ -145,17 +145,34 @@ def _get(url: str, path: str, timeout: float):
         return r.status, r.read(65536)
 
 
-def _http_allowed(url: str) -> bool:
-    """https, or plain http whose host resolves to private addresses only (remote.private_http_only)."""
+def _address_refused(url: str, allow_network: bool, timeout: float) -> str:
+    """Why the detector would refuse the addresses this URL gives now, or "": without allow_network every address must
+    be loopback, and plain http only to private addresses (remote.RemoteDetector._connection). The lookup runs within
+    `timeout`. The probe asks its own lookup again, so this is a check of the setting, not a pin: the probe never
+    sends text (codex review of 0.8.7)."""
     import socket
+    import threading
     parts = urlsplit(url)
-    if parts.scheme.lower() != "http":
-        return True
-    try:
-        addrs = socket.getaddrinfo(parts.hostname, parts.port or 80, type=socket.SOCK_STREAM)
-    except (OSError, ValueError):
-        return False
-    return bool(addrs) and all(remote._private(a[4][0]) for a in addrs)
+    box: dict = {}
+
+    def look() -> None:
+        try:
+            box["addrs"] = [a[4][0] for a in socket.getaddrinfo(parts.hostname, parts.port or 80,
+                                                                 type=socket.SOCK_STREAM)]
+        except (OSError, ValueError, UnicodeError) as exc:
+            box["error"] = exc
+    th = threading.Thread(target=look, daemon=True)
+    th.start()
+    th.join(timeout)
+    addrs = box.get("addrs")
+    if not addrs:
+        return "its name does not resolve in time"
+    if not allow_network and not all(remote._loopback(a) for a in addrs):
+        return "its name resolves to another computer, and allow_network is not set"
+    if parts.scheme.lower() == "http" and not all(remote._private(a) for a in addrs):
+        return ("plain http to an address that is not private is not used; use https or a private address "
+                "(/maisecrets:ner url URL)")
+    return ""
 
 
 def _plain(value, limit: int) -> str:
@@ -173,10 +190,10 @@ def probe(conf, timeout: float = 1.0) -> tuple[bool, str]:
         return False, "the service: a Unix socket; this command does not probe one"
     if not remote.is_local(url) and conf.get("allow_network") is not True:
         return False, "the service: not asked (not on this computer, and allow_network is not set)"
-    if not remote.is_local(url) and not _http_allowed(url):
-        # the rule the detector applies at each connection: a setting from before 0.8.7 is not shown as working
-        return False, ("the service: not asked; plain http to an address that is not private is not used. Use "
-                       "https or a private address (/maisecrets:ner url URL)")
+    why = _address_refused(url, conf.get("allow_network") is True, timeout)
+    if why:
+        # the rules the detector applies at each connection: a setting it would refuse is not shown as working
+        return False, f"the service: not asked; {why}"
     t0 = time.monotonic()
     try:
         status, _ = _get(url, "/health", timeout)

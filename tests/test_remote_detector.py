@@ -364,6 +364,15 @@ class RemoteDetectorTests(unittest.TestCase):
         self.assertEqual(problems(doc, contract.json.loads(contract.SCHEMA.read_text())["$defs"]["response"]), [])
         self.assertEqual(doc["engine"]["remote"]["state"], "unavailable")
 
+    def test_every_reason_of_an_unavailable_service_fits_the_schema(self):
+        # a host that embeds the library serialises each reason: network and policy came with 0.8.7 (codex review)
+        schema = contract.json.loads(contract.SCHEMA.read_text())["$defs"]["response"]
+        base = self.det.findings_with(TEXT, channel="tool")
+        for reason in ("timeout", "refused", "network", "policy", "http", "answer"):
+            with self.subTest(reason=reason):
+                r = rm.Result(base.findings, rm.RemoteStatus("hf", "m", "unavailable", reason))
+                self.assertEqual(problems(contract.result_response(self.det, r), schema), [])
+
 
 if __name__ == "__main__":
     unittest.main()
