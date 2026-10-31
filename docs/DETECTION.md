@@ -290,6 +290,8 @@ response = contract.result_response(detector, result)    # the same as JSON (mai
 - **The model version is the operator's word.** Neither format names its model in the answer, so `model` is what the
   operator states, and `engine.remote.model` of a response is only as true as that setting. The reference service
   (`examples/ner_service.py`) reports its own at `GET /info`, so an operator can compare.
+  Its model (D3) is AFL-3.0 and its base model Apache-2.0: an image that contains them keeps their notices
+  (`docs/NER-EXPERIMENT.md`, "Licence of D3").
 - **In a response** (`contract.result_response`), a finding of the service has `score` and `provenance.origin` and
   `layer` `model`; `engine.remote` holds `format`, `model`, `state` and, when unavailable, `reason`. Without a
   remote detector the response is the one of the entry point. The schema has both fields as optional.
