@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+## [0.8.6] - 2026-10-31
+
+### Features
+
+- when the name service does not answer, the AI tells you once per session (d77c85f)
+- a remote detector asks the service for organisations and places when classes names them (7a66d21)
+- /maisecrets:ner local, url or off switches names from a NER service on with one prompt (03f3c5b)
+- the reference NER service returns organisations, places and dates on request (cbe5f07)
+- examples/ner_service.py takes --host (44563e8)
+- the ssh question names what keeps a command off the read list (cc4338e)
+
+### Fixes
+
+- a service whose person class is PERSON keeps it when more classes are asked for (f5197d4)
+- review findings on /maisecrets:ner and the probe (cf5ad7c)
+- the spaCy NER backend keeps the German PER label (4ec6f0c)
+- ner_service.py imports on Windows (87e489f)
+- access, pass and cookie words keep a revision label a credential (8abadf1)
+- a credential word glued into a revision label keeps the hit (e2ff587)
+- a revision label with a credential word stays a credential label (70450a5)
+- a commit after its label is no secret (eb73af5)
+
+### Dependencies
+
+- update dependency presidio-analyzer to v2.2.366 (9ab8ffe)
+
 ## [0.8.5] - 2026-10-30
 
 ### Features
