@@ -245,6 +245,12 @@ One process per candidate on an idle machine (Apple M5, CPU only), 300 documents
 The deterministic core alone takes 0.25 to 9.8 ms per case (the snapshot). A reused model keeps its speed and its
 memory over 1,000 calls; spaCy's memory jumps on one large input, so a layer would need a chunk budget.
 
+**D3 as ONNX** (measured by the MCP gateway that embeds the detector, 2026-10-31, arm64 container, synthetic text, not
+by `bench/ner/perf.py`): fp32 at 1 thread takes 400 ms for 2,000 characters (the gateway's NER sidecar on a quiet host:
+383 ms). int8 is about 3 times faster: 130 ms at 1 thread, 77 ms at 2 threads. On a small set of 10 texts with 15
+names, fp32 and int8 both found 15 of 15; fp32 added no false positive, int8 added 1 (a capitalised word). The set is
+too small for a precision claim.
+
 ### The three modes
 
 | | A: deterministic only (0.7.3) | B: + optional local PERSON layer (D3) | C: high-recall mode (GLiNER) |
