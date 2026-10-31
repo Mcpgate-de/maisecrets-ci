@@ -131,9 +131,19 @@ def load(backend: str):
 
 def _onnx_backend(arg: str):
     """A token classifier exported by bench/ner/export_onnx.py, run with onnxruntime and tokenizers alone (no torch,
-    no transformers): `onnx:<dir>` reads model.onnx, `onnx:<dir>::int8` model.int8.onnx. The aggregation is the one of
-    D3, rebuilt: per token the most likely label; a PER token after a PER token of the same entity joins it unless it
-    is a B- tag; the span widened to whole words; the score is the mean of its tokens."""
+    no transformers): `onnx:<dir>` reads model.onnx, `onnx:<dir>::int8` model.int8.onnx. Its PER spans."""
+    find_labels, desc = onnx_labeled(arg)
+
+    def find(text):
+        return [x[:3] for x in find_labels(text, ("PER",))]
+    return find, {k: v for k, v in desc.items() if k != "labels"}
+
+
+def onnx_labeled(arg: str):
+    """(find(text, labels), desc) of the ONNX backend: the spans of the asked entity types as (start, end, score,
+    type). The aggregation is the one of D3, rebuilt: per token the most likely label; a token of a type after a token
+    of the same type joins it unless it is a B- tag; the span widened to whole words; the score is the mean of its
+    tokens. `desc["labels"]` is what the model can return (its id2label without B-/I-)."""
     import json as _json
     import numpy as np
     import onnxruntime
@@ -169,7 +179,9 @@ def _onnx_backend(arg: str):
             return out
         return [x for c, d in _chunks(text[a:b], limit // 2) for x in fit(text, a + c, a + d, limit // 2)]
 
-    def find(text):
+    labels = sorted({v.partition("-")[2] for v in id2label.values() if v.partition("-")[2]})
+
+    def find(text, wanted=("PER",)):
         spans = []
         for a, b, enc in (x for c, d in _chunks(text, BERT_WORDS) for x in fit(text, c, d, BERT_WORDS)):
             ids = np.array([enc.ids], dtype=np.int64)
@@ -182,22 +194,24 @@ def _onnx_backend(arg: str):
                 if special or e <= s:
                     continue
                 tag, _, ent = label.partition("-")
-                if ent == "PER" and cur is not None and tag != "B":
+                if ent in wanted and cur is not None and cur[3] == ent and tag != "B":
                     cur[1], cur[2] = e, cur[2] + [float(p.max())]
                     continue
                 if cur is not None:
                     spans.append(cur)
                     cur = None
-                if ent == "PER":
-                    cur = [s, e, [float(p.max())]]
+                if ent in wanted:
+                    cur = [s, e, [float(p.max())], ent]
             if cur is not None:
                 spans.append(cur)
             # the chunk's spans, in the text's offsets and widened to whole words
-            spans = [x if isinstance(x, tuple) else _snap(text, a + x[0], a + x[1], round(sum(x[2]) / len(x[2]), 4))
+            spans = [x if isinstance(x, tuple)
+                     else _snap(text, a + x[0], a + x[1], round(sum(x[2]) / len(x[2]), 4)) + (x[3],)
                      for x in spans]
         return spans
     return find, {"library": "onnxruntime", "library_version": onnxruntime.__version__,
-                  "tokenizers": tokenizers.__version__, "model": model_file, "threshold": None, "aggregation": "snap"}
+                  "tokenizers": tokenizers.__version__, "model": model_file, "threshold": None, "aggregation": "snap",
+                  "labels": labels}
 
 
 def _snap(text: str, s: int, e: int, score: float) -> tuple:

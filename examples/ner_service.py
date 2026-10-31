@@ -7,12 +7,15 @@ it needs numpy, onnxruntime and tokenizers, which the plugin never installs.
         [--model NAME]
 
     POST /       {"inputs": text}  ->  [{"entity_group": "PER", "start", "end", "score", "word"}, ...]
-    GET  /info   {"model", "file", "sha256", "library", "aggregation"}
+    POST /       {"inputs": text, "parameters": {"labels": ["PER", "ORG", "LOC"]}}  ->  the spans of those types
+    GET  /info   {"model", "file", "sha256", "library", "aggregation", "labels"}
+    GET  /health {"status": "ok"}
 
-It answers the PER spans of bench/ner/person_worker.py (backend onnx:ONNX_DIR), so the remote path and the
-experiment see the same spans. It listens on 127.0.0.1 or a Unix socket (--host for a container port: the service has
-no authentication, so bind it only to a network that only its callers reach), answers one request at a time and
-writes no log line with text. Then, in ~/.maisecrets/config.json:
+Without "labels" it answers the PER spans of bench/ner/person_worker.py (backend onnx:ONNX_DIR), so the remote path
+and the experiment see the same spans; "labels" asks for other types of the model, those that /info lists. It
+listens on 127.0.0.1 or a Unix socket (--host for a container port: the service has no authentication, so bind it
+only to a network that only its callers reach), answers one request at a time and writes no log line with text.
+Then, in ~/.maisecrets/config.json:
 
     "remote_detector": {"url": "http://127.0.0.1:8765/", "format": "hf", "model": "<the model of GET /info>"}
 """
@@ -33,7 +36,21 @@ import person_worker  # noqa: E402
 MAX_BODY = 4 * 1024 * 1024
 
 
+def labels_of(doc: dict, known) -> tuple:
+    """The entity types a request asks for: PER without "parameters", else its "labels", each one the model knows.
+    Raises ValueError on anything else, so a request gets all it asked for or an error, never a part."""
+    params = doc.get("parameters")
+    if params is None:
+        return ("PER",)
+    labels = params.get("labels") if isinstance(params, dict) else None
+    if not isinstance(labels, list) or not labels or not all(isinstance(x, str) and x in known for x in labels):
+        raise ValueError
+    return tuple(dict.fromkeys(labels))
+
+
 def make_handler(find, info: dict):
+    """`find(text, labels)` gives (start, end, score, type) per span."""
+    known = tuple(info.get("labels") or ("PER",))
     class Handler(BaseHTTPRequestHandler):
         def _send(self, status: int, doc) -> None:
             body = json.dumps(doc, ensure_ascii=False).encode("utf-8")
@@ -44,21 +61,30 @@ def make_handler(find, info: dict):
             self.wfile.write(body)
 
         def do_GET(self):  # noqa: N802 - http.server API
-            self._send(200, info) if self.path.rstrip("/") == "/info" else self._send(404, {"error": "not found"})
+            path = self.path.rstrip("/")
+            if path == "/info":
+                return self._send(200, info)
+            if path == "/health":
+                return self._send(200, {"status": "ok"})
+            self._send(404, {"error": "not found"})
 
         def do_POST(self):  # noqa: N802 - http.server API
             n = int(self.headers.get("Content-Length") or 0)
             if n > MAX_BODY:
                 return self._send(413, {"error": "too large"})
             try:
-                text = json.loads(self.rfile.read(n))["inputs"]
+                doc = json.loads(self.rfile.read(n))
+                text = doc["inputs"]
                 if not isinstance(text, str):
                     raise ValueError
             except (ValueError, KeyError, TypeError):
                 return self._send(400, {"error": "expected {\"inputs\": text}"})
-            spans = find(text)
-            self._send(200, [{"entity_group": "PER", "start": s, "end": e, "score": score, "word": text[s:e]}
-                             for s, e, score in spans])
+            try:
+                labels = labels_of(doc, known)
+            except ValueError:
+                return self._send(400, {"error": f"parameters.labels: a non-empty list of {list(known)}"})
+            self._send(200, [{"entity_group": t, "start": s, "end": e, "score": score, "word": text[s:e]}
+                             for s, e, score, t in find(text, labels)])
 
         def log_message(self, *args):
             pass                                   # no log line: a request is someone's text
@@ -98,12 +124,11 @@ def main(argv: list) -> int:
     a = ap.parse_args(argv)
     if a.unix and a.host != "127.0.0.1":
         ap.error("--host binds a TCP port; a Unix socket has no host")
-    backend = f"onnx:{a.onnx_dir}" + ("::int8" if a.int8 else "")
-    find, desc = person_worker.load(backend)
+    find, desc = person_worker.onnx_labeled(a.onnx_dir + ("::int8" if a.int8 else ""))
     model_file = Path(a.onnx_dir) / desc["model"]
     info = {"model": a.model + (" int8" if a.int8 else " fp32"), "file": desc["model"],
             "sha256": hashlib.sha256(model_file.read_bytes()).hexdigest(), "library": desc["library"],
-            "library_version": desc["library_version"], "aggregation": desc["aggregation"]}
+            "library_version": desc["library_version"], "aggregation": desc["aggregation"], "labels": desc["labels"]}
     server = make_server(make_handler(find, info), host=a.host, port=a.port, unix=a.unix)
     print("ready", flush=True)
     server.serve_forever()
