@@ -233,7 +233,8 @@ class RemoteDetector:
         if self.format == "hf" and self.ask_labels and wanted:
             # a class beyond names, to a service that takes `labels` (examples/ner_service.py, mcpgate/ner): ask for
             # it. The Hugging Face API has no such parameter, so only `ask_labels` sends it (codex review)
-            doc["parameters"] = {"labels": [k for k in self.classes if k != "PERSON"]}
+            # PERSON is the same class as PER: dropped only when PER is asked for (codex review, round 2)
+            doc["parameters"] = {"labels": [k for k in self.classes if k != "PERSON" or "PER" not in self.classes]}
         return json.dumps(doc, ensure_ascii=False).encode("utf-8")
 
     def _parse(self, data: bytes, n: int) -> list:

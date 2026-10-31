@@ -137,6 +137,10 @@ class RemoteDetectorTests(unittest.TestCase):
         self.assertEqual(svc.received[-1].keys(), {"inputs"})
         self.det.findings_with(TEXT, channel="tool", remote=rm.RemoteDetector(svc.url, classes=more, ask_labels=True))
         self.assertEqual(svc.received[-1]["parameters"], {"labels": ["PER", "ORG", "LOC"]})
+        # a service whose person class is PERSON keeps it
+        self.det.findings_with(TEXT, channel="tool", remote=rm.RemoteDetector(
+            svc.url, classes={"PERSON": "NAME", "ORG": "ORGANIZATION"}, ask_labels=True))
+        self.assertEqual(svc.received[-1]["parameters"], {"labels": ["PERSON", "ORG"]})
 
     def test_port_0_is_refused_not_taken_for_the_default_port(self):
         with self.assertRaises(ValueError):
