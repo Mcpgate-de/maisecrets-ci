@@ -337,7 +337,7 @@ claude --plugin-dir /path/to/maisecrets                 # one session, straight 
 python3 -m unittest discover -s tests -v               # about 30 seconds
 python3 harness/run.py                                 # 40 scenarios against a fake upstream (4 for the PowerShell tool of Windows)
 python3 harness/codex.py [--real]                      # 15 scenarios through codex exec (five need --real)
-python3 scripts/replay_can_fail.py                     # 387 proofs: each control's test, and each path of the seven invariants, goes red without its guard
+python3 scripts/replay_can_fail.py                     # 388 proofs: each control's test, and each path of the seven invariants, goes red without its guard
 python3 scripts/derived_counts.py                      # the numbers in the docs, measured again
 python3 scripts/lint_plugin.py                         # frontmatter YAML, manifests, hook paths (pre-commit, CI)
 scripts/install-hooks.sh                               # git pre-commit / pre-push
@@ -2279,11 +2279,41 @@ The limit: an AI agent that runs as your user can read the key from the
 store, as it can read any stored value. The server's cap, its audit and the
 revoke bound that. A value written into a file is plain text there.
 
-## Names from a local service (optional)
+## Names from a service (optional)
 
 The rules find few names: a name has no shape (docs/NER-EXPERIMENT.md). A
-named-entity service on your computer can add them in tool results. It is off
-until `~/.maisecrets/config.json` names it:
+named-entity service can add them in tool results. It is off until you choose
+a source, with one command typed as your own prompt:
+
+| Command | Source |
+|---|---|
+| `/maisecrets:ner local` | the service on this computer, `http://127.0.0.1:8765/` (`on` is the same) |
+| `/maisecrets:ner url URL` | a service of your team on a private network |
+| `/maisecrets:ner off` | the rules alone (the default) |
+| `/maisecrets:ner` | which source is set, and whether it answers |
+
+In Codex, send `maisecrets: ner local` (or `url URL`, `off`) alone as your
+prompt. One source at a time: a new one replaces the old one, and there is no
+fallback to another source. Only a prompt you type changes it, with the limits
+of every setting (threat model, C22).
+
+- **local**: the service is the container `mcpgate/ner` (the model D3 of the
+  NER experiment as ONNX; AFL-3.0 and Apache-2.0, its notices are in the
+  image). If it does not answer, `/maisecrets:ner` gives the command that
+  starts it with docker or podman, and the AI runs it:
+  `docker run -d --name ner --restart unless-stopped -p 127.0.0.1:8765:8765 mcpgate/ner`.
+  Without docker or podman, install one of them (Docker Desktop, OrbStack,
+  Podman), use a service of your team, or keep the rules alone.
+- **url**: the text of each tool result goes to that service, with each value
+  the rules found as filler. The service has no sign-in: run it only on a
+  network that only its users reach. An administrator can set the source for
+  everyone in the machine policy.
+- **When the service does not answer**, the rules mask the tool result alone,
+  as without it, and the AI tells you once per session. `/maisecrets:status`
+  shows the source and whether it answers.
+
+The command writes the setting `remote_detector` in `~/.maisecrets/config.json`
+and keeps its other keys. Written by hand, the setting looks like this:
 
 ```json
 {
@@ -2302,6 +2332,10 @@ until `~/.maisecrets/config.json` names it:
 - Only names by default (`PER`, `PERSON`). `classes` maps more classes of the
   service to a type, for example `{"PER": "NAME", "LOC": "ADDRESS"}`, and
   `min_score` sets the least score per type. No threshold is set for you.
+  With a class beyond names and `"ask_labels": true` (the command sets it),
+  the `hf` request asks for those classes
+  (`"parameters": {"labels": [...]}`); `mcpgate/ner` answers `PER`, `ORG`,
+  `LOC` and `DATE` (its `GET /info` lists them).
 - `url` must be a loopback address or a Unix socket (`unix:/path/to.sock`).
   Another host needs `"allow_network": true` in the setting, and then your tool
   results go there (PRIVACY.md).

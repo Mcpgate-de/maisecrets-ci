@@ -338,6 +338,8 @@ MATRIX: dict[str, list[tuple[list[str], str, dict]]] = {
     "guard": [([], "", _ALL0), (["install"], "", _ALL1 if os.name == "nt" else _ALL0), (["status"], "", _ALL0),
               (["remove"], "", _ALL0)],
     "pending": [([], "", _ALL0)],
+    # it reads the setting and asks no service when none is set; a config that does not load exits 1
+    "ner": [([], "", {"ok": 0, "index": 0, "config": 1})],
     # it reads the transcripts of the sandbox's own CLAUDE_CONFIG_DIR, never the store: every state answers alike
     "consent-report": [(["ssh", "--json"], "", _ALL0), (["ssh", "--last", "7d"], "", _ALL0), ([], "", _ALL2)],
     # the rule folders are read without the store, and a config that does not load means no extra folder: every

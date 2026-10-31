@@ -1032,14 +1032,15 @@ def user_prompt(payload: dict) -> dict:
     # report pass, so a report never changes one; blocked, so the prompt does not reach the model
     change = settings_mod.parse_prompt(prompt)
     if change:
-        route = "slash command" if prompt.lstrip().lower().startswith("/maisecrets:settings") else "typed prompt"
+        slash = prompt.lstrip().lower().startswith(("/maisecrets:settings", "/maisecrets:ner"))
+        route = "slash command" if slash else "typed prompt"
         changed, reason = settings_mod.apply_typed(*change, route=route, cwd=str(payload.get("cwd") or "")) if typed \
             else (False, settings_mod.not_typed_reason(payload))
         if changed and change[0] == "clean_dirs" and change[1].startswith("add:"):
             from . import file_reads
             from .user_rules import expand
             file_reads.note_clean_root(session, str(expand(change[1][4:])))   # this session trusts it from now
-        if changed and client_of(payload) != "codex" and prompt.lstrip().lower().startswith("/maisecrets:settings"):
+        if changed and client_of(payload) != "codex" and slash:
             # a success is no refusal: the slash command runs on and shows the new state (a block read as an
             # error, "operation blocked by hook"). The prompt carries no value; the change is already written
             return {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": reason}}
@@ -1588,10 +1589,12 @@ def _consent_text(c: dict) -> str:
     more = [h for h in c["hosts"] if h not in c["named"]]
     group = f" and the hosts of its group ({', '.join(more)})" if more else ""
     # the first sentence says what a yes means: this command only. The window is a separate, typed act
-    return (f"maisecrets: approve this ssh write to {named}? A yes allows only this command ({c['why']}). "
-            f"To let writes to {named}{group} run without asking for {consent_store.APPROVAL_SECONDS // 3600} hours "
-            f"in this session, send this as your own prompt: maisecrets: allow ssh {c['named'][0]}. For a host where "
-            f"the AI may always work without asking: maisecrets: ssh autonomous {c['named'][0]}. "
+    return (f"maisecrets: approve this ssh command to {named}? maisecrets cannot check it as read-only "
+            f"({c['why']}). A yes allows only this command. "
+            f"To let such commands to {named}{group} run without asking for "
+            f"{consent_store.APPROVAL_SECONDS // 3600} hours in this session, send this as your own prompt: "
+            f"maisecrets: allow ssh {c['named'][0]}. For a host where the AI may always work without asking: "
+            f"maisecrets: ssh autonomous {c['named'][0]}. "
             "The deny list (mkfs, dd to a device, rm -rf /) always stays on.")
 
 
@@ -2597,6 +2600,7 @@ def _remote_layer(cfg: dict, response, binary, strip: bool, scan_tool, session: 
 
 
 def post_tool(payload: dict) -> dict:
+    _NER_DOWN["v"] = False
     cfg = load_config()
     response = payload.get("tool_response")
     if response is None:
@@ -2635,6 +2639,7 @@ def post_tool(payload: dict) -> dict:
 
     binary = _binary_paths(payload)
     layer = _remote_layer(cfg, response, binary, strip, scan_tool, payload.get("session_id"))
+    _NER_DOWN["v"] = layer is not None and layer.status.state == "unavailable"
 
     def redact(s: str) -> str:
         nonlocal vault, resolved
@@ -2882,10 +2887,26 @@ def _file_read_hint(payload: dict) -> str | None:
     return file_reads.hint(payload, load_config(), client_of(payload) == "codex")
 
 
+# the remote detector of the last post_tool did not answer (set there, read by _ner_hint of the same call)
+_NER_DOWN = {"v": False}
+
+
+def _ner_hint(payload: dict) -> str | None:
+    """Once per session, when the service of /maisecrets:ner did not answer: the person learns that names went
+    unmasked by it. Not in a subagent: it has no conversation with the person."""
+    if not _NER_DOWN["v"] or payload.get("agent_id"):
+        return None
+    _NER_DOWN["v"] = False
+    from . import ner_setup
+    from .vault import HOME
+    return ner_setup.DOWN_NOTE if ner_setup.claim_down_note(HOME, payload.get("session_id")) else None
+
+
 def _with_hint(payload: dict, result: dict) -> dict:
     """Add a hint to the answer of a PostToolUse without changing what the answer does."""
     # both, when both are due: with `or` the destination hint of this call waited for an unrelated later one (codex)
-    hint = "\n\n".join(h for h in (_ssh_hint(payload), _destination_hint(payload), _file_read_hint(payload)) if h)
+    hint = "\n\n".join(h for h in (_ssh_hint(payload), _destination_hint(payload), _file_read_hint(payload),
+                                    _ner_hint(payload)) if h)
     if not hint:
         return result
     result = dict(result)

@@ -2449,7 +2449,7 @@ _MEASURE_LABEL_RE = _LazyRx(r"(?i)(?<![a-z])(?:ttl|timeout|expir\w*|lifetime|max
 _SECRET_LABEL_RE = _LazyRx(r"(?i)(?:token|secret[_-]?key|secret|secret[_-]?value|api[_-]?key|apikey|access[_-]?key"
                               r"|auth[_-]?key|\w+[_-]key|password|passwd|pwd|passphrase)\\?[\"']?\s*(?::=|=>|[:=])\s*\\?[\"'`]?$")
 _ELISION_RE = _LazyRx(r"(?:\.\.\.|\u2026)$")
-def _names_no_secret(text: str, start: int) -> bool:
+def _names_no_secret(text: str, start: int, value: str = "") -> bool:
     """The label before the value names a cursor, a key that is an identifier, or the time or the state of a secret
     (fields.names_no_secret; gateway field report, 2026-10-29: in maisecrets mode a masked cursor could not be sent
     back, so paging broke)."""
@@ -2457,7 +2457,7 @@ def _names_no_secret(text: str, start: int) -> bool:
     if not m:
         return False
     label, words = m.group(2), _fields.label_words(m.group(2))
-    if _fields.is_time_or_state(words) or _fields.is_an_id(words):
+    if _fields.is_time_or_state(words) or _fields.is_an_id(words) or _fields.is_a_revision(words, value):
         return True
     # a cursor or an identifier key only in the spelling of an API: a quoted key or camelCase. GITHUB_SYNC_TOKEN= in an
     # env file and repo_sync_token: in a CI file name a credential (Fable review, 2026-10-30)
@@ -2979,7 +2979,7 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
                      and not _SECRET_LABEL_RE.search(
                         text, max(_line_start(text, start), start - 60), start))
                     or (_ELISION_RE.search(secret) and len(secret.rstrip(".\u2026")) < 20)
-                    or _names_no_secret(text, start)
+                    or _names_no_secret(text, start, secret.strip("\"'` "))
                     or _DERIVED_LABEL_RE.search(text, max(_line_start(text, start), start - 60), start)):
                 continue   # a UUID, an elided value (sk-...), or a label of a derived thing (secret_id, nextPageToken)
             if "user-equals-password" in filters and _pass_equals_user(m.group(0), secret):
