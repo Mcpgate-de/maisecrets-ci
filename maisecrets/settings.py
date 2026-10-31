@@ -42,7 +42,7 @@ TITLE = {
     "gateway_servers": "Gateway servers", "client_header": "Values back from your MCP servers",
     "rule_dirs": "Rule folders",
     "read_pdf": "PDFs the AI reads", "read_image": "Images the AI reads", "clean_dirs": "Folders with clean files",
-    "value_files": "Value files", "remote_detector": "Names from a local service",
+    "value_files": "Value files", "remote_detector": "Names from a service",
     "max_keys_per_session": "Values per session and hour", "max_resolves_per_hour": "Uses per hour",
 }
 MEANING = {
@@ -67,8 +67,8 @@ MEANING = {
     "rule_dirs": "Folders with detection rules of your own or of your team, read with ~/.maisecrets/rules.d.",
     "value_files": "Files of values from your own tools (JSON lines), imported at session start when they change. "
                    "An import only adds; your prompt /maisecrets:forget import:ID removes one.",
-    "remote_detector": "A named-entity service on this computer that adds names in tool results after the rules. "
-                       "Off unless config.json names its url (docs/DETECTION.md).",
+    "remote_detector": "A named-entity service that adds names in tool results after the rules. Off unless you "
+                       "choose a source: /maisecrets:ner local, url URL or off.",
     "ttl_seconds": "How long a stored value lives.",
     "renew_on_use": "A use of a value extends its life.",
     "tips": "A short tip at session start, and a hint when a setting first matters.",
