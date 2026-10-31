@@ -1,6 +1,6 @@
 """The remote detector in the plugin (setting `remote_detector`; docs/DETECTION.md, "A remote detector"). Off
-unless the setting names a URL. Tool results only: a typed prompt keeps the rules alone (a name in a prompt would
-block or rewrite it, and that path has no measurement yet).
+unless the setting names a URL. Tool results here; a typed prompt only through the mod's rewrite in Claude Code and
+only to a service on this computer (hooks._prompt_names): a name never blocks a prompt.
 
 One request per hook call. A tool result is many strings (a JSON result is walked leaf by leaf), and a request per
 string let one call wait 1.6 s against a budget of 0.3 s in the NER experiment (docs/NER-EXPERIMENT.md, B5). So

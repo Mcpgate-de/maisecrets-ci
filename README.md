@@ -2282,7 +2282,7 @@ revoke bound that. A value written into a file is plain text there.
 ## Names from a service (optional)
 
 The rules find few names: a name has no shape (docs/NER-EXPERIMENT.md). A
-named-entity service can add them in tool results. It is off until you choose
+named-entity service can add them, in tool results and, in Claude Code, in your prompts. It is off until you choose
 a source, with one command typed as your own prompt:
 
 | Command | Source |
@@ -2300,7 +2300,8 @@ of every setting (threat model, C22).
 - **local**: the service is the container `mcpgate/ner` (the model D3 of the
   NER experiment as ONNX; AFL-3.0 and Apache-2.0, its notices are in the
   image). If it does not answer, `/maisecrets:ner` gives the command that
-  starts it with docker or podman, and the AI runs it:
+  starts it with docker or podman; the AI asks you first (about 690 MB to download, about 250 MB of memory
+  while it runs) and then runs it:
   `docker run -d --name ner --restart unless-stopped -p 127.0.0.1:8765:8765 mcpgate/ner`.
   Without docker or podman, install one of them (Docker Desktop, OrbStack,
   Podman), use a service of your team, or keep the rules alone.
@@ -2339,7 +2340,10 @@ and keeps its other keys. Written by hand, the setting looks like this:
 - `url` must be a loopback address or a Unix socket (`unix:/path/to.sock`).
   Another host needs `"allow_network": true` in the setting, and then your tool
   results go there (PRIVACY.md).
-- Tool results only, one request per tool call, within `timeout_ms` (at most
+- Tool results, and the prompts you type in Claude Code (with the mod) when the service is on this computer: a
+  name in a prompt becomes a placeholder and never blocks it. `"prompts": false` turns the prompt part off. A
+  service on the network never gets a prompt, and Codex prompts keep the rules alone (Codex cannot rewrite a
+  prompt). One request per tool call or prompt, within `timeout_ms` (at most
   5000; the name lookup and a slow answer count too). Each value
   the rules found goes out as `_` filler of the same length. The filler costs
   the model a few names (21 of 2,482 on the benchmark samples), so a service on
