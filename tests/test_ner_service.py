@@ -62,7 +62,7 @@ class LabelTests(unittest.TestCase):
 
         def find(text, labels):
             self.asked.append(labels)
-            return [(0, 5, 0.9, "PER"), (9, 13, 0.8, "ORG")][:len(labels)]
+            return [x for x in [(0, 5, 0.9, "PER"), (9, 13, 0.8, "ORG")] if x[3] in labels]
         server = ner_service.make_server(
             ner_service.make_handler(find, {"model": "stub", "labels": ["LOC", "ORG", "PER"]}), port=0)
         self.addCleanup(server.server_close)
@@ -87,6 +87,10 @@ class LabelTests(unittest.TestCase):
         status, spans = self.post({"inputs": "Maria at Acme", "parameters": {"labels": ["PER", "ORG", "PER"]}})
         self.assertEqual((status, self.asked), (200, [("PER", "ORG")]))
         self.assertEqual([(s["entity_group"], s["word"]) for s in spans], [("PER", "Maria"), ("ORG", "Acme")])
+
+    def test_one_label_gets_only_its_type(self):
+        status, spans = self.post({"inputs": "Maria at Acme", "parameters": {"labels": ["ORG"]}})
+        self.assertEqual((status, [s["word"] for s in spans]), (200, ["Acme"]))
 
     def test_a_label_the_model_does_not_know_or_an_empty_list_is_refused(self):
         for params in ({"labels": ["MISC"]}, {"labels": []}, {"labels": "PER"}, ["PER"]):

@@ -45,7 +45,7 @@ def from_config(cfg: dict) -> tuple:
             # at most 5 s: the hook's watchdog is 16 s, and the rules' scan of a large result needs its share
             timeout=min(ms, 5000) / 1000, max_chars=int(conf.get("max_chars", 20000)),
             language=str(conf.get("language", "en")), allow_network=conf.get("allow_network") is True,
-            mask=mask), ""
+            mask=mask, ask_labels=conf.get("ask_labels") is True), ""
     except (ValueError, TypeError, AttributeError) as exc:
         return None, str(exc)
 

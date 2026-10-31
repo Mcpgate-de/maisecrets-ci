@@ -292,6 +292,12 @@ response = contract.result_response(detector, result)    # the same as JSON (mai
   (`examples/ner_service.py`) reports its own at `GET /info`, so an operator can compare.
   Its model (D3) is AFL-3.0 and its base model Apache-2.0: an image that contains them keeps their notices
   (`docs/NER-EXPERIMENT.md`, "Licence of D3").
+- **More classes than names.** `{"inputs": text}` asks the reference service for persons only. With
+  `"parameters": {"labels": [...]}` it answers the spans of those classes, each with its class in `entity_group`; a
+  class that `GET /info` does not list in `labels` is a 400. `RemoteDetector` sends the labels only with
+  `ask_labels=True` (the Hugging Face API has no such parameter) and when `classes` maps a class beyond
+  `PER`/`PERSON`, so any other service gets the request it always got. `GET /health` answers `{"status": "ok"}`. The image `mcpgate/ner` runs this service, and in the plugin `/maisecrets:ner` sets it
+  up (README, "Names from a service").
 - **In a response** (`contract.result_response`), a finding of the service has `score` and `provenance.origin` and
   `layer` `model`; `engine.remote` holds `format`, `model`, `state` and, when unavailable, `reason`. Without a
   remote detector the response is the one of the entry point. The schema has both fields as optional.
