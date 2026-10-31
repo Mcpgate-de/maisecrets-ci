@@ -888,6 +888,9 @@ def rewrite_prompt(payload: dict) -> dict:
         except OSError:
             return {}           # the hook answers it, and blocks when it cannot record the name either
     matches = _prompt_hits(prompt)
+    names = _prompt_names(cfg, prompt, matches, session)
+    if names:
+        matches = sorted(matches + names, key=lambda m: (m.start, m.end))
     if not matches and not _has_live(cfg):
         return {}
     # the hook checks the text the mod passes on: a placeholder in place of a value can turn `@src/<value>` into
@@ -915,6 +918,37 @@ def rewrite_prompt(payload: dict) -> dict:
     if tip:
         answer["tip"] = tip         # the mod shows it next to its line, once (check_value.py)
     return answer
+
+
+def _prompt_names(cfg: dict, prompt: str, matches: list, session: str | None) -> list:
+    """The names the service of /maisecrets:ner finds in a prompt the mod rewrites (Claude Code): they become
+    placeholders like the rules' findings, and nothing is blocked for a name. Only a service on this computer reads a
+    prompt: the home page promises that no prompt goes to a server by default, so a service on the network (url) and
+    the setting `"prompts": false` leave the prompt to the rules. The rules' findings and the stored values go out as
+    filler (remote_layer.prepare). Any failure: no names, the rules' rewrite as before."""
+    conf = cfg.get("remote_detector")
+    if not (isinstance(conf, dict) and conf.get("url")) or conf.get("prompts") is False:
+        return []
+    try:
+        from . import remote_layer
+        from .detection import remote
+        if not remote.is_local(str(conf["url"])):
+            return []
+        protect = None
+        if _has_live(cfg):
+            from .tool_output import known_value_spans
+            vault = Vault(cfg)
+            resolved = _resolved_values(vault, session)
+
+            def protect(t: str) -> list:
+                return known_value_spans(t, vault, resolved)
+        layer = remote_layer.prepare(cfg, [prompt], lambda s: list(matches), protect)
+        if layer is None:
+            return []
+        return [m for m in layer.found.get(prompt, []) if m.kind.startswith("remote:")]
+    except Exception as exc:  # noqa: BLE001 - the rules' rewrite runs as without the service
+        _debug(f"prompt names: {type(exc).__name__}")
+        return []
 
 
 def _name_ttl(cfg: dict) -> int:

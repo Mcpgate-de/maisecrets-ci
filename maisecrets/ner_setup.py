@@ -103,6 +103,16 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
 
 
+def scope(conf) -> str:
+    """One line: what the service reads. A prompt only on this computer and only where the client rewrites it."""
+    url = str(conf.get("url") or "") if isinstance(conf, dict) else ""
+    if remote.is_local(url) and conf.get("prompts") is not False:
+        return ("It masks person names in what the AI reads (files, command output, tool results) and in your prompts "
+                "in Claude Code. In Codex it covers what the AI reads only. It may mask a few extra words.")
+    return ("It masks person names in what the AI reads (files, command output, tool results). Your prompts keep the "
+            "rules alone. It may mask a few extra words.")
+
+
 def _get(url: str, path: str, timeout: float):
     with _OPENER.open(url.rstrip("/") + path, timeout=timeout) as r:
         return r.status, r.read(65536)
@@ -160,6 +170,7 @@ def report(conf, wait: float = 0.0) -> tuple[int, list]:
         lines.append("To turn it on: /maisecrets:ner local (the service on this computer) or "
                      "/maisecrets:ner url URL (a service of your team), as your own prompt.")
         return 0, lines
+    lines.append(scope(conf))
     deadline = time.monotonic() + wait
     ok, line = probe(conf)
     while not ok and time.monotonic() < deadline:

@@ -237,6 +237,13 @@ class ReportTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(asked, ["/health"])
 
+    def test_the_report_says_what_the_service_reads(self):
+        self.assertIn("in your prompts in Claude Code. In Codex", ner_setup.scope({"url": ner_setup.LOCAL_URL}))
+        self.assertIn("Your prompts keep the rules alone",
+                      ner_setup.scope({"url": "http://10.0.0.5:8765/", "allow_network": True}))
+        self.assertIn("Your prompts keep the rules alone",
+                      ner_setup.scope({"url": ner_setup.LOCAL_URL, "prompts": False}))
+
     def test_a_service_on_the_network_without_allow_network_is_not_asked(self):
         ok, line = ner_setup.probe({"url": "http://10.0.0.5:8765/"})
         self.assertFalse(ok)
@@ -278,6 +285,67 @@ class DownNoteTests(unittest.TestCase):
     def test_a_service_that_is_off_gives_no_note(self):
         _reset()
         self.assertNotIn("did not answer", self.post("A"))
+
+
+class PromptNameTests(unittest.TestCase):
+    """With a service on this computer, the mod's rewrite (Claude Code) turns the names of a prompt into placeholders;
+    nothing is blocked for a name. A service on the network and `"prompts": false` leave the prompt to the rules: the
+    home page promises that no prompt goes to a server by default."""
+
+    NAME = "Thomasina Weinbergerova"            # synthetic, no rule finds it
+
+    def setUp(self):
+        self.received = []
+        tests = self
+
+        class H(BaseHTTPRequestHandler):
+            def do_POST(self):  # noqa: N802 - http.server API
+                text = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))["inputs"]
+                tests.received.append(text)
+                at = text.find(tests.NAME)
+                body = json.dumps([] if at < 0 else [{"entity_group": "PER", "start": at, "end": at + len(tests.NAME),
+                                                       "score": 0.99, "word": tests.NAME}]).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *a):
+                pass
+        self.server = HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/"
+
+    def rewrite(self, **conf) -> dict:
+        _reset(remote_detector={"url": self.url, "format": "hf", **conf})
+        return hooks.rewrite_prompt({"prompt": f"{self.NAME} is a colleague of mine", "session_id": "S1",
+                                     "origin": "composer"})
+
+    def test_a_name_in_a_prompt_becomes_a_placeholder(self):
+        out = self.rewrite()
+        self.assertNotIn(self.NAME, out.get("text", ""))
+        self.assertRegex(out.get("text", ""), r"\A⟦NAME_c\d+⟧ is a colleague of mine\Z")
+        self.assertEqual(len(self.received), 1)
+
+    def test_prompts_false_leaves_the_prompt_to_the_rules(self):
+        self.assertEqual(self.rewrite(prompts=False), {})
+        self.assertEqual(self.received, [])
+
+    def test_a_service_on_the_network_never_reads_a_prompt(self):
+        # the fake is taken for a host on the network: so the prompt would reach it, if anything asked it
+        from maisecrets.detection import remote
+        _reset(remote_detector={"url": self.url, "format": "hf", "allow_network": True})
+        with mock.patch.object(remote, "is_local", return_value=False):
+            out = hooks.rewrite_prompt({"prompt": f"{self.NAME} is a colleague of mine", "session_id": "S1",
+                                        "origin": "composer"})
+        self.assertEqual(out, {})
+        self.assertEqual(self.received, [])
+
+    def test_a_service_that_is_down_leaves_the_rules_rewrite(self):
+        self.server.shutdown()
+        self.assertEqual(self.rewrite(), {})
 
 
 if __name__ == "__main__":
