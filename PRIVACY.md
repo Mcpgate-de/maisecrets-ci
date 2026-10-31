@@ -81,7 +81,10 @@ Connections start only from a command you run, or go to an MCP server you added 
   every value the rules found replaced by filler of the same length (a service on this
   computer gets them as they are only when the setting says `"mask": false`). A typed prompt goes
   there only in Claude Code with the mod (which rewrites the prompt), only when the service is on
-  this computer, and not with `"prompts": false`; a service on the network never gets a prompt. The plugin accepts only a loopback address (127.0.0.0/8, `::1`, `localhost`)
+  this computer, and not with `"prompts": false`; a service on the network never gets a prompt.
+  A fallback you add (`/maisecrets:ner fallback url URL`) gets tool results only while the
+  service on this computer is not running, and never a prompt. `ner.log` in the store folder
+  records per request the time, the service, the kind, the length and the count of names, never text. The plugin accepts only a loopback address (127.0.0.0/8, `::1`, `localhost`)
   or a Unix socket, so the text stays on this computer, unless you set `allow_network: true`
   in that setting (`/maisecrets:ner url URL` sets it for a host that is not on this
   computer); then it goes to the host you named. What the service finds is stored like

@@ -2290,12 +2290,14 @@ a source, with one command typed as your own prompt:
 | `/maisecrets:ner local` | the service on this computer, `http://127.0.0.1:8765/` (`on` is the same) |
 | `/maisecrets:ner url URL` | a service of your team on a private network |
 | `/maisecrets:ner off` | the rules alone (the default) |
+| `/maisecrets:ner fallback url URL` | a second service for tool results while the local one is not running (`fallback off` removes it) |
 | `/maisecrets:ner` | which source is set, and whether it answers |
 
 In Codex, send `maisecrets: ner local` (or `url URL`, `off`) alone as your
-prompt. One source at a time: a new one replaces the old one, and there is no
-fallback to another source. Only a prompt you type changes it, with the limits
-of every setting (threat model, C22).
+prompt. One source at a time: a new one replaces the old one. A fallback only
+when you add one. Only a prompt you type changes it, with the limits of every
+setting (threat model, C22). `local` means whatever listens on 127.0.0.1:8765;
+maisecrets does not verify that it is `mcpgate/ner`.
 
 - **local**: the service is the container `mcpgate/ner` (the model D3 of the
   NER experiment as ONNX; AFL-3.0 and Apache-2.0, its notices are in the
@@ -2304,11 +2306,22 @@ of every setting (threat model, C22).
   while it runs) and then runs it:
   `docker run -d --name ner --restart unless-stopped -p 127.0.0.1:8765:8765 mcpgate/ner`.
   Without docker or podman, install one of them (Docker Desktop, OrbStack,
-  Podman), use a service of your team, or keep the rules alone.
+  Podman), use a service of your team, or keep the rules alone. After a
+  restart, maisecrets starts the container again at the next session start
+  (`docker start ner`, only for a container whose image is `mcpgate/ner`);
+  until it answers, the rules work alone.
 - **url**: the text of each tool result goes to that service, with each value
   the rules found as filler. The service has no sign-in: run it only on a
-  network that only its users reach. An administrator can set the source for
-  everyone in the machine policy.
+  network that only its users reach. It must use https or a private address
+  (RFC 1918, ULA, link-local, 100.64.0.0/10): plain http to a public address is
+  refused. An administrator can set the source for everyone in the machine
+  policy.
+- **fallback**: used only while the local service refuses the connection, for
+  tool results only. A slow local service never hands text to the fallback,
+  and a prompt never goes there. The AI says once per session when it is used.
+- **Which service read what**: `/maisecrets:ner` and `/maisecrets:status`
+  count today's requests per service, from `ner.log` (time, service, tool
+  result or prompt, characters, names; never text).
 - **When the service does not answer**, the rules mask the tool result alone,
   as without it, and the AI tells you once per session. `/maisecrets:status`
   shows the source and whether it answers.
