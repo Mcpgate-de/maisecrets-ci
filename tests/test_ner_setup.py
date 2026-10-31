@@ -260,6 +260,40 @@ class ReportTests(unittest.TestCase):
         self.assertIn("the service: answers", buf.getvalue())
 
 
+class RestartTests(unittest.TestCase):
+    """After a reboot the container may be stopped: the session start starts it again, in the background, only for the
+    local source and only a container whose image is mcpgate/ner (Andi and akruse-3b, 2026-10-31)."""
+
+    def run_restart(self, conf, answers=False, tool="docker"):
+        with mock.patch.object(ner_setup, "probe", return_value=(answers, "")), \
+                mock.patch.object(ner_setup, "container_tool", return_value=tool), \
+                mock.patch.object(ner_setup.subprocess, "Popen") as popen:
+            asked = ner_setup.restart_local(conf)
+        return asked, popen
+
+    def test_a_stopped_local_service_is_started_in_the_background(self):
+        asked, popen = self.run_restart({"url": ner_setup.LOCAL_URL})
+        self.assertTrue(asked)
+        argv = popen.call_args.args[0]
+        self.assertEqual(argv[:2], ["sh", "-c"])
+        self.assertIn("mcpgate/ner|mcpgate/ner:*) exec docker start ner", argv[2])
+        self.assertTrue(popen.call_args.kwargs["start_new_session"])
+
+    def test_nothing_starts_for_a_running_service_another_source_or_no_docker(self):
+        for conf, answers, tool in (({"url": ner_setup.LOCAL_URL}, True, "docker"),
+                                    ({"url": "http://10.0.0.5:8765/", "allow_network": True}, False, "docker"),
+                                    ({}, False, "docker"), ({"url": ner_setup.LOCAL_URL}, False, "")):
+            with self.subTest(conf=conf, answers=answers, tool=tool):
+                asked, popen = self.run_restart(conf, answers, tool)
+                self.assertFalse(asked)
+                popen.assert_not_called()
+
+    def test_the_start_command_checks_the_image_and_names_no_setting_value(self):
+        cmd = ner_setup._RESTART.format(tool="podman")
+        self.assertTrue(cmd.startswith('case "$(podman container inspect -f "{{.Config.Image}}" ner'))
+        self.assertNotIn("8765", cmd)
+
+
 class DownNoteTests(unittest.TestCase):
     """A service that does not answer leaves the rules alone (fail open); the person learns it once per session."""
 

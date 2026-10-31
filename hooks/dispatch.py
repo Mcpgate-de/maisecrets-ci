@@ -185,6 +185,11 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
         file_reads.prune_sessions()
     except Exception:  # noqa: BLE001 - the note never stops a session start; without it no folder is clean
         pass
+    try:
+        from maisecrets import ner_setup  # noqa: E402
+        ner_setup.restart_local(cfg.get("remote_detector"))     # after a reboot: the container, in the background
+    except Exception:  # noqa: BLE001 - the session starts without it; the rules work alone until it answers
+        pass
     # a blocked prompt older than 15 minutes is never sent; the file goes too (retention)
     pending = HOME / "pending"
     if pending.is_dir():

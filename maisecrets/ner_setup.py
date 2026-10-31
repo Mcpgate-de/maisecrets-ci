@@ -21,6 +21,7 @@ import hashlib
 import json
 import re
 import shutil
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -158,6 +159,29 @@ def container_tool() -> str:
         if shutil.which(name):
             return name
     return ""
+
+
+# a container named ner whose image is mcpgate/ner (any tag), started again; fixed text, no value of the setting in it
+_RESTART = ('case "$({tool} container inspect -f "{{{{.Config.Image}}}}" ner 2>/dev/null)" in '
+            'mcpgate/ner|mcpgate/ner:*) exec {tool} start ner ;; esac')
+
+
+def restart_local(conf) -> bool:
+    """At a session start: when the source is the local service and it does not answer, start the container `ner`
+    again, but only when its image is mcpgate/ner (another container of that name is someone else's). In the
+    background: the session start never waits for docker. True when a start was asked for."""
+    url = str(conf.get("url") or "") if isinstance(conf, dict) else ""
+    if url.rstrip("/") != LOCAL_URL.rstrip("/"):
+        return False
+    tool = container_tool()
+    if not tool:
+        return False
+    ok, _line = probe(conf, timeout=0.3)
+    if ok:
+        return False
+    subprocess.Popen(["sh", "-c", _RESTART.format(tool=tool)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True)
+    return True
 
 
 def report(conf, wait: float = 0.0) -> tuple[int, list]:
