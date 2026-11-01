@@ -1,0 +1,18 @@
+{
+ "source": "dialogpii",
+ "split": "dev",
+ "cut": 500,
+ "timeout_ms": 300,
+ "parallel": 4,
+ "cases": 1980,
+ "words": 175462,
+ "no_answer_in_time": 0,
+ "requests_per_second": 69.0,
+ "ms_median": 53.7,
+ "ms_p95": 84.4,
+ "names": 5361,
+ "names_whole_rules": 137,
+ "names_whole_rules_ner": 3037,
+ "ner_spans_on_no_labelled_value": 619,
+ "ner_false_per_1000_words": 3.53
+}
