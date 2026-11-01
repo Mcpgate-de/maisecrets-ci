@@ -30,7 +30,10 @@ span on a labelled value of another class (an email address, a street) counts as
 lower bound.
 
 The ghissues run shared the machine with other work (a second service and tests), so its times are longer and 72
-requests got no answer in 300 ms. A first run on the image before v2.0.3584 (the same model file) had 2.
+requests got no answer in 300 ms. A second run on the same image, at a load average of 1.5 to 4.9, gave 0.53 per
+1,000 words and 91 requests without an answer; a first run at night on the image before v2.0.3584 (the same model
+file) had 2. The rate of spans does not depend on the load; the requests without an answer do (about 0.3 % of
+the texts here). Such a request leaves the text to the rules, as in the plugin.
 
 A whole dialogue is longer than a prompt (median 3,557 characters), and most whole dialogues get no answer in
 300 ms. Do not compare these figures with a run on whole texts or with a longer timeout.
