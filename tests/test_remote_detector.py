@@ -186,7 +186,7 @@ class RemoteDetectorTests(unittest.TestCase):
         with mock.patch.object(rm.socket, "getaddrinfo", return_value=fake), \
                 mock.patch.object(rm.socket.socket, "connect") as connect:
             r = self.det.findings_with(TEXT, channel="tool", remote=rm.RemoteDetector(f"http://localhost:{port}/"))
-        self.assertEqual((r.findings, r.remote.reason, svc.received), (self.base, "refused", []))
+        self.assertEqual((r.findings, r.remote.reason, svc.received), (self.base, "policy", []))
         connect.assert_not_called()
         real = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
         with mock.patch.object(rm.socket, "getaddrinfo", return_value=real):
@@ -269,6 +269,12 @@ class RemoteDetectorTests(unittest.TestCase):
                                    remote=rm.RemoteDetector(f"http://127.0.0.1:{port}/", timeout=5))
         self.assertEqual(r.findings, self.base)
         self.assertEqual((r.remote.state, r.remote.reason), ("unavailable", "refused"))
+
+    def test_a_service_that_took_the_connection_and_is_slow_says_timeout(self):
+        s = Service("hf", delay=1.0)
+        self.addCleanup(s.close)
+        r = self.det.findings_with(TEXT, channel="tool", remote=rm.RemoteDetector(s.url, timeout=0.3))
+        self.assertEqual((r.remote.state, r.remote.reason), ("unavailable", "timeout"))
 
     def test_nonsense_leaves_the_rules_result_and_says_answer(self):
         for name, answer in (("no json", lambda t: b"<html>"), ("no list", lambda t: {"x": 1}),
@@ -363,6 +369,15 @@ class RemoteDetectorTests(unittest.TestCase):
         doc = contract.result_response(self.det, down)
         self.assertEqual(problems(doc, contract.json.loads(contract.SCHEMA.read_text())["$defs"]["response"]), [])
         self.assertEqual(doc["engine"]["remote"]["state"], "unavailable")
+
+    def test_every_reason_of_an_unavailable_service_fits_the_schema(self):
+        # a host that embeds the library serialises each reason: network and policy came with 0.8.7 (codex review)
+        schema = contract.json.loads(contract.SCHEMA.read_text())["$defs"]["response"]
+        base = self.det.findings_with(TEXT, channel="tool")
+        for reason in ("timeout", "refused", "network", "policy", "http", "answer"):
+            with self.subTest(reason=reason):
+                r = rm.Result(base.findings, rm.RemoteStatus("hf", "m", "unavailable", reason))
+                self.assertEqual(problems(contract.result_response(self.det, r), schema), [])
 
 
 if __name__ == "__main__":

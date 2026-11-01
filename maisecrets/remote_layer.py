@@ -1,6 +1,6 @@
 """The remote detector in the plugin (setting `remote_detector`; docs/DETECTION.md, "A remote detector"). Off
-unless the setting names a URL. Tool results only: a typed prompt keeps the rules alone (a name in a prompt would
-block or rewrite it, and that path has no measurement yet).
+unless the setting names a URL. Tool results here; a typed prompt only through the mod's rewrite in Claude Code and
+only to a service on this computer (hooks._prompt_names): a name never blocks a prompt.
 
 One request per hook call. A tool result is many strings (a JSON result is walked leaf by leaf), and a request per
 string let one call wait 1.6 s against a budget of 0.3 s in the NER experiment (docs/NER-EXPERIMENT.md, B5). So
@@ -22,11 +22,19 @@ from .detection import remote
 SEPARATOR = "\n\n"       # between the strings of one tool result: a line break ends a name for the model
 
 
-def from_config(cfg: dict) -> tuple:
-    """(RemoteDetector or None, the reason it is not used, or ""). A setting it cannot use leaves the rules alone."""
+def from_config(cfg: dict, fallback: bool = False) -> tuple:
+    """(RemoteDetector or None, the reason it is not used, or ""). A setting it cannot use leaves the rules alone.
+    fallback: the detector of the setting's `fallback` (/maisecrets:ner fallback url URL), with the tuning keys of the
+    setting itself."""
     conf = cfg.get("remote_detector") or {}
     if not isinstance(conf, dict) or not conf.get("url"):
         return None, ""
+    if fallback:
+        fb = conf.get("fallback")
+        if not isinstance(fb, dict) or not fb.get("url"):
+            return None, ""
+        conf = {**{k: v for k, v in conf.items() if k not in ("url", "allow_network", "format", "mask", "fallback")},
+                **fb}
     url = str(conf["url"])
     ms = conf.get("timeout_ms", 300)
     try:
@@ -45,7 +53,7 @@ def from_config(cfg: dict) -> tuple:
             # at most 5 s: the hook's watchdog is 16 s, and the rules' scan of a large result needs its share
             timeout=min(ms, 5000) / 1000, max_chars=int(conf.get("max_chars", 20000)),
             language=str(conf.get("language", "en")), allow_network=conf.get("allow_network") is True,
-            mask=mask, ask_labels=conf.get("ask_labels") is True), ""
+            mask=mask, ask_labels=conf.get("ask_labels") is True, private_http_only=True), ""
     except (ValueError, TypeError, AttributeError) as exc:
         return None, str(exc)
 
@@ -61,10 +69,15 @@ class Layer:
         return scan(text) if got is None else got
 
 
-def prepare(cfg: dict, strings: list, scan, protect=None) -> Layer | None:
+def prepare(cfg: dict, strings: list, scan, protect=None, use_fallback: bool = True,
+            kind: str = "tool") -> Layer | None:
     """One request for all strings of a tool result. `scan(text)` gives the rules' findings of a string; `protect(text)`
     the (start, end) of the stored values in it, which go out as filler like the findings and take no name. None when
-    no remote detector is set. A service that fails leaves each string with the rules' findings."""
+    no remote detector is set. A service that fails leaves each string with the rules' findings. When the service
+    refuses the connection (not running) and the setting has a fallback, the fallback is asked once instead; a
+    timeout, an HTTP error or a broken answer never switches (a busy laptop must not send text over the network).
+    A prompt never goes to the fallback (use_fallback False). Each call adds a line to the NER log (ner_setup.log):
+    time, source, kind, characters, names; never text."""
     ner, _why = from_config(cfg)
     if ner is None:
         return None
@@ -84,6 +97,17 @@ def prepare(cfg: dict, strings: list, scan, protect=None) -> Layer | None:
     if protect is not None:
         occupied += [(off + a, off + b) for s, off in pieces for a, b in protect(s)]
     spans, status = ner.ask(joined, occupied, time.monotonic() + ner.timeout)
+    source = "local" if remote.is_local(ner.url) else "url"
+    asked = ner
+    # only a local service that nothing answers for (refused: not running) hands over: never a network primary, a
+    # timeout, a name, TLS or a policy refusal (codex review of 0.8.7)
+    if status.state == "unavailable" and status.reason == "refused" and use_fallback and source == "local":
+        fb, _why = from_config(cfg, fallback=True)
+        if fb is not None:
+            spans, status = fb.ask(joined, occupied, time.monotonic() + fb.timeout)
+            source, asked = "fallback", fb
+    from . import ner_setup
+    ner_setup.log(source if status.available else "rules", kind, len(joined), len(spans))
     starts = [off for _s, off in pieces]
     added: dict = {}
     for a, b, type_, score in spans:
@@ -91,8 +115,28 @@ def prepare(cfg: dict, strings: list, scan, protect=None) -> Layer | None:
         if i >= 0:
             s, off = pieces[i]
             if b <= off + len(s):          # a span over two strings is no name of either: dropped
-                added.setdefault(s, []).append(Match("remote:" + ner.format, type_, s[a - off:b - off], a - off,
+                added.setdefault(s, []).append(Match("remote:" + asked.format, type_, s[a - off:b - off], a - off,
                                                      b - off, score))
     for s, extra in added.items():
         found[s] = sorted(found[s] + extra, key=lambda m: (m.start, m.end))
     return Layer(found, status)
+
+
+def prompt_names(cfg: dict, prompt: str, matches: list, protect_of) -> list:
+    """The names the service of /maisecrets:ner finds in a prompt the mod rewrites (Claude Code): they become
+    placeholders like the rules' findings (`matches`), and nothing is blocked for a name. Only a service on this
+    computer reads a prompt: the home page promises that no prompt goes to a server by default, so a service on the
+    network (url), a fallback and the setting `"prompts": false` leave the prompt to the rules. The rules' findings
+    and the stored values (`protect_of()`) go out as filler."""
+    conf = cfg.get("remote_detector")
+    if not (isinstance(conf, dict) and conf.get("url")) or conf.get("prompts") is False:
+        return []
+    if not remote.is_local(str(conf["url"])):
+        return []
+    # the network stays shut for a prompt whatever the setting says: a "localhost" that resolves to another host is
+    # refused when it connects (codex review of 0.8.7)
+    local_only = {**cfg, "remote_detector": {**conf, "allow_network": False}}
+    layer = prepare(local_only, [prompt], lambda s: list(matches), protect_of(), use_fallback=False, kind="prompt")
+    if layer is None:
+        return []
+    return [m for m in layer.found.get(prompt, []) if m.kind.startswith("remote:")]
