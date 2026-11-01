@@ -8,9 +8,9 @@ compares the candidate with the last release tag:
 
 - **detection changed** (maisecrets/detection/**): Benchmark V3 for maisecrets on the candidate (bench/run_all_v3.sh,
   its runs side by side, one per CPU), compared span by span with the last release's results in bench/results/
-  (--baseline, default the newest `*-v3-<last version>`). Any span the candidate masks worse than the release stops the gate; the change
-  of false positives per source goes into the report. With --holdout, Holdout V2 runs on the candidate too and its
-  recall may not fall below the last row of bench/HOLDOUT-LOG.md.
+  (--baseline, default the newest `*-v3-<last version>`). Any span the candidate masks worse than the release stops
+  the gate; the change of false positives per source goes into the report. With --holdout, Holdout V2 runs on the
+  candidate too and its recall may not fall below the last row of bench/HOLDOUT-LOG.md.
 - **hooks changed** (the hooks, the mod, the settings and the rest of the runtime): the gate names the checks that only
   a client shows: the harness (python3 harness/run.py) and a live test between two sessions with --plugin-dir.
 - **nothing at run time** (docs, bench, CI, tests): no measurement is needed.
