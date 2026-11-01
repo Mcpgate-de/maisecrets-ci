@@ -68,6 +68,22 @@ class SettingsThatLoosen(unittest.TestCase):
     def setUp(self):
         _reset()
 
+    def test_two_changes_at_once_record_the_weakening_once(self):
+        # a second prompt takes the lock first and loosens the same setting (codex review of 0.8.7, round 4)
+        _reset(rehydration="block")
+        real, done = settings._lock_for, []
+
+        def other_prompt_first(path):
+            if not done:
+                done.append(1)
+                CONFIG.write_text(json.dumps({**TEST_CONFIG, "rehydration": "automatic"}))
+                events.record_weakening("setting", "rehydration", "typed prompt")
+            return real(path)
+        with mock.patch.object(settings, "_lock_for", other_prompt_first):
+            changed, _text = settings.apply_typed("rehydration", "automatic")
+        self.assertTrue(changed and done)
+        self.assertEqual([e["name"] for e in _weakened()], ["rehydration"])
+
     def test_a_looser_setting_writes_one_line_with_its_route_and_no_value(self):
         _reset(rehydration="block")
         _prompt("maisecrets: set rehydration automatic")

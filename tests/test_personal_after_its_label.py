@@ -174,6 +174,13 @@ class PhoneAfterWordTests(Base):
                 ("Telefon: 030 " + "4829" + "1735", "030 " + "4829" + "1735"),
                 ("contact number is 07700 " + "900123", "07700 " + "900123"),
                 ("Handy: 0151/" + "4829" + "1735", "0151/" + "4829" + "1735"),
+                # the German words of a landline and of a direct line (0.8.8)
+                ("Durchwahl: 030 " + "4829" + "1735", "030 " + "4829" + "1735"),
+                ("Festnetz 0221 " + "4829" + "173", "0221 " + "4829" + "173"),
+                ("Festnetznummer: 089 " + "4829" + "1735", "089 " + "4829" + "1735"),
+                ("Rufnr.: 040 " + "4829" + "1735", "040 " + "4829" + "1735"),
+                # a number shaped like two times of day stays a number (codex review of 0.8.8)
+                ("Telefon: 17.45-" + "08.15", "17.45-" + "08.15"),
                 ("Phone (work): " + US, US),
                 ("Tel.: 030 482917-" + "0", "030 482917-" + "0"), ("Tel: 030 482917 " + "0", "030 482917 " + "0")):
             with self.subTest(text=text):
@@ -189,7 +196,8 @@ class PhoneAfterWordTests(Base):
                      "Phone: 2024-10-16 14:30", "mobile 2024-10-16 14:30:01 INFO app started",
                      "mobile: 3 412 908 users", "Fax: 1 500 000", "phone 4 8 15 16 23 42",
                      "Mobile build artifact: 938-274-" + "6157 completed",
-                     "Mobile build artifact = 938-274-" + "6157", "Mobile build artifact - 938-274-" + "6157"):
+                     "Mobile build artifact = 938-274-" + "6157", "Mobile build artifact - 938-274-" + "6157",
+                     "Rufnr. 3 von 12", "Festnetz-Tarif 2024.10.16.1"):
             with self.subTest(text=text):
                 self.assertNotIn("phone-after-phone-word", {m.kind for m in scan(text)})
 

@@ -122,21 +122,51 @@ def prepare(cfg: dict, strings: list, scan, protect=None, use_fallback: bool = T
     return Layer(found, status)
 
 
-def prompt_names(cfg: dict, prompt: str, matches: list, protect_of) -> list:
-    """The names the service of /maisecrets:ner finds in a prompt the mod rewrites (Claude Code): they become
-    placeholders like the rules' findings (`matches`), and nothing is blocked for a name. Only a service on this
-    computer reads a prompt: the home page promises that no prompt goes to a server by default, so a service on the
-    network (url), a fallback and the setting `"prompts": false` leave the prompt to the rules. The rules' findings
-    and the stored values (`protect_of()`) go out as filler."""
+PROMPT_TIMEOUT_MS = 1000    # a person waits for a prompt anyway; 300 ms left a long or a busy prompt to the rules
+
+
+def prompt_names(cfg: dict, prompt: str, matches: list, protect_of) -> tuple:
+    """(names, why) for a prompt the mod rewrites (Claude Code): the names the service of /maisecrets:ner finds
+    become placeholders like the rules' findings (`matches`), and nothing is blocked for a name. `why` is "" when the
+    service answered or was not asked, else why it did not check the prompt (the reason or the state of its status:
+    timeout, too_long, refused, unauthorized …): the prompt keeps the rules alone, and the person is told.
+    Only a service on this computer reads a prompt: the home page promises that no prompt goes to a server by default,
+    so a service on the network (url), a fallback and the setting `"prompts": false` leave the prompt to the rules.
+    The rules' findings and the stored values (`protect_of()`) go out as filler. A prompt waits up to
+    `prompt_timeout_ms` (1,000 by default, at most 5,000), never less than `timeout_ms`."""
     conf = cfg.get("remote_detector")
     if not (isinstance(conf, dict) and conf.get("url")) or conf.get("prompts") is False:
-        return []
+        return [], ""
     if not remote.is_local(str(conf["url"])):
-        return []
+        return [], ""
+    wait = conf.get("prompt_timeout_ms", PROMPT_TIMEOUT_MS)
+    if not isinstance(wait, (int, float)) or isinstance(wait, bool) or not 0 < wait <= 5000:
+        wait = PROMPT_TIMEOUT_MS
+    own = conf.get("timeout_ms", 300)
+    if isinstance(own, (int, float)) and not isinstance(own, bool) and own > wait:
+        wait = own
     # the network stays shut for a prompt whatever the setting says: a "localhost" that resolves to another host is
     # refused when it connects (codex review of 0.8.7)
-    local_only = {**cfg, "remote_detector": {**conf, "allow_network": False}}
+    local_only = {**cfg, "remote_detector": {**conf, "allow_network": False, "timeout_ms": wait}}
     layer = prepare(local_only, [prompt], lambda s: list(matches), protect_of(), use_fallback=False, kind="prompt")
     if layer is None:
-        return []
-    return [m for m in layer.found.get(prompt, []) if m.kind.startswith("remote:")]
+        return [], ""
+    st = layer.status
+    return [m for m in layer.found.get(prompt, []) if m.kind.startswith("remote:")], (
+        "" if st.available else (st.reason or st.state))
+
+
+UNCHECKED_NOTE = ("maisecrets: the names in this prompt were not checked by the name service ({why}); the rules "
+                  "ran. /maisecrets:ner shows the service. This note comes once per session.")
+_WHY = {"timeout": "no answer in time", "too_long": "the prompt is longer than max_chars", "refused": "not running",
+        "unauthorized": "it wants another bearer", "policy": "the address is not on this computer"}
+
+
+def unchecked_note(session: str | None, why: str) -> str | None:
+    """The note for a prompt whose names the service did not check (`why` from prompt_names), once per session: the
+    record of the tool-result note, with its own key. None for a session that had it, or without a session."""
+    from . import ner_setup
+    from .vault import HOME
+    if not (session and ner_setup.claim_down_note(HOME, f"{session}:prompt")):
+        return None
+    return UNCHECKED_NOTE.format(why=_WHY.get(why, "it gave no usable answer"))

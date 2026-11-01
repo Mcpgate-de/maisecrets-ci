@@ -176,6 +176,24 @@ test('the tip of the answer is shown once next to the line of the rewrite', asyn
   expect(logs[1]).toContain('ms:(')
 })
 
+test('an answer with count 0 passes the prompt on as typed and shows only its note', async ($, on) => {
+  // the name service did not check the prompt (hooks.UNCHECKED_NOTE): no "masked 0 value(s)" line
+  const logs = []
+  let downstream = 0
+  on('clock.now', () => ({ value: clock.t }))
+  on('session.id', () => ({ value: 'sess-1' }))
+  on('session.cwd', () => ({ value: '/work' }))
+  on('env.get', () => { throw new Error('the mod read an environment variable') })
+  on('ui.log', ($, e) => { logs.push(JSON.stringify(e)); return { value: undefined } })
+  on('process.run', () => ({ value: { exitCode: 0, stderr: '', stdout: JSON.stringify(
+    { maisecrets: 'mod-prompt', text: TYPED, count: 0, tip: 'maisecrets: the names in this prompt were not checked' }) } }))
+  on('prompt.submit', ($, e) => { downstream += 1; return { text: e.text } })
+  expect((await submit($)).text).toBe(TYPED)
+  expect(downstream).toBe(1)
+  expect(logs.length).toBe(1)
+  expect(logs[0]).toContain('not checked')
+})
+
 test('a failure after the prompt was passed on drops it and sends nothing a second time', async ($, on) => {
   let downstream = 0
   on('session.id', () => ({ value: 'sess-1' }))
