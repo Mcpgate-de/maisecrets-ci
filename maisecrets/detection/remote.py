@@ -201,7 +201,7 @@ class RemoteDetector:
         # the derived token only, never the secret; the hex shape also keeps CR and LF out of the header. No status,
         # reason, log line or error text holds it (the gateway passes it, ai-gateway !2965)
         if not (isinstance(bearer, str) and (bearer == "" or re.fullmatch(r"[0-9a-f]{64}", bearer))):
-            raise ValueError("bearer: 64 hex characters")
+            raise ValueError("bearer: 64 lowercase hex characters")
         self.__bearer = bearer
 
     def status(self, state: str, reason: str = "", added: int = 0, ms: float = 0.0) -> RemoteStatus:

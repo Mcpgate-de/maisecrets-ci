@@ -153,7 +153,7 @@ class BearerTests(unittest.TestCase):
             with self.subTest(bad=repr(bad)[:12]):
                 with self.assertRaises(ValueError) as cm:
                     rm.RemoteDetector("http://127.0.0.1:9/", bearer=bad)
-                self.assertEqual(str(cm.exception), "bearer: 64 hex characters")
+                self.assertEqual(str(cm.exception), "bearer: 64 lowercase hex characters")
 
 
 class RemoteDetectorTests(unittest.TestCase):
