@@ -1782,7 +1782,8 @@ _HOME_LABEL_RE = _lazy(r"(?i)home|residential|permanent|wohn|resid|liv|domicil")
 _STREET_LABEL_WORDS = ("address", "anschrift", "adresse", "domicilio", "direcci", "indirizzo", "endere", "adres",
                        "adress", "straße", "strasse", "residenza",
                        "resid", "live", "living", "domiciled", "wohn", "located", "situated", "property")
-_PHONE_WORDS = ("phone", "tel", "mobil", "cell", "fax", "handy", "portable", "rufnummer", "whatsapp", "hotline",
+_PHONE_WORDS = ("phone", "tel", "mobil", "cell", "fax", "handy", "portable", "rufnummer", "rufnr", "durchwahl",
+                "festnetz", "whatsapp", "hotline",
                 "contact", "call", "reach", "text", "dial",
                 # the personal cues of phone-after-phone-word without a phone word (my number is, … him at)
                 "number is", "line is", "me at", "him at", "her at", "them at", "directly at", "me on",
@@ -1809,7 +1810,8 @@ _PHONE_URL_RE = _lazy(r"(?i)(?<![a-z])(?:phone|tel|mobile|msisdn|cell)[\w-]{0,10
 # North American number only, whose shape is rare outside a phone number
 _PHONE_LABEL_WORDS = (r"phone|telephone|tel|mobile?|mobil(?:e|nummer|telefon)?|cell(?:ular|phone)?|fax|handy"
                       r"|telefon(?:nummer|o)?|t[ée]l[ée]phone|tel[ée]fono|telefoon(?:nummer)?|telefone|portable"
-                      r"|cellulare|rufnummer|whatsapp|hotline|contact[ _-]?(?:number|no)")
+                      r"|cellulare|rufnummer|rufnr|durchwahl|festnetz(?:nummer)?|whatsapp|hotline"
+                      r"|contact[ _-]?(?:number|no)")
 _PHONE_NUMBER_WORD = r"(?:[ _-]?(?:number|no\.?|nr\.?|nummer|num[ée]ro|n[úu]mero|numero|#))?"
 _PHONE_TIGHT_RE = _lazy(r"(?i)(?<![\w-])(?:" + _PHONE_LABEL_WORDS + r")" + _PHONE_NUMBER_WORD + r"(?![\w-])\.?[\"']?"
                         r"(?:[ \t]{0,3}(?:is|ist|est|es|è|é|:|=|-|–)[ \t]{0,3}|[ \t]{1,3})[\"']?[ \t]{0,2}"
