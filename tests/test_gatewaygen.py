@@ -87,5 +87,50 @@ class GatewayRulesTests(unittest.TestCase):
         self.assertEqual(R.label("fields.comment.comments.body"), "body")
 
 
+class _Match:
+    def __init__(self, start, end, typ):
+        self.start, self.end, self.type = start, end, typ
+
+
+class ReportMetricTests(unittest.TestCase):
+    """bench/gateway_report.run and summary with a detector that answers what the test says, and a clock that ticks
+    what the test says: precision counts findings, and a response takes the fastest whole pass."""
+
+    def _one(self):
+        o = G.Out()
+        obj = [{"author": {"name": o.put("x" * 8, "pii.name")}, "title": o.put("Release", kind="project")}]
+        case = {"tags": ["service:gitlab"], "lang": "en"}
+        return [(case, o, obj)]
+
+    def test_two_findings_on_one_span_are_two_right_findings_and_one_elsewhere_is_a_false_positive(self):
+        class Det:
+            def findings(self, text, channel, fields=None):
+                if text.startswith("name: "):
+                    return [_Match(6, 10, "NAME"), _Match(10, 14, "NAME")]
+                if text.startswith("title: "):
+                    return [_Match(7, 14, "NAME")]
+                return []
+        r = R.run(Det(), self._one(), repeat=1)
+        rep = R.summary(r)
+        self.assertEqual((sum(r["hits"].values()), rep["fp"]), (2, 1))
+        self.assertEqual(rep["precision"], round(2 / 3, 4))
+        self.assertEqual(rep["precision_by_label"]["author.name"]["precision"], 1.0)
+        self.assertEqual(rep["precision_by_label"]["title"]["precision"], 0.0)
+
+    def test_a_response_takes_the_fastest_whole_pass_not_a_sum_of_leaf_minima(self):
+        class Det:
+            def findings(self, text, channel, fields=None):
+                return []
+        # two leaves, two passes: pass 1 takes 1 + 9 ticks, pass 2 takes 9 + 1; the leaf minima would sum to 2
+        ticks = iter([0, 1, 1, 10, 10, 19, 19, 20])
+        real = R.time.perf_counter
+        R.time.perf_counter = lambda: next(ticks)
+        try:
+            r = R.run(Det(), self._one(), repeat=2)
+        finally:
+            R.time.perf_counter = real
+        self.assertEqual(r["resp_ms"]["gitlab"], [10 * 1000])
+
+
 if __name__ == "__main__":
     unittest.main()
