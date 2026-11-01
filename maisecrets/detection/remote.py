@@ -366,6 +366,8 @@ class RemoteDetector:
             s, e = words.widen(s, e)
             if s >= e:
                 continue                          # white space only: no word to take
+            if type_ == "NAME" and text[s:e].lower() in PRODUCT_WORDS:
+                continue                          # a product word alone is no person
             if _overlaps(occ, ends, s, e):
                 continue
             i = bisect.bisect_left(taken, (s, e))
@@ -374,6 +376,15 @@ class RemoteDetector:
             taken.insert(i, (s, e))
             kept.append((s, e, type_, score))
         return kept
+
+
+# product and model words that the cased model takes for a person when they stand alone (ghissues dev, 2026-11-01:
+# 141 of 1,670 name spans; Claude and Jenkins most often). Never a word that is also a first name in the data: two
+# such words are real names in DialogPII. A full name that holds one of them as a surname is not touched
+PRODUCT_WORDS = frozenset({
+    "anthropic", "chatgpt", "claude", "codex", "confluence", "copilot", "cursor", "docker", "gemini", "github",
+    "gitlab", "grafana", "jenkins", "jira", "kubernetes", "nginx", "notion", "ollama", "openai", "opencms", "postgres",
+    "redis", "sentry", "slack", "tomcat", "windsurf"})
 
 
 class _HttpStatus(Exception):
