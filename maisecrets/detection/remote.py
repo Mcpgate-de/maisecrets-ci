@@ -49,8 +49,8 @@ _TYPE_RE = re.compile(r"[A-Z][A-Z0-9_]*")
 @dataclass(frozen=True)
 class RemoteStatus:
     """What the remote detector did in one call. `state`: ok, unavailable (with a `reason`: timeout, refused (nothing
-    listens), network (name, TLS, route), policy (an address this detector may not use), http,
-    answer), too_long, or off (no remote detector). `added` is the count of spans it added."""
+    listens), network (name, TLS, route), policy (an address this detector may not use), unauthorized (401: a bearer is
+    missing or wrong), http, answer), too_long, or off (no remote detector). `added` is the count of spans it added."""
     format: str = ""
     model: str = ""
     state: str = "off"
@@ -153,12 +153,15 @@ class RemoteDetector:
     names only); `min_score` the least score per maisecrets type (none by default: no threshold is chosen here);
     `timeout` the seconds one request may take; `max_chars` the longest text it is sent. `mask=False` sends the
     findings of the rules as they are: for a service on this computer whose model loses names next to the filler,
-    and for the benchmark that compares this path with the NER experiment, whose model read the whole text."""
+    and for the benchmark that compares this path with the NER experiment, whose model read the whole text.
+    `bearer`: the token of a service that wants one (mcpgate/ner with NER_CLIENT_SECRET: hmac_sha256(secret, "bearer"),
+    64 lowercase hex characters); it goes out as `Authorization: Bearer` and is never in a status, a reason, repr, a
+    log line or an error text. The object keeps it, as any client keeps its token."""
 
     def __init__(self, url: str, format: str = "hf", model: str = "", classes: dict | None = None,
                  min_score: dict | None = None, timeout: float = 0.3, max_chars: int = 20000,
                  language: str = "en", allow_network: bool = False, mask: bool = True, ask_labels: bool = False,
-                 private_http_only: bool = False):
+                 private_http_only: bool = False, bearer: str = ""):
         if format not in FORMATS:
             raise ValueError(f"format must be one of {', '.join(FORMATS)}")
         parts = urlsplit(url)
@@ -195,6 +198,11 @@ class RemoteDetector:
         # plain http only to a private address (the plugin's rule: tool results never cross a public network in
         # clear text); https anywhere. Checked at each connection, on the addresses the name gives then
         self.private_http_only = private_http_only is True
+        # the derived token only, never the secret; the hex shape also keeps CR and LF out of the header. No status,
+        # reason, log line or error text holds it (the gateway passes it, ai-gateway !2965)
+        if not (isinstance(bearer, str) and (bearer == "" or re.fullmatch(r"[0-9a-f]{64}", bearer))):
+            raise ValueError("bearer: 64 hex characters")
+        self.__bearer = bearer
 
     def status(self, state: str, reason: str = "", added: int = 0, ms: float = 0.0) -> RemoteStatus:
         return RemoteStatus(self.format, self.model, state, reason, added, ms)
@@ -229,10 +237,15 @@ class RemoteDetector:
         if self.format == "presidio" and not target.rstrip("/").endswith("/analyze"):
             target = target.rstrip("/") + "/analyze"
         try:
-            conn.request("POST", target, body=body, headers={"Content-Type": "application/json"})
+            headers = {"Content-Type": "application/json"}
+            if self.__bearer:
+                headers["Authorization"] = "Bearer " + self.__bearer
+            conn.request("POST", target, body=body, headers=headers)
             if conn.sock is not None:
                 conn.sock.settimeout(max(0.001, deadline - time.monotonic()))
             resp = conn.getresponse()
+            if resp.status == 401:
+                raise _Unauthorized
             if resp.status != 200:
                 raise _HttpStatus
             chunks, size = [], 0
@@ -324,6 +337,8 @@ class RemoteDetector:
             return box["kept"], self.status("ok", added=len(box["kept"]), ms=_ms(t0))
         if isinstance(exc, (TimeoutError, socket.timeout)):
             return [], self.status("unavailable", "timeout", ms=_ms(t0))
+        if isinstance(exc, _Unauthorized):
+            return [], self.status("unavailable", "unauthorized", ms=_ms(t0))
         if isinstance(exc, _HttpStatus):
             return [], self.status("unavailable", "http", ms=_ms(t0))
         if isinstance(exc, (ConnectionRefusedError, FileNotFoundError)):
@@ -363,6 +378,10 @@ class RemoteDetector:
 
 class _HttpStatus(Exception):
     pass
+
+
+class _Unauthorized(_HttpStatus):
+    """401: the service wants a bearer this client did not send, or another one."""
 
 
 def _merged(spans: list) -> list:
