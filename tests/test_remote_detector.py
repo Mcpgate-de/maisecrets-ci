@@ -6,6 +6,7 @@ unless the caller allows it."""
 from __future__ import annotations
 
 import json
+import re
 import os
 import socket
 import socketserver
@@ -44,6 +45,7 @@ class Service:
                  drip: float = 0.0, bearer: str = ""):
         self.fmt, self.delay, self.status, self.received, self.paths = fmt, delay, status, [], []
         self.bearer, self.headers = bearer, []     # a service that wants this bearer answers 401 without it
+        self.secret, self.challenges, self.proof_for = "", [], None   # GET /health?challenge= as mcpgate/ner (#1699)
         self.drip = drip            # seconds between the bytes of the body: a service that dribbles its answer
         self.answer = answer or self.names
         svc = self
@@ -65,6 +67,38 @@ class Service:
                 answer = svc.answer(text)
                 out = answer if isinstance(answer, bytes) else json.dumps(answer).encode()
                 self.send_response(svc.status)
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                try:
+                    for i in range(len(out)) if svc.drip else [None]:
+                        self.wfile.write(out if i is None else out[i:i + 1])
+                        if i is not None:
+                            self.wfile.flush()
+                            time.sleep(svc.drip)
+                except OSError:
+                    pass
+
+            def do_GET(self):  # noqa: N802 - http.server API
+                import hashlib
+                import hmac
+                import urllib.parse
+                parts = urllib.parse.urlsplit(self.path)
+                nonce = urllib.parse.parse_qs(parts.query).get("challenge", [""])[0]
+                svc.challenges.append(nonce)
+                secret = svc.secret
+                import re
+                if secret and not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", nonce):     # as ner-sidecar/serve.py
+                    self.send_response(400)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                if parts.path.rstrip("/") != "/health" or not secret:
+                    out = b'{"status": "ok"}'           # a service without the secret gives no proof
+                else:
+                    signed = svc.proof_for(nonce) if svc.proof_for else nonce
+                    proof = hmac.new(secret.encode(), ("health:" + signed).encode(), hashlib.sha256).hexdigest()
+                    out = json.dumps({"status": "ok", "proof": proof}).encode()
+                self.send_response(200)
                 self.send_header("Content-Length", str(len(out)))
                 self.end_headers()
                 try:
@@ -154,6 +188,97 @@ class BearerTests(unittest.TestCase):
                 with self.assertRaises(ValueError) as cm:
                     rm.RemoteDetector("http://127.0.0.1:9/", bearer=bad)
                 self.assertEqual(str(cm.exception), "bearer: 64 lowercase hex characters")
+
+
+class ChallengeTests(unittest.TestCase):
+    """A service maisecrets started proves its secret before each text (#1699); a listener that cannot gets none."""
+
+    SHARED = "".join(("test", "-container-", "x" * 26))     # NER_CLIENT_SECRET of the fake container
+
+    def service(self, secret="", **kw) -> Service:
+        svc = Service(bearer=bearer_of(self.SHARED) if secret == self.SHARED else "", **kw)
+        svc.secret = secret
+        self.addCleanup(svc.close)
+        return svc
+
+    def test_the_container_proves_the_secret_and_gets_the_text_with_the_bearer(self):
+        svc = self.service(self.SHARED)
+        det = rm.RemoteDetector(svc.url, secret=self.SHARED)
+        for _ in range(2):
+            spans, status = det.ask(TEXT, [])
+            self.assertEqual((status.state, len(spans)), ("ok", 1))
+        self.assertEqual(len(svc.received), 2)
+        self.assertEqual(len(set(svc.challenges)), 2, "a fresh nonce for each text")
+        self.assertTrue(all(re.fullmatch(r"[A-Za-z0-9_-]{32,128}", c) for c in svc.challenges), "128 bits and more")
+        self.assertEqual(svc.headers[-1]["authorization"], "Bearer " + bearer_of(self.SHARED))
+        seen = json.dumps([svc.received, svc.headers, svc.challenges])
+        self.assertNotIn(self.SHARED, seen, "the secret itself never travels")
+        for shown in (repr(det), repr(status)):
+            self.assertNotIn(self.SHARED, shown)
+
+    def test_a_listener_without_the_secret_or_with_another_gets_no_text(self):
+        for name, svc in (("no secret", self.service("")),
+                          ("another secret", self.service("another-container-secret-" + "y" * 16))):
+            with self.subTest(listener=name):
+                spans, status = rm.RemoteDetector(svc.url, secret=self.SHARED).ask(TEXT, [])
+                self.assertEqual((spans, status.state, status.reason), ([], "unavailable", "not_ours"))
+                self.assertEqual(svc.received, [], "no text before the proof")
+
+    def test_a_dribbled_proof_ends_at_the_deadline_and_sends_no_text(self):
+        # one byte every 50 ms: each read stays under the socket timeout, the whole proof takes about 4 s
+        svc = self.service(self.SHARED, drip=0.05)
+        t0 = time.monotonic()
+        spans, status = rm.RemoteDetector(svc.url, secret=self.SHARED, timeout=0.3).ask(TEXT, [])
+        self.assertLess(time.monotonic() - t0, 1.0)
+        self.assertEqual(status.state, "unavailable")
+        time.sleep(5.0)
+        self.assertEqual(svc.received, [], "the late proof sent no text")
+
+    def test_a_text_held_up_after_the_proof_is_not_sent_once_the_caller_gave_up(self):
+        # the proof in time, then the connection for the text slow: after ask() said timeout, nothing goes out (codex)
+        svc = self.service(self.SHARED)
+        det = rm.RemoteDetector(svc.url, secret=self.SHARED, timeout=0.3)
+        real, calls = det._connection, []
+
+        def slow_second(left, pin=None):
+            calls.append(left)
+            if len(calls) == 2:              # the connection for the text
+                time.sleep(0.6)
+            return real(left, pin)
+        det._connection = slow_second
+        spans, status = det.ask(TEXT, [])
+        self.assertEqual((status.state, status.reason), ("unavailable", "timeout"))
+        time.sleep(1.0)
+        self.assertEqual((len(calls), svc.received), (2, []), "the text was not sent after the timeout")
+
+    def test_the_text_goes_to_the_address_that_gave_the_proof(self):
+        # a name whose second lookup points elsewhere (codex review of #1699): one lookup for both
+        ours, other = self.service(self.SHARED), self.service(self.SHARED)
+        port_of = lambda svc: svc.server.server_address[1]    # noqa: E731
+        answers = [port_of(ours), port_of(other)]
+        lookups = []
+
+        def resolve(host, port, *a, **k):
+            lookups.append(host)
+            return [(2, 1, 6, "", ("127.0.0.1", answers[min(len(lookups), 2) - 1]))]
+        with mock.patch.object(rm.socket, "getaddrinfo", resolve):
+            spans, status = rm.RemoteDetector(f"http://localhost:{port_of(ours)}/", secret=self.SHARED).ask(TEXT, [])
+        self.assertEqual((status.state, len(lookups)), ("ok", 1))
+        self.assertEqual((len(ours.received), other.received), (1, []))
+
+    def test_a_proof_of_an_old_nonce_is_refused(self):
+        svc = self.service(self.SHARED)
+        svc.proof_for = lambda nonce: "a-nonce-from-an-earlier-probe-0123"
+        spans, status = rm.RemoteDetector(svc.url, secret=self.SHARED).ask(TEXT, [])
+        self.assertEqual((status.state, status.reason, svc.received), ("unavailable", "not_ours", []))
+
+    def test_only_a_url_safe_secret_and_not_both_secret_and_bearer(self):
+        for kw in ({"secret": "short"}, {"secret": "has space " * 5}, {"secret": None},
+                   {"secret": self.SHARED, "bearer": bearer_of(self.SHARED)}):
+            with self.subTest(kw=sorted(kw)):
+                with self.assertRaises(ValueError) as cm:
+                    rm.RemoteDetector("http://127.0.0.1:9/", **kw)
+                self.assertNotIn(self.SHARED, str(cm.exception))
 
 
 class RemoteDetectorTests(unittest.TestCase):
@@ -278,7 +403,7 @@ class RemoteDetectorTests(unittest.TestCase):
     def test_a_stored_value_inside_a_finding_still_covers_the_whole_finding(self):
         text = "-" * 71 + " end"          # no letters: the span is not widened, the merge alone decides
         ner = rm.RemoteDetector("http://127.0.0.1:1/")
-        ner._request = lambda body, deadline: json.dumps(
+        ner._request = lambda body, deadline, gate=None: json.dumps(
             [{"entity_group": "PER", "start": 65, "end": 70, "score": 0.9}]).encode()
         spans, status = ner.ask(text, [(56, 71), (60, 63)])
         self.assertEqual((spans, status.state), ([], "ok"))
@@ -286,7 +411,7 @@ class RemoteDetectorTests(unittest.TestCase):
     def test_a_costly_answer_ends_at_the_deadline_too(self):
         text = "a" * 20000
         ner = rm.RemoteDetector("http://127.0.0.1:1/", timeout=0.05, max_chars=10 ** 6)
-        ner._request = lambda body, deadline: json.dumps(
+        ner._request = lambda body, deadline, gate=None: json.dumps(
             [{"entity_group": "PER", "start": i, "end": i + 1, "score": 0.9} for i in range(0, 20000, 2)]).encode()
         t = time.monotonic()
         spans, status = ner.ask(text, [])
@@ -448,7 +573,7 @@ class RemoteDetectorTests(unittest.TestCase):
         # a host that embeds the library serialises each reason: network and policy came with 0.8.7 (codex review)
         schema = contract.json.loads(contract.SCHEMA.read_text())["$defs"]["response"]
         base = self.det.findings_with(TEXT, channel="tool")
-        for reason in ("timeout", "refused", "network", "policy", "http", "answer"):
+        for reason in ("timeout", "refused", "network", "policy", "unauthorized", "not_ours", "http", "answer"):
             with self.subTest(reason=reason):
                 r = rm.Result(base.findings, rm.RemoteStatus("hf", "m", "unavailable", reason))
                 self.assertEqual(problems(contract.result_response(self.det, r), schema), [])

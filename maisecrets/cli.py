@@ -925,6 +925,10 @@ def cmd_ner(args: list[str]) -> int:
     prompt hook already wrote a change the person typed (maisecrets/ner_setup.py). `--wait N` waits up to N seconds
     for the service, after a start."""
     from . import ner_setup
+    if args[:1] == ["start"]:
+        code, lines = ner_setup.start_local(load_config())
+        print("\n".join(lines))
+        return code
     wait = 0.0
     if "--wait" in args:
         i = args.index("--wait")

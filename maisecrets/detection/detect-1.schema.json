@@ -59,7 +59,7 @@
         "format": {"enum": ["hf", "presidio"]},
         "model": {"type": "string"},
         "state": {"enum": ["ok", "unavailable", "too_long"]},
-        "reason": {"enum": ["timeout", "refused", "network", "policy", "http", "answer"]}
+        "reason": {"enum": ["timeout", "refused", "network", "policy", "unauthorized", "not_ours", "http", "answer"]}
        }
       }
      }

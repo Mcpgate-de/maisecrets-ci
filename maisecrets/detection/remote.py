@@ -25,11 +25,14 @@ names none, so the version is only as true as that setting."""
 from __future__ import annotations
 
 import bisect
+import hashlib
+import hmac
 import http.client
 import ipaddress
 import json
 import math
 import re
+import secrets
 import socket
 import threading
 import time
@@ -50,7 +53,8 @@ _TYPE_RE = re.compile(r"[A-Z][A-Z0-9_]*")
 class RemoteStatus:
     """What the remote detector did in one call. `state`: ok, unavailable (with a `reason`: timeout, refused (nothing
     listens), network (name, TLS, route), policy (an address this detector may not use), unauthorized (401: a bearer is
-    missing or wrong), http, answer), too_long, or off (no remote detector). `added` is the count of spans it added."""
+    missing or wrong), not_ours (the listener could not prove the secret of the service maisecrets started), http,
+    answer), too_long, or off (no remote detector). `added` is the count of spans it added."""
     format: str = ""
     model: str = ""
     state: str = "off"
@@ -161,7 +165,7 @@ class RemoteDetector:
     def __init__(self, url: str, format: str = "hf", model: str = "", classes: dict | None = None,
                  min_score: dict | None = None, timeout: float = 0.3, max_chars: int = 20000,
                  language: str = "en", allow_network: bool = False, mask: bool = True, ask_labels: bool = False,
-                 private_http_only: bool = False, bearer: str = ""):
+                 private_http_only: bool = False, bearer: str = "", secret: str = ""):
         if format not in FORMATS:
             raise ValueError(f"format must be one of {', '.join(FORMATS)}")
         parts = urlsplit(url)
@@ -202,18 +206,25 @@ class RemoteDetector:
         # reason, log line or error text holds it (the gateway passes it, ai-gateway !2965)
         if not (isinstance(bearer, str) and (bearer == "" or re.fullmatch(r"[0-9a-f]{64}", bearer))):
             raise ValueError("bearer: 64 lowercase hex characters")
-        self.__bearer = bearer
+        # the secret of a service maisecrets started (NER_CLIENT_SECRET of mcpgate/ner, #1699): before each text the
+        # service proves that it holds it (GET /health?challenge=), and the bearer comes from it. Never sent itself
+        if not (isinstance(secret, str) and (secret == "" or re.fullmatch(r"[A-Za-z0-9_-]{32,128}", secret))):
+            raise ValueError("secret: 32 to 128 url-safe characters")
+        if secret and bearer:
+            raise ValueError("secret or bearer, not both")
+        self.__secret = secret
+        self.__bearer = _mac(secret, "bearer") if secret else bearer
 
     def status(self, state: str, reason: str = "", added: int = 0, ms: float = 0.0) -> RemoteStatus:
         return RemoteStatus(self.format, self.model, state, reason, added, ms)
 
     # ------------------------------------------------------------------ wire --
-    def _request(self, body: bytes, deadline: float) -> bytes:
+    def _request(self, body: bytes, deadline: float, gate: dict | None = None) -> bytes:
         """The answer of one POST (name lookup, connect, send, headers, body), or an exception. ask() runs it, the
         reading of the answer and the choice of spans in one thread that it leaves at the deadline."""
-        return self._exchange(body, deadline)
+        return self._exchange(body, deadline, gate)
 
-    def _connection(self, left: float):
+    def _connection(self, left: float, pin: dict | None = None):
         """(connection, target). A host name is looked up here, and without allow_network every address it gives must
         be a loopback address: `localhost` that a hosts file sends elsewhere is refused (codex review)."""
         if self.url.startswith("unix:"):
@@ -222,7 +233,12 @@ class RemoteDetector:
             return _UnixConnection(path, left), "/"
         p = urlsplit(self.url)
         port = p.port or (443 if p.scheme == "https" else 80)
-        addrs = socket.getaddrinfo(p.hostname, port, type=socket.SOCK_STREAM)
+        # one lookup for the proof and the text of one ask(): `pin` keeps it, so the text goes to the address that
+        # gave the proof, not to a second answer of the name (codex review of #1699)
+        addrs = pin.get("addrs") if pin is not None and pin.get("addrs") else \
+            socket.getaddrinfo(p.hostname, port, type=socket.SOCK_STREAM)
+        if pin is not None:
+            pin["addrs"] = addrs
         if not addrs:
             raise ConnectionError("no address")
         if not self.allow_network and not all(_loopback(a[4][0]) for a in addrs):
@@ -232,15 +248,56 @@ class RemoteDetector:
         target = (p.path or "/") + (f"?{p.query}" if p.query else "")
         return _PinnedConnection(p.hostname, port, addrs[0], left, p.scheme == "https", self.allow_network), target
 
-    def _exchange(self, body: bytes, deadline: float) -> bytes:
-        conn, target = self._connection(max(0.001, deadline - time.monotonic()))
+    def _prove(self, deadline: float, pin: dict | None = None) -> None:
+        """GET /health?challenge=<a fresh nonce> and compare the proof (#1699). Raises _NotOurs on any other answer.
+        The proof and the text go over two connections to one address (the service closes each one): a process that
+        takes the port in the moment between them gets the text. Only one that can stop the container can do that, and
+        it can read the secret from the container anyway; the proof stops a listener that holds the port while the
+        container is down."""
+        nonce = secrets.token_urlsafe(24)
+        conn, target = self._connection(max(0.001, deadline - time.monotonic()), pin)
+        base = target.split("?", 1)[0].rstrip("/")
+        try:
+            conn.request("GET", f"{base}/health?challenge={nonce}")
+            if conn.sock is not None:
+                conn.sock.settimeout(max(0.001, deadline - time.monotonic()))
+            resp = conn.getresponse()
+            data = b""
+            while len(data) < 4096:            # read to the deadline: a dribbled answer cannot stretch it
+                if time.monotonic() > deadline:
+                    raise TimeoutError
+                if conn.sock is not None:
+                    conn.sock.settimeout(max(0.001, deadline - time.monotonic()))
+                chunk = resp.read1(4096 - len(data)) if hasattr(resp, "read1") else resp.read(4096 - len(data))
+                if not chunk:
+                    break
+                data += chunk
+            try:
+                proof = json.loads(data.decode("utf-8")).get("proof") if resp.status == 200 else None
+            except (ValueError, AttributeError):
+                proof = None
+            if not (isinstance(proof, str) and hmac.compare_digest(proof, _mac(self.__secret, "health:" + nonce))):
+                raise _NotOurs
+        finally:
+            conn.close()
+
+    def _exchange(self, body: bytes, deadline: float, gate: dict | None = None) -> bytes:
+        conn, target = self._connection(max(0.001, deadline - time.monotonic()), gate)
         if self.format == "presidio" and not target.rstrip("/").endswith("/analyze"):
             target = target.rstrip("/") + "/analyze"
         try:
             headers = {"Content-Type": "application/json"}
             if self.__bearer:
                 headers["Authorization"] = "Bearer " + self.__bearer
-            conn.request("POST", target, body=body, headers=headers)
+            if gate is None:
+                conn.request("POST", target, body=body, headers=headers)
+            else:
+                # the text goes out only under the lock that ask() takes when it gives up: after ask() said timeout,
+                # nothing is sent, however late this thread runs on (codex review of #1699)
+                with gate["lock"]:
+                    if gate["cancelled"] or time.monotonic() > deadline:
+                        raise TimeoutError
+                    conn.request("POST", target, body=body, headers=headers)
             if conn.sock is not None:
                 conn.sock.settimeout(max(0.001, deadline - time.monotonic()))
             resp = conn.getresponse()
@@ -317,13 +374,18 @@ class RemoteDetector:
         if deadline - t0 <= 0:
             return [], self.status("unavailable", "timeout")
         box: dict = {}
+        gate = {"lock": threading.Lock(), "cancelled": False}
 
         def work() -> None:
             try:
                 sent = list(text)
                 for a, b in occupied if self.mask else ():
                     sent[a:b] = FILLER * (b - a)
-                raw = self._request(self._body("".join(sent)), deadline)
+                if self.__secret:
+                    self._prove(deadline, gate)    # no text goes to a listener that cannot prove the secret
+                    if time.monotonic() > deadline:
+                        raise TimeoutError     # a proof after the deadline: the caller was told "timeout"
+                raw = self._request(self._body("".join(sent)), deadline, gate)
                 box["kept"] = self._keep(text, self._parse(raw, len(text)), occupied, deadline)
             except BaseException as exc:  # noqa: BLE001 - handed to the caller as it is
                 box["error"] = exc
@@ -331,12 +393,16 @@ class RemoteDetector:
         t.start()
         t.join(max(0.0, deadline - time.monotonic()))
         if t.is_alive():
+            with gate["lock"]:
+                gate["cancelled"] = True
             return [], self.status("unavailable", "timeout", ms=_ms(t0))
         exc = box.get("error")
         if exc is None:
             return box["kept"], self.status("ok", added=len(box["kept"]), ms=_ms(t0))
         if isinstance(exc, (TimeoutError, socket.timeout)):
             return [], self.status("unavailable", "timeout", ms=_ms(t0))
+        if isinstance(exc, _NotOurs):
+            return [], self.status("unavailable", "not_ours", ms=_ms(t0))
         if isinstance(exc, _Unauthorized):
             return [], self.status("unavailable", "unauthorized", ms=_ms(t0))
         if isinstance(exc, _HttpStatus):
@@ -389,6 +455,14 @@ PRODUCT_WORDS = frozenset({
 
 class _HttpStatus(Exception):
     pass
+
+
+class _NotOurs(Exception):
+    """The listener could not prove the secret of the service maisecrets started: no text goes there."""
+
+
+def _mac(secret: str, message: str) -> str:
+    return hmac.new(secret.encode("utf-8"), message.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 class _Unauthorized(_HttpStatus):

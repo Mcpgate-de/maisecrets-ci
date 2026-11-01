@@ -215,8 +215,7 @@ class ReportTests(unittest.TestCase):
                                   else None):
             code, out = self.run_ner()
         self.assertEqual(code, 3)
-        self.assertIn("start: podman run -d --name ner --restart unless-stopped -p 127.0.0.1:8765:8765 mcpgate/ner",
-                      out)
+        self.assertIn("start: run.sh ner start (with podman)", out)      # a container with a secret (#1699)
         self.assertIn("rules mask tool results alone", out)
 
     def test_without_docker_it_names_the_three_ways(self):
