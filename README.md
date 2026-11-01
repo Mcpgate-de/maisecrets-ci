@@ -2359,7 +2359,10 @@ and keeps its other keys. Written by hand, the setting looks like this:
   name in a prompt becomes a placeholder and never blocks it. `/maisecrets:ner prompts off` turns the prompt part off (the setting `"prompts": false`). A
   service on the network never gets a prompt, and Codex prompts keep the rules alone (Codex cannot rewrite a
   prompt). One request per tool call or prompt, within `timeout_ms` (at most
-  5000; the name lookup and a slow answer count too). Each value
+  5000; the name lookup and a slow answer count too). On an M-series laptop the service
+  answers a prompt of 1,000 characters in 170 ms (p95) and one of 2,000 characters in 400 ms, so with the
+  default of 300 ms a long prompt often keeps the rules alone; a higher `timeout_ms` waits longer for each tool
+  result too. Each value
   the rules found goes out as `_` filler of the same length. The filler costs
   the model a few names (21 of 2,482 on the benchmark samples), so a service on
   loopback or a Unix socket may read those values as they are with
