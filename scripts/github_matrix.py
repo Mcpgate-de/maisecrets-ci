@@ -294,15 +294,16 @@ def cmd_mr() -> int:
     print(f"runs: https://github.com/{CI_REPO}/actions?query=branch%3A{urllib.parse.quote(branch, safe='')}")
     _cleanup(iid, branch)
     rc, runs = wait_for_github_checks.wait(sha, CI_REPO, float(os.environ.get("MATRIX_TIMEOUT_MIN", "40")),
-                                           poll=60)
+                                           poll=20)
     if rc != 0:
         _report_failures(runs)
     return rc
 
 
 def cmd_unit() -> int:
-    """The unit suite as the workflow ran it, then one annotation per failing test."""
-    cmd = [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"]
+    """The unit suite, one test file per process (scripts/run_tests_parallel.py: the same tests and the same -v
+    report, about 4x faster), then one annotation per failing test."""
+    cmd = [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "run_tests_parallel.py")]
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     chunks = []
     assert p.stdout is not None

@@ -3,9 +3,11 @@
 
     python scripts/run_tests_parallel.py [-j N] [--log unit.log]
 
-Each tests/test_*.py runs as `python -m unittest -v tests.<name>` in its own process, N at once (default: one per
-CPU), the slowest files first. The log is the -v output of every file, in file order, then one summary line, so
-scripts/no_unexpected_skips.py reads it as before. The exit is 1 when a file failed or a file found no test.
+Each tests/test_*.py runs as `python -m unittest discover -s tests -p <file> -v` in its own process (the command of a
+serial run, cut to one file: the same import path and the same test names), N at once (default: one per CPU), the
+slowest files first. It runs in the current folder, as `unittest discover` does. The log is the -v output of every
+file, in file order, then one summary line, so scripts/no_unexpected_skips.py reads it as before. The exit is 1 when
+a file failed or a file found no test.
 
 A file's tests still share one process, as in a serial run; two files never do. A test that needs another file's
 state in the same process was never safe: unittest runs the files in name order, and -k or a single file breaks
@@ -21,7 +23,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
 RAN = re.compile(r"^Ran (\d+) tests? in", re.M)
 TAIL = re.compile(r"^(OK|FAILED)\b(.*)$", re.M)
 # the files that took longest on the reference host (2026-11-01, 25 s and more), slowest first: started first, so the
@@ -33,8 +34,10 @@ SLOW_FIRST = ("test_cli_matrix", "test_vault_refs", "test_label_languages", "tes
 
 def run(name: str) -> tuple:
     t0 = time.monotonic()
-    p = subprocess.run([sys.executable, "-m", "unittest", "-v", f"tests.{name}"], cwd=ROOT,
-                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    # UTF-8 both ways: a Windows console code page cannot hold every test name and value
+    p = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", f"{name}.py", "-v"],
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", errors="replace",
+                       env=dict(os.environ, PYTHONIOENCODING="utf-8"))
     return name, p.returncode, p.stdout, time.monotonic() - t0
 
 
@@ -43,7 +46,7 @@ def main(argv: list) -> int:
     ap.add_argument("-j", type=int, default=0)
     ap.add_argument("--log", default="")
     a = ap.parse_args(argv)
-    names = sorted(p.stem for p in (ROOT / "tests").glob("test_*.py"))
+    names = sorted(p.stem for p in Path("tests").glob("test_*.py"))
     order = sorted(names, key=lambda n: (SLOW_FIRST.index(n) if n in SLOW_FIRST else len(SLOW_FIRST), n))
     n = a.j if a.j > 0 else (os.cpu_count() or 1)
     t0 = time.monotonic()
@@ -65,7 +68,8 @@ def main(argv: list) -> int:
     text = "".join(lines) + summary
     if a.log:
         Path(a.log).write_text(text, encoding="utf-8")
-    sys.stdout.write(text)
+    sys.stdout.buffer.write(text.replace("\r\n", "\n").encode("utf-8", "replace"))
+    sys.stdout.flush()
     return 1 if bad else 0
 
 
