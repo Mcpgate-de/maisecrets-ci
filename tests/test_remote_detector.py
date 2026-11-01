@@ -41,8 +41,9 @@ class Service:
     """A fake service. `answer(text)` returns the JSON it sends; `received` keeps each request body."""
 
     def __init__(self, fmt: str = "hf", answer=None, delay: float = 0.0, status: int = 200, unix: str = "",
-                 drip: float = 0.0):
+                 drip: float = 0.0, bearer: str = ""):
         self.fmt, self.delay, self.status, self.received, self.paths = fmt, delay, status, [], []
+        self.bearer, self.headers = bearer, []     # a service that wants this bearer answers 401 without it
         self.drip = drip            # seconds between the bytes of the body: a service that dribbles its answer
         self.answer = answer or self.names
         svc = self
@@ -52,6 +53,12 @@ class Service:
                 body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
                 svc.received.append(json.loads(body))
                 svc.paths.append(self.path)
+                svc.headers.append({k.lower(): v for k, v in self.headers.items()})
+                if svc.bearer and self.headers.get("Authorization") != "Bearer " + svc.bearer:
+                    self.send_response(401)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
                 if svc.delay:
                     time.sleep(svc.delay)
                 text = svc.received[-1]["inputs" if svc.fmt == "hf" else "text"]
@@ -97,6 +104,56 @@ class Service:
     def close(self):
         self.server.shutdown()
         self.server.server_close()
+
+
+def bearer_of(secret: str) -> str:
+    # the derivation of mcpgate/ner (NER_CLIENT_SECRET) and of the gateway: hmac_sha256(secret, "bearer")
+    import hashlib
+    import hmac
+    return hmac.new(secret.encode(), b"bearer", hashlib.sha256).hexdigest()
+
+
+class BearerTests(unittest.TestCase):
+    """A service that wants a bearer (ai-gateway !2965): the derived token goes out as a header and nowhere else."""
+
+    TOKEN = bearer_of("test-client-secret-value")      # the test vector both sides use
+
+    def ask(self, svc: Service, **kw):
+        self.addCleanup(svc.close)
+        det = rm.RemoteDetector(svc.url, **kw)
+        spans, status = det.ask(TEXT, [])
+        return det, spans, status
+
+    def test_the_bearer_goes_out_as_a_header_and_the_service_answers(self):
+        svc = Service(bearer=self.TOKEN)
+        _det, spans, status = self.ask(svc, bearer=self.TOKEN)
+        self.assertEqual((status.state, len(spans)), ("ok", 1))
+        self.assertEqual(svc.headers[0]["authorization"], "Bearer " + self.TOKEN)
+
+    def test_without_the_keyword_the_request_is_as_before(self):
+        plain, with_token = Service(), Service()
+        self.ask(plain)
+        self.ask(with_token, bearer=self.TOKEN)
+        self.assertNotIn("authorization", plain.headers[0])
+        self.assertEqual(set(plain.headers[0]), set(with_token.headers[0]) - {"authorization"})
+        self.assertEqual(plain.received, with_token.received)
+
+    def test_a_missing_or_wrong_bearer_is_unauthorized_and_the_token_is_nowhere(self):
+        for kw in ({}, {"bearer": bearer_of("another-test-secret")}):
+            with self.subTest(sent=bool(kw)):
+                det, spans, status = self.ask(Service(bearer=self.TOKEN), **kw)
+                self.assertEqual((spans, status.state, status.reason), ([], "unavailable", "unauthorized"))
+                for shown in (repr(det), str(vars(status)), repr(status)):
+                    self.assertNotIn(self.TOKEN, shown)
+                    self.assertNotIn(kw.get("bearer", self.TOKEN), shown)
+
+    def test_only_the_derived_hex_is_taken_and_the_error_names_no_value(self):
+        for bad in ("test-client-secret-value", self.TOKEN.upper(), self.TOKEN[:-1], self.TOKEN + "0",
+                    self.TOKEN[:62] + "\r\n", None, 7):
+            with self.subTest(bad=repr(bad)[:12]):
+                with self.assertRaises(ValueError) as cm:
+                    rm.RemoteDetector("http://127.0.0.1:9/", bearer=bad)
+                self.assertEqual(str(cm.exception), "bearer: 64 lowercase hex characters")
 
 
 class RemoteDetectorTests(unittest.TestCase):
