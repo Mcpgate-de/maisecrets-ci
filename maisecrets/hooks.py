@@ -2590,40 +2590,23 @@ def _pre_send_message(payload: dict, cfg: dict, tool_input: dict) -> dict:
 
 # -------------------------------------------------------------- PostToolUse --
 def _remote_layer(cfg: dict, response, binary, strip: bool, scan_tool, session: str | None = None):
-    """The remote detector's findings for the strings of this tool result (maisecrets/remote_layer.py), or None when
-    none is set. One request for the whole result; the strings as the walk below sees them (hidden characters
-    removed). A failure here leaves the rules alone: it never stops the redaction."""
+    """The remote detector's findings for the strings of this tool result (remote_layer.for_tool_result), or None
+    when none is set. A failure here leaves the rules alone: it never stops the redaction."""
     conf = cfg.get("remote_detector")
     if not (isinstance(conf, dict) and conf.get("url")):
         return None
-    leaves: list[str] = []
-
-    def collect(node: Any, at: tuple = ()) -> None:
-        if at in binary:
-            return
-        if isinstance(node, str):
-            leaves.append(strip_hidden(node)[0] if strip else node)
-        elif isinstance(node, list):
-            for i, x in enumerate(node):
-                collect(x, at + (i,))
-        elif isinstance(node, dict):
-            for k, v in node.items():
-                if isinstance(k, str):
-                    collect(k)          # a key is scanned too (walk below): one request covers it
-                collect(v, at + (k,))
     try:
         from . import remote_layer
-        collect(response)
-        # the stored values that _exact_redact masks later go out as filler too: a password stored with `put` has no
-        # shape, and the rules alone would let the service read it (codex review)
-        return remote_layer.prepare(cfg, leaves, scan_tool, _protect(cfg, session))
+        return remote_layer.for_tool_result(cfg, response, binary, (lambda x: strip_hidden(x)[0]) if strip else None,
+                                            scan_tool, lambda: _protect(cfg, session))
     except Exception as exc:  # noqa: BLE001 - the rules' redaction runs as without the layer
         _debug(f"remote layer: {type(exc).__name__}")
         return None
 
 
 def post_tool(payload: dict) -> dict:
-    _NER_DOWN["v"] = False
+    from . import remote_layer as _rl
+    _rl.NER_DOWN["v"] = False
     cfg = load_config()
     response = payload.get("tool_response")
     if response is None:
@@ -2662,10 +2645,7 @@ def post_tool(payload: dict) -> dict:
 
     binary = _binary_paths(payload)
     layer = _remote_layer(cfg, response, binary, strip, scan_tool, payload.get("session_id"))
-    _NER_DOWN["v"] = layer is not None and layer.status.state == "unavailable"
-    if layer is not None:
-        from . import ner_setup
-        _NER_DOWN["fallback"] = ner_setup.LAST["source"] == "fallback"
+    _rl.note_result(layer)
 
     def redact(s: str) -> str:
         nonlocal vault, resolved
@@ -2913,23 +2893,9 @@ def _file_read_hint(payload: dict) -> str | None:
     return file_reads.hint(payload, load_config(), client_of(payload) == "codex")
 
 
-# the remote detector of the last post_tool did not answer (set there, read by _ner_hint of the same call)
-_NER_DOWN = {"v": False}
-
-
 def _ner_hint(payload: dict) -> str | None:
-    """Once per session, when the service of /maisecrets:ner did not answer: the person learns that names went
-    unmasked by it. Not in a subagent: it has no conversation with the person."""
-    from . import ner_setup
-    from .vault import HOME
-    if _NER_DOWN.pop("fallback", False) and not payload.get("agent_id"):
-        # the first tool result of the session that the fallback checked: where text goes now (akruse-7a, G)
-        if ner_setup.claim_down_note(HOME, str(payload.get("session_id")) + ":fallback"):
-            return ner_setup.FALLBACK_NOTE
-    if not _NER_DOWN["v"] or payload.get("agent_id"):
-        return None
-    _NER_DOWN["v"] = False
-    return ner_setup.DOWN_NOTE if ner_setup.claim_down_note(HOME, payload.get("session_id")) else None
+    from . import remote_layer
+    return remote_layer.hint(payload)
 
 
 def _with_hint(payload: dict, result: dict) -> dict:
