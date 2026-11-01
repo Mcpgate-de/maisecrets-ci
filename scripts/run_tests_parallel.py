@@ -24,8 +24,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 RAN = re.compile(r"^Ran (\d+) tests? in", re.M)
 TAIL = re.compile(r"^(OK|FAILED)\b(.*)$", re.M)
-# the files that took longest on the reference host: started first, so the run ends with short ones
-SLOW_FIRST = ("test_mod_prompt", "test_hooks", "test_release_tree", "test_file_reads", "test_detection")
+# the files that took longest on the reference host (2026-11-01, 25 s and more), slowest first: started first, so the
+# run ends with short ones
+SLOW_FIRST = ("test_cli_matrix", "test_vault_refs", "test_label_languages", "test_rules_from_the_catalogs",
+              "test_word_values_not_hunted", "test_invariant_model_output", "test_rules_from_other_detectors",
+              "test_skill")
 
 
 def run(name: str) -> tuple:
@@ -41,7 +44,7 @@ def main(argv: list) -> int:
     ap.add_argument("--log", default="")
     a = ap.parse_args(argv)
     names = sorted(p.stem for p in (ROOT / "tests").glob("test_*.py"))
-    order = sorted(names, key=lambda n: (not n.startswith(SLOW_FIRST), n))
+    order = sorted(names, key=lambda n: (SLOW_FIRST.index(n) if n in SLOW_FIRST else len(SLOW_FIRST), n))
     n = a.j if a.j > 0 else (os.cpu_count() or 1)
     t0 = time.monotonic()
     with ThreadPoolExecutor(max_workers=n) as pool:
