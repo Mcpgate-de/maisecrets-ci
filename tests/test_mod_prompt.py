@@ -226,7 +226,7 @@ class ScrubBySessionTests(unittest.TestCase):
             record = json.dumps({"type": "queue-operation", "content": f"check {GLPAT}"}) + "\n"
             t.write_text(record)
             with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": cfg}):
-                child = hooks._scrub_transcript_later("", [GLPAT], [], seconds=6, session="sess-8")
+                child = hooks._scrub_transcript_later("", [GLPAT], [], seconds=12, session="sess-8")
 
             def masked_soon() -> bool:
                 deadline = time.time() + 4
@@ -250,7 +250,10 @@ class ScrubBySessionTests(unittest.TestCase):
             else:
                 self.fail("the transcript stayed locked for five seconds")
             self.assertTrue(masked_soon(), "replaced file")
-            child.wait(timeout=10)
+            # the window is 12 s (a busy runner took most of 6 s for the first mask); all three reads are proven,
+            # so the child need not run out its window
+            child.terminate()
+            child.wait(timeout=15)
 
     def test_a_session_id_that_is_a_pattern_starts_no_child(self):
         from unittest import mock

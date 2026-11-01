@@ -151,6 +151,9 @@ lint:
 unit:
   stage: test
   extends: .tested_before_the_tag
+  # starts at once, beside the validate stage: the tests do not need its jobs (release needs every job, mirror its
+  # own list, as before)
+  needs: []
   # python:3.12-slim has no git: the skill's history tests were skipped here and a skip reads as
   # green (2026-09-27, 14 skipped); the job installs git and refuses a skip it does not expect.
   # procps gives ps: the test hygiene lists live value-serving children with it
@@ -158,7 +161,8 @@ unit:
     - apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends git procps >/dev/null
     # PyYAML parses the command and skill frontmatter as the directory check does (test_frontmatter)
     - pip install --quiet --disable-pip-version-check pyyaml==6.0.3
-    - python -m unittest discover -s tests -v 2>&1 | tee unit.log
+    # one test file per process, 4 at once (scripts/run_tests_parallel.py): the same tests and log, about 4x faster
+    - python scripts/run_tests_parallel.py -j 4 --log unit.log
     - python scripts/no_unexpected_skips.py unit.log
     # the wheel of the detection core, installed into a fresh venv (pip fetches the pinned hatchling)
     - python scripts/wheel_smoke.py
@@ -172,13 +176,17 @@ unit_python39:
     - apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends git procps >/dev/null
     # PyYAML parses the command and skill frontmatter as the directory check does (test_frontmatter)
     - pip install --quiet --disable-pip-version-check pyyaml==6.0.3
-    - python -m unittest discover -s tests -v 2>&1 | tee unit.log
+    # one test file per process, 4 at once (scripts/run_tests_parallel.py): the same tests and log, about 4x faster
+    - python scripts/run_tests_parallel.py -j 4 --log unit.log
     - python scripts/no_unexpected_skips.py unit.log "tomllib is Python 3.11+"
     - python scripts/wheel_smoke.py
 
 beliefs_can_fail_replay:
   stage: test
   extends: .tested_before_the_tag
+  # starts at once, beside the validate stage: the tests do not need its jobs (release needs every job, mirror its
+  # own list, as before)
+  needs: []
   # every belief in beliefs/*.toml: the owning tests go green, the guarded code is mutated as
   # declared, the tests must go red, the file is restored. A test that stays green under the
   # mutation does not carry the control it claims (borrowed from the ai-gateway beliefs layer)
@@ -194,6 +202,9 @@ beliefs_can_fail_replay:
 harness_claude:
   stage: test
   extends: .tested_before_the_tag
+  # starts at once, beside the validate stage: the tests do not need its jobs (release needs every job, mirror its
+  # own list, as before)
+  needs: []
   image: node:22
   variables:
     CLAUDE_CODE_VERSION: "2.1.316"   # 2.1.300 checks updatedInput like model input, 2.1.301 narrows a mod .catch
@@ -209,6 +220,9 @@ harness_claude:
 harness_codex:
   stage: test
   extends: .tested_before_the_tag
+  # starts at once, beside the validate stage: the tests do not need its jobs (release needs every job, mirror its
+  # own list, as before)
+  needs: []
   image: node:22
   variables:
     CODEX_VERSION: "0.155.1"
