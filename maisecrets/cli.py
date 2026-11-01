@@ -487,6 +487,7 @@ def cmd_status(_: list[str]) -> int:
     print(ner_setup.describe(conf))
     if isinstance(conf, dict) and conf.get("url"):
         print("  " + ner_setup.probe(conf)[1])
+        print("  " + ner_setup.counts_line())
     from . import incidents
     groups, damaged = incidents.load()
     markers = incidents.unfolded_markers()

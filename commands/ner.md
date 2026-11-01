@@ -1,6 +1,6 @@
 ---
 description: Names in tool results from a named-entity service - local (a container on this computer), url URL (a service of your team) or off. Without an argument it shows the source and whether it answers.
-argument-hint: "[local | url URL | off]"
+argument-hint: "[on | local | url URL | fallback url URL | fallback off | prompts on | prompts off | off]"
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" ner *), Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" ner), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" ner *), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" ner)
 ---
 
@@ -22,7 +22,7 @@ If `${CLAUDE_PLUGIN_ROOT}` is still written like that when the command runs, put
 
 If the command exits with code 3, the local service is not running and docker or podman is installed. Then:
 
-1. Run exactly one of these two commands, and no other text of the output: the docker one if the output names docker, else the podman one. It downloads the image `mcpgate/ner` the first time and starts the service on 127.0.0.1:8765 only.
+1. Ask the user first, in one sentence: the first start downloads the image `mcpgate/ner` (about 690 MB, about 1 to 2 GB on disk), and the service then keeps running in the background on 127.0.0.1:8765 only (about 250 MB of memory, about 700 MB on older CPUs). Go on only when the user says yes; if not, stop and say that `/maisecrets:ner off` turns the setting off again. Then run exactly one of these two commands, and no other text of the output: the docker one if the output names docker, else the podman one.
    - `docker run -d --name ner --restart unless-stopped -p 127.0.0.1:8765:8765 mcpgate/ner`
    - `podman run -d --name ner --restart unless-stopped -p 127.0.0.1:8765:8765 mcpgate/ner`
    If a container named `ner` exists already, run `docker start ner` (or `podman start ner`) instead.

@@ -11,6 +11,7 @@ import json
 import os
 import sys
 import threading
+import time
 import unittest
 from contextlib import redirect_stdout
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -151,6 +152,30 @@ class SetTests(unittest.TestCase):
     def test_a_sentence_inside_a_longer_prompt_is_text(self):
         self.assertIsNone(settings.parse_prompt("please run /maisecrets:ner local for me"))
 
+    def test_prompts_off_and_on_keep_the_source_and_off_is_a_weakening(self):
+        _prompt("/maisecrets:ner local")
+        out = _prompt("/maisecrets:ner prompts off")
+        self.assertIs(_conf()["prompts"], False)
+        self.assertIn("Your prompts keep the rules alone", json.dumps(out))
+        self.assertEqual(len(_weakened()), 1)
+        _prompt("/maisecrets:ner prompts off")
+        self.assertEqual(len(_weakened()), 1)              # already off: no second weakening
+        _prompt("/maisecrets:ner url http://127.0.0.1:9000/")
+        self.assertIs(_conf()["prompts"], False)            # a new source keeps the choice
+        out = _prompt("maisecrets: ner PROMPTS on", CODEX)
+        self.assertNotIn("prompts", _conf())
+        self.assertEqual(_conf()["url"], "http://127.0.0.1:9000/")
+        self.assertEqual(len(_weakened()), 1)
+        self.assertIsNone(settings.parse_prompt("/maisecrets:ner prompts maybe"))
+
+    def test_a_subagent_does_not_turn_the_prompt_part_off(self):
+        _prompt("/maisecrets:ner local")
+        _prompt("/maisecrets:ner prompts off", {**CLAUDE, "source": "user"}, agent_id="sub")
+        self.assertNotIn("prompts", _conf())
+        out = hooks.pre_tool({"tool_name": "Bash", "session_id": "S1", **CLAUDE,
+                              "tool_input": {"command": "claude -p '/maisecrets:ner prompts off'"}})
+        self.assertEqual(json.dumps(out).count('"deny"'), 1, out)
+
     def test_turning_it_off_or_a_service_on_the_network_is_recorded_as_a_weakening(self):
         _prompt("/maisecrets:ner local")
         self.assertEqual(_weakened(), [])
@@ -237,6 +262,47 @@ class ReportTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(asked, ["/health"])
 
+    def test_the_report_says_what_the_service_reads(self):
+        self.assertIn("in your prompts in Claude Code. In Codex", ner_setup.scope({"url": ner_setup.LOCAL_URL}))
+        self.assertIn("Your prompts keep the rules alone",
+                      ner_setup.scope({"url": "http://10.0.0.5:8765/", "allow_network": True}))
+        self.assertIn("Your prompts keep the rules alone",
+                      ner_setup.scope({"url": ner_setup.LOCAL_URL, "prompts": False}))
+
+    def test_a_plain_http_setting_to_a_public_host_is_not_shown_as_answering(self):
+        # a 0.8.6 setting with plain http to a public address: the detector refuses it at each connection, so the
+        # probe must not say "answers" either, and it sends nothing there (codex review of 0.8.7)
+        import socket
+        with mock.patch.object(socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("8.8.8.8", 8765))]), \
+                mock.patch.object(ner_setup, "_get") as get:
+            ok, line = ner_setup.probe({"url": "http://ner.example.com:8765/", "allow_network": True})
+        self.assertFalse(ok)
+        self.assertIn("plain http to an address that is not private", line)
+        get.assert_not_called()
+
+    def test_a_local_name_that_resolves_elsewhere_is_not_probed_and_dns_has_a_deadline(self):
+        # round 2 of the codex review: "localhost" pointed at a public host was shown as answering
+        import socket
+        for conf, words in (({"url": "http://localhost:8765/"}, "resolves to another computer"),
+                            ({"url": "http://localhost:8765/", "allow_network": True}, "plain http to an address")):
+            with self.subTest(conf=conf), \
+                    mock.patch.object(socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("8.8.8.8", 8765))]), \
+                    mock.patch.object(ner_setup, "_get") as get:
+                ok, line = ner_setup.probe(conf)
+                self.assertFalse(ok)
+                self.assertIn(words, line)
+                get.assert_not_called()
+
+        def slow(*a, **k):
+            time.sleep(1.0)
+            return [(2, 1, 6, "", ("127.0.0.1", 8765))]
+        with mock.patch.object(socket, "getaddrinfo", slow), mock.patch.object(ner_setup, "_get") as get:
+            t0 = time.monotonic()
+            ok, line = ner_setup.probe({"url": "http://localhost:8765/"}, timeout=0.2)
+        self.assertLess(time.monotonic() - t0, 0.8)
+        self.assertIn("does not resolve in time", line)
+        get.assert_not_called()
+
     def test_a_service_on_the_network_without_allow_network_is_not_asked(self):
         ok, line = ner_setup.probe({"url": "http://10.0.0.5:8765/"})
         self.assertFalse(ok)
@@ -251,6 +317,51 @@ class ReportTests(unittest.TestCase):
             cli.cmd_status([])
         self.assertIn(f"names from a service: {svc.url} (on this computer)", buf.getvalue())
         self.assertIn("the service: answers", buf.getvalue())
+
+
+class RestartTests(unittest.TestCase):
+    """After a reboot the container may be stopped: the session start starts it again, in the background, only for the
+    local source and only a container whose image is mcpgate/ner (Andi and akruse-3b, 2026-10-31)."""
+
+    def run_restart(self, conf, answers=False, tool="docker"):
+        with mock.patch.object(ner_setup, "probe", return_value=(answers, "")), \
+                mock.patch.object(ner_setup, "container_tool", return_value=tool), \
+                mock.patch.object(ner_setup.subprocess, "Popen") as popen:
+            asked = ner_setup.restart_local(conf)
+        return asked, popen
+
+    def test_a_stopped_local_service_is_started_in_the_background(self):
+        asked, popen = self.run_restart({"url": ner_setup.LOCAL_URL}, tool="/usr/local/bin/docker")
+        self.assertTrue(asked)
+        argv = popen.call_args.args[0]
+        # the plugin's Python and the tool by its absolute path: no shell, no name PATH resolves again
+        self.assertEqual((argv[0], argv[1], argv[2], argv[-1]), (sys.executable, "-I", "-c", "/usr/local/bin/docker"))
+        self.assertTrue(popen.call_args.kwargs["start_new_session"])
+
+    def test_nothing_starts_for_a_running_service_another_source_or_no_docker(self):
+        for conf, answers, tool in (({"url": ner_setup.LOCAL_URL}, True, "docker"),
+                                    ({"url": "http://10.0.0.5:8765/", "allow_network": True}, False, "docker"),
+                                    ({}, False, "docker"), ({"url": ner_setup.LOCAL_URL}, False, "")):
+            with self.subTest(conf=conf, answers=answers, tool=tool):
+                asked, popen = self.run_restart(conf, answers, tool)
+                self.assertFalse(asked)
+                popen.assert_not_called()
+
+    @unittest.skipIf(os.name == "nt", "the fake docker is a shell script; the same code runs on macOS and Linux")
+    def test_the_start_command_checks_the_image_and_names_no_setting_value(self):
+        # run the helper with a fake tool that records its calls: an image that is not mcpgate/ner is never started
+        import tempfile
+        for image, starts in (("mcpgate/ner", True), ("mcpgate/ner:v2", True), ("evil/ner", False),
+                              ("mcpgate/nerx", False)):
+            with self.subTest(image=image), tempfile.TemporaryDirectory() as d:
+                tool, log = Path(d, "docker"), Path(d, "calls")
+                tool.write_text(f"#!/bin/sh\necho \"$@\" >> {log}\n[ \"$1\" = container ] && echo {image}\nexit 0\n")
+                tool.chmod(0o755)
+                import subprocess
+                subprocess.run([sys.executable, "-I", "-c", ner_setup._RESTART, str(tool)], check=True, timeout=30)
+                calls = log.read_text().splitlines()
+                self.assertEqual("start ner" in calls, starts)
+        self.assertNotIn("8765", ner_setup._RESTART)
 
 
 class DownNoteTests(unittest.TestCase):
@@ -278,6 +389,235 @@ class DownNoteTests(unittest.TestCase):
     def test_a_service_that_is_off_gives_no_note(self):
         _reset()
         self.assertNotIn("did not answer", self.post("A"))
+
+
+class PromptNameTests(unittest.TestCase):
+    """With a service on this computer, the mod's rewrite (Claude Code) turns the names of a prompt into placeholders;
+    nothing is blocked for a name. A service on the network and `"prompts": false` leave the prompt to the rules: the
+    home page promises that no prompt goes to a server by default."""
+
+    NAME = "Thomasina Weinbergerova"            # synthetic, no rule finds it
+
+    def setUp(self):
+        self.received = []
+        tests = self
+
+        class H(BaseHTTPRequestHandler):
+            def do_POST(self):  # noqa: N802 - http.server API
+                text = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))["inputs"]
+                tests.received.append(text)
+                at = text.find(tests.NAME)
+                body = json.dumps([] if at < 0 else [{"entity_group": "PER", "start": at, "end": at + len(tests.NAME),
+                                                       "score": 0.99, "word": tests.NAME}]).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *a):
+                pass
+        self.server = HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/"
+
+    def rewrite(self, **conf) -> dict:
+        _reset(remote_detector={"url": self.url, "format": "hf", **conf})
+        return hooks.rewrite_prompt({"prompt": f"{self.NAME} is a colleague of mine", "session_id": "S1",
+                                     "origin": "composer"})
+
+    def test_a_name_in_a_prompt_becomes_a_placeholder(self):
+        out = self.rewrite()
+        self.assertNotIn(self.NAME, out.get("text", ""))
+        self.assertRegex(out.get("text", ""), r"\A⟦NAME_c\d+⟧ is a colleague of mine\Z")
+        self.assertEqual(len(self.received), 1)
+
+    def test_prompts_false_leaves_the_prompt_to_the_rules(self):
+        self.assertEqual(self.rewrite(prompts=False), {})
+        self.assertEqual(self.received, [])
+
+    def test_a_service_on_the_network_never_reads_a_prompt(self):
+        # a URL that names this computer but resolves to another host (allow_network set): no connection is made
+        from maisecrets.detection import remote
+        port = self.server.server_address[1]
+        _reset(remote_detector={"url": f"http://localhost:{port}/", "format": "hf", "allow_network": True})
+        tried = []
+
+        class Recorder:
+            def __init__(self, *a, **k):
+                tried.append(a[2])
+                raise ConnectionRefusedError
+        with mock.patch.object(remote.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("10.0.0.5", port))]), \
+                mock.patch.object(remote, "_PinnedConnection", Recorder):
+            out = hooks.rewrite_prompt({"prompt": f"{self.NAME} is a colleague of mine", "session_id": "S1",
+                                        "origin": "composer"})
+        self.assertEqual(out, {})
+        self.assertEqual(tried, [])
+        self.assertEqual(self.received, [])
+
+    def test_a_service_that_is_down_leaves_the_rules_rewrite(self):
+        self.server.shutdown()
+        self.assertEqual(self.rewrite(), {})
+
+
+def _closed_port() -> int:
+    import socket
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+class NameService:
+    """A fake service that finds NAME and records each text; `delay` makes it slow."""
+    NAME = "Thomasina Weinbergerova"
+
+    def __init__(self, delay: float = 0.0):
+        self.received = []
+        svc = self
+
+        class H(BaseHTTPRequestHandler):
+            def do_POST(self):  # noqa: N802 - http.server API
+                text = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))["inputs"]
+                svc.received.append(text)
+                if delay:
+                    time.sleep(delay)
+                at = text.find(svc.NAME)
+                body = json.dumps([] if at < 0 else [{"entity_group": "PER", "start": at, "end": at + len(svc.NAME),
+                                                       "score": 0.99, "word": svc.NAME}]).encode()
+                try:
+                    self.send_response(200)
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                except OSError:
+                    pass
+
+            def log_message(self, *a):
+                pass
+        from http.server import ThreadingHTTPServer
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        self.server.daemon_threads = True
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/"
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+class FallbackTests(unittest.TestCase):
+    """/maisecrets:ner fallback url URL: a second service for tool results while the local one refuses the connection
+    (not running, after a reboot). Never for a prompt, never on a timeout. Each request writes a line without text."""
+
+    def setUp(self):
+        _reset()
+        for f in ("ner.log",):
+            try:
+                os.unlink(Path(HOME, f))
+            except FileNotFoundError:
+                pass
+        self.fb = NameService()
+        self.addCleanup(self.fb.close)
+
+    def post(self, session="S1", text=None):
+        text = text or f"call {NameService.NAME} tomorrow"
+        return json.dumps(hooks._post_tool_guarded({
+            "hook_event_name": "PostToolUse", "tool_name": "Bash", "session_id": session, **CLAUDE,
+            "tool_input": {"command": "cat notes.txt"}, "tool_response": {"stdout": text, "stderr": ""}}))
+
+    def log_lines(self):
+        try:
+            return [json.loads(x) for x in Path(HOME, "ner.log").read_text().splitlines()]
+        except FileNotFoundError:
+            return []
+
+    def test_the_command_sets_and_removes_a_fallback_and_needs_a_source_first(self):
+        out = _prompt(f"/maisecrets:ner fallback url {self.fb.url}")
+        self.assertIn("needs a source first", json.dumps(out))
+        _prompt("/maisecrets:ner on")
+        _prompt("/maisecrets:ner fallback url https://ner.example.com/")
+        self.assertEqual(_conf()["fallback"], {"url": "https://ner.example.com/", "format": "hf", "ask_labels": True,
+                                               "allow_network": True})
+        self.assertEqual(len(_weakened()), 1)              # text may now leave the computer
+        _prompt("/maisecrets:ner fallback off")
+        self.assertNotIn("fallback", _conf())
+        _prompt("/maisecrets:ner fallback url https://ner.example.com/")
+        _prompt("/maisecrets:ner off")
+        self.assertNotIn("fallback", _conf())                # off is off
+
+    def test_plain_http_to_a_public_address_is_refused_for_url_and_fallback(self):
+        _prompt("/maisecrets:ner on")
+        for cmd in ("url http://8.8.8.8:8765/", "fallback url http://8.8.8.8:8765/"):
+            with self.subTest(cmd=cmd):
+                out = _prompt(f"/maisecrets:ner {cmd}")
+                self.assertIn("plain http to a public address", json.dumps(out))
+        self.assertEqual(_conf().get("url"), ner_setup.LOCAL_URL)
+        self.assertNotIn("fallback", _conf())
+
+    def test_a_name_reaches_no_public_host_over_http_at_connection_time(self):
+        # a name that resolves to a public address: refused when it connects, whatever the setting held
+        from maisecrets.detection import remote
+        det = remote.RemoteDetector("http://ner.example.com:8765/", allow_network=True, private_http_only=True)
+        with mock.patch.object(remote.socket, "getaddrinfo",
+                               return_value=[(2, 1, 6, "", ("8.8.8.8", 8765))]):
+            spans, status = det.ask("x " + NameService.NAME, [])
+        self.assertEqual((status.state, status.reason), ("unavailable", "policy"))
+
+    # Windows answers a closed loopback port with SYN retries (about 2 s): within 300 ms it is a timeout, and a
+    # timeout never hands text to the fallback (README, "fallback"; codex review of 0.8.7, round 5)
+    @unittest.skipIf(os.name == "nt", "a stopped service on Windows is a timeout within 300 ms, not a refusal")
+    def test_a_local_service_that_is_not_running_hands_the_tool_result_to_the_fallback(self):
+        _reset(remote_detector={"url": f"http://127.0.0.1:{_closed_port()}/", "format": "hf",
+                                "fallback": {"url": self.fb.url, "format": "hf"}})
+        out = self.post()
+        self.assertNotIn(NameService.NAME, out)
+        self.assertEqual(len(self.fb.received), 1)
+        self.assertIn("the fallback set with /maisecrets:ner checked", out)
+        self.assertNotIn("the fallback set with", self.post())          # once per session
+        self.assertEqual([x["source"] for x in self.log_lines()], ["fallback", "fallback"])
+        self.assertFalse(any(NameService.NAME in json.dumps(x) for x in self.log_lines()))
+
+    def test_a_slow_local_service_is_no_reason_to_send_text_to_the_fallback(self):
+        slow = NameService(delay=1.0)
+        self.addCleanup(slow.close)
+        _reset(remote_detector={"url": slow.url, "format": "hf", "timeout_ms": 200,
+                                "fallback": {"url": self.fb.url, "format": "hf"}})
+        self.post()
+        self.assertEqual(self.fb.received, [])
+        self.assertEqual([x["source"] for x in self.log_lines()], ["rules"])
+
+    def test_a_network_primary_or_a_network_error_never_hands_over_to_the_fallback(self):
+        # only "nothing listens on this computer" hands over. Two cases that look alike on the wire: a team service
+        # that refuses (a network primary), and a local name that resolves to another host (a policy refusal)
+        from maisecrets.detection import remote
+        closed = _closed_port()
+        real = remote.socket.getaddrinfo
+
+        def resolve(host, port, *a, **k):
+            if host == "team-ner.internal":
+                return [(2, 1, 6, "", ("127.0.0.1", closed))]        # private, and nothing listens: refused
+            if host == "localhost":
+                return [(2, 1, 6, "", ("10.0.0.5", port))]           # not loopback: refused by policy
+            return real(host, port, *a, **k)
+        for primary, extra in ((f"http://team-ner.internal:{closed}/", {"allow_network": True}),
+                               (f"http://localhost:{closed}/", {})):
+            with self.subTest(primary=primary), mock.patch.object(remote.socket, "getaddrinfo", resolve):
+                _reset(remote_detector={"url": primary, "format": "hf", **extra,
+                                        "fallback": {"url": self.fb.url, "format": "hf"}})
+                self.post()
+                self.assertEqual(self.fb.received, [])
+
+    def test_a_prompt_never_goes_to_the_fallback(self):
+        _reset(remote_detector={"url": f"http://127.0.0.1:{_closed_port()}/", "format": "hf",
+                                "fallback": {"url": self.fb.url, "format": "hf"}})
+        hooks.rewrite_prompt({"prompt": f"{NameService.NAME} is a colleague", "session_id": "S1",
+                              "origin": "composer"})
+        self.assertEqual(self.fb.received, [])
+        self.assertEqual([(x["source"], x["kind"]) for x in self.log_lines()], [("rules", "prompt")])
+        self.assertIn("of them to a fallback 0", ner_setup.counts_line())
 
 
 if __name__ == "__main__":
