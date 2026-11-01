@@ -170,3 +170,53 @@ def unchecked_note(session: str | None, why: str) -> str | None:
     if not (session and ner_setup.claim_down_note(HOME, f"{session}:prompt")):
         return None
     return UNCHECKED_NOTE.format(why=_WHY.get(why, "it gave no usable answer"))
+
+
+def for_tool_result(cfg: dict, response, binary, strip, scan, protect_of):
+    """prepare() for one tool result: its strings as the walk of hooks.post_tool sees them (`strip`: the hidden
+    characters removed, or None), a key scanned too, a binary path left out. `protect_of()` gives the stored values,
+    which go out as filler: a password stored with `put` has no shape, and the rules alone would let the service read
+    it (codex review)."""
+    leaves: list = []
+
+    def collect(node, at: tuple = ()) -> None:
+        if at in binary:
+            return
+        if isinstance(node, str):
+            leaves.append(strip(node) if strip else node)
+        elif isinstance(node, list):
+            for i, x in enumerate(node):
+                collect(x, at + (i,))
+        elif isinstance(node, dict):
+            for k, v in node.items():
+                if isinstance(k, str):
+                    collect(k)          # a key is scanned too (the walk in hooks): one request covers it
+                collect(v, at + (k,))
+    collect(response)
+    return prepare(cfg, leaves, scan, protect_of())
+
+
+# the remote detector of the last tool result did not answer (set by hooks.post_tool, read by hint() of the same call)
+NER_DOWN = {"v": False}
+
+
+def note_result(layer) -> None:
+    NER_DOWN["v"] = layer is not None and layer.status.state == "unavailable"
+    if layer is not None:
+        from . import ner_setup
+        NER_DOWN["fallback"] = ner_setup.LAST["source"] == "fallback"
+
+
+def hint(payload: dict):
+    """Once per session, when the service of /maisecrets:ner did not answer: the person learns that names went
+    unmasked by it. Not in a subagent: it has no conversation with the person."""
+    from . import ner_setup
+    from .vault import HOME
+    if NER_DOWN.pop("fallback", False) and not payload.get("agent_id"):
+        # the first tool result of the session that the fallback checked: where text goes now (akruse-7a, G)
+        if ner_setup.claim_down_note(HOME, str(payload.get("session_id")) + ":fallback"):
+            return ner_setup.FALLBACK_NOTE
+    if not NER_DOWN["v"] or payload.get("agent_id"):
+        return None
+    NER_DOWN["v"] = False
+    return ner_setup.DOWN_NOTE if ner_setup.claim_down_note(HOME, payload.get("session_id")) else None
