@@ -7,8 +7,8 @@ CANDIDATE is a clean checkout of the commit to release (the head of `next`); OUT
 compares the candidate with the last release tag:
 
 - **detection changed** (maisecrets/detection/**): Benchmark V3 for maisecrets on the candidate (bench/run_all_v3.sh,
-  about 40 minutes), compared span by span with the last release's results in bench/results/ (--baseline, default
-  the newest `*-v3-<last version>`). Any span the candidate masks worse than the release stops the gate; the change
+  its runs side by side, one per CPU), compared span by span with the last release's results in bench/results/
+  (--baseline, default the newest `*-v3-<last version>`). Any span the candidate masks worse than the release stops the gate; the change
   of false positives per source goes into the report. With --holdout, Holdout V2 runs on the candidate too and its
   recall may not fall below the last row of bench/HOLDOUT-LOG.md.
 - **hooks changed** (the hooks, the mod, the settings and the rest of the runtime): the gate names the checks that only
@@ -38,6 +38,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -265,12 +266,28 @@ def _time_text(cand: Path, dest: Path) -> Path:
     return dest
 
 
+QUIET_LOAD = 1.0   # the load average below which the CPU time is measured; the counts of a run do not depend on it
+QUIET_WAIT = 1800  # seconds the gate waits for it; then it measures and the report names the load
+
+
+def wait_for_quiet(limit: float = QUIET_LOAD, wait: float = QUIET_WAIT, step: float = 20.0) -> float:
+    """Wait until the 1-minute load average is below `limit` twice in a row, at most `wait` seconds; the seconds
+    waited. Only the CPU time needs a quiet machine: the benchmark runs before it count hits, at any load."""
+    t0, ok = time.monotonic(), 0
+    while ok < 2 and time.monotonic() - t0 < wait:
+        ok = ok + 1 if os.getloadavg()[0] < limit else 0
+        if ok < 2:
+            time.sleep(step)
+    return time.monotonic() - t0
+
+
 def time_check(cand: Path, tag: str, out: Path, rounds: int = 3) -> tuple:
     """CPU time of the base (the last release tag) and the candidate on the same text, measured in turns so that a
     change of load meets both; the median of each. The candidate may take at most TIME_LIMIT times the base."""
     text = _time_text(cand, out / "time-text.txt")
     base = out / "base-checkout"
     _git("worktree", "add", "--detach", str(base), tag, cwd=cand)
+    wait_for_quiet()
     load_before = os.getloadavg()[0]
     runs = {"base": [], "candidate": []}
     try:

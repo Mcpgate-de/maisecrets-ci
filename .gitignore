@@ -19,3 +19,4 @@ hooks/incident-marker.*
 # written by `claude plugin test` and `--plugin-dir` (mod types): generated, never shipped
 /tsconfig.json
 .claude-plugin/types/
+.npm/

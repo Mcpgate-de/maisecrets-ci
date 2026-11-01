@@ -81,6 +81,10 @@ manifests:
 plugin_validate:
   stage: validate
   extends: .not_on_a_schedule
+  # the npm download of the pinned client, kept per version on the runner
+  cache:
+    key: npm-plugin_validate-$CLAUDE_CODE_VERSION
+    paths: [.npm/]
   # the official validator: manifest schema, component paths inside the plugin,
   # strict keys. --strict turns its warnings (missing version, mismatch between
   # the marketplace entry and plugin.json) into failures.
@@ -88,7 +92,7 @@ plugin_validate:
   variables:
     CLAUDE_CODE_VERSION: "2.1.283"
   script:
-    - npm install --global --no-fund --no-audit "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+    - npm install --global --no-fund --no-audit --prefer-offline --cache "$CI_PROJECT_DIR/.npm" "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
     - claude plugin validate --strict .
 
 commit_format:
@@ -158,7 +162,8 @@ unit:
     - apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends git procps >/dev/null
     # PyYAML parses the command and skill frontmatter as the directory check does (test_frontmatter)
     - pip install --quiet --disable-pip-version-check pyyaml==6.0.3
-    - python -m unittest discover -s tests -v 2>&1 | tee unit.log
+    # one test file per process, 4 at once (scripts/run_tests_parallel.py): the same tests and log, about 4x faster
+    - python scripts/run_tests_parallel.py -j 4 --log unit.log
     - python scripts/no_unexpected_skips.py unit.log
     # the wheel of the detection core, installed into a fresh venv (pip fetches the pinned hatchling)
     - python scripts/wheel_smoke.py
@@ -172,7 +177,8 @@ unit_python39:
     - apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends git procps >/dev/null
     # PyYAML parses the command and skill frontmatter as the directory check does (test_frontmatter)
     - pip install --quiet --disable-pip-version-check pyyaml==6.0.3
-    - python -m unittest discover -s tests -v 2>&1 | tee unit.log
+    # one test file per process, 4 at once (scripts/run_tests_parallel.py): the same tests and log, about 4x faster
+    - python scripts/run_tests_parallel.py -j 4 --log unit.log
     - python scripts/no_unexpected_skips.py unit.log "tomllib is Python 3.11+"
     - python scripts/wheel_smoke.py
 
@@ -194,13 +200,17 @@ beliefs_can_fail_replay:
 harness_claude:
   stage: test
   extends: .tested_before_the_tag
+  # the npm download of the pinned client, kept per version on the runner
+  cache:
+    key: npm-harness_claude-$CLAUDE_CODE_VERSION
+    paths: [.npm/]
   image: node:22
   variables:
     CLAUDE_CODE_VERSION: "2.1.316"   # 2.1.300 checks updatedInput like model input, 2.1.301 narrows a mod .catch
     ANTHROPIC_API_KEY: "sk-ant-dummy-for-the-fake-upstream-000000000000"
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
   script:
-    - npm install --global --no-fund --no-audit "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+    - npm install --global --no-fund --no-audit --prefer-offline --cache "$CI_PROJECT_DIR/.npm" "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
     - export HOME=$(mktemp -d)
     # the mod's own tests (tests/mod.test.ts), with $.process.run stubbed: the fallback order and every failure path
     - claude plugin test .
@@ -209,12 +219,16 @@ harness_claude:
 harness_codex:
   stage: test
   extends: .tested_before_the_tag
+  # the npm download of the pinned client, kept per version on the runner
+  cache:
+    key: npm-harness_codex-$CODEX_VERSION
+    paths: [.npm/]
   image: node:22
   variables:
     CODEX_VERSION: "0.155.1"
     MAISECRETS_CODEX_SANDBOX: "danger-full-access"   # no bubblewrap/landlock in the runner container
   script:
-    - npm install --global --no-fund --no-audit "@openai/codex@${CODEX_VERSION}"
+    - npm install --global --no-fund --no-audit --prefer-offline --cache "$CI_PROJECT_DIR/.npm" "@openai/codex@${CODEX_VERSION}"
     # node:22 (Debian) has python3 but no pip; Codex sends zstd request bodies
     - apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends python3-zstandard >/dev/null
     - export HOME=$(mktemp -d)
