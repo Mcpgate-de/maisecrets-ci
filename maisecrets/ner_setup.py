@@ -389,8 +389,8 @@ def today_counts(now: float | None = None) -> dict:
 def counts_line(now: float | None = None) -> str:
     c = today_counts(now)
     if not c:
-        return "today: no request yet"
+        return "today, your sessions on this computer (ner.log): no request yet"
     parts = [f"{k} {c[k]}" for k in ("local", "url", "fallback", "rules") if c.get(k)]
     prompts = sum(v for k, v in c.items() if k.startswith("prompt:"))
-    return (f"today: {', '.join(parts)} (rules = no service answered); prompts {prompts}, of them to a fallback "
-            f"{c.get('prompt:fallback', 0)}")
+    return (f"today, your sessions on this computer (ner.log): {', '.join(parts)} (rules = no service answered); "
+            f"prompts {prompts}, of them to a fallback {c.get('prompt:fallback', 0)}")
