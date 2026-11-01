@@ -458,6 +458,11 @@ _NOT_A_NAME_WORD = frozenset({
     "production", "prod", "dev", "test", "tests", "testing", "demo", "sample", "example", "template", "docs",
     "documentation", "readme", "guide", "manual", "handbook", "policy", "rule", "rules", "config", "settings",
     "dashboard", "report", "reports", "alert", "alerts", "job", "jobs", "task", "tasks", "pipeline", "workflow",
+    # German words of a greeting or a sign, in both spellings: Freundliche Grüße and Große Straße before a mail
+    # address or after Name: are no person (codex review of the ß change, 2026-11-01; the ss forms were names before)
+    "grüße", "grüsse", "gruesse", "gruß", "gruss", "freundliche", "freundlichen", "viele", "beste", "besten",
+    "straße", "strasse", "größe", "grösse", "groesse", "große", "grosse", "großer", "grosser", "großes", "grosses",
+    "fußball", "fussball", "gemäß", "gemaess",
 })
 
 
@@ -474,7 +479,8 @@ def _name_ok(v: str) -> bool:
 # ------------------------------------------------------------------------------- name before an e-mail address --
 # "Erika Beispiel <erika@example.org>", a git log line, a mail header. The address is the e-mail rule's; this is the
 # name before it. A service mailbox (noreply, a bot) names no person
-_NAME_MAIL_RE = re.compile(r"((?:[A-ZÀ-ÖØ-Þ][a-zßà-öø-ÿ'’-]{1,30})(?: (?:[A-ZÀ-ÖØ-Þ][a-zßà-öø-ÿ'’-]{1,30}|[A-Z]\.)){1,3})"
+_NAME_MAIL_RE = re.compile(r"((?:[A-ZÀ-ÖØ-Þ][a-zßà-öø-ÿ'’-]{1,30})"
+                           r"(?: (?:[A-ZÀ-ÖØ-Þ][a-zßà-öø-ÿ'’-]{1,30}|[A-Z]\.)){1,3})"
                            r"[ \t]{0,2}[<(\[]([\w.%+-]{1,64})@([\w-]{1,63}(?:\.[\w-]{1,63}){0,8})")
 # a name next to words that say it is a person (Nemotron-PII and Gretel, 2026-10-20): a declaration (I, <name>, hereby),
 # a self-introduction (my name is <name>), and a person's birth or residence right after the name (<name>, born on).

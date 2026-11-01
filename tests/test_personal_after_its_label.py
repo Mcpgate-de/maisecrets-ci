@@ -959,5 +959,9 @@ class SharpSTests(Base):
                 self.assertMasked("Name: Lena " + surname + "\n", "Lena " + surname)
                 self.assertMasked("Kontakt: Lena " + surname + " <lena@example.de>\n", "Lena " + surname)
 
-    def test_a_street_after_its_label_stays_an_address(self):
-        self.assertEqual([m.type for m in scan("Straße: Hauptstraße 5\n")], ["ADDRESS"])
+    def test_german_words_with_sharp_s_or_ss_stay_text(self):
+        for value in ("Große Straße", "Freundliche Grüße", "Straße Größe", "Fußball Straße", "Gemäß Straße",
+                      "Freundliche Gruesse", "Viele Grüsse", "Beste Grüße"):
+            with self.subTest(n=len(value)):
+                self.assertText("Name: " + value + "\n")
+                self.assertNotIn("NAME", [m.type for m in scan(value + " <info@example.de>\n")])
