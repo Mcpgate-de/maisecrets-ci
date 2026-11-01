@@ -44,6 +44,7 @@ class Service:
                  drip: float = 0.0, bearer: str = ""):
         self.fmt, self.delay, self.status, self.received, self.paths = fmt, delay, status, [], []
         self.bearer, self.headers = bearer, []     # a service that wants this bearer answers 401 without it
+        self.secret, self.challenges, self.proof_for = "", [], None   # GET /health?challenge= as mcpgate/ner (#1699)
         self.drip = drip            # seconds between the bytes of the body: a service that dribbles its answer
         self.answer = answer or self.names
         svc = self
@@ -75,6 +76,25 @@ class Service:
                             time.sleep(svc.drip)
                 except OSError:
                     pass
+
+            def do_GET(self):  # noqa: N802 - http.server API
+                import hashlib
+                import hmac
+                import urllib.parse
+                parts = urllib.parse.urlsplit(self.path)
+                nonce = urllib.parse.parse_qs(parts.query).get("challenge", [""])[0]
+                svc.challenges.append(nonce)
+                secret = svc.secret
+                if parts.path.rstrip("/") != "/health" or not secret:
+                    out = b'{"status": "ok"}'           # a service without the secret gives no proof
+                else:
+                    signed = svc.proof_for(nonce) if svc.proof_for else nonce
+                    proof = hmac.new(secret.encode(), ("health:" + signed).encode(), hashlib.sha256).hexdigest()
+                    out = json.dumps({"status": "ok", "proof": proof}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                self.wfile.write(out)
 
             def log_message(self, *args):
                 pass
@@ -154,6 +174,55 @@ class BearerTests(unittest.TestCase):
                 with self.assertRaises(ValueError) as cm:
                     rm.RemoteDetector("http://127.0.0.1:9/", bearer=bad)
                 self.assertEqual(str(cm.exception), "bearer: 64 lowercase hex characters")
+
+
+class ChallengeTests(unittest.TestCase):
+    """A service maisecrets started proves its secret before each text (#1699); a listener that cannot gets none."""
+
+    SHARED = "".join(("test", "-container-", "x" * 26))     # NER_CLIENT_SECRET of the fake container
+
+    def service(self, secret="", **kw) -> Service:
+        svc = Service(bearer=bearer_of(self.SHARED) if secret == self.SHARED else "", **kw)
+        svc.secret = secret
+        self.addCleanup(svc.close)
+        return svc
+
+    def test_the_container_proves_the_secret_and_gets_the_text_with_the_bearer(self):
+        svc = self.service(self.SHARED)
+        det = rm.RemoteDetector(svc.url, secret=self.SHARED)
+        for _ in range(2):
+            spans, status = det.ask(TEXT, [])
+            self.assertEqual((status.state, len(spans)), ("ok", 1))
+        self.assertEqual(len(svc.received), 2)
+        self.assertEqual(len(set(svc.challenges)), 2, "a fresh nonce for each text")
+        self.assertTrue(all(len(c) >= 22 for c in svc.challenges), "at least 128 bits")
+        self.assertEqual(svc.headers[-1]["authorization"], "Bearer " + bearer_of(self.SHARED))
+        seen = json.dumps([svc.received, svc.headers, svc.challenges])
+        self.assertNotIn(self.SHARED, seen, "the secret itself never travels")
+        for shown in (repr(det), repr(status)):
+            self.assertNotIn(self.SHARED, shown)
+
+    def test_a_listener_without_the_secret_or_with_another_gets_no_text(self):
+        for name, svc in (("no secret", self.service("")),
+                          ("another secret", self.service("another-container-secret-" + "y" * 16))):
+            with self.subTest(listener=name):
+                spans, status = rm.RemoteDetector(svc.url, secret=self.SHARED).ask(TEXT, [])
+                self.assertEqual((spans, status.state, status.reason), ([], "unavailable", "not_ours"))
+                self.assertEqual(svc.received, [], "no text before the proof")
+
+    def test_a_proof_of_an_old_nonce_is_refused(self):
+        svc = self.service(self.SHARED)
+        svc.proof_for = lambda nonce: "a-nonce-from-an-earlier-probe-0123"
+        spans, status = rm.RemoteDetector(svc.url, secret=self.SHARED).ask(TEXT, [])
+        self.assertEqual((status.state, status.reason, svc.received), ("unavailable", "not_ours", []))
+
+    def test_only_a_url_safe_secret_and_not_both_secret_and_bearer(self):
+        for kw in ({"secret": "short"}, {"secret": "has space " * 5}, {"secret": None},
+                   {"secret": self.SHARED, "bearer": bearer_of(self.SHARED)}):
+            with self.subTest(kw=sorted(kw)):
+                with self.assertRaises(ValueError) as cm:
+                    rm.RemoteDetector("http://127.0.0.1:9/", **kw)
+                self.assertNotIn(self.SHARED, str(cm.exception))
 
 
 class RemoteDetectorTests(unittest.TestCase):
