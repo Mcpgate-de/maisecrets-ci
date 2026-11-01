@@ -81,10 +81,6 @@ manifests:
 plugin_validate:
   stage: validate
   extends: .not_on_a_schedule
-  # the npm download of the pinned client, kept per version on the runner
-  cache:
-    key: npm-plugin_validate-$CLAUDE_CODE_VERSION
-    paths: [.npm/]
   # the official validator: manifest schema, component paths inside the plugin,
   # strict keys. --strict turns its warnings (missing version, mismatch between
   # the marketplace entry and plugin.json) into failures.
@@ -92,7 +88,7 @@ plugin_validate:
   variables:
     CLAUDE_CODE_VERSION: "2.1.283"
   script:
-    - npm install --global --no-fund --no-audit --prefer-offline --cache "$CI_PROJECT_DIR/.npm" "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+    - npm install --global --no-fund --no-audit "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
     - claude plugin validate --strict .
 
 commit_format:
@@ -155,7 +151,8 @@ lint:
 unit:
   stage: test
   extends: .tested_before_the_tag
-  # starts at once, beside the validate stage: the tests do not need its jobs (release and mirror need all)
+  # starts at once, beside the validate stage: the tests do not need its jobs (release needs every job, mirror its
+  # own list, as before)
   needs: []
   # python:3.12-slim has no git: the skill's history tests were skipped here and a skip reads as
   # green (2026-09-27, 14 skipped); the job installs git and refuses a skip it does not expect.
@@ -187,7 +184,8 @@ unit_python39:
 beliefs_can_fail_replay:
   stage: test
   extends: .tested_before_the_tag
-  # starts at once, beside the validate stage: the tests do not need its jobs (release and mirror need all)
+  # starts at once, beside the validate stage: the tests do not need its jobs (release needs every job, mirror its
+  # own list, as before)
   needs: []
   # every belief in beliefs/*.toml: the owning tests go green, the guarded code is mutated as
   # declared, the tests must go red, the file is restored. A test that stays green under the
@@ -204,19 +202,16 @@ beliefs_can_fail_replay:
 harness_claude:
   stage: test
   extends: .tested_before_the_tag
-  # starts at once, beside the validate stage: the tests do not need its jobs (release and mirror need all)
+  # starts at once, beside the validate stage: the tests do not need its jobs (release needs every job, mirror its
+  # own list, as before)
   needs: []
-  # the npm download of the pinned client, kept per version on the runner
-  cache:
-    key: npm-harness_claude-$CLAUDE_CODE_VERSION
-    paths: [.npm/]
   image: node:22
   variables:
     CLAUDE_CODE_VERSION: "2.1.316"   # 2.1.300 checks updatedInput like model input, 2.1.301 narrows a mod .catch
     ANTHROPIC_API_KEY: "sk-ant-dummy-for-the-fake-upstream-000000000000"
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
   script:
-    - npm install --global --no-fund --no-audit --prefer-offline --cache "$CI_PROJECT_DIR/.npm" "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+    - npm install --global --no-fund --no-audit "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
     - export HOME=$(mktemp -d)
     # the mod's own tests (tests/mod.test.ts), with $.process.run stubbed: the fallback order and every failure path
     - claude plugin test .
@@ -225,18 +220,15 @@ harness_claude:
 harness_codex:
   stage: test
   extends: .tested_before_the_tag
-  # starts at once, beside the validate stage: the tests do not need its jobs (release and mirror need all)
+  # starts at once, beside the validate stage: the tests do not need its jobs (release needs every job, mirror its
+  # own list, as before)
   needs: []
-  # the npm download of the pinned client, kept per version on the runner
-  cache:
-    key: npm-harness_codex-$CODEX_VERSION
-    paths: [.npm/]
   image: node:22
   variables:
     CODEX_VERSION: "0.155.1"
     MAISECRETS_CODEX_SANDBOX: "danger-full-access"   # no bubblewrap/landlock in the runner container
   script:
-    - npm install --global --no-fund --no-audit --prefer-offline --cache "$CI_PROJECT_DIR/.npm" "@openai/codex@${CODEX_VERSION}"
+    - npm install --global --no-fund --no-audit "@openai/codex@${CODEX_VERSION}"
     # node:22 (Debian) has python3 but no pip; Codex sends zstd request bodies
     - apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends python3-zstandard >/dev/null
     - export HOME=$(mktemp -d)

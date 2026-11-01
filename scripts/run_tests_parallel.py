@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Run the unit suite one test file per process, side by side, and print one log as `unittest -v` would.
+"""Run the unit suite one test file per process, side by side, and print one log of all their -v output.
 
     python scripts/run_tests_parallel.py [-j N] [--log unit.log]
 
 Each tests/test_*.py runs as `python -m unittest discover -s tests -p <file> -v` in its own process (the command of a
 serial run, cut to one file: the same import path and the same test names), N at once (default: one per CPU), the
-slowest files first. It runs in the current folder, as `unittest discover` does. The log is the -v output of every
-file, in file order, then one summary line, so scripts/no_unexpected_skips.py reads it as before. The exit is 1 when
+slowest files first. It runs in the current folder, as `unittest discover` does. The log holds every file's -v
+output (its test lines, failures and its own Ran/OK lines) in file order, then one summary for all, so
+scripts/no_unexpected_skips.py and the annotations of scripts/github_matrix.py read it as before. The exit is 1 when
 a file failed or a file found no test.
 
 A file's tests still share one process, as in a serial run; two files never do. A test that needs another file's

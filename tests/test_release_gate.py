@@ -29,10 +29,12 @@ class ReleaseGateTests(unittest.TestCase):
                 mock.patch.object(gate.time, "sleep") as sleep:
             gate.wait_for_quiet(limit=1.0, wait=3600, step=1)
         self.assertEqual(sleep.call_count, 4, "busy, quiet, busy again, then two quiet readings")
-        clock = iter(range(0, 10_000, 30))
+        now = [0.0]                                      # a clock that the mocked sleep moves on
         with mock.patch.object(gate.os, "getloadavg", lambda: (5.0, 0, 0), create=True), \
-                mock.patch.object(gate.time, "sleep"), mock.patch.object(gate.time, "monotonic", lambda: next(clock)):
-            self.assertGreaterEqual(gate.wait_for_quiet(limit=1.0, wait=120, step=1), 120)
+                mock.patch.object(gate.time, "sleep", lambda s: now.__setitem__(0, now[0] + s)), \
+                mock.patch.object(gate.time, "monotonic", lambda: now[0]):
+            waited = gate.wait_for_quiet(limit=1.0, wait=120, step=20)
+        self.assertTrue(120 <= waited <= 140, waited)    # the limit, and at most one step past it
 
     def test_the_diff_decides_whether_to_measure(self):
         kind = gate.classify(["maisecrets/detection/personal.py", "docs/BENCHMARKS.md"])
