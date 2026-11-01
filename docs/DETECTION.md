@@ -255,7 +255,7 @@ from maisecrets.detection import remote
 ner = remote.RemoteDetector("http://127.0.0.1:8765/", format="hf", model="d3-onnx-fp32@d421f57d", timeout=0.3)
 result = detector.findings_with(text, channel="tool", remote=ner)
 result.findings          # the findings of the rules as they are, and the spans of the service (Match.score set)
-result.remote.state      # "ok", "unavailable" (result.remote.reason: timeout, refused, http, answer), "too_long"
+result.remote.state      # "ok", "unavailable" (result.remote.reason: timeout, refused, network, policy, http, answer), "too_long"
 response = contract.result_response(detector, result)    # the same as JSON (maisecrets.detect/1)
 ```
 

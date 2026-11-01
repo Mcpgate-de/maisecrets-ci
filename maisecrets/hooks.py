@@ -888,6 +888,9 @@ def rewrite_prompt(payload: dict) -> dict:
         except OSError:
             return {}           # the hook answers it, and blocks when it cannot record the name either
     matches = _prompt_hits(prompt)
+    names = _prompt_names(cfg, prompt, matches, session)
+    if names:
+        matches = sorted(matches + names, key=lambda m: (m.start, m.end))
     if not matches and not _has_live(cfg):
         return {}
     # the hook checks the text the mod passes on: a placeholder in place of a value can turn `@src/<value>` into
@@ -915,6 +918,27 @@ def rewrite_prompt(payload: dict) -> dict:
     if tip:
         answer["tip"] = tip         # the mod shows it next to its line, once (check_value.py)
     return answer
+
+
+def _prompt_names(cfg: dict, prompt: str, matches: list, session: str | None) -> list:
+    """The names the service of /maisecrets:ner finds in a prompt the mod rewrites (remote_layer.prompt_names)."""
+    try:
+        from . import remote_layer
+        return remote_layer.prompt_names(cfg, prompt, matches, lambda: _protect(cfg, session))
+    except Exception as exc:  # noqa: BLE001 - the rules' rewrite runs as without the service
+        _debug(f"prompt names: {type(exc).__name__}")
+        return []
+
+
+def _protect(cfg: dict, session: str | None):
+    """The spans of the stored values a text holds (tool_output.known_value_spans), for the remote detector: they go
+    out as filler like the rules' findings; None without a live value."""
+    if not _has_live(cfg):
+        return None
+    from .tool_output import known_value_spans
+    vault = Vault(cfg)
+    resolved = _resolved_values(vault, session)
+    return lambda t: known_value_spans(t, vault, resolved)
 
 
 def _name_ttl(cfg: dict) -> int:
@@ -2582,18 +2606,10 @@ def _remote_layer(cfg: dict, response, binary, strip: bool, scan_tool, session: 
                 collect(v, at + (k,))
     try:
         from . import remote_layer
-        from .tool_output import known_value_spans
         collect(response)
-        protect = None
-        if _has_live(cfg):
-            # the stored values that _exact_redact masks later go out as filler too: a password stored with `put`
-            # has no shape, and the rules alone would let the service read it (codex review)
-            vault = Vault(cfg)
-            resolved = _resolved_values(vault, session)
-
-            def protect(t: str) -> list:
-                return known_value_spans(t, vault, resolved)
-        return remote_layer.prepare(cfg, leaves, scan_tool, protect)
+        # the stored values that _exact_redact masks later go out as filler too: a password stored with `put` has no
+        # shape, and the rules alone would let the service read it (codex review)
+        return remote_layer.prepare(cfg, leaves, scan_tool, _protect(cfg, session))
     except Exception as exc:  # noqa: BLE001 - the rules' redaction runs as without the layer
         _debug(f"remote layer: {type(exc).__name__}")
         return None
@@ -2640,6 +2656,9 @@ def post_tool(payload: dict) -> dict:
     binary = _binary_paths(payload)
     layer = _remote_layer(cfg, response, binary, strip, scan_tool, payload.get("session_id"))
     _NER_DOWN["v"] = layer is not None and layer.status.state == "unavailable"
+    if layer is not None:
+        from . import ner_setup
+        _NER_DOWN["fallback"] = ner_setup.LAST["source"] == "fallback"
 
     def redact(s: str) -> str:
         nonlocal vault, resolved
@@ -2894,11 +2913,15 @@ _NER_DOWN = {"v": False}
 def _ner_hint(payload: dict) -> str | None:
     """Once per session, when the service of /maisecrets:ner did not answer: the person learns that names went
     unmasked by it. Not in a subagent: it has no conversation with the person."""
+    from . import ner_setup
+    from .vault import HOME
+    if _NER_DOWN.pop("fallback", False) and not payload.get("agent_id"):
+        # the first tool result of the session that the fallback checked: where text goes now (akruse-7a, G)
+        if ner_setup.claim_down_note(HOME, str(payload.get("session_id")) + ":fallback"):
+            return ner_setup.FALLBACK_NOTE
     if not _NER_DOWN["v"] or payload.get("agent_id"):
         return None
     _NER_DOWN["v"] = False
-    from . import ner_setup
-    from .vault import HOME
     return ner_setup.DOWN_NOTE if ner_setup.claim_down_note(HOME, payload.get("session_id")) else None
 
 

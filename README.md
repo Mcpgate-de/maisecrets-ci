@@ -2282,7 +2282,7 @@ revoke bound that. A value written into a file is plain text there.
 ## Names from a service (optional)
 
 The rules find few names: a name has no shape (docs/NER-EXPERIMENT.md). A
-named-entity service can add them in tool results. It is off until you choose
+named-entity service can add them, in tool results and, in Claude Code, in your prompts. It is off until you choose
 a source, with one command typed as your own prompt:
 
 | Command | Source |
@@ -2290,24 +2290,44 @@ a source, with one command typed as your own prompt:
 | `/maisecrets:ner local` | the service on this computer, `http://127.0.0.1:8765/` (`on` is the same) |
 | `/maisecrets:ner url URL` | a service of your team on a private network |
 | `/maisecrets:ner off` | the rules alone (the default) |
+| `/maisecrets:ner fallback url URL` | a second service for tool results while the local one is not running (`fallback off` removes it) |
+| `/maisecrets:ner prompts off` | the prompts you type keep the rules alone; tool results still go to the service (`prompts on` turns it back on) |
 | `/maisecrets:ner` | which source is set, and whether it answers |
 
 In Codex, send `maisecrets: ner local` (or `url URL`, `off`) alone as your
-prompt. One source at a time: a new one replaces the old one, and there is no
-fallback to another source. Only a prompt you type changes it, with the limits
-of every setting (threat model, C22).
+prompt. One source at a time: a new one replaces the old one. A fallback only
+when you add one. Only a prompt you type changes it, with the limits of every
+setting (threat model, C22). `local` means whatever listens on 127.0.0.1:8765;
+maisecrets does not verify that it is `mcpgate/ner`.
 
 - **local**: the service is the container `mcpgate/ner` (the model D3 of the
   NER experiment as ONNX; AFL-3.0 and Apache-2.0, its notices are in the
   image). If it does not answer, `/maisecrets:ner` gives the command that
-  starts it with docker or podman, and the AI runs it:
+  starts it with docker or podman; the AI asks you first (about 690 MB to download, about 250 MB of memory
+  while it runs) and then runs it:
   `docker run -d --name ner --restart unless-stopped -p 127.0.0.1:8765:8765 mcpgate/ner`.
   Without docker or podman, install one of them (Docker Desktop, OrbStack,
-  Podman), use a service of your team, or keep the rules alone.
+  Podman), use a service of your team, or keep the rules alone. After a
+  restart, maisecrets starts the container again at the next session start
+  (`docker start ner`, only for a container whose image is `mcpgate/ner`);
+  until it answers, the rules work alone.
 - **url**: the text of each tool result goes to that service, with each value
   the rules found as filler. The service has no sign-in: run it only on a
-  network that only its users reach. An administrator can set the source for
-  everyone in the machine policy.
+  network that only its users reach. It must use https or a private address
+  (RFC 1918, ULA, link-local, 100.64.0.0/10): plain http to a public address is
+  refused. An administrator can set the source for everyone in the machine
+  policy.
+- **fallback**: used only while nothing listens for the local service (it is
+  not running), for tool results only. A slow or broken local service, and a
+  team service as the first source, never hand text to the fallback, and a
+  prompt never goes there. The AI says once per session when it is used.
+  On Windows a stopped local service answers a connection only after about
+  2 s (Windows retries it), so with the default `timeout_ms` of 300 it counts
+  as slow and the fallback does not take over; a `timeout_ms` of 3000 lets the
+  refusal arrive in time.
+- **Which service read what**: `/maisecrets:ner` and `/maisecrets:status`
+  count today's requests per service, from `ner.log` (time, service, tool
+  result or prompt, characters, names; never text).
 - **When the service does not answer**, the rules mask the tool result alone,
   as without it, and the AI tells you once per session. `/maisecrets:status`
   shows the source and whether it answers.
@@ -2339,8 +2359,14 @@ and keeps its other keys. Written by hand, the setting looks like this:
 - `url` must be a loopback address or a Unix socket (`unix:/path/to.sock`).
   Another host needs `"allow_network": true` in the setting, and then your tool
   results go there (PRIVACY.md).
-- Tool results only, one request per tool call, within `timeout_ms` (at most
-  5000; the name lookup and a slow answer count too). Each value
+- Tool results, and the prompts you type in Claude Code (with the mod) when the service is on this computer: a
+  name in a prompt becomes a placeholder and never blocks it. `/maisecrets:ner prompts off` turns the prompt part off (the setting `"prompts": false`). A
+  service on the network never gets a prompt, and Codex prompts keep the rules alone (Codex cannot rewrite a
+  prompt). One request per tool call or prompt, within `timeout_ms` (at most
+  5000; the name lookup and a slow answer count too). On an M-series laptop the service
+  answers a prompt of 1,000 characters in 170 ms (p95) and one of 2,000 characters in 400 ms, so with the
+  default of 300 ms a long prompt often keeps the rules alone; a higher `timeout_ms` waits longer for each tool
+  result too. Each value
   the rules found goes out as `_` filler of the same length. The filler costs
   the model a few names (21 of 2,482 on the benchmark samples), so a service on
   loopback or a Unix socket may read those values as they are with
