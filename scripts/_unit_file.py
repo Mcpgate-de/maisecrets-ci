@@ -8,12 +8,15 @@ it instead of the text, where a test that runs unittest in a child prints a seco
 from __future__ import annotations
 
 import json
+import os
 import sys
 import unittest
 
 
 def main(argv: list) -> int:
     pattern, out = argv[0], argv[1]
+    # the import path of `python -m unittest`: the current folder first, not this script's folder
+    sys.path[0] = os.getcwd()
     suite = unittest.defaultTestLoader.discover("tests", pattern=pattern)
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     with open(out, "w", encoding="utf-8") as fh:
