@@ -2321,6 +2321,10 @@ maisecrets does not verify that it is `mcpgate/ner`.
   not running), for tool results only. A slow or broken local service, and a
   team service as the first source, never hand text to the fallback, and a
   prompt never goes there. The AI says once per session when it is used.
+  On Windows a stopped local service answers a connection only after about
+  2 s (Windows retries it), so with the default `timeout_ms` of 300 it counts
+  as slow and the fallback does not take over; a `timeout_ms` of 3000 lets the
+  refusal arrive in time.
 - **Which service read what**: `/maisecrets:ner` and `/maisecrets:status`
   count today's requests per service, from `ner.log` (time, service, tool
   result or prompt, characters, names; never text).

@@ -270,6 +270,12 @@ class RemoteDetectorTests(unittest.TestCase):
         self.assertEqual(r.findings, self.base)
         self.assertEqual((r.remote.state, r.remote.reason), ("unavailable", "refused"))
 
+    def test_a_service_that_took_the_connection_and_is_slow_says_timeout(self):
+        s = Service("hf", delay=1.0)
+        self.addCleanup(s.close)
+        r = self.det.findings_with(TEXT, channel="tool", remote=rm.RemoteDetector(s.url, timeout=0.3))
+        self.assertEqual((r.remote.state, r.remote.reason), ("unavailable", "timeout"))
+
     def test_nonsense_leaves_the_rules_result_and_says_answer(self):
         for name, answer in (("no json", lambda t: b"<html>"), ("no list", lambda t: {"x": 1}),
                              ("out of range", lambda t: [{"entity_group": "PER", "start": -5, "end": 10 ** 7,

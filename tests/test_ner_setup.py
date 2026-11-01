@@ -347,6 +347,7 @@ class RestartTests(unittest.TestCase):
                 self.assertFalse(asked)
                 popen.assert_not_called()
 
+    @unittest.skipIf(os.name == "nt", "the fake docker is a shell script; the same code runs on macOS and Linux")
     def test_the_start_command_checks_the_image_and_names_no_setting_value(self):
         # run the helper with a fake tool that records its calls: an image that is not mcpgate/ner is never started
         import tempfile
@@ -565,6 +566,9 @@ class FallbackTests(unittest.TestCase):
             spans, status = det.ask("x " + NameService.NAME, [])
         self.assertEqual((status.state, status.reason), ("unavailable", "policy"))
 
+    # Windows answers a closed loopback port with SYN retries (about 2 s): within 300 ms it is a timeout, and a
+    # timeout never hands text to the fallback (README, "fallback"; codex review of 0.8.7, round 5)
+    @unittest.skipIf(os.name == "nt", "a stopped service on Windows is a timeout within 300 ms, not a refusal")
     def test_a_local_service_that_is_not_running_hands_the_tool_result_to_the_fallback(self):
         _reset(remote_detector={"url": f"http://127.0.0.1:{_closed_port()}/", "format": "hf",
                                 "fallback": {"url": self.fb.url, "format": "hf"}})
