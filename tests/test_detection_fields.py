@@ -135,9 +135,21 @@ class PersonRoleTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(leaf(self.NAME, *path), [])
 
-    def test_a_bot_or_a_project_under_a_persons_role_stays_text(self):
+    def test_only_the_declared_plurals_are_roles(self):
+        for path in (("authors", "name"), ("reporters", "name"), ("author_info", "name")):
+            with self.subTest(path=path):
+                self.assertEqual(leaf(self.NAME, *path), [])
+
+    def test_a_last_part_that_cannot_be_a_label_stays_nothing_under_a_role(self):
+        for last in ("." * 70 + "name", ".\n.name", "na:me"):
+            with self.subTest(n=len(last)):
+                self.assertEqual(leaf(self.NAME, "author", last), [])
+
+    def test_a_bot_a_team_or_a_deleted_user_under_a_persons_role_stays_text(self):
         for value in ("GitLab Bot", "Renovate Bot", "Dependabot", "Ghost User", "Automation for Jira", "CI Runner",
-                      "Billing Service", "Data Pipeline"):
+                      "Billing Service", "Data Pipeline", "Deleted User", "Removed Account", "Former Member",
+                      "Human Resources", "Platform Team", "Service Account", "External Contributor", "Unknown",
+                      "Shared Mailbox", "Scheduled Maintenance"):
             with self.subTest(n=len(value)):
                 self.assertEqual(leaf(value, "author", "name"), [])
 

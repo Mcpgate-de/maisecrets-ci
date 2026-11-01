@@ -13,6 +13,10 @@ has none there either. So a field name
 - parses nothing: the core reads JSON, CSV and the other formats of the text itself, as without fields. A field that
   names what the core read itself adds no second hit, since the hit of the text is there already.
 
+One label is not the path's own: a person's name under a person's role (author.name, assignee.displayName) is read
+after full_name, when the value reads as a name and not as words (`_person_value`). After the weak label `name` a
+surname that is also an English word made the whole name words; under author.name it is a person's.
+
 A name the label rules give no evidence for (id, value, data, an unknown word) adds nothing, as it would in text. Three
 kinds of name add nothing either, though the label rules read a key word in them, because in API data they name
 identifiers far more often than credentials (measured: under them a ticket key, a file path, a cache key and a
@@ -66,10 +70,16 @@ _NO_LABEL_ALONE = frozenset({"key"})
 # full_name. In API data `name` alone is a project, a label or a team as often as a person (author.name in GitLab,
 # reporter.displayName in Jira, organizer.displayName in Google Calendar, gateway corpus 2026-11-01: after `name:` a
 # surname that is also an English word made the name words, and a quarter of these names stayed in the clear)
-_PERSON_PARENTS = frozenset({"author", "reviewer", "assignee", "reporter", "creator", "organizer", "attendee",
-                             "committer", "approver", "requester", "merge_user", "merged_by", "closed_by",
-                             "approved_by", "requested_by"})
+_PERSON_PARENTS = frozenset({"author", "reviewer", "reviewers", "assignee", "assignees", "reporter", "creator",
+                             "organizer", "attendee", "attendees", "committer", "approver", "requester", "merge_user",
+                             "merged_by", "closed_by", "approved_by", "requested_by"})
 _PERSON_NAME_FIELDS = (["name"], ["display", "name"], ["full", "name"])
+# a word of an account, a group or an account's state: under author.name the value names no person (Removed Account,
+# Former Member, Guest User, Platform Team)
+_NOT_A_PERSON_WORDS = frozenset({"user", "users", "account", "accounts", "member", "members", "team", "teams", "group",
+                                 "groups", "department", "admin", "administrator", "system", "service", "bot", "guest",
+                                 "deleted", "removed", "former", "inactive", "deactivated", "disabled", "archived",
+                                 "unknown", "anonymous", "external", "unassigned", "nobody", "everyone", "automation"})
 _LABEL_MAX = 64
 # characters that would end the label line or make the name a label and a value of its own
 _NOT_IN_LABEL = _LazyRx(r"[\x00-\x1f\x7f\x85\u2028\u2029:=\"']")
@@ -103,18 +113,30 @@ def checked(text: str, fields) -> tuple:
             if not isinstance(part, (str, int)) or isinstance(part, bool):
                 raise TypeError(f"fields[{i}] name parts must be str or int, not {type(part).__name__}")
         label = _label(name)
+        if label and _person_path(name) and _person_value(text[start:end]):
+            label = "full_name"
         if label:
             out.append((start, end, label))
     return tuple(out)
 
 
 def _person_parent(part: str) -> bool:
-    words = label_words(part)
-    if not words or len(part) > _LABEL_MAX:
+    return len(part) <= _LABEL_MAX and "_".join(label_words(part)) in _PERSON_PARENTS
+
+
+def _person_value(value: str) -> bool:
+    """The value reads as a person's name and not as words: two to four words, and the first is no English word (a
+    given name that is also one, Grace or Mark, counts as a name). Under author.name a deleted or system user, a team
+    or a department (Deleted User, Human Resources) stays under the plain label (codex review, 2026-11-01)."""
+    from .core import _word_set
+    from .personal import _GIVEN_NAME_WORDS, _NOT_A_NAME_START, _NOT_A_NAME_WORD, _inflected_word
+    words = value.split()
+    if not 2 <= len(words) <= 4:
         return False
-    whole = "_".join(words)
-    last = words[-1][:-1] if words[-1].endswith("s") and len(words[-1]) > 4 else words[-1]
-    return whole in _PERSON_PARENTS or "_".join(words[:-1] + [last]) in _PERSON_PARENTS
+    low = [w.lower().strip(".") for w in words]
+    if low[0] in _NOT_A_NAME_START or any(w in _NOT_A_NAME_WORD or w in _NOT_A_PERSON_WORDS for w in low):
+        return False
+    return low[0] in _GIVEN_NAME_WORDS or not (low[0] in _word_set() or _inflected_word(low[0]))
 
 
 def label_words(label: str) -> list:
@@ -164,12 +186,14 @@ def names_no_secret(words) -> bool:
     return is_cursor(words) or is_handle_key(words) or is_an_id(words) or is_time_or_state(words)
 
 
-def _label(name) -> str:
-    """The label of a field path: its last part that is no list index, or "" when it can give no evidence. The name of
-    a person under a person's role (author.name, assignee.displayName) is labelled full_name."""
+def _person_path(name) -> bool:
+    """The path ends in name, displayName or fullName under a person's role: author.name, assignee.displayName."""
     parts = [p.strip() for p in name if not isinstance(p, int) and p.strip() and not p.strip().isdigit()]
-    if len(parts) >= 2 and label_words(parts[-1]) in _PERSON_NAME_FIELDS and _person_parent(parts[-2]):
-        return "full_name"
+    return len(parts) >= 2 and label_words(parts[-1]) in _PERSON_NAME_FIELDS and _person_parent(parts[-2])
+
+
+def _label(name) -> str:
+    """The label of a field path: its last part that is no list index, or "" when it can give no evidence."""
     for part in reversed(name):
         if isinstance(part, int) or not part.strip() or part.strip().isdigit():
             continue

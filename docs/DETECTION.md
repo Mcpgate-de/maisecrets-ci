@@ -79,19 +79,23 @@ d.findings("0171 4829173", channel="tool")                                      
   of the text, `0 <= start < end <= len(text)`; `name` is the field path, outermost first, a tuple (or list) of `str`
   and `int` parts. A wrong shape raises `TypeError`, an offset outside the text `ValueError`; the message names the
   position (`fields[1]`) and never a part of the text or of a name. Fields may overlap.
-- **What a name does:** it is evidence as the same label before the value in text is, and only that. The last part of
+- **What a name does:** it is evidence as the same label before the value in text is, and only that (one exception
+  follows below). The last part of
   the path that is no list index is put before a copy of the value (`telefon: <value>`) and that line is scanned with
   the rules of the call. A hit inside the value is added when the bare value has none there and the scan of the whole
   text has none there either (`maisecrets/detection/fields.py`).
 - **What it never does:** take a hit away (the hits of the text stay as they are), add a hit outside its span, bring
   back a hit that the text around the value took away, or parse anything: the core reads JSON and the other formats of
   the text itself, as without fields. A field that names what the core read itself adds no second hit.
-- **A person's name under a person's role** (since 0.8.10): when the last part is `name`, `displayName` or
-  `fullName` and the part before it names a role that only a person has (`author`, `reviewer(s)`, `assignee(s)`,
-  `reporter`, `creator`, `organizer`, `attendee(s)`, `committer`, `approver`, `requester`, `merge_user`, `merged_by`,
-  `closed_by`, `approved_by`, `requested_by`), the label is `full_name`. After the weak label `name` a full name whose
-  surname is also an English word reads as words; under `author.name` it is a person. A bot or a project there
-  (`GitLab Bot`, `Billing Service`) stays text.
+- **The one label that is not the path's own** (since 0.8.10): when the last part is `name`, `displayName` or
+  `fullName`, the part before it names a role that only a person has (`author`, `reviewer`, `reviewers`, `assignee`,
+  `assignees`, `reporter`, `creator`, `organizer`, `attendee`, `attendees`, `committer`, `approver`, `requester`,
+  `merge_user`, `merged_by`, `closed_by`, `approved_by`, `requested_by`), and the value reads as a person's name (two
+  to four words, the first no English word unless it is a given name such as Grace, no word of an account, a group or
+  a state such as `User`, `Team`, `Deleted`), the value is read after `full_name`. So such a field can add a hit that
+  `name: <value>` in text would not give: after the weak label `name` a full name whose surname is also an English
+  word reads as words, and under `author.name` it is a person's. A bot, a team, a deleted user or a project there
+  (`GitLab Bot`, `Platform Team`, `Deleted User`, `Billing Service`) stays under `name`.
 - **Names that add nothing:** a name the label rules give no evidence for (`id`, `value`, `data`, `title`, an unknown
   word), `key` alone (in API data it names a ticket key, an object key or a translation key as often as a credential;
   `api_key`, `secret_key` are labels as in text, and so is `token` alone), the cursor of a paged list
