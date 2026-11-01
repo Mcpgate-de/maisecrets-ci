@@ -226,16 +226,21 @@ class KeywordLabelTailTests(unittest.TestCase):
         plain = "\n".join(rec[i % len(rec)] for i in range(4000))
         mixed = plain + "\n" + "x" * 200
 
-        def run(t):
-            best = 9e9
-            for _ in range(2):
-                started = time.perf_counter()
-                for r in self.rules(("en", "fr")):
-                    list(r.regex.finditer(t))
-                best = min(best, time.perf_counter() - started)
-            return best
+        rules = self.rules(("en", "fr"))
 
-        self.assertLess(run(mixed), 2.0 * run(plain) + 0.05)
+        def once(t):
+            started = time.perf_counter()
+            for r in rules:
+                list(r.regex.finditer(t))
+            return time.perf_counter() - started
+
+        # the two texts in turns, the fastest of five each: CI runs four test files at once, and a load wave that hit
+        # only the mixed text made it 2.3 times the plain one (the ratio is 1.16 on a quiet machine, the bug was 6.7)
+        best = {"plain": 9e9, "mixed": 9e9}
+        for _ in range(5):
+            for name, t in (("plain", plain), ("mixed", mixed)):
+                best[name] = min(best[name], once(t))
+        self.assertLess(best["mixed"], 2.0 * best["plain"] + 0.05)
 
     def test_six_keyword_rules_take_the_linear_path(self):
         # a rule with label words runs through detect._LabelSubset, whose regex of the whole is the _KeywordTail
