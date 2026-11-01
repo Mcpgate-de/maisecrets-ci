@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## [0.8.7] - 2026-11-01
+
+### Features
+
+- /maisecrets:ner prompts off keeps your typed prompts away from the name service (2210a86)
+- an explicit fallback service for tool results while the local one is not running (e7d97d0)
+- after a restart, the session start brings the local name service back (0655b1d)
+- with names from the local service on, names in your prompts become placeholders in Claude Code (f244cc3)
+
+### Fixes
+
+- review round 2: the probe follows the detector's address rules, the schema names every reason (b1a8bae)
+- review findings: no prompt over the network, no fallback on a network error (446f86f)
+
 ## [0.8.6] - 2026-10-31
 
 ### Features
