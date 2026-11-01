@@ -5,6 +5,7 @@ de, languages en and de, channel tool, no sources, no host user), no NER. It rea
 
 - precision and recall per class and per field label (the parent key for person-like keys, as the gateway's metric
   names them: author.username), with each false positive named by the look-alike it falls on;
+- with --mode fields, the same with the field path given as fields= instead of the prefix;
 - the time of each call, by leaf length, and the sum per response, which is what the gateway's shadow measures.
 
 The gateway rules (detector_shadow._leaves and _label_prefix, ai-gateway 7b5470bd8): a dict key adds ".key" to the
@@ -73,7 +74,7 @@ def detector(root: Path):
                     sources=NO_SOURCES, references=NO_REFERENCES, host=Host(user="", year=None))
 
 
-def run(det, items, repeat: int) -> dict:
+def run(det, items, repeat: int, mode: str = "prefix") -> dict:
     spans, fps = [], []
     leaf_ms, resp_ms = collections.defaultdict(list), collections.defaultdict(list)
     det.findings("warm: a first call loads the rules", channel="tool")
@@ -83,11 +84,12 @@ def run(det, items, repeat: int) -> dict:
             text, sp, looks = o.leaf(raw)
             if len(text) > MAX_LEAF:
                 continue
-            pre = prefix(path)
+            pre = prefix(path) if mode == "prefix" else ""
+            fields = [(0, len(text), tuple(path.split(".")))] if mode == "fields" and path and text else None
             best = None
             for _ in range(repeat):
                 t = time.perf_counter()
-                found = det.findings(pre + text, channel="tool")
+                found = det.findings(pre + text, channel="tool", fields=fields)
                 d = time.perf_counter() - t
                 best = d if best is None else min(best, d)
             total += best
@@ -144,13 +146,16 @@ def main(argv=None) -> int:
     ap.add_argument("--split", default="dev", choices=("dev", "val", "all"))
     ap.add_argument("--repeat", type=int, default=3, help="calls per leaf; the fastest counts")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--mode", default="prefix", choices=("prefix", "fields"),
+                    help="the field name as a prefix in the text (the gateway today) or as fields= (since 0.8)")
     ap.add_argument("--json", type=Path)
     a = ap.parse_args(argv)
     items = [x for x in gatewaygen.objects() if a.split == "all" or x[0]["split"] == a.split]
     if a.limit:
         items = items[:a.limit]
     det = detector(a.maisecrets.resolve())
-    rep = {"split": a.split, "cases": len(items), "repeat": a.repeat, **summary(run(det, items, a.repeat))}
+    rep = {"split": a.split, "cases": len(items), "repeat": a.repeat, "mode": a.mode,
+           **summary(run(det, items, a.repeat, a.mode))}
     out = json.dumps(rep, indent=1, sort_keys=True)
     if a.json:
         a.json.write_text(out + "\n", encoding="utf-8")
