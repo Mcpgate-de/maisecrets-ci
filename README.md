@@ -2334,6 +2334,10 @@ maisecrets does not verify that it is `mcpgate/ner`.
   letter is its main sign of a name. `Peter Pan` becomes a placeholder,
   `peter pan` mostly stays text. A name that must always be masked belongs in
   your term list (`/maisecrets:term add NAME`).
+- **Product names**: the model takes some product and model names for a
+  person. A product word that stands alone (Claude, Copilot, GitHub, Jenkins,
+  Jira and a few more) is never masked as a name; a full name that holds one
+  is. It can still mark another product name as a person.
 - **When the service does not answer**, the rules mask the tool result alone,
   as without it, and the AI tells you once per session. `/maisecrets:status`
   shows the source and whether it answers.
