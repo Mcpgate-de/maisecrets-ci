@@ -1,0 +1,1 @@
+{"model": "Davlan/distilbert-base-multilingual-cased-ner-hrl@d421f57d", "precision": "int8", "file": "model.int8.onnx", "sha256": "f0110222417451322c48275019e118187d8a58219eb58235b98093acc67d35ec", "library": "onnxruntime", "library_version": "1.31.1", "aggregation": "snap", "workers": 10}
