@@ -240,16 +240,31 @@ class ChallengeTests(unittest.TestCase):
         det = rm.RemoteDetector(svc.url, secret=self.SHARED, timeout=0.3)
         real, calls = det._connection, []
 
-        def slow_second(left):
+        def slow_second(left, pin=None):
             calls.append(left)
             if len(calls) == 2:              # the connection for the text
                 time.sleep(0.6)
-            return real(left)
+            return real(left, pin)
         det._connection = slow_second
         spans, status = det.ask(TEXT, [])
         self.assertEqual((status.state, status.reason), ("unavailable", "timeout"))
         time.sleep(1.0)
         self.assertEqual((len(calls), svc.received), (2, []), "the text was not sent after the timeout")
+
+    def test_the_text_goes_to_the_address_that_gave_the_proof(self):
+        # a name whose second lookup points elsewhere (codex review of #1699): one lookup for both
+        ours, other = self.service(self.SHARED), self.service(self.SHARED)
+        port_of = lambda svc: svc.server.server_address[1]    # noqa: E731
+        answers = [port_of(ours), port_of(other)]
+        lookups = []
+
+        def resolve(host, port, *a, **k):
+            lookups.append(host)
+            return [(2, 1, 6, "", ("127.0.0.1", answers[min(len(lookups), 2) - 1]))]
+        with mock.patch.object(rm.socket, "getaddrinfo", resolve):
+            spans, status = rm.RemoteDetector(f"http://localhost:{port_of(ours)}/", secret=self.SHARED).ask(TEXT, [])
+        self.assertEqual((status.state, len(lookups)), ("ok", 1))
+        self.assertEqual((len(ours.received), other.received), (1, []))
 
     def test_a_proof_of_an_old_nonce_is_refused(self):
         svc = self.service(self.SHARED)

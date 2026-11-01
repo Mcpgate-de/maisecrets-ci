@@ -224,7 +224,7 @@ class RemoteDetector:
         reading of the answer and the choice of spans in one thread that it leaves at the deadline."""
         return self._exchange(body, deadline, gate)
 
-    def _connection(self, left: float):
+    def _connection(self, left: float, pin: dict | None = None):
         """(connection, target). A host name is looked up here, and without allow_network every address it gives must
         be a loopback address: `localhost` that a hosts file sends elsewhere is refused (codex review)."""
         if self.url.startswith("unix:"):
@@ -233,7 +233,12 @@ class RemoteDetector:
             return _UnixConnection(path, left), "/"
         p = urlsplit(self.url)
         port = p.port or (443 if p.scheme == "https" else 80)
-        addrs = socket.getaddrinfo(p.hostname, port, type=socket.SOCK_STREAM)
+        # one lookup for the proof and the text of one ask(): `pin` keeps it, so the text goes to the address that
+        # gave the proof, not to a second answer of the name (codex review of #1699)
+        addrs = pin.get("addrs") if pin is not None and pin.get("addrs") else \
+            socket.getaddrinfo(p.hostname, port, type=socket.SOCK_STREAM)
+        if pin is not None:
+            pin["addrs"] = addrs
         if not addrs:
             raise ConnectionError("no address")
         if not self.allow_network and not all(_loopback(a[4][0]) for a in addrs):
@@ -243,14 +248,14 @@ class RemoteDetector:
         target = (p.path or "/") + (f"?{p.query}" if p.query else "")
         return _PinnedConnection(p.hostname, port, addrs[0], left, p.scheme == "https", self.allow_network), target
 
-    def _prove(self, deadline: float) -> None:
+    def _prove(self, deadline: float, pin: dict | None = None) -> None:
         """GET /health?challenge=<a fresh nonce> and compare the proof (#1699). Raises _NotOurs on any other answer.
-        The proof and the text go over two connections (the service closes each one): a process that takes the port
-        in the moment between them gets the text. Only one that can stop the container can do that, and it can read
-        the secret from the container anyway; the proof stops a listener that holds the port while the container is
-        down."""
+        The proof and the text go over two connections to one address (the service closes each one): a process that
+        takes the port in the moment between them gets the text. Only one that can stop the container can do that, and
+        it can read the secret from the container anyway; the proof stops a listener that holds the port while the
+        container is down."""
         nonce = secrets.token_urlsafe(24)
-        conn, target = self._connection(max(0.001, deadline - time.monotonic()))
+        conn, target = self._connection(max(0.001, deadline - time.monotonic()), pin)
         base = target.split("?", 1)[0].rstrip("/")
         try:
             conn.request("GET", f"{base}/health?challenge={nonce}")
@@ -277,7 +282,7 @@ class RemoteDetector:
             conn.close()
 
     def _exchange(self, body: bytes, deadline: float, gate: dict | None = None) -> bytes:
-        conn, target = self._connection(max(0.001, deadline - time.monotonic()))
+        conn, target = self._connection(max(0.001, deadline - time.monotonic()), gate)
         if self.format == "presidio" and not target.rstrip("/").endswith("/analyze"):
             target = target.rstrip("/") + "/analyze"
         try:
@@ -377,7 +382,7 @@ class RemoteDetector:
                 for a, b in occupied if self.mask else ():
                     sent[a:b] = FILLER * (b - a)
                 if self.__secret:
-                    self._prove(deadline)      # no text goes to a listener that cannot prove the secret
+                    self._prove(deadline, gate)    # no text goes to a listener that cannot prove the secret
                     if time.monotonic() > deadline:
                         raise TimeoutError     # a proof after the deadline: the caller was told "timeout"
                 raw = self._request(self._body("".join(sent)), deadline, gate)
