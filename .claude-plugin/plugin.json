@@ -1,7 +1,7 @@
 {
   "name": "maisecrets",
   "displayName": "maisecrets",
-  "version": "0.8.7",
+  "version": "0.8.8",
   "description": "Intercepts detected secrets and PII before they reach the cloud model: deterministic detection, a local vault with TTL, placeholders resolved only where the real call happens. Free and open source, by mcpgate.de.",
   "author": {
     "name": "mcpgate",

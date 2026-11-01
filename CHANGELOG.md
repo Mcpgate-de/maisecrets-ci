@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## [0.8.8] - 2026-11-01
+
+### Features
+
+- a prompt waits up to 1 s for the name service and says once, with the reason, when its names were not checked (552b6a0)
+- the client sends the bearer of a name service that wants one (2fd8b1a)
+- finds a German phone number after Durchwahl, Festnetz and Rufnr (fe4282d)
+
+### Fixes
+
+- /maisecrets:ner says that today's counts are those of all your sessions on this computer (13314c3)
+- two changes at the same moment record a weakening once (b88bdfb)
+
 ## [0.8.7] - 2026-11-01
 
 ### Features
