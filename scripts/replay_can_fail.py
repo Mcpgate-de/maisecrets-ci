@@ -204,33 +204,91 @@ def _tree_copy(tmp: str, n: int) -> Path:
     return dest
 
 
+def _baseline(belief: dict, root: Path) -> str | None:
+    """The checks of replay() before the first mutation; None when the mutations may run."""
+    for proof in proofs_of(belief):
+        n = (root / proof["file"]).read_text(encoding="utf-8").count(proof["find"])
+        if n != 1:
+            return f"anchor occurs {n} times in {proof['file']} (must be exactly once)"
+    first, _ = run_tests(belief["runner"], root)
+    if first == SKIPPED:
+        return "an owning test was skipped here (a missing tool?); a skip is no evidence"
+    if first == BROKEN:
+        return "an owning test cannot run here (an import or a class set-up fails); no evidence"
+    if first != 0:
+        return "the owning tests are red before the mutation; no evidence"
+    return None
+
+
+def _verdict(belief: dict, results: list[tuple[bool, str, set[str]]]) -> tuple[bool, str]:
+    """replay()'s answer from the results of each mutation, in proof order: the first that failed decides."""
+    proofs = proofs_of(belief)
+    killed: set[str] = set()
+    for i, (proof, (ok, why, red)) in enumerate(zip(proofs, results), 1):
+        killed |= red
+        if not ok:
+            label = proof.get("path", f"mutation {i}")
+            return False, (f"{label} ({proof['file']}): {why}" if len(proofs) > 1 else why)
+    if is_invariant(belief):
+        idle = [t for t in belief["runner"]
+                if not any(k == unittest_id(t) or k.startswith(unittest_id(t) + ".") for k in killed)]
+        if idle:
+            return False, "no mutation turns these owning tests red: " + ", ".join(idle)
+        return True, f"red under each of {len(proofs)} mutations, every owning test killed, green restored"
+    return True, "red under the mutation, green restored"
+
+
 def replay_all(beliefs: list[dict], jobs: int) -> list[tuple[dict, bool, str]]:
     """Each belief in a worker of its own. With one job the replay runs in this tree, as it did
-    before; with more, every worker owns a copy, and this tree is never mutated at all."""
+    before; with more, every worker owns a copy, and this tree is never mutated at all.
+
+    With more than one job the work is split finer than a belief: first every belief's green run, then every
+    mutation on its own, the costliest first (by the time of its green run). One belief with 17 mutations held a
+    worker for 612 s while the others waited (2026-11-01). The answer is replay()'s: the same checks, and the first
+    mutation in proof order that failed decides."""
     if jobs <= 1 or len(beliefs) <= 1:
         return [(b, *replay(b)) for b in beliefs]
     import queue
     import tempfile
     import threading
+    import time
     from concurrent.futures import ThreadPoolExecutor
-    jobs = min(jobs, len(beliefs))
+    jobs = min(jobs, sum(len(proofs_of(b)) for b in beliefs))
     with tempfile.TemporaryDirectory(prefix="maisecrets-replay-") as tmp:
         roots: queue.Queue = queue.Queue()
         for n in range(jobs):
             roots.put(_tree_copy(tmp, n))
         lock = threading.Lock()
 
-        def one(b: dict) -> tuple[dict, bool, str]:
+        def in_a_tree(fn, *args):
             root = roots.get()
             try:
-                ok, why = replay(b, root)
+                return fn(*args, root)
             finally:
                 roots.put(root)
+
+        def baseline(b: dict) -> tuple[str | None, float]:
+            t0 = time.monotonic()
+            return in_a_tree(_baseline, b), time.monotonic() - t0
+
+        def mutation(task: tuple) -> tuple[bool, str, set[str]]:
+            b, proof = task
+            return in_a_tree(_replay_one, b, proof)
+
+        order = sorted(beliefs, key=lambda b: -len(proofs_of(b)) * len(b["runner"]))
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            base = dict(zip((b["belief"] for b in order), pool.map(baseline, order)))
+            tasks = [(b, p) for b in beliefs if base[b["belief"]][0] is None for p in proofs_of(b)]
+            tasks.sort(key=lambda t: -base[t[0]["belief"]][1])
+            done = dict(zip((id(t[1]) for t in tasks), pool.map(mutation, tasks)))
+        out = []
+        for b in beliefs:
+            why = base[b["belief"]][0]
+            ok, why = (False, why) if why is not None else _verdict(b, [done[id(p)] for p in proofs_of(b)])
             with lock:
                 print(f"[{'OK ' if ok else 'FAIL'}] {b['belief']}: {why}", flush=True)
-            return b, ok, why
-        with ThreadPoolExecutor(max_workers=jobs) as pool:
-            return list(pool.map(one, beliefs))
+            out.append((b, ok, why))
+        return out
 
 
 def default_jobs() -> int:
