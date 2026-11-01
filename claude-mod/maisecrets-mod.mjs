@@ -93,7 +93,8 @@ export function register(on) {
     }
     if (!answer || typeof answer.text !== 'string') return next(e)
     try {
-      $.ui.log(`maisecrets masked ${answer.count} value(s) before the prompt was sent`)
+      // count 0: the prompt goes on as typed, with a note (the name service did not check it)
+      if (answer.count > 0) $.ui.log(`maisecrets masked ${answer.count} value(s) before the prompt was sent`)
       // once: the line that names ms:(…), a check of a value that never reaches the model (hooks._check_tip)
       if (typeof answer.tip === 'string') $.ui.log(answer.tip)
     } catch {
