@@ -3,14 +3,16 @@
  "split": "dev",
  "cut": 1000,
  "timeout_ms": 300,
+ "parallel": 4,
  "cases": 1980,
  "words": 353880,
  "no_answer_in_time": 0,
- "ms_median": 95.3,
- "ms_p95": 133.4,
+ "requests_per_second": 36.5,
+ "ms_median": 100.0,
+ "ms_p95": 164.1,
  "names": 8297,
  "names_whole_rules": 217,
- "names_whole_rules_ner": 4780,
- "ner_spans_on_no_labelled_value": 978,
- "ner_false_per_1000_words": 2.76
+ "names_whole_rules_ner": 4786,
+ "ner_spans_on_no_labelled_value": 984,
+ "ner_false_per_1000_words": 2.78
 }
