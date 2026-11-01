@@ -2305,7 +2305,20 @@ maisecrets does not verify that it is `mcpgate/ner`.
   image). If it does not answer, `/maisecrets:ner` gives the command that
   starts it with docker or podman; the AI asks you first (about 690 MB to download, about 250 MB of memory
   while it runs) and then runs it:
-  `docker run -d --name ner --restart unless-stopped -p 127.0.0.1:8765:8765 mcpgate/ner`.
+  `run.sh ner start`, which runs the container `ner` with a secret of its own
+  (in its environment, never on a command line) and keeps that secret in your
+  store. Before each text the container must prove the secret (a fresh
+  challenge each time); a process that holds the port without it gets no text,
+  and maisecrets tells you once. A container you started by hand keeps working,
+  unchecked; `/maisecrets:ner` says which one runs. The proof and the text use
+  two connections, so a process that takes the port in the moment between them
+  is not stopped; only one that can stop the container can do that.
+  If the kept secret is lost or cannot be read, the container gets no text
+  until you run `/maisecrets:ner` again. Each tool result reads the secret from
+  your store (on macOS the keychain), which costs a little time. A process of
+  your own user that deletes maisecrets' files can switch the check off, as it
+  can change any setting; the check stops a listener that holds the port, not
+  your own account.
   Without docker or podman, install one of them (Docker Desktop, OrbStack,
   Podman), use a service of your team, or keep the rules alone. After a
   restart, maisecrets starts the container again at the next session start
@@ -2334,6 +2347,10 @@ maisecrets does not verify that it is `mcpgate/ner`.
   letter is its main sign of a name. `Peter Pan` becomes a placeholder,
   `peter pan` mostly stays text. A name that must always be masked belongs in
   your term list (`/maisecrets:term add NAME`).
+- **Product names**: the model takes some product and model names for a
+  person. A product word that stands alone (Claude, Copilot, GitHub, Jenkins,
+  Jira and a few more) is never masked as a name; a full name that holds one
+  is. It can still mark another product name as a person.
 - **When the service does not answer**, the rules mask the tool result alone,
   as without it, and the AI tells you once per session. `/maisecrets:status`
   shows the source and whether it answers.

@@ -34,6 +34,9 @@ from .detection import remote
 
 LOCAL_URL = "http://127.0.0.1:8765/"
 IMAGE = "mcpgate/ner"
+# the first tag whose container proves its secret (NER_CLIENT_SECRET, #1699): `run.sh ner start` runs this tag, never
+# `latest`, which docker does not pull again when an old one is on the machine
+SECRET_IMAGE = IMAGE + ":v2.0.3584"
 START = f"docker run -d --name ner --restart unless-stopped -p 127.0.0.1:8765:8765 {IMAGE}"
 # the keys a source sets; any other key of the setting is the person's tuning and stays
 SOURCE_KEYS = ("url", "format", "model", "allow_network", "mask", "ask_labels")
@@ -222,6 +225,32 @@ def probe(conf, timeout: float = 1.0) -> tuple[bool, str]:
     return True, f"the service: answers ({ms:.0f} ms), model {model}, types {kinds}"
 
 
+def make_backend_for(conf) -> object:
+    from .vault import load_config, make_backend
+    return make_backend(load_config())
+
+
+def _proves(conf) -> bool:
+    """A real proof, as a tool result gets it: the detector of the setting asks the service with a neutral text."""
+    from . import remote_layer
+    from .vault import load_config
+    det, _why = remote_layer.from_config(load_config())
+    if det is None:
+        return False
+    _spans, status = det.ask("A check of the name service.", [])
+    return status.state == "ok"
+
+
+def _info(conf) -> dict:
+    """GET /info of the source, or {} when it cannot be read."""
+    try:
+        with urllib.request.urlopen(str(conf.get("url")).rstrip("/") + "/info", timeout=2) as r:
+            doc = json.loads(r.read(65536).decode("utf-8"))
+        return doc if isinstance(doc, dict) else {}
+    except (OSError, urllib.error.URLError, ValueError, AttributeError):
+        return {}
+
+
 def container_tool() -> str:
     """The absolute path of docker or podman, the first one on PATH, or "". The restart runs this path, not a name
     that PATH resolves again (codex review of 0.8.7)."""
@@ -261,6 +290,48 @@ def restart_local(conf) -> bool:
     return True
 
 
+def start_local(cfg: dict) -> tuple[int, list]:
+    """`run.sh ner start` (#1699), run by the AI after the person said yes: the container `ner` on 127.0.0.1:8765 with
+    a secret it must prove before each text. The secret goes to docker in the environment (never on the command line,
+    where `ps` shows it) and into the store; the container id beside it. An existing container `ner` that maisecrets
+    did not start is left as it is: it runs unchecked, and the output says how to replace it."""
+    from . import ner_secret
+    from .vault import make_backend
+    tool = container_tool()
+    if not tool:
+        return 1, ["Neither docker nor podman is installed. Install one of them (Docker Desktop, OrbStack, Podman)."]
+    ep = ner_secret.endpoint(LOCAL_URL)
+    backend = make_backend(cfg)
+    r = subprocess.run([tool, "container", "inspect", "-f", "{{.Id}} {{.Config.Image}}", "ner"],
+                       capture_output=True, text=True, timeout=30)
+    if r.returncode == 0:
+        cid, _, image = r.stdout.strip().partition(" ")
+        if not (image == IMAGE or image.startswith(IMAGE + ":")):
+            return 1, ["A container named ner exists with another image. maisecrets leaves it alone; remove or rename "
+                       "it to let maisecrets start its own."]
+        subprocess.run([tool, "start", "ner"], capture_output=True, timeout=120)
+        if ner_secret.secret_of(backend, ep) and ner_secret.container_of(ep) == cid:
+            return 0, ["started: the container ner that maisecrets set up; it proves its secret before each text."]
+        return 0, ["started: the container ner, which was not set up by maisecrets, so it is not checked. To have it "
+                   f"checked: {os.path.basename(tool)} rm -f ner, then /maisecrets:ner again."]
+    secret = ner_secret.new_secret()
+    env = dict(os.environ, NER_CLIENT_SECRET=secret)
+    r = subprocess.run([tool, "run", "-d", "--name", "ner", "--restart", "unless-stopped", "-e", "NER_CLIENT_SECRET",
+                        "-p", "127.0.0.1:8765:8765", SECRET_IMAGE], capture_output=True, text=True, env=env,
+                       timeout=900)
+    if r.returncode != 0:
+        return 1, ["The container did not start: " + (r.stderr.strip().splitlines() or ["no reason given"])[-1][:200]]
+    cid = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
+    try:
+        ner_secret.keep(backend, ep, secret, cid)
+    except Exception as exc:  # noqa: BLE001 - a container whose secret is not kept would be checked by nobody
+        # by its id, never by the name: a container ner that replaced it meanwhile is not this one
+        if cid:
+            subprocess.run([tool, "rm", "-f", cid], capture_output=True, timeout=60)
+        return 1, [f"The secret could not be stored ({type(exc).__name__}); the container was removed again."]
+    return 0, ["started: the container ner with a secret of its own; it proves the secret before each text."]
+
+
 def report(conf, wait: float = 0.0) -> tuple[int, list]:
     """(exit code, lines) for /maisecrets:ner: the source, whether it answers (waiting up to `wait` seconds), and for
     the local source that does not answer the command that starts it. The exit code is 0 when the source answers or
@@ -279,14 +350,34 @@ def report(conf, wait: float = 0.0) -> tuple[int, list]:
         time.sleep(1)
         ok, line = probe(conf)
     lines.append(line)
+    if ok and str(url).rstrip("/") == LOCAL_URL.rstrip("/"):
+        from . import ner_secret
+        ep = ner_secret.endpoint(LOCAL_URL)
+        if not ner_secret.container_of(ep):
+            lines.append("not checked: the container was not set up by maisecrets (run.sh ner start does that)")
+        elif not ner_secret.secret_of(make_backend_for(conf), ep):
+            lines.append("the secret maisecrets kept for the container cannot be read, so the container gets no text. "
+                         "Remove it (docker rm -f ner) and run /maisecrets:ner again.")
+            return 1, lines
+        elif not _info(conf).get("client_secret"):
+            # an image before the secret check: it gets no text, and the fault is the image, not an impostor
+            lines.append(f"the container cannot prove its secret: its image is older than {SECRET_IMAGE}. Remove it "
+                         "(docker rm -f ner) and run /maisecrets:ner again; until then it gets no text.")
+            return 1, lines
+        elif not _proves(conf):
+            lines.append("the service on 127.0.0.1:8765 is not the container that maisecrets started: it cannot prove "
+                         "the secret, so it gets no text. Stop it, and run /maisecrets:ner again.")
+            return 1, lines
+        else:
+            lines.append("checked: the container proved the secret maisecrets gave it, just now and before each text")
     if ok:
         return 0, lines
     lines.append("Until it answers, the rules mask tool results alone, as without the service.")
     if str(url).rstrip("/") == LOCAL_URL.rstrip("/"):
         tool = container_tool()
         if tool:
-            # commands/ner.md runs one of its two fixed commands on exit code 3; this line only names the tool
-            lines.append(f"start: {START.replace('docker', os.path.basename(tool), 1)}")
+            # commands/ner.md runs `run.sh ner start` on exit code 3 (a container with a secret, #1699)
+            lines.append(f"start: run.sh ner start (with {os.path.basename(tool)})")
             return 3, lines
         lines.append("Neither docker nor podman is installed. Install one of them (Docker Desktop, OrbStack, Podman), "
                      f"then run: {START}. Or use a service of your team: /maisecrets:ner url URL. Or turn it off: "
@@ -301,6 +392,10 @@ DOWN_NOTE = ("maisecrets: the name service set with /maisecrets:ner did not answ
              "tool result; names that only the service finds were not masked. Mention this once, in one sentence, "
              "after your answer, and tell the user that /maisecrets:ner shows the service and how to start it. Do not "
              "start or change the service or the setting yourself.")
+NOT_OURS_NOTE = ("maisecrets: the service on 127.0.0.1:8765 is not the container that maisecrets started (it could not "
+                 "prove the secret maisecrets gave that container), so no text went to it and the rules alone masked "
+                 "this tool result. Mention this once, in one sentence, after your answer, and tell the user to run "
+                 "/maisecrets:ner, which starts the right container. Do not start or stop a service yourself.")
 FALLBACK_NOTE = ("maisecrets: the name service of this computer did not answer, so the fallback set with "
                  "/maisecrets:ner checked this tool result; the tool results of this session go there while the "
                  "local one is down, your prompts never do. Mention this once, in one sentence, after your answer, and "

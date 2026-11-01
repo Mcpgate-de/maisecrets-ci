@@ -12,13 +12,22 @@
 #   of Privy: V1 and V2 compared on samples that were dev alone;
 # - every scanner on the bank (dev, val) and the catalogs, as in V1.
 # The holdout of the project (bench/holdout_v2.py) is not run here: it runs once per release candidate.
+# The runs are independent: bench/run_jobs.py starts them side by side, BENCH_JOBS at once (default: one per CPU;
+# 1 runs them one after the other). Each writes its own file; its console text goes to the file's .log.
 set -eu
 out=$1
 ms=$2
 py=${BENCH_PYTHON:-python3}
 salt=v3/
 mkdir -p "$out"
-run() { "$py" bench/run.py --maisecrets "$ms" "$@"; }
+jobs="$out/jobs.jsonl"
+: > "$jobs"
+# one job: the output file first, then the command (bench/run_jobs.py runs them)
+run() {
+  local f=$1; shift
+  "$py" -c 'import json, sys; print(json.dumps(sys.argv[1:]))' "$f" "$py" bench/run.py --maisecrets "$ms" "$@" \
+    --out "$f" >> "$jobs"
+}
 
 scanners="maisecrets"
 for pair in detect_secrets:BENCH_DETECT_SECRETS_PYTHON secret_scan:BENCH_SECRET_SCAN_PYTHON \
@@ -31,29 +40,31 @@ echo "scanners: $scanners"
 
 for s in $scanners; do
   for split in dev val; do
-    [ -s "$out/bank-$split-$s.json" ] || run --scanner "$s" --source bank --split "$split" --out "$out/bank-$split-$s.json"
+    f="$out/bank-$split-$s.json"
+    [ -s "$f" ] || run "$f" --scanner "$s" --source bank --split "$split"
   done
   for d in nemotron gretel mendeley piilo; do
     for split in val holdout; do
       f="$out/$d-$split-every25-$s.json"
-      [ -s "$f" ] || run --scanner "$s" --source "$d" --split "$split" --every 25 --sample-salt "$salt" --out "$f"
+      [ -s "$f" ] || run "$f" --scanner "$s" --source "$d" --split "$split" --every 25 --sample-salt "$salt"
     done
   done
   f="$out/privy-all-every10-$s.json"
-  [ -s "$f" ] || run --scanner "$s" --source privy --split all --every 10 --sample-salt "$salt" --out "$f"
+  [ -s "$f" ] || run "$f" --scanner "$s" --source privy --split all --every 10 --sample-salt "$salt"
   if [ -n "${BENCH_CATALOGS:-}" ]; then
     f="$out/catalogs-all-every1-$s.json"
-    [ -s "$f" ] || run --scanner "$s" --source catalogs --catalogs "$BENCH_CATALOGS" --split all --out "$f"
+    [ -s "$f" ] || run "$f" --scanner "$s" --source catalogs --catalogs "$BENCH_CATALOGS" --split all
   fi
 done
 for d in nemotron gretel mendeley piilo aparte llmredactor credsweeper; do
   for split in dev val holdout; do
     f="$out/$d-$split-maisecrets-full.json"
-    [ -s "$f" ] || run --scanner maisecrets --source "$d" --split "$split" --out "$f"
+    [ -s "$f" ] || run "$f" --scanner maisecrets --source "$d" --split "$split"
   done
 done
-[ -s "$out/privy-all-maisecrets-full.json" ] || run --scanner maisecrets --source privy --split all \
-  --out "$out/privy-all-maisecrets-full.json"
+f="$out/privy-all-maisecrets-full.json"
+[ -s "$f" ] || run "$f" --scanner maisecrets --source privy --split all
+"$py" bench/run_jobs.py "$jobs" "${BENCH_JOBS:-0}"
 "$py" bench/manifest.py "$out" "$ms"
 "$py" bench/report_v3.py "$out" > "$out/report-v3.md"
 echo "report: $out/report-v3.md"

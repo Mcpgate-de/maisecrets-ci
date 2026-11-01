@@ -46,6 +46,8 @@ def from_config(cfg: dict, fallback: bool = False) -> tuple:
     # the filler costs names (21 of 2,482 on the V3 samples, docs/NER-EXPERIMENT.md "The remote path"), so a service
     # on this computer may read the rules' findings as they are; any other host always gets the filler
     mask = conf.get("mask") is not False or not remote.is_local(url)
+    # the container maisecrets started proves its secret before each text (#1699); only `run.sh ner start` records one
+    secret = _stored_secret(cfg, url) if remote.is_local(url) else ""
     try:
         return remote.RemoteDetector(
             url, format=str(conf.get("format", "hf")), model=str(conf.get("model", "")),
@@ -53,9 +55,27 @@ def from_config(cfg: dict, fallback: bool = False) -> tuple:
             # at most 5 s: the hook's watchdog is 16 s, and the rules' scan of a large result needs its share
             timeout=min(ms, 5000) / 1000, max_chars=int(conf.get("max_chars", 20000)),
             language=str(conf.get("language", "en")), allow_network=conf.get("allow_network") is True,
-            mask=mask, ask_labels=conf.get("ask_labels") is True, private_http_only=True), ""
+            mask=mask, ask_labels=conf.get("ask_labels") is True, private_http_only=True, secret=secret), ""
     except (ValueError, TypeError, AttributeError) as exc:
         return None, str(exc)
+
+
+def _stored_secret(cfg: dict, url: str) -> str:
+    """The secret `run.sh ner start` kept for this endpoint, or "" (a container started by hand: no check)."""
+    from . import ner_secret
+    ep = ner_secret.endpoint(url)
+    # the store is asked only when `run.sh ner start` recorded a container here: a keychain read for each tool result
+    # of every person who started the container by hand (or of none) would cost time for nothing
+    if not ep or not ner_secret.container_of(ep):
+        return ""
+    from .vault import make_backend
+    secret = ner_secret.secret_of(make_backend(cfg), ep)
+    if not secret:
+        # a container is recorded but its secret is gone or cannot be read: closed, not open. A fresh random secret
+        # that no listener knows makes every proof fail, so no text goes out (codex review of #1699)
+        import secrets
+        return secrets.token_urlsafe(32)
+    return secret
 
 
 class Layer:
@@ -170,3 +190,55 @@ def unchecked_note(session: str | None, why: str) -> str | None:
     if not (session and ner_setup.claim_down_note(HOME, f"{session}:prompt")):
         return None
     return UNCHECKED_NOTE.format(why=_WHY.get(why, "it gave no usable answer"))
+
+
+def for_tool_result(cfg: dict, response, binary, strip, scan, protect_of):
+    """prepare() for one tool result: its strings as the walk of hooks.post_tool sees them (`strip`: the hidden
+    characters removed, or None), a key scanned too, a binary path left out. `protect_of()` gives the stored values,
+    which go out as filler: a password stored with `put` has no shape, and the rules alone would let the service read
+    it (codex review)."""
+    leaves: list = []
+
+    def collect(node, at: tuple = ()) -> None:
+        if at in binary:
+            return
+        if isinstance(node, str):
+            leaves.append(strip(node) if strip else node)
+        elif isinstance(node, list):
+            for i, x in enumerate(node):
+                collect(x, at + (i,))
+        elif isinstance(node, dict):
+            for k, v in node.items():
+                if isinstance(k, str):
+                    collect(k)          # a key is scanned too (the walk in hooks): one request covers it
+                collect(v, at + (k,))
+    collect(response)
+    return prepare(cfg, leaves, scan, protect_of())
+
+
+# the remote detector of the last tool result did not answer (set by hooks.post_tool, read by hint() of the same call)
+NER_DOWN = {"v": False}
+
+
+def note_result(layer) -> None:
+    NER_DOWN["v"] = layer is not None and layer.status.state == "unavailable"
+    NER_DOWN["not_ours"] = layer is not None and layer.status.reason == "not_ours"
+    if layer is not None:
+        from . import ner_setup
+        NER_DOWN["fallback"] = ner_setup.LAST["source"] == "fallback"
+
+
+def hint(payload: dict):
+    """Once per session, when the service of /maisecrets:ner did not answer: the person learns that names went
+    unmasked by it. Not in a subagent: it has no conversation with the person."""
+    from . import ner_setup
+    from .vault import HOME
+    if NER_DOWN.pop("fallback", False) and not payload.get("agent_id"):
+        # the first tool result of the session that the fallback checked: where text goes now (akruse-7a, G)
+        if ner_setup.claim_down_note(HOME, str(payload.get("session_id")) + ":fallback"):
+            return ner_setup.FALLBACK_NOTE
+    if not NER_DOWN["v"] or payload.get("agent_id"):
+        return None
+    NER_DOWN["v"] = False
+    note = ner_setup.NOT_OURS_NOTE if NER_DOWN.pop("not_ours", False) else ner_setup.DOWN_NOTE
+    return note if ner_setup.claim_down_note(HOME, payload.get("session_id")) else None
