@@ -2313,6 +2313,12 @@ maisecrets does not verify that it is `mcpgate/ner`.
   unchecked; `/maisecrets:ner` says which one runs. The proof and the text use
   two connections, so a process that takes the port in the moment between them
   is not stopped; only one that can stop the container can do that.
+  If the kept secret is lost or cannot be read, the container gets no text
+  until you run `/maisecrets:ner` again. Each tool result reads the secret from
+  your store (on macOS the keychain), which costs a little time. A process of
+  your own user that deletes maisecrets' files can switch the check off, as it
+  can change any setting; the check stops a listener that holds the port, not
+  your own account.
   Without docker or podman, install one of them (Docker Desktop, OrbStack,
   Podman), use a service of your team, or keep the rules alone. After a
   restart, maisecrets starts the container again at the next session start

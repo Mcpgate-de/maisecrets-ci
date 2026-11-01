@@ -234,6 +234,23 @@ class ChallengeTests(unittest.TestCase):
         time.sleep(5.0)
         self.assertEqual(svc.received, [], "the late proof sent no text")
 
+    def test_a_text_held_up_after_the_proof_is_not_sent_once_the_caller_gave_up(self):
+        # the proof in time, then the connection for the text slow: after ask() said timeout, nothing goes out (codex)
+        svc = self.service(self.SHARED)
+        det = rm.RemoteDetector(svc.url, secret=self.SHARED, timeout=0.3)
+        real, calls = det._connection, []
+
+        def slow_second(left):
+            calls.append(left)
+            if len(calls) == 2:              # the connection for the text
+                time.sleep(0.6)
+            return real(left)
+        det._connection = slow_second
+        spans, status = det.ask(TEXT, [])
+        self.assertEqual((status.state, status.reason), ("unavailable", "timeout"))
+        time.sleep(1.0)
+        self.assertEqual((len(calls), svc.received), (2, []), "the text was not sent after the timeout")
+
     def test_a_proof_of_an_old_nonce_is_refused(self):
         svc = self.service(self.SHARED)
         svc.proof_for = lambda nonce: "a-nonce-from-an-earlier-probe-0123"
@@ -371,7 +388,7 @@ class RemoteDetectorTests(unittest.TestCase):
     def test_a_stored_value_inside_a_finding_still_covers_the_whole_finding(self):
         text = "-" * 71 + " end"          # no letters: the span is not widened, the merge alone decides
         ner = rm.RemoteDetector("http://127.0.0.1:1/")
-        ner._request = lambda body, deadline: json.dumps(
+        ner._request = lambda body, deadline, gate=None: json.dumps(
             [{"entity_group": "PER", "start": 65, "end": 70, "score": 0.9}]).encode()
         spans, status = ner.ask(text, [(56, 71), (60, 63)])
         self.assertEqual((spans, status.state), ([], "ok"))
@@ -379,7 +396,7 @@ class RemoteDetectorTests(unittest.TestCase):
     def test_a_costly_answer_ends_at_the_deadline_too(self):
         text = "a" * 20000
         ner = rm.RemoteDetector("http://127.0.0.1:1/", timeout=0.05, max_chars=10 ** 6)
-        ner._request = lambda body, deadline: json.dumps(
+        ner._request = lambda body, deadline, gate=None: json.dumps(
             [{"entity_group": "PER", "start": i, "end": i + 1, "score": 0.9} for i in range(0, 20000, 2)]).encode()
         t = time.monotonic()
         spans, status = ner.ask(text, [])

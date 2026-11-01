@@ -225,6 +225,22 @@ def probe(conf, timeout: float = 1.0) -> tuple[bool, str]:
     return True, f"the service: answers ({ms:.0f} ms), model {model}, types {kinds}"
 
 
+def make_backend_for(conf) -> object:
+    from .vault import load_config, make_backend
+    return make_backend(load_config())
+
+
+def _proves(conf) -> bool:
+    """A real proof, as a tool result gets it: the detector of the setting asks the service with a neutral text."""
+    from . import remote_layer
+    from .vault import load_config
+    det, _why = remote_layer.from_config(load_config())
+    if det is None:
+        return False
+    _spans, status = det.ask("A check of the name service.", [])
+    return status.state == "ok"
+
+
 def _info(conf) -> dict:
     """GET /info of the source, or {} when it cannot be read."""
     try:
@@ -309,7 +325,9 @@ def start_local(cfg: dict) -> tuple[int, list]:
     try:
         ner_secret.keep(backend, ep, secret, cid)
     except Exception as exc:  # noqa: BLE001 - a container whose secret is not kept would be checked by nobody
-        subprocess.run([tool, "rm", "-f", "ner"], capture_output=True, timeout=60)
+        # by its id, never by the name: a container ner that replaced it meanwhile is not this one
+        if cid:
+            subprocess.run([tool, "rm", "-f", cid], capture_output=True, timeout=60)
         return 1, [f"The secret could not be stored ({type(exc).__name__}); the container was removed again."]
     return 0, ["started: the container ner with a secret of its own; it proves the secret before each text."]
 
@@ -334,15 +352,24 @@ def report(conf, wait: float = 0.0) -> tuple[int, list]:
     lines.append(line)
     if ok and str(url).rstrip("/") == LOCAL_URL.rstrip("/"):
         from . import ner_secret
-        if not ner_secret.container_of(ner_secret.endpoint(LOCAL_URL)):
+        ep = ner_secret.endpoint(LOCAL_URL)
+        if not ner_secret.container_of(ep):
             lines.append("not checked: the container was not set up by maisecrets (run.sh ner start does that)")
+        elif not ner_secret.secret_of(make_backend_for(conf), ep):
+            lines.append("the secret maisecrets kept for the container cannot be read, so the container gets no text. "
+                         "Remove it (docker rm -f ner) and run /maisecrets:ner again.")
+            return 1, lines
         elif not _info(conf).get("client_secret"):
             # an image before the secret check: it gets no text, and the fault is the image, not an impostor
             lines.append(f"the container cannot prove its secret: its image is older than {SECRET_IMAGE}. Remove it "
                          "(docker rm -f ner) and run /maisecrets:ner again; until then it gets no text.")
             return 1, lines
+        elif not _proves(conf):
+            lines.append("the service on 127.0.0.1:8765 is not the container that maisecrets started: it cannot prove "
+                         "the secret, so it gets no text. Stop it, and run /maisecrets:ner again.")
+            return 1, lines
         else:
-            lines.append("checked: the container proves the secret maisecrets gave it before each text")
+            lines.append("checked: the container proved the secret maisecrets gave it, just now and before each text")
     if ok:
         return 0, lines
     lines.append("Until it answers, the rules mask tool results alone, as without the service.")

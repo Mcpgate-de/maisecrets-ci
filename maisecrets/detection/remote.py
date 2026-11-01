@@ -219,10 +219,10 @@ class RemoteDetector:
         return RemoteStatus(self.format, self.model, state, reason, added, ms)
 
     # ------------------------------------------------------------------ wire --
-    def _request(self, body: bytes, deadline: float) -> bytes:
+    def _request(self, body: bytes, deadline: float, gate: dict | None = None) -> bytes:
         """The answer of one POST (name lookup, connect, send, headers, body), or an exception. ask() runs it, the
         reading of the answer and the choice of spans in one thread that it leaves at the deadline."""
-        return self._exchange(body, deadline)
+        return self._exchange(body, deadline, gate)
 
     def _connection(self, left: float):
         """(connection, target). A host name is looked up here, and without allow_network every address it gives must
@@ -276,7 +276,7 @@ class RemoteDetector:
         finally:
             conn.close()
 
-    def _exchange(self, body: bytes, deadline: float) -> bytes:
+    def _exchange(self, body: bytes, deadline: float, gate: dict | None = None) -> bytes:
         conn, target = self._connection(max(0.001, deadline - time.monotonic()))
         if self.format == "presidio" and not target.rstrip("/").endswith("/analyze"):
             target = target.rstrip("/") + "/analyze"
@@ -284,7 +284,15 @@ class RemoteDetector:
             headers = {"Content-Type": "application/json"}
             if self.__bearer:
                 headers["Authorization"] = "Bearer " + self.__bearer
-            conn.request("POST", target, body=body, headers=headers)
+            if gate is None:
+                conn.request("POST", target, body=body, headers=headers)
+            else:
+                # the text goes out only under the lock that ask() takes when it gives up: after ask() said timeout,
+                # nothing is sent, however late this thread runs on (codex review of #1699)
+                with gate["lock"]:
+                    if gate["cancelled"] or time.monotonic() > deadline:
+                        raise TimeoutError
+                    conn.request("POST", target, body=body, headers=headers)
             if conn.sock is not None:
                 conn.sock.settimeout(max(0.001, deadline - time.monotonic()))
             resp = conn.getresponse()
@@ -361,6 +369,7 @@ class RemoteDetector:
         if deadline - t0 <= 0:
             return [], self.status("unavailable", "timeout")
         box: dict = {}
+        gate = {"lock": threading.Lock(), "cancelled": False}
 
         def work() -> None:
             try:
@@ -371,7 +380,7 @@ class RemoteDetector:
                     self._prove(deadline)      # no text goes to a listener that cannot prove the secret
                     if time.monotonic() > deadline:
                         raise TimeoutError     # a proof after the deadline: the caller was told "timeout"
-                raw = self._request(self._body("".join(sent)), deadline)
+                raw = self._request(self._body("".join(sent)), deadline, gate)
                 box["kept"] = self._keep(text, self._parse(raw, len(text)), occupied, deadline)
             except BaseException as exc:  # noqa: BLE001 - handed to the caller as it is
                 box["error"] = exc
@@ -379,6 +388,8 @@ class RemoteDetector:
         t.start()
         t.join(max(0.0, deadline - time.monotonic()))
         if t.is_alive():
+            with gate["lock"]:
+                gate["cancelled"] = True
             return [], self.status("unavailable", "timeout", ms=_ms(t0))
         exc = box.get("error")
         if exc is None:

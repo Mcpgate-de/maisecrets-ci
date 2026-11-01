@@ -69,7 +69,13 @@ def _stored_secret(cfg: dict, url: str) -> str:
     if not ep or not ner_secret.container_of(ep):
         return ""
     from .vault import make_backend
-    return ner_secret.secret_of(make_backend(cfg), ep)
+    secret = ner_secret.secret_of(make_backend(cfg), ep)
+    if not secret:
+        # a container is recorded but its secret is gone or cannot be read: closed, not open. A fresh random secret
+        # that no listener knows makes every proof fail, so no text goes out (codex review of #1699)
+        import secrets
+        return secrets.token_urlsafe(32)
+    return secret
 
 
 class Layer:

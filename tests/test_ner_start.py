@@ -4,6 +4,7 @@ a container the person started by hand is left alone and runs unchecked. Docker 
 temp file store of tests/_isolate.py."""
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -43,6 +44,8 @@ class FakeDocker:
 
 
 def _clean() -> None:
+    # the file store of the tests: never the keychain, also for code that reads the config itself (ner_setup.report)
+    Path(HOME, "config.json").write_text(json.dumps(CONFIG), encoding="utf-8")
     try:
         os.unlink(Path(HOME, "ner-containers.json"))
     except FileNotFoundError:
@@ -107,7 +110,7 @@ class StartTests(unittest.TestCase):
         with mock.patch.object(ner_secret, "keep", side_effect=OSError("disk full")):
             code, lines = self.start(docker)
         self.assertEqual(code, 1)
-        self.assertEqual([c[0][1:3] for c in docker.calls][-1], ["rm", "-f"])
+        self.assertEqual(docker.calls[-1][0][1:], ["rm", "-f", CID], "by its id, not the name ner")
 
 
 class StoredSecretTests(unittest.TestCase):
@@ -139,8 +142,25 @@ class StoredSecretTests(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("older than " + ner_setup.SECRET_IMAGE, lines[-1])
             with mock.patch.object(ner_setup, "_info", return_value={"client_secret": True}):
-                code, lines = ner_setup.report(conf)
-            self.assertEqual((code, lines[-1][:8]), (0, "checked:"))
+                with mock.patch.object(ner_setup, "_proves", return_value=True):
+                    code, lines = ner_setup.report(conf)
+                self.assertEqual((code, lines[-1][:8]), (0, "checked:"))
+                with mock.patch.object(ner_setup, "_proves", return_value=False):
+                    code, lines = ner_setup.report(conf)
+                self.assertEqual(code, 1)
+                self.assertIn("is not the container that maisecrets started", lines[-1])
+
+    def test_a_recorded_container_whose_secret_is_lost_gets_no_text(self):
+        # the record without the secret: closed, not open (codex review of #1699)
+        ner_secret.keep(make_backend(CONFIG), EP, "s" * 43, CID)
+        make_backend(CONFIG).delete(ner_secret.PREFIX + EP.replace(":", "_"))
+        det = self.detector()
+        self.assertTrue(det._RemoteDetector__secret, "a check stays on")
+        self.assertNotEqual(det._RemoteDetector__secret, "s" * 43)
+        with mock.patch.object(ner_setup, "probe", return_value=(True, "the service: answers")):
+            code, lines = ner_setup.report({"url": ner_setup.LOCAL_URL, "format": "hf"})
+        self.assertEqual(code, 1)
+        self.assertIn("cannot be read", lines[-1])
 
     def test_an_impostor_gets_its_own_note(self):
         status = remote_layer.remote.RemoteStatus("hf", "", "unavailable", "not_ours")
