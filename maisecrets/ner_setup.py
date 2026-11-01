@@ -39,14 +39,14 @@ START = f"docker run -d --name ner --restart unless-stopped -p 127.0.0.1:8765:87
 SOURCE_KEYS = ("url", "format", "model", "allow_network", "mask", "ask_labels")
 
 _NER_RE = re.compile(r"\A\s*(?:/maisecrets:ner|maisecrets:\s*ner)\s+(?:(off|local|on)|url\s+(\S+)|"
-                     r"fallback\s+(?:(off)|url\s+(\S+)))\s*\Z", re.I)
+                     r"fallback\s+(?:(off)|url\s+(\S+))|prompts\s+(on|off))\s*\Z", re.I)
 # the same sentence anywhere in a tool call (settings.IN_A_COMMAND_RE)
-IN_A_COMMAND = r"(?:/maisecrets:ner|maisecrets:\s*ner)\s+(?:off|local|on|url|fallback)\b"
+IN_A_COMMAND = r"(?:/maisecrets:ner|maisecrets:\s*ner)\s+(?:off|local|on|url|fallback|prompts)\b"
 
 
 def parse(prompt) -> str | None:
-    """`off`, `local`, `url:<URL>`, `fallback:off` or `fallback:url:<URL>` when the whole prompt is a change of the
-    source, else None."""
+    """`off`, `local`, `url:<URL>`, `fallback:off`, `fallback:url:<URL>`, `prompts:on` or `prompts:off` when the whole
+    prompt is a change of the setting, else None."""
     m = _NER_RE.match(prompt) if isinstance(prompt, str) else None
     if not m:
         return None
@@ -54,6 +54,8 @@ def parse(prompt) -> str | None:
         return "off" if m.group(1).lower() == "off" else "local"
     if m.group(2):
         return "url:" + m.group(2)
+    if m.group(5):
+        return "prompts:" + m.group(5).lower()
     return "fallback:off" if m.group(3) else "fallback:url:" + m.group(4)
 
 
@@ -89,6 +91,13 @@ def check_url(url: str) -> str:
 def updated(current, word: str) -> dict:
     """The new value of the setting for `word` (from parse), the tuning keys of `current` kept."""
     current = dict(current) if isinstance(current, dict) else {}
+    if word.startswith("prompts:"):
+        # not a source key: it stays when the source changes
+        if word == "prompts:off":
+            current["prompts"] = False
+        else:
+            current.pop("prompts", None)
+        return current
     if word == "fallback:off":
         current.pop("fallback", None)
         return current

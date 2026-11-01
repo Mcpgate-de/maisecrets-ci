@@ -152,6 +152,30 @@ class SetTests(unittest.TestCase):
     def test_a_sentence_inside_a_longer_prompt_is_text(self):
         self.assertIsNone(settings.parse_prompt("please run /maisecrets:ner local for me"))
 
+    def test_prompts_off_and_on_keep_the_source_and_off_is_a_weakening(self):
+        _prompt("/maisecrets:ner local")
+        out = _prompt("/maisecrets:ner prompts off")
+        self.assertIs(_conf()["prompts"], False)
+        self.assertIn("Your prompts keep the rules alone", json.dumps(out))
+        self.assertEqual(len(_weakened()), 1)
+        _prompt("/maisecrets:ner prompts off")
+        self.assertEqual(len(_weakened()), 1)              # already off: no second weakening
+        _prompt("/maisecrets:ner url http://127.0.0.1:9000/")
+        self.assertIs(_conf()["prompts"], False)            # a new source keeps the choice
+        out = _prompt("maisecrets: ner PROMPTS on", CODEX)
+        self.assertNotIn("prompts", _conf())
+        self.assertEqual(_conf()["url"], "http://127.0.0.1:9000/")
+        self.assertEqual(len(_weakened()), 1)
+        self.assertIsNone(settings.parse_prompt("/maisecrets:ner prompts maybe"))
+
+    def test_a_subagent_does_not_turn_the_prompt_part_off(self):
+        _prompt("/maisecrets:ner local")
+        _prompt("/maisecrets:ner prompts off", {**CLAUDE, "source": "user"}, agent_id="sub")
+        self.assertNotIn("prompts", _conf())
+        out = hooks.pre_tool({"tool_name": "Bash", "session_id": "S1", **CLAUDE,
+                              "tool_input": {"command": "claude -p '/maisecrets:ner prompts off'"}})
+        self.assertEqual(json.dumps(out).count('"deny"'), 1, out)
+
     def test_turning_it_off_or_a_service_on_the_network_is_recorded_as_a_weakening(self):
         _prompt("/maisecrets:ner local")
         self.assertEqual(_weakened(), [])

@@ -2291,6 +2291,7 @@ a source, with one command typed as your own prompt:
 | `/maisecrets:ner url URL` | a service of your team on a private network |
 | `/maisecrets:ner off` | the rules alone (the default) |
 | `/maisecrets:ner fallback url URL` | a second service for tool results while the local one is not running (`fallback off` removes it) |
+| `/maisecrets:ner prompts off` | the prompts you type keep the rules alone; tool results still go to the service (`prompts on` turns it back on) |
 | `/maisecrets:ner` | which source is set, and whether it answers |
 
 In Codex, send `maisecrets: ner local` (or `url URL`, `off`) alone as your
@@ -2355,7 +2356,7 @@ and keeps its other keys. Written by hand, the setting looks like this:
   Another host needs `"allow_network": true` in the setting, and then your tool
   results go there (PRIVACY.md).
 - Tool results, and the prompts you type in Claude Code (with the mod) when the service is on this computer: a
-  name in a prompt becomes a placeholder and never blocks it. `"prompts": false` turns the prompt part off. A
+  name in a prompt becomes a placeholder and never blocks it. `/maisecrets:ner prompts off` turns the prompt part off (the setting `"prompts": false`). A
   service on the network never gets a prompt, and Codex prompts keep the rules alone (Codex cannot rewrite a
   prompt). One request per tool call or prompt, within `timeout_ms` (at most
   5000; the name lookup and a slow answer count too). Each value

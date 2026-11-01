@@ -426,7 +426,10 @@ def loosens(key: str, before, after) -> bool:
         new = (after or {}).get("url") if isinstance(after, dict) else None
         old_fb = ((before or {}).get("fallback") or {}).get("url") if isinstance(before, dict) else None
         new_fb = ((after or {}).get("fallback") or {}).get("url") if isinstance(after, dict) else None
-        return (bool(old and not new) or bool(new and new != old and not ner_setup.remote.is_local(str(new)))
+        prompts_off = (isinstance(after, dict) and after.get("prompts") is False
+                       and not (isinstance(before, dict) and before.get("prompts") is False))
+        return (prompts_off or bool(old and not new)
+                or bool(new and new != old and not ner_setup.remote.is_local(str(new)))
                 or bool(new_fb and new_fb != old_fb and not ner_setup.remote.is_local(str(new_fb))))
 
     def same(dirs) -> set:     # ~/team, /home/me/team/ and /home/me/./team are one folder
@@ -585,6 +588,8 @@ def apply_typed(key: str, word: str, route: str = "typed prompt", cwd: str = "")
     if loosens(key, cfg.get(key), after.get(key)):
         from . import events
         events.record_weakening("setting", key, route)      # the next session start names it to the person
+    if ner_change and word.startswith("ner:prompts:"):
+        return True, f"maisecrets: {ner_setup.scope(after.get(key) or {})}"
     if ner_change:
         return True, f"maisecrets: {ner_setup.describe(after.get(key))}.{note}"
     return True, f"maisecrets: {TITLE.get(key, key)} is {_shown(after.get(key), key)} ({state(key, after)}).{note}"
