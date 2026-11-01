@@ -244,7 +244,11 @@ class RemoteDetector:
         return _PinnedConnection(p.hostname, port, addrs[0], left, p.scheme == "https", self.allow_network), target
 
     def _prove(self, deadline: float) -> None:
-        """GET /health?challenge=<a fresh nonce> and compare the proof (#1699). Raises _NotOurs on any other answer."""
+        """GET /health?challenge=<a fresh nonce> and compare the proof (#1699). Raises _NotOurs on any other answer.
+        The proof and the text go over two connections (the service closes each one): a process that takes the port
+        in the moment between them gets the text. Only one that can stop the container can do that, and it can read
+        the secret from the container anyway; the proof stops a listener that holds the port while the container is
+        down."""
         nonce = secrets.token_urlsafe(24)
         conn, target = self._connection(max(0.001, deadline - time.monotonic()))
         base = target.split("?", 1)[0].rstrip("/")
@@ -253,7 +257,16 @@ class RemoteDetector:
             if conn.sock is not None:
                 conn.sock.settimeout(max(0.001, deadline - time.monotonic()))
             resp = conn.getresponse()
-            data = resp.read(4096)
+            data = b""
+            while len(data) < 4096:            # read to the deadline: a dribbled answer cannot stretch it
+                if time.monotonic() > deadline:
+                    raise TimeoutError
+                if conn.sock is not None:
+                    conn.sock.settimeout(max(0.001, deadline - time.monotonic()))
+                chunk = resp.read1(4096 - len(data)) if hasattr(resp, "read1") else resp.read(4096 - len(data))
+                if not chunk:
+                    break
+                data += chunk
             try:
                 proof = json.loads(data.decode("utf-8")).get("proof") if resp.status == 200 else None
             except (ValueError, AttributeError):
@@ -356,6 +369,8 @@ class RemoteDetector:
                     sent[a:b] = FILLER * (b - a)
                 if self.__secret:
                     self._prove(deadline)      # no text goes to a listener that cannot prove the secret
+                    if time.monotonic() > deadline:
+                        raise TimeoutError     # a proof after the deadline: the caller was told "timeout"
                 raw = self._request(self._body("".join(sent)), deadline)
                 box["kept"] = self._keep(text, self._parse(raw, len(text)), occupied, deadline)
             except BaseException as exc:  # noqa: BLE001 - handed to the caller as it is

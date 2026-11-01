@@ -6,6 +6,7 @@ unless the caller allows it."""
 from __future__ import annotations
 
 import json
+import re
 import os
 import socket
 import socketserver
@@ -85,6 +86,12 @@ class Service:
                 nonce = urllib.parse.parse_qs(parts.query).get("challenge", [""])[0]
                 svc.challenges.append(nonce)
                 secret = svc.secret
+                import re
+                if secret and not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", nonce):     # as ner-sidecar/serve.py
+                    self.send_response(400)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
                 if parts.path.rstrip("/") != "/health" or not secret:
                     out = b'{"status": "ok"}'           # a service without the secret gives no proof
                 else:
@@ -94,7 +101,14 @@ class Service:
                 self.send_response(200)
                 self.send_header("Content-Length", str(len(out)))
                 self.end_headers()
-                self.wfile.write(out)
+                try:
+                    for i in range(len(out)) if svc.drip else [None]:
+                        self.wfile.write(out if i is None else out[i:i + 1])
+                        if i is not None:
+                            self.wfile.flush()
+                            time.sleep(svc.drip)
+                except OSError:
+                    pass
 
             def log_message(self, *args):
                 pass
@@ -195,7 +209,7 @@ class ChallengeTests(unittest.TestCase):
             self.assertEqual((status.state, len(spans)), ("ok", 1))
         self.assertEqual(len(svc.received), 2)
         self.assertEqual(len(set(svc.challenges)), 2, "a fresh nonce for each text")
-        self.assertTrue(all(len(c) >= 22 for c in svc.challenges), "at least 128 bits")
+        self.assertTrue(all(re.fullmatch(r"[A-Za-z0-9_-]{32,128}", c) for c in svc.challenges), "128 bits and more")
         self.assertEqual(svc.headers[-1]["authorization"], "Bearer " + bearer_of(self.SHARED))
         seen = json.dumps([svc.received, svc.headers, svc.challenges])
         self.assertNotIn(self.SHARED, seen, "the secret itself never travels")
@@ -209,6 +223,16 @@ class ChallengeTests(unittest.TestCase):
                 spans, status = rm.RemoteDetector(svc.url, secret=self.SHARED).ask(TEXT, [])
                 self.assertEqual((spans, status.state, status.reason), ([], "unavailable", "not_ours"))
                 self.assertEqual(svc.received, [], "no text before the proof")
+
+    def test_a_dribbled_proof_ends_at_the_deadline_and_sends_no_text(self):
+        # one byte every 50 ms: each read stays under the socket timeout, the whole proof takes about 4 s
+        svc = self.service(self.SHARED, drip=0.05)
+        t0 = time.monotonic()
+        spans, status = rm.RemoteDetector(svc.url, secret=self.SHARED, timeout=0.3).ask(TEXT, [])
+        self.assertLess(time.monotonic() - t0, 1.0)
+        self.assertEqual(status.state, "unavailable")
+        time.sleep(5.0)
+        self.assertEqual(svc.received, [], "the late proof sent no text")
 
     def test_a_proof_of_an_old_nonce_is_refused(self):
         svc = self.service(self.SHARED)
@@ -517,7 +541,7 @@ class RemoteDetectorTests(unittest.TestCase):
         # a host that embeds the library serialises each reason: network and policy came with 0.8.7 (codex review)
         schema = contract.json.loads(contract.SCHEMA.read_text())["$defs"]["response"]
         base = self.det.findings_with(TEXT, channel="tool")
-        for reason in ("timeout", "refused", "network", "policy", "http", "answer"):
+        for reason in ("timeout", "refused", "network", "policy", "unauthorized", "not_ours", "http", "answer"):
             with self.subTest(reason=reason):
                 r = rm.Result(base.findings, rm.RemoteStatus("hf", "m", "unavailable", reason))
                 self.assertEqual(problems(contract.result_response(self.det, r), schema), [])
