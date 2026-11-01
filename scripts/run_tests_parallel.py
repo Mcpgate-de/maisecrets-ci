@@ -55,6 +55,8 @@ def main(argv: list) -> int:
         total += ran
         if rc != 0 or ran == 0:
             bad.append(f"{name} (exit {rc}, {ran} tests)")
+    slowest = sorted(names, key=lambda x: -done[x][2])[:8]
+    print("slowest files: " + ", ".join(f"{x} {done[x][2]:.0f} s" for x in slowest), file=sys.stderr)
     summary = (f"\n{len(names)} files, {n} at once, {time.monotonic() - t0:.0f} s\nRan {total} tests\n"
                + ("OK\n" if not bad else "FAILED: " + ", ".join(bad) + "\n"))
     text = "".join(lines) + summary
