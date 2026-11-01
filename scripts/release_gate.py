@@ -273,6 +273,8 @@ QUIET_WAIT = 1800  # seconds the gate waits for it; then it measures and the rep
 def wait_for_quiet(limit: float = QUIET_LOAD, wait: float = QUIET_WAIT, step: float = 20.0) -> float:
     """Wait until the 1-minute load average is below `limit` twice in a row, at most `wait` seconds; the seconds
     waited. Only the CPU time needs a quiet machine: the benchmark runs before it count hits, at any load."""
+    if not hasattr(os, "getloadavg"):
+        return 0.0                 # Windows has no load average; the gate runs on macOS and Linux
     t0, ok = time.monotonic(), 0
     while ok < 2 and time.monotonic() - t0 < wait:
         ok = ok + 1 if os.getloadavg()[0] < limit else 0

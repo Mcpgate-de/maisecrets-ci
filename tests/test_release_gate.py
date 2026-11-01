@@ -25,12 +25,12 @@ class ReleaseGateTests(unittest.TestCase):
     def test_the_cpu_step_waits_for_two_quiet_readings_and_no_longer_than_its_limit(self):
         # the benchmark runs count hits at any load; only the CPU time waits for a quiet machine
         loads = iter([3.0, 0.4, 2.0, 0.4, 0.3])
-        with mock.patch.object(gate.os, "getloadavg", lambda: (next(loads), 0, 0)), \
+        with mock.patch.object(gate.os, "getloadavg", lambda: (next(loads), 0, 0), create=True), \
                 mock.patch.object(gate.time, "sleep") as sleep:
             gate.wait_for_quiet(limit=1.0, wait=3600, step=1)
         self.assertEqual(sleep.call_count, 4, "busy, quiet, busy again, then two quiet readings")
         clock = iter(range(0, 10_000, 30))
-        with mock.patch.object(gate.os, "getloadavg", lambda: (5.0, 0, 0)), \
+        with mock.patch.object(gate.os, "getloadavg", lambda: (5.0, 0, 0), create=True), \
                 mock.patch.object(gate.time, "sleep"), mock.patch.object(gate.time, "monotonic", lambda: next(clock)):
             self.assertGreaterEqual(gate.wait_for_quiet(limit=1.0, wait=120, step=1), 120)
 
