@@ -62,6 +62,14 @@ _TIME_STATE_PAIRS = frozenset({("valid", "from"), ("valid", "until"), ("not", "b
                                ("last", "used")})
 # a word that is no label alone (`key`); with another word before it, it is one
 _NO_LABEL_ALONE = frozenset({"key"})
+# a parent field whose value is always a person: its `name` or `displayName` is a person's full name, as after the label
+# full_name. In API data `name` alone is a project, a label or a team as often as a person (author.name in GitLab,
+# reporter.displayName in Jira, organizer.displayName in Google Calendar, gateway corpus 2026-11-01: after `name:` a
+# surname that is also an English word made the name words, and a quarter of these names stayed in the clear)
+_PERSON_PARENTS = frozenset({"author", "reviewer", "assignee", "reporter", "creator", "organizer", "attendee",
+                             "committer", "approver", "requester", "merge_user", "merged_by", "closed_by",
+                             "approved_by", "requested_by"})
+_PERSON_NAME_FIELDS = (["name"], ["display", "name"], ["full", "name"])
 _LABEL_MAX = 64
 # characters that would end the label line or make the name a label and a value of its own
 _NOT_IN_LABEL = _LazyRx(r"[\x00-\x1f\x7f\x85\u2028\u2029:=\"']")
@@ -98,6 +106,15 @@ def checked(text: str, fields) -> tuple:
         if label:
             out.append((start, end, label))
     return tuple(out)
+
+
+def _person_parent(part: str) -> bool:
+    words = label_words(part)
+    if not words or len(part) > _LABEL_MAX:
+        return False
+    whole = "_".join(words)
+    last = words[-1][:-1] if words[-1].endswith("s") and len(words[-1]) > 4 else words[-1]
+    return whole in _PERSON_PARENTS or "_".join(words[:-1] + [last]) in _PERSON_PARENTS
 
 
 def label_words(label: str) -> list:
@@ -148,7 +165,11 @@ def names_no_secret(words) -> bool:
 
 
 def _label(name) -> str:
-    """The label of a field path: its last part that is no list index, or "" when it can give no evidence."""
+    """The label of a field path: its last part that is no list index, or "" when it can give no evidence. The name of
+    a person under a person's role (author.name, assignee.displayName) is labelled full_name."""
+    parts = [p.strip() for p in name if not isinstance(p, int) and p.strip() and not p.strip().isdigit()]
+    if len(parts) >= 2 and label_words(parts[-1]) in _PERSON_NAME_FIELDS and _person_parent(parts[-2]):
+        return "full_name"
     for part in reversed(name):
         if isinstance(part, int) or not part.strip() or part.strip().isdigit():
             continue

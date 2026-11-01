@@ -115,6 +115,33 @@ class FieldEvidenceTests(unittest.TestCase):
         self.assertEqual(len(hits), 1)
 
 
+class PersonRoleTests(unittest.TestCase):
+    # a surname that is an English word makes `name: <given> <surname>` words after the weak label `name`; under a
+    # person's role it is the person's name (gateway corpus, 2026-11-01). The name is built from parts, never one
+    # literal, so no real person is named
+    NAME = "Nora" + " " + "Baker"
+
+    def test_a_name_under_a_persons_role_is_found(self):
+        self.assertEqual(leaf(self.NAME, "name"), [], "the premise: after the weak label it reads as words")
+        for path in (("author", "name"), ("reviewers", "name"), ("assignee", "displayName"),
+                     ("fields", "reporter", "displayName"), ("merge_user", "name"), ("mergedBy", "name"),
+                     ("attendees", "displayName"), ("organizer", "displayName")):
+            with self.subTest(path=path):
+                self.assertEqual([m.type for m in leaf(self.NAME, *path)], ["NAME"])
+
+    def test_other_parents_keep_the_weak_label(self):
+        for path in (("project", "name"), ("status", "name"), ("users", "name"), ("labels", "name"), ("name",),
+                     ("author", "title")):
+            with self.subTest(path=path):
+                self.assertEqual(leaf(self.NAME, *path), [])
+
+    def test_a_bot_or_a_project_under_a_persons_role_stays_text(self):
+        for value in ("GitLab Bot", "Renovate Bot", "Dependabot", "Ghost User", "Automation for Jira", "CI Runner",
+                      "Billing Service", "Data Pipeline"):
+            with self.subTest(n=len(value)):
+                self.assertEqual(leaf(value, "author", "name"), [])
+
+
 class NoFieldsIsTheOldScanTests(unittest.TestCase):
     TEXTS = ("telefon: " + PHONE, "password: " + PASSWORD, json.dumps({"customer": {"telefon": PHONE}}), PHONE, "")
 
