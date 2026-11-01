@@ -6,7 +6,7 @@ What runs, where, and what makes it fail. The history of each finding is in the 
 
 | suite | command | where it runs |
 |---|---|---|
-| unit tests | `python3 -m unittest discover -s tests` | GitLab `unit` (Linux, 3.12 and 3.9), GitHub on Windows and macOS (merge request: GitLab `windows_macos`; release: branch `ci`); locally `scripts/check_all.sh` |
+| unit tests | `python3 -m unittest discover -s tests` (or `scripts/run_tests_parallel.py`, one file per process) | GitLab `unit` (Linux, 3.12 and 3.9, the parallel runner), GitHub on Windows and macOS (merge request: GitLab `windows_macos`; release: branch `ci`); locally `scripts/check_all.sh` |
 | beliefs | `python3 scripts/replay_can_fail.py` (one worker per CPU, each in a copy of the tree; `--jobs 1` for serial) | GitLab `beliefs_can_fail_replay`; locally `scripts/check_all.sh` |
 | stated numbers | `python3 scripts/derived_counts.py` | pre-push hook, GitLab `manifests` |
 | repository scan | `python3 scripts/scan_tree.py` | GitLab `no_secrets_in_tree` |
@@ -28,7 +28,7 @@ What runs, where, and what makes it fail. The history of each finding is in the 
 | release comparison | `python3 scripts/release_compare.py PREV NEW OUT [--reuse-prev DIR] [--reuse-new DIR]` | by hand for each release: both tags on the dev and val splits of the development sources and Privy totals, the change per source, split and class, the five largest gains and regressions, and the findings of `scripts/compare_bench.py`; time is reported, not judged |
 | Windows end to end | `GITLAB_COM_TOKEN=… python3 scripts/windows_e2e.py [--rev REV]` | by hand before a release that touches the hooks, the launchers or the harness: GitLab-hosted Windows runners of a separate project, in three shapes (PowerShell 7, Windows PowerShell 5.1, Git Bash). Each job runs `harness/windows/shell_probe.py` (which shell runs a hook, and the `hooks.json` command in each shell) and `harness/run.py` with the shell tool the client offers (`MAISECRETS_HARNESS_SHELL_TOOL`) |
 
-3072 tests (`tests/test_*.py`), about 35 seconds on an M-series laptop. Without PyYAML, two tests of
+3075 tests (`tests/test_*.py`), about 35 seconds on an M-series laptop. Without PyYAML, two tests of
 `tests/test_measure_catalog_coverage.py` fail and the belief `manifest-every-frontmatter-parses-as-yaml` is
 skipped; CI installs it. A virtual environment with `pip install pyyaml` gives the full run locally. The GitHub matrix runs on
 Windows and macOS in two places. In a merge request into `main`, and into `next` unless it changes documentation

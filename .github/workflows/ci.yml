@@ -63,7 +63,8 @@ jobs:
           python -c "import json; d=json.load(open('out.json',encoding='utf-8')); assert d.get('decision')=='block', d; s=json.dumps(d,ensure_ascii=False); assert '\ufffd' not in s and '\u00c3' not in s, d; print('cmd launcher: blocked ok')"
           type plain.json | cmd.exe /C ""%CD%/hooks/run.cmd" user-prompt" > plain.out
           python -c "import json; d=json.load(open('plain.out',encoding='utf-8')); assert d.get('decision')!='block', d; print('cmd launcher: plain prompt passes')"
-      # after the launcher checks (seconds). The wrapper runs `python -m unittest discover -s tests -v` and
+      # after the launcher checks (seconds). The wrapper runs the suite one test file per process
+      # (scripts/run_tests_parallel.py, each file with `unittest discover -s tests -p FILE -v`) and
       # writes each failing test as an annotation: the public API serves annotations without a token, the job log
       # needs one, and the GitLab merge request job prints them (scripts/github_matrix.py)
       - name: unit tests

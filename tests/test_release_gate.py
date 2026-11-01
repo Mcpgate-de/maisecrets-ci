@@ -22,6 +22,20 @@ def result(outcomes: dict, sha: str = "abc") -> dict:
 
 
 class ReleaseGateTests(unittest.TestCase):
+    def test_the_cpu_step_waits_for_two_quiet_readings_and_no_longer_than_its_limit(self):
+        # the benchmark runs count hits at any load; only the CPU time waits for a quiet machine
+        loads = iter([3.0, 0.4, 2.0, 0.4, 0.3])
+        with mock.patch.object(gate.os, "getloadavg", lambda: (next(loads), 0, 0), create=True), \
+                mock.patch.object(gate.time, "sleep") as sleep:
+            gate.wait_for_quiet(limit=1.0, wait=3600, step=1)
+        self.assertEqual(sleep.call_count, 4, "busy, quiet, busy again, then two quiet readings")
+        now = [0.0]                                      # a clock that the mocked sleep moves on
+        with mock.patch.object(gate.os, "getloadavg", lambda: (5.0, 0, 0), create=True), \
+                mock.patch.object(gate.time, "sleep", lambda s: now.__setitem__(0, now[0] + s)), \
+                mock.patch.object(gate.time, "monotonic", lambda: now[0]):
+            waited = gate.wait_for_quiet(limit=1.0, wait=120, step=20)
+        self.assertTrue(120 <= waited <= 140, waited)    # the limit, and at most one step past it
+
     def test_the_diff_decides_whether_to_measure(self):
         kind = gate.classify(["maisecrets/detection/personal.py", "docs/BENCHMARKS.md"])
         self.assertTrue(kind["retest"])
