@@ -16,16 +16,15 @@ that order too."""
 from __future__ import annotations
 
 import argparse
+import json
 import os
-import re
 import subprocess
 import sys
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-RAN = re.compile(r"^Ran (\d+) tests? in", re.M)
-TAIL = re.compile(r"^(OK|FAILED)\b(.*)$", re.M)
 # the files that took longest on the reference host (2026-11-01, 25 s and more), slowest first: started first, so the
 # run ends with short ones
 SLOW_FIRST = ("test_cli_matrix", "test_vault_refs", "test_label_languages", "test_rules_from_the_catalogs",
@@ -33,13 +32,24 @@ SLOW_FIRST = ("test_cli_matrix", "test_vault_refs", "test_label_languages", "tes
               "test_skill")
 
 
+UNIT_FILE = Path(__file__).resolve().parent / "_unit_file.py"
+
+
 def run(name: str) -> tuple:
+    """(name, exit, console text, seconds, tests run). The count comes from the file's own result, not from its text:
+    a test that runs unittest in a child prints a second "Ran ..." line, before or after the file's own."""
     t0 = time.monotonic()
-    # UTF-8 both ways: a Windows console code page cannot hold every test name and value
-    p = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", f"{name}.py", "-v"],
-                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", errors="replace",
-                       env=dict(os.environ, PYTHONIOENCODING="utf-8"))
-    return name, p.returncode, p.stdout, time.monotonic() - t0
+    with tempfile.TemporaryDirectory() as d:
+        result = Path(d, "result.json")
+        # UTF-8 both ways: a Windows console code page cannot hold every test name and value
+        p = subprocess.run([sys.executable, str(UNIT_FILE), f"{name}.py", str(result)],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", errors="replace",
+                           env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+        try:
+            ran = int(json.loads(result.read_text(encoding="utf-8"))["ran"])
+        except (OSError, ValueError, KeyError, TypeError):
+            ran = 0                     # the file did not get as far as its result: a crash or a kill
+    return name, p.returncode, p.stdout, time.monotonic() - t0, ran
 
 
 def main(argv: list) -> int:
@@ -52,13 +62,11 @@ def main(argv: list) -> int:
     n = a.j if a.j > 0 else (os.cpu_count() or 1)
     t0 = time.monotonic()
     with ThreadPoolExecutor(max_workers=n) as pool:
-        done = {name: (rc, out, sec) for name, rc, out, sec in pool.map(run, order)}
+        done = {name: (rc, out, sec, ran) for name, rc, out, sec, ran in pool.map(run, order)}
     total, bad, lines = 0, [], []
     for name in names:
-        rc, out, sec = done[name]
+        rc, out, sec, ran = done[name]
         lines.append(out)
-        m = RAN.search(out)
-        ran = int(m.group(1)) if m else 0
         total += ran
         if rc != 0 or ran == 0:
             bad.append(f"{name} (exit {rc}, {ran} tests)")
