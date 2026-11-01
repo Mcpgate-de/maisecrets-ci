@@ -5,10 +5,10 @@
  "timeout_ms": 300,
  "cases": 25387,
  "words": 2925773,
- "no_answer_in_time": 2,
- "ms_median": 87.7,
- "ms_p95": 132.3,
- "ner_spans": 1578,
+ "no_answer_in_time": 72,
+ "ms_median": 99.8,
+ "ms_p95": 176.1,
+ "ner_spans": 1576,
  "ner_spans_per_1000_words": 0.54,
- "texts_with_a_span": 1028
+ "texts_with_a_span": 1027
 }
