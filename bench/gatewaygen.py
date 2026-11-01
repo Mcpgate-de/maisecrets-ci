@@ -9,7 +9,10 @@ thousands of names and usernames that only maisecrets reported, none of them lab
 
 Nothing is stored: the cases are made at run time from one seed. Names come from bench/structvalues.py; mail domains
 are made-up names under .internal, which maisecrets treats as a person's mailbox (value_checks._reserved_domain), so
-an address is measured and not set aside as a reserved test domain.
+an address is measured and not set aside as a reserved test domain. One difference to a real company domain: under
+.internal, value_checks._reserved_domain also lets service mailboxes (alerts, ci, deploy …) and *-bot addresses
+through, while on a public domain only the system users (noreply, postmaster …) pass. So the mailbox false positives
+here are a lower bound for prod.
 
     python3 bench/run.py --source gateway --split dev --out gateway-dev.json
     python3 bench/gatewaygen.py --stats"""
