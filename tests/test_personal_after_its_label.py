@@ -948,3 +948,16 @@ class ReviewOfTheDatasetRulesTests(Base):
         for text in ("Each shard resides at 2 Primary Road", "The handler lives in 4 Core Lane module."):
             with self.subTest(text):
                 self.assertText(text)
+
+
+class SharpSTests(Base):
+    # ß (U+00DF) lies outside the letter ranges of a name word; a German surname with it was never a name (gateway
+    # corpus, 2026-11-01). The names are built from parts, so no real person is named
+    def test_a_name_with_sharp_s_is_masked_after_its_label(self):
+        for surname in ("Wei" + "ß", "Gro" + "ß", "Strau" + "ß", "Mei" + "ßner"):
+            with self.subTest(n=len(surname)):
+                self.assertMasked("Name: Lena " + surname + "\n", "Lena " + surname)
+                self.assertMasked("Kontakt: Lena " + surname + " <lena@example.de>\n", "Lena " + surname)
+
+    def test_a_street_after_its_label_stays_an_address(self):
+        self.assertEqual([m.type for m in scan("Straße: Hauptstraße 5\n")], ["ADDRESS"])
