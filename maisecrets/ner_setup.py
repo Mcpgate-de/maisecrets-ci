@@ -34,6 +34,9 @@ from .detection import remote
 
 LOCAL_URL = "http://127.0.0.1:8765/"
 IMAGE = "mcpgate/ner"
+# the first tag whose container proves its secret (NER_CLIENT_SECRET, #1699): `run.sh ner start` runs this tag, never
+# `latest`, which docker does not pull again when an old one is on the machine
+SECRET_IMAGE = IMAGE + ":v2.0.3584"
 START = f"docker run -d --name ner --restart unless-stopped -p 127.0.0.1:8765:8765 {IMAGE}"
 # the keys a source sets; any other key of the setting is the person's tuning and stays
 SOURCE_KEYS = ("url", "format", "model", "allow_network", "mask", "ask_labels")
@@ -222,6 +225,16 @@ def probe(conf, timeout: float = 1.0) -> tuple[bool, str]:
     return True, f"the service: answers ({ms:.0f} ms), model {model}, types {kinds}"
 
 
+def _info(conf) -> dict:
+    """GET /info of the source, or {} when it cannot be read."""
+    try:
+        with urllib.request.urlopen(str(conf.get("url")).rstrip("/") + "/info", timeout=2) as r:
+            doc = json.loads(r.read(65536).decode("utf-8"))
+        return doc if isinstance(doc, dict) else {}
+    except (OSError, urllib.error.URLError, ValueError, AttributeError):
+        return {}
+
+
 def container_tool() -> str:
     """The absolute path of docker or podman, the first one on PATH, or "". The restart runs this path, not a name
     that PATH resolves again (codex review of 0.8.7)."""
@@ -288,7 +301,8 @@ def start_local(cfg: dict) -> tuple[int, list]:
     secret = ner_secret.new_secret()
     env = dict(os.environ, NER_CLIENT_SECRET=secret)
     r = subprocess.run([tool, "run", "-d", "--name", "ner", "--restart", "unless-stopped", "-e", "NER_CLIENT_SECRET",
-                        "-p", "127.0.0.1:8765:8765", IMAGE], capture_output=True, text=True, env=env, timeout=900)
+                        "-p", "127.0.0.1:8765:8765", SECRET_IMAGE], capture_output=True, text=True, env=env,
+                       timeout=900)
     if r.returncode != 0:
         return 1, ["The container did not start: " + (r.stderr.strip().splitlines() or ["no reason given"])[-1][:200]]
     cid = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
@@ -320,9 +334,15 @@ def report(conf, wait: float = 0.0) -> tuple[int, list]:
     lines.append(line)
     if ok and str(url).rstrip("/") == LOCAL_URL.rstrip("/"):
         from . import ner_secret
-        lines.append("checked: the container proves the secret maisecrets gave it before each text"
-                     if ner_secret.container_of(ner_secret.endpoint(LOCAL_URL)) else
-                     "not checked: the container was not set up by maisecrets (run.sh ner start does that)")
+        if not ner_secret.container_of(ner_secret.endpoint(LOCAL_URL)):
+            lines.append("not checked: the container was not set up by maisecrets (run.sh ner start does that)")
+        elif not _info(conf).get("client_secret"):
+            # an image before the secret check: it gets no text, and the fault is the image, not an impostor
+            lines.append(f"the container cannot prove its secret: its image is older than {SECRET_IMAGE}. Remove it "
+                         "(docker rm -f ner) and run /maisecrets:ner again; until then it gets no text.")
+            return 1, lines
+        else:
+            lines.append("checked: the container proves the secret maisecrets gave it before each text")
     if ok:
         return 0, lines
     lines.append("Until it answers, the rules mask tool results alone, as without the service.")

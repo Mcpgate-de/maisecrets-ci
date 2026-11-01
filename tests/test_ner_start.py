@@ -75,6 +75,7 @@ class StartTests(unittest.TestCase):
         self.assertEqual(len(secret), 43)
         self.assertEqual(env["NER_CLIENT_SECRET"], secret)
         self.assertIn("NER_CLIENT_SECRET", argv)
+        self.assertEqual(argv[-1], ner_setup.SECRET_IMAGE, "a fixed tag that proves: an old latest would not")
         self.assertNotIn(secret, " ".join(argv), "never on the command line, where ps shows it")
         self.assertNotIn(secret, "\n".join(lines))
         self.assertEqual(ner_secret.container_of(EP), CID)
@@ -128,6 +129,18 @@ class StoredSecretTests(unittest.TestCase):
     def test_after_a_start_the_detector_of_the_local_source_gets_the_secret(self):
         ner_secret.keep(make_backend(CONFIG), EP, "s" * 43, CID)
         self.assertEqual(self.detector()._RemoteDetector__secret, "s" * 43)
+
+    def test_a_recorded_container_of_an_old_image_is_named_as_too_old(self):
+        ner_secret.keep(make_backend(CONFIG), EP, "s" * 43, CID)
+        conf = {"url": ner_setup.LOCAL_URL, "format": "hf"}
+        with mock.patch.object(ner_setup, "probe", return_value=(True, "the service: answers")):
+            with mock.patch.object(ner_setup, "_info", return_value={"model": "m"}):
+                code, lines = ner_setup.report(conf)
+            self.assertEqual(code, 1)
+            self.assertIn("older than " + ner_setup.SECRET_IMAGE, lines[-1])
+            with mock.patch.object(ner_setup, "_info", return_value={"client_secret": True}):
+                code, lines = ner_setup.report(conf)
+            self.assertEqual((code, lines[-1][:8]), (0, "checked:"))
 
     def test_an_impostor_gets_its_own_note(self):
         status = remote_layer.remote.RemoteStatus("hf", "", "unavailable", "not_ours")
