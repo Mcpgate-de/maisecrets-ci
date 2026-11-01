@@ -2327,7 +2327,13 @@ maisecrets does not verify that it is `mcpgate/ner`.
   refusal arrive in time.
 - **Which service read what**: `/maisecrets:ner` and `/maisecrets:status`
   count today's requests per service, from `ner.log` (time, service, tool
-  result or prompt, characters, names; never text).
+  result or prompt, characters, names; never text). The counts are those of
+  all your sessions on this computer, not of one session, as far as the log
+  keeps them (above 1 MB its older half goes).
+- **Names in lower case**: the model of `mcpgate/ner` is cased, and a capital
+  letter is its main sign of a name. `Peter Pan` becomes a placeholder,
+  `peter pan` mostly stays text. A name that must always be masked belongs in
+  your term list (`/maisecrets:term add NAME`).
 - **When the service does not answer**, the rules mask the tool result alone,
   as without it, and the AI tells you once per session. `/maisecrets:status`
   shows the source and whether it answers.
@@ -2362,11 +2368,14 @@ and keeps its other keys. Written by hand, the setting looks like this:
 - Tool results, and the prompts you type in Claude Code (with the mod) when the service is on this computer: a
   name in a prompt becomes a placeholder and never blocks it. `/maisecrets:ner prompts off` turns the prompt part off (the setting `"prompts": false`). A
   service on the network never gets a prompt, and Codex prompts keep the rules alone (Codex cannot rewrite a
-  prompt). One request per tool call or prompt, within `timeout_ms` (at most
-  5000; the name lookup and a slow answer count too). On an M-series laptop the service
-  answers a prompt of 1,000 characters in 170 ms (p95) and one of 2,000 characters in 400 ms, so with the
-  default of 300 ms a long prompt often keeps the rules alone; a higher `timeout_ms` waits longer for each tool
-  result too. Each value
+  prompt). One request per tool call or prompt. A tool result waits `timeout_ms`
+  (300 by default, at most 5000; the name lookup and a slow answer count too). A prompt waits
+  `prompt_timeout_ms` (1000 by default, at most 5000, never less than `timeout_ms`): you wait for
+  your prompt anyway. If the service gives no answer in time, the prompt goes on with the rules alone,
+  and maisecrets says once per session that its names were not checked, and why. On the reference setup
+  (`mcpgate/ner` with the production limits of 4 cores and 1.5 GB, an AMD EPYC 9645, 4 requests at
+  once; `bench/results/2026-11-01-v3-0.8.7-prompt-ner/`) a text of 1,000 characters takes 100 ms
+  (median) and 164 ms (p95). Each value
   the rules found goes out as `_` filler of the same length. The filler costs
   the model a few names (21 of 2,482 on the benchmark samples), so a service on
   loopback or a Unix socket may read those values as they are with

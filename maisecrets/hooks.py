@@ -888,11 +888,13 @@ def rewrite_prompt(payload: dict) -> dict:
         except OSError:
             return {}           # the hook answers it, and blocks when it cannot record the name either
     matches = _prompt_hits(prompt)
-    names = _prompt_names(cfg, prompt, matches, session)
+    names, why = _prompt_names(cfg, prompt, matches, session)
     if names:
         matches = sorted(matches + names, key=lambda m: (m.start, m.end))
+    # the name check did not run: the person learns it once per session (a silent miss looked like a clean prompt)
+    unchecked = _unchecked_note(session, why) if why else None
     if not matches and not _has_live(cfg):
-        return {}
+        return {"text": prompt, "count": 0, "tip": unchecked} if unchecked else {}
     # the hook checks the text the mod passes on: a placeholder in place of a value can turn `@src/<value>` into
     # a mention of the folder src/ (Gate B), and a stored value has no shape to preview (codex, round 2). So a
     # mention any of whose prefixes exists goes to the hook, before anything is stored or admitted
@@ -901,7 +903,7 @@ def rewrite_prompt(payload: dict) -> dict:
     vault = Vault(cfg)
     rewritten, entries, values, stored, matches = _take_values_out(prompt, matches, cfg, vault, session)
     if not matches and not stored["n"]:
-        return {}
+        return {"text": prompt, "count": 0, "tip": unchecked} if unchecked else {}
     if _blocking_mention(rewritten, cwd if isinstance(cwd, str) else "", cfg):
         return {}      # a stored value without a shape made the mention; the hook blocks it
     if cfg.get("scrub_transcript", True):
@@ -914,20 +916,25 @@ def rewrite_prompt(payload: dict) -> dict:
     events.record("UserPromptSubmit", "claude", entries, outcome="rewritten by the mod")
     # what the person reads: each value taken out, a detected one per place and a stored one per place
     answer = {"text": rewritten, "count": len(matches) + stored["n"]}
-    tip = _check_tip(cfg)
+    tip = unchecked or _check_tip(cfg)
     if tip:
         answer["tip"] = tip         # the mod shows it next to its line, once (check_value.py)
     return answer
 
 
-def _prompt_names(cfg: dict, prompt: str, matches: list, session: str | None) -> list:
-    """The names the service of /maisecrets:ner finds in a prompt the mod rewrites (remote_layer.prompt_names)."""
+def _unchecked_note(session: str | None, why: str) -> str | None:
+    from . import remote_layer
+    return remote_layer.unchecked_note(session, why)
+
+
+def _prompt_names(cfg: dict, prompt: str, matches: list, session: str | None) -> tuple:
+    """(names, why not checked or "") for a prompt the mod rewrites (remote_layer.prompt_names)."""
     try:
         from . import remote_layer
         return remote_layer.prompt_names(cfg, prompt, matches, lambda: _protect(cfg, session))
     except Exception as exc:  # noqa: BLE001 - the rules' rewrite runs as without the service
         _debug(f"prompt names: {type(exc).__name__}")
-        return []
+        return [], "error"
 
 
 def _protect(cfg: dict, session: str | None):

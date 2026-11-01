@@ -565,6 +565,8 @@ def apply_typed(key: str, word: str, route: str = "typed prompt", cwd: str = "")
             except ConfigError as exc:
                 # load_config ignores the whole file then: the change would be written and still not count
                 return False, f"maisecrets: {exc}; fix it first. Nothing was changed."
+            # before and after under the same lock: two changes at once record a weakening once, not 0 or 2 times
+            before = load_config().get(key)
             if ner_change:
                 user[key] = ner_setup.updated(user.get(key), word[4:])
             elif word == "default":
@@ -582,10 +584,10 @@ def apply_typed(key: str, word: str, route: str = "typed prompt", cwd: str = "")
                 user[key] = (_BOOL_WORDS[word] if key in _BOOL_KEYS else int(word) if key in _INT_KEYS
                              else word)
             atomic_write(target, json.dumps(user, indent=2) + "\n")
+            after = load_config()
     except (OSError, LockTimeout) as exc:
         return False, f"maisecrets: {CONFIG} cannot be written ({type(exc).__name__}); nothing was changed."
-    after = load_config()
-    if loosens(key, cfg.get(key), after.get(key)):
+    if loosens(key, before, after.get(key)):
         from . import events
         events.record_weakening("setting", key, route)      # the next session start names it to the person
     if ner_change and word.startswith("ner:prompts:"):

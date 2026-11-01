@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
 
-from maisecrets import cli, events, hooks, ner_setup, settings  # noqa: E402
+from maisecrets import cli, events, hooks, ner_setup, remote_layer, settings  # noqa: E402
 from maisecrets.vault import HOME, load_config  # noqa: E402
 import _hygiene  # noqa: E402
 from _hygiene import CLAUDE, CODEX  # noqa: E402
@@ -452,13 +452,45 @@ class PromptNameTests(unittest.TestCase):
                 mock.patch.object(remote, "_PinnedConnection", Recorder):
             out = hooks.rewrite_prompt({"prompt": f"{self.NAME} is a colleague of mine", "session_id": "S1",
                                         "origin": "composer"})
-        self.assertEqual(out, {})
+        # nothing went out; the prompt goes on as typed, with the note that its names were not checked
+        self.assertEqual(out, {"text": f"{self.NAME} is a colleague of mine", "count": 0,
+                               "tip": remote_layer.UNCHECKED_NOTE.format(why="the address is not on this computer")})
         self.assertEqual(tried, [])
         self.assertEqual(self.received, [])
 
-    def test_a_service_that_is_down_leaves_the_rules_rewrite(self):
+    def test_a_service_that_is_down_leaves_the_rules_rewrite_and_says_so_once(self):
         self.server.shutdown()
-        self.assertEqual(self.rewrite(), {})
+        prompt = f"{self.NAME} is a colleague of mine"
+        # shutdown() stops the answers, the port still takes the connection: a timeout
+        note = remote_layer.UNCHECKED_NOTE.format(why="no answer in time")
+        self.assertEqual(self.rewrite(), {"text": prompt, "count": 0, "tip": note})
+        again = hooks.rewrite_prompt({"prompt": prompt, "session_id": "S1", "origin": "composer"})
+        self.assertEqual(again, {}, "once per session")
+        other = hooks.rewrite_prompt({"prompt": prompt, "session_id": "S2", "origin": "composer"})
+        self.assertEqual(other.get("tip"), note, "a new session hears it again")
+
+    def test_a_prompt_waits_up_to_its_own_deadline_not_the_tool_timeout(self):
+        # a service that answers in 0.5 s: a tool result (300 ms) misses it, a prompt (1,000 ms) gets the name
+        from maisecrets import remote_layer
+        from maisecrets.detection import remote
+        seen = []
+        real = remote.RemoteDetector.ask
+
+        def ask(det, text, occupied, deadline=None):
+            seen.append(round(det.timeout, 3))
+            return real(det, text, occupied, deadline)
+        _reset(remote_detector={"url": self.url, "format": "hf", "timeout_ms": 300})
+        with mock.patch.object(remote.RemoteDetector, "ask", ask):
+            names, why = remote_layer.prompt_names(load_config(), f"{self.NAME} is here", [], lambda: None)
+        self.assertEqual((seen, why, len(names)), ([1.0], "", 1))
+        for conf, want in (({"prompt_timeout_ms": 2500}, 2.5), ({"prompt_timeout_ms": 0}, 1.0),
+                           ({"prompt_timeout_ms": 9000}, 1.0), ({"timeout_ms": 3000}, 3.0)):
+            with self.subTest(conf=conf):
+                seen.clear()
+                _reset(remote_detector={"url": self.url, "format": "hf", **conf})
+                with mock.patch.object(remote.RemoteDetector, "ask", ask):
+                    remote_layer.prompt_names(load_config(), f"{self.NAME} is here", [], lambda: None)
+                self.assertEqual(seen, [want])
 
 
 def _closed_port() -> int:
@@ -618,6 +650,8 @@ class FallbackTests(unittest.TestCase):
         self.assertEqual(self.fb.received, [])
         self.assertEqual([(x["source"], x["kind"]) for x in self.log_lines()], [("rules", "prompt")])
         self.assertIn("of them to a fallback 0", ner_setup.counts_line())
+        # the log is one per computer: the line says so (a session read its counts as its own, 2026-11-01)
+        self.assertTrue(ner_setup.counts_line().startswith("today, your sessions on this computer (ner.log): "))
 
 
 if __name__ == "__main__":
