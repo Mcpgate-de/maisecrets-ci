@@ -46,6 +46,8 @@ def from_config(cfg: dict, fallback: bool = False) -> tuple:
     # the filler costs names (21 of 2,482 on the V3 samples, docs/NER-EXPERIMENT.md "The remote path"), so a service
     # on this computer may read the rules' findings as they are; any other host always gets the filler
     mask = conf.get("mask") is not False or not remote.is_local(url)
+    # the container maisecrets started proves its secret before each text (#1699); only `run.sh ner start` records one
+    secret = _stored_secret(cfg, url) if remote.is_local(url) else ""
     try:
         return remote.RemoteDetector(
             url, format=str(conf.get("format", "hf")), model=str(conf.get("model", "")),
@@ -53,9 +55,21 @@ def from_config(cfg: dict, fallback: bool = False) -> tuple:
             # at most 5 s: the hook's watchdog is 16 s, and the rules' scan of a large result needs its share
             timeout=min(ms, 5000) / 1000, max_chars=int(conf.get("max_chars", 20000)),
             language=str(conf.get("language", "en")), allow_network=conf.get("allow_network") is True,
-            mask=mask, ask_labels=conf.get("ask_labels") is True, private_http_only=True), ""
+            mask=mask, ask_labels=conf.get("ask_labels") is True, private_http_only=True, secret=secret), ""
     except (ValueError, TypeError, AttributeError) as exc:
         return None, str(exc)
+
+
+def _stored_secret(cfg: dict, url: str) -> str:
+    """The secret `run.sh ner start` kept for this endpoint, or "" (a container started by hand: no check)."""
+    from . import ner_secret
+    ep = ner_secret.endpoint(url)
+    # the store is asked only when `run.sh ner start` recorded a container here: a keychain read for each tool result
+    # of every person who started the container by hand (or of none) would cost time for nothing
+    if not ep or not ner_secret.container_of(ep):
+        return ""
+    from .vault import make_backend
+    return ner_secret.secret_of(make_backend(cfg), ep)
 
 
 class Layer:
@@ -202,6 +216,7 @@ NER_DOWN = {"v": False}
 
 def note_result(layer) -> None:
     NER_DOWN["v"] = layer is not None and layer.status.state == "unavailable"
+    NER_DOWN["not_ours"] = layer is not None and layer.status.reason == "not_ours"
     if layer is not None:
         from . import ner_setup
         NER_DOWN["fallback"] = ner_setup.LAST["source"] == "fallback"
@@ -219,4 +234,5 @@ def hint(payload: dict):
     if not NER_DOWN["v"] or payload.get("agent_id"):
         return None
     NER_DOWN["v"] = False
-    return ner_setup.DOWN_NOTE if ner_setup.claim_down_note(HOME, payload.get("session_id")) else None
+    note = ner_setup.NOT_OURS_NOTE if NER_DOWN.pop("not_ours", False) else ner_setup.DOWN_NOTE
+    return note if ner_setup.claim_down_note(HOME, payload.get("session_id")) else None

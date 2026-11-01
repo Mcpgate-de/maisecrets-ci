@@ -2305,7 +2305,14 @@ maisecrets does not verify that it is `mcpgate/ner`.
   image). If it does not answer, `/maisecrets:ner` gives the command that
   starts it with docker or podman; the AI asks you first (about 690 MB to download, about 250 MB of memory
   while it runs) and then runs it:
-  `docker run -d --name ner --restart unless-stopped -p 127.0.0.1:8765:8765 mcpgate/ner`.
+  `run.sh ner start`, which runs the container `ner` with a secret of its own
+  (in its environment, never on a command line) and keeps that secret in your
+  store. Before each text the container must prove the secret (a fresh
+  challenge each time); a process that holds the port without it gets no text,
+  and maisecrets tells you once. A container you started by hand keeps working,
+  unchecked; `/maisecrets:ner` says which one runs. The proof and the text use
+  two connections, so a process that takes the port in the moment between them
+  is not stopped; only one that can stop the container can do that.
   Without docker or podman, install one of them (Docker Desktop, OrbStack,
   Podman), use a service of your team, or keep the rules alone. After a
   restart, maisecrets starts the container again at the next session start
