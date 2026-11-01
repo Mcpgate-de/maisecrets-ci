@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
 
-from maisecrets import cli, events, hooks, ner_setup, settings  # noqa: E402
+from maisecrets import cli, events, hooks, ner_setup, remote_layer, settings  # noqa: E402
 from maisecrets.vault import HOME, load_config  # noqa: E402
 import _hygiene  # noqa: E402
 from _hygiene import CLAUDE, CODEX  # noqa: E402
@@ -454,7 +454,7 @@ class PromptNameTests(unittest.TestCase):
                                         "origin": "composer"})
         # nothing went out; the prompt goes on as typed, with the note that its names were not checked
         self.assertEqual(out, {"text": f"{self.NAME} is a colleague of mine", "count": 0,
-                               "tip": hooks.UNCHECKED_NOTE.format(why="the address is not on this computer")})
+                               "tip": remote_layer.UNCHECKED_NOTE.format(why="the address is not on this computer")})
         self.assertEqual(tried, [])
         self.assertEqual(self.received, [])
 
@@ -462,7 +462,7 @@ class PromptNameTests(unittest.TestCase):
         self.server.shutdown()
         prompt = f"{self.NAME} is a colleague of mine"
         # shutdown() stops the answers, the port still takes the connection: a timeout
-        note = hooks.UNCHECKED_NOTE.format(why="no answer in time")
+        note = remote_layer.UNCHECKED_NOTE.format(why="no answer in time")
         self.assertEqual(self.rewrite(), {"text": prompt, "count": 0, "tip": note})
         again = hooks.rewrite_prompt({"prompt": prompt, "session_id": "S1", "origin": "composer"})
         self.assertEqual(again, {}, "once per session")

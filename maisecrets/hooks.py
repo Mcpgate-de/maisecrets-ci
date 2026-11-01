@@ -922,19 +922,9 @@ def rewrite_prompt(payload: dict) -> dict:
     return answer
 
 
-UNCHECKED_NOTE = ("maisecrets: the names in this prompt were not checked by the name service ({why}); the rules "
-                  "ran. /maisecrets:ner shows the service. This note comes once per session.")
-_WHY = {"timeout": "no answer in time", "too_long": "the prompt is longer than max_chars", "refused": "not running",
-        "unauthorized": "it wants another bearer", "policy": "the address is not on this computer"}
-
-
-def _unchecked_note(session: str | None, reason: str) -> str | None:
-    from . import ner_setup
-    from .vault import HOME
-    # the record of the tool-result note, with its own key: one note of each kind per session
-    if not (session and ner_setup.claim_down_note(HOME, f"{session}:prompt")):
-        return None
-    return UNCHECKED_NOTE.format(why=_WHY.get(reason, "it gave no usable answer"))
+def _unchecked_note(session: str | None, why: str) -> str | None:
+    from . import remote_layer
+    return remote_layer.unchecked_note(session, why)
 
 
 def _prompt_names(cfg: dict, prompt: str, matches: list, session: str | None) -> tuple:

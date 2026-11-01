@@ -154,3 +154,19 @@ def prompt_names(cfg: dict, prompt: str, matches: list, protect_of) -> tuple:
     st = layer.status
     return [m for m in layer.found.get(prompt, []) if m.kind.startswith("remote:")], (
         "" if st.available else (st.reason or st.state))
+
+
+UNCHECKED_NOTE = ("maisecrets: the names in this prompt were not checked by the name service ({why}); the rules "
+                  "ran. /maisecrets:ner shows the service. This note comes once per session.")
+_WHY = {"timeout": "no answer in time", "too_long": "the prompt is longer than max_chars", "refused": "not running",
+        "unauthorized": "it wants another bearer", "policy": "the address is not on this computer"}
+
+
+def unchecked_note(session: str | None, why: str) -> str | None:
+    """The note for a prompt whose names the service did not check (`why` from prompt_names), once per session: the
+    record of the tool-result note, with its own key. None for a session that had it, or without a session."""
+    from . import ner_setup
+    from .vault import HOME
+    if not (session and ner_setup.claim_down_note(HOME, f"{session}:prompt")):
+        return None
+    return UNCHECKED_NOTE.format(why=_WHY.get(why, "it gave no usable answer"))
