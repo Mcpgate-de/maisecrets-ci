@@ -3,10 +3,13 @@
 field name in front ("username: jdoe"), the configuration of the gateway's MaisecretsDetector (regions generic and
 de, languages en and de, channel tool, no sources, no host user), no NER. It reads bench/gatewaygen.py and reports
 
-- precision and recall per class and per field label (the parent key for person-like keys, as the gateway's metric
-  names them: author.username), with each false positive named by the look-alike it falls on;
+- recall per class and per field label, precision per field label (the parent key for person-like keys, as the
+  gateway's metric names them: author.username), with each false positive named by the look-alike it falls on;
 - with --mode fields, the same with the field path given as fields= instead of the prefix;
-- the time of each call, by leaf length, and the sum per response, which is what the gateway's shadow measures.
+- the time of each call, by leaf length (the fastest of --repeat calls), and the time of a whole response (every leaf
+  once, the fastest of --repeat whole passes), which is what the gateway's shadow measures.
+
+Precision counts findings: a finding on a labelled span is right, one elsewhere is a false positive.
 
 The gateway rules (detector_shadow._leaves and _label_prefix, ai-gateway 7b5470bd8): a dict key adds ".key" to the
 path, a list item keeps its list's path, the prefix is the last key and ": " unless that key is empty, a number or a
@@ -75,37 +78,45 @@ def detector(root: Path):
 
 
 def run(det, items, repeat: int, mode: str = "prefix") -> dict:
-    spans, fps = [], []
+    spans, fps, hits = [], [], collections.Counter()
     leaf_ms, resp_ms = collections.defaultdict(list), collections.defaultdict(list)
     det.findings("warm: a first call loads the rules", channel="tool")
     for case, o, obj in items:
-        total = 0.0
+        service = case["tags"][0].split(":", 1)[1]
+        calls = []
         for path, raw in leaves(obj):
             text, sp, looks = o.leaf(raw)
             if len(text) > MAX_LEAF:
                 continue
             pre = prefix(path) if mode == "prefix" else ""
             fields = [(0, len(text), tuple(path.split(".")))] if mode == "fields" and path and text else None
-            best = None
-            for _ in range(repeat):
+            calls.append((path, text, sp, looks, pre, fields))
+        # the response as the gateway reads it: every leaf once, in order; the fastest of `repeat` whole passes
+        best, found_of, leaf_best = None, [], [None] * len(calls)
+        for _ in range(repeat):
+            found_of, total = [], 0.0
+            for k, (path, text, sp, looks, pre, fields) in enumerate(calls):
                 t = time.perf_counter()
-                found = det.findings(pre + text, channel="tool", fields=fields)
+                found_of.append(det.findings(pre + text, channel="tool", fields=fields))
                 d = time.perf_counter() - t
-                best = d if best is None else min(best, d)
-            total += best
-            leaf_ms[bucket(len(text))].append(best * 1000)
+                total += d
+                leaf_best[k] = d if leaf_best[k] is None else min(leaf_best[k], d)
+            best = total if best is None else min(best, total)
+        resp_ms[service].append(best * 1000)
+        for (path, text, sp, looks, pre, fields), found, d in zip(calls, found_of, leaf_best):
+            leaf_ms[bucket(len(text))].append(d * 1000)
             n = len(pre)
             ms = [(m.start - n, m.end - n, m.type) for m in found if m.end > n]
             sc = score.score_case({"text": text, "spans": sp}, ms, adapter.SCOPE)
+            hits[label(path)] += sum(sc["on_target"].values())
             for s, out in zip(sp, sc["spans"]):
                 spans.append({"class": s["class"], "outcome": out["outcome"], "label": label(path),
-                              "service": case["tags"][0].split(":", 1)[1], "lang": case["lang"]})
+                              "service": service, "lang": case["lang"]})
             for s, e, typ in sc["fp_found"]:
                 look = next((lk for lk in looks if s < lk["end"] and e > lk["start"]), None)
                 fps.append({"type": typ, "label": label(path), "kind": look["kind"] if look else "structure",
-                            "service": case["tags"][0].split(":", 1)[1]})
-        resp_ms[case["tags"][0].split(":", 1)[1]].append(total * 1000)
-    return {"spans": spans, "fps": fps, "leaf_ms": leaf_ms, "resp_ms": resp_ms}
+                            "service": service})
+    return {"spans": spans, "fps": fps, "hits": hits, "leaf_ms": leaf_ms, "resp_ms": resp_ms}
 
 
 def _pct(xs, q):
@@ -120,7 +131,8 @@ def summary(r: dict) -> dict:
             rows[key(s)]["spans"] += 1
             rows[key(s)][s["outcome"]] += 1
         return {k: {**v, "recall": round(v["full"] / v["spans"], 3)} for k, v in sorted(rows.items())}
-    found = sum(s["outcome"] != "missed" for s in r["spans"])
+    found = sum(r["hits"].values())   # findings on a labelled span, each finding once
+    fp_label = collections.Counter(f["label"] for f in r["fps"])
     all_resp = [x for v in r["resp_ms"].values() for x in v]
     return {
         "spans": len(r["spans"]), "fp": len(r["fps"]),
@@ -128,6 +140,9 @@ def summary(r: dict) -> dict:
         "by_class": table(lambda s: s["class"]),
         "by_label": table(lambda s: f"{s['label']}/{s['class']}"),
         "by_service": table(lambda s: s["service"]),
+        "precision_by_label": {k: {"findings": r["hits"][k] + fp_label[k], "fp": fp_label[k],
+                                   "precision": round(r["hits"][k] / (r["hits"][k] + fp_label[k]), 4)}
+                               for k in sorted(set(r["hits"]) | set(fp_label)) if r["hits"][k] + fp_label[k]},
         "fp_by_kind": dict(collections.Counter(f["kind"] for f in r["fps"]).most_common()),
         "fp_by_kind_label_type": [[*k, n] for k, n in collections.Counter(
             (f["kind"], f["label"], f["type"]) for f in r["fps"]).most_common(40)],

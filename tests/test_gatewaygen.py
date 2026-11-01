@@ -28,13 +28,14 @@ class GatewayCorpusTests(unittest.TestCase):
     def test_same_cases_each_run(self):
         self.assertEqual([c["text"] for c in G.generate(SAMPLE)], [c["text"] for c, _, _ in self.items])
 
-    def test_text_is_json_and_spans_sit_on_their_values(self):
+    def test_text_is_json_and_each_span_sits_on_its_own_value(self):
         n = 0
         for case, o, obj in self.items:
             json.loads(case["text"])
-            values = {v for v, cls, _ in o.values if cls}
-            for sp in case["spans"]:
-                self.assertIn(case["text"][sp["start"]:sp["end"]], values)
+            own = [(s, e) for i, s, e in o.placed if o.values[i][1]]
+            self.assertEqual([(sp["start"], sp["end"]) for sp in case["spans"]], own)
+            for i, s, e in o.placed:
+                self.assertEqual(json.loads('"' + case["text"][s:e] + '"'), o.values[i][0])
                 n += 1
         self.assertGreater(n, 500)
 

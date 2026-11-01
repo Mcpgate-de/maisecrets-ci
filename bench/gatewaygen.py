@@ -52,6 +52,7 @@ class Out:
 
     def __init__(self):
         self.values: list = []
+        self.placed: list = []   # (index into values, start, end) of each value in the rendered text
 
     def put(self, value: str, cls: str = "", kind: str = "") -> str:
         self.values.append((value, cls, kind))
@@ -71,6 +72,7 @@ class Out:
             k = raw.index("\ue001", j)
             value, cls, kind = self.values[int(raw[j + 1:k])]
             written = json.dumps(value, ensure_ascii=False)[1:-1]
+            self.placed.append((int(raw[j + 1:k]), n, n + len(written)))
             if cls:
                 spans.append({"start": n, "end": n + len(written), "class": cls})
             elif kind:
