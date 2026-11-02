@@ -70,6 +70,19 @@ class GatewayCorpusTests(unittest.TestCase):
         self.assertIn("gateway", sources.SOURCES)
 
 
+class WholeResponseTests(unittest.TestCase):
+    def test_each_leaf_sits_at_its_place_in_the_json_text(self):
+        n = 0
+        for _, o, obj in G.objects(SAMPLE):
+            text, places = R.as_json(o, obj)
+            json.loads(text)
+            self.assertEqual(len(places), sum(1 for _ in R.leaves(obj)))
+            for a, b, path, raw in places:
+                self.assertEqual(text[a:b], o.leaf(raw)[0])
+                n += 1
+        self.assertGreater(n, 1000)
+
+
 class GatewayRulesTests(unittest.TestCase):
     def test_a_list_item_keeps_its_lists_path(self):
         obj = {"reviewers": [{"name": "a"}, {"name": "b"}], "x": {"y": "c"}}

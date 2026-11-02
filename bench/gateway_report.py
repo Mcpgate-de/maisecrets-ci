@@ -6,6 +6,8 @@ de, languages en and de, channel tool, no sources, no host user), no NER. It rea
 - recall per class and per field label, precision per field label (the parent key for person-like keys, as the
   gateway's metric names them: author.username), with each false positive named by the look-alike it falls on;
 - with --mode fields, the same with the field path given as fields= instead of the prefix;
+- with --mode whole, one call per response: its JSON text with fields= naming every string leaf (no leaf times);
+- with --mode json, one call per response: its JSON text alone, the core reading the keys itself;
 - the time of each call, by leaf length (the fastest of --repeat calls), and the time of a whole response (every leaf
   once, the fastest of --repeat whole passes), which is what the gateway's shadow measures.
 
@@ -55,6 +57,42 @@ def leaves(obj, path: str = ""):
         yield path, obj
 
 
+def as_json(o, obj) -> tuple:
+    """The response as one JSON text (no indent) and the place of each string leaf in it: (start, end, path, raw).
+    A leaf of the corpus needs no escape, so its text in the JSON is the leaf itself."""
+    out, places, n = [], [], 0
+
+    def put(s):
+        nonlocal n
+        out.append(s)
+        n += len(s)
+
+    def walk(x, path):
+        if isinstance(x, dict):
+            put("{")
+            for i, (k, v) in enumerate(x.items()):
+                put((", " if i else "") + json.dumps(k) + ": ")
+                walk(v, f"{path}.{k}" if path else str(k))
+            put("}")
+        elif isinstance(x, list):
+            put("[")
+            for i, v in enumerate(x):
+                put(", " if i else "")
+                walk(v, path)
+            put("]")
+        elif isinstance(x, str):
+            text = o.leaf(x)[0]
+            written = json.dumps(text, ensure_ascii=False)[1:-1]
+            put('"')
+            if written == text:
+                places.append((n, n + len(text), path, x))
+            put(written + '"')
+        else:
+            put(json.dumps(x))
+    walk(obj, "")
+    return "".join(out), places
+
+
 def prefix(path: str) -> str:
     last = path.rsplit(".", 1)[-1]
     return "" if not last or last.isdigit() or _CURSOR.match(last) else f"{last}: "
@@ -77,6 +115,13 @@ def detector(root: Path):
                     sources=NO_SOURCES, references=NO_REFERENCES, host=Host(user="", year=None))
 
 
+class _Shifted:
+    """A finding of the whole response, moved into the coordinates of its leaf."""
+
+    def __init__(self, m, offset: int):
+        self.start, self.end, self.type = m.start - offset, m.end - offset, m.type
+
+
 def run(det, items, repeat: int, mode: str = "prefix") -> dict:
     spans, fps, hits = [], [], collections.Counter()
     leaf_ms, resp_ms = collections.defaultdict(list), collections.defaultdict(list)
@@ -91,9 +136,31 @@ def run(det, items, repeat: int, mode: str = "prefix") -> dict:
             pre = prefix(path) if mode == "prefix" else ""
             fields = [(0, len(text), tuple(path.split(".")))] if mode == "fields" and path and text else None
             calls.append((path, text, sp, looks, pre, fields))
-        # the response as the gateway reads it: every leaf once, in order; the fastest of `repeat` whole passes
-        best, found_of, leaf_best = None, [], [None] * len(calls)
-        for _ in range(repeat):
+        if mode in ("whole", "json"):
+            # one call for the response: its JSON text, with every string leaf named by fields= (whole) or not (json)
+            whole, places = as_json(o, obj)
+            fl = None
+            if mode == "whole":
+                fl = [(a, b, tuple(path.split("."))) for a, b, path, _ in places if path and b > a]
+            best = None
+            for _ in range(repeat):
+                t = time.perf_counter()
+                found = det.findings(whole, channel="tool", fields=fl)
+                d = time.perf_counter() - t
+                best = d if best is None else min(best, d)
+            resp_ms[service].append(best * 1000)
+            calls, found_of = [], []
+            for a, b, path, raw in places:
+                text, sp, looks = o.leaf(raw)
+                calls.append((path, text, sp, looks, "", None))
+                found_of.append([_Shifted(m, a) for m in found if a <= m.start < b])
+            outside = [m for m in found if not any(a <= m.start < b for a, b, _, _ in places)]
+            for m in outside:
+                fps.append({"type": m.type, "label": "(structure)", "kind": "structure", "service": service})
+            leaf_best = [0.0] * len(calls)
+        else:
+            best, found_of, leaf_best = None, [], [None] * len(calls)
+        for _ in range(repeat if mode not in ("whole", "json") else 0):
             found_of, total = [], 0.0
             for k, (path, text, sp, looks, pre, fields) in enumerate(calls):
                 t = time.perf_counter()
@@ -102,9 +169,11 @@ def run(det, items, repeat: int, mode: str = "prefix") -> dict:
                 total += d
                 leaf_best[k] = d if leaf_best[k] is None else min(leaf_best[k], d)
             best = total if best is None else min(best, total)
-        resp_ms[service].append(best * 1000)
+        if mode not in ("whole", "json"):
+            resp_ms[service].append(best * 1000)
         for (path, text, sp, looks, pre, fields), found, d in zip(calls, found_of, leaf_best):
-            leaf_ms[bucket(len(text))].append(d * 1000)
+            if mode not in ("whole", "json"):
+                leaf_ms[bucket(len(text))].append(d * 1000)
             n = len(pre)
             ms = [(m.start - n, m.end - n, m.type) for m in found if m.end > n]
             sc = score.score_case({"text": text, "spans": sp}, ms, adapter.SCOPE)
@@ -161,8 +230,9 @@ def main(argv=None) -> int:
     ap.add_argument("--split", default="dev", choices=("dev", "val", "all"))
     ap.add_argument("--repeat", type=int, default=3, help="calls per leaf; the fastest counts")
     ap.add_argument("--limit", type=int, default=0)
-    ap.add_argument("--mode", default="prefix", choices=("prefix", "fields"),
-                    help="the field name as a prefix in the text (the gateway today) or as fields= (since 0.8)")
+    ap.add_argument("--mode", default="prefix", choices=("prefix", "fields", "whole", "json"),
+                    help="the field name as a prefix in the text (the gateway today), as fields= (since 0.8), or one "
+                         "call per response: its JSON text with fields= for every leaf (whole) or alone (json)")
     ap.add_argument("--json", type=Path)
     a = ap.parse_args(argv)
     items = [x for x in gatewaygen.objects() if a.split == "all" or x[0]["split"] == a.split]
