@@ -82,6 +82,16 @@ class WholeResponseTests(unittest.TestCase):
                 n += 1
         self.assertGreater(n, 1000)
 
+    def test_a_leaf_that_needs_an_escape_is_refused_not_dropped(self):
+        for value in ('say "hi"', "a\\b", "line\nnext", "tab\there"):
+            with self.subTest(n=len(value)):
+                o = G.Out()
+                with self.assertRaises(ValueError):
+                    R.as_json(o, {"author": {"name": o.put(value, "pii.name")}, "ok": "plain"})
+        o = G.Out()
+        text, places = R.as_json(o, {"a": ["", "ü", 3, {"k\u00e9y": "x"}]})
+        self.assertEqual([text[a:b] for a, b, _, _ in places], ["", "ü", "x"])
+
 
 class GatewayRulesTests(unittest.TestCase):
     def test_a_list_item_keeps_its_lists_path(self):

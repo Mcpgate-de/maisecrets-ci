@@ -59,7 +59,8 @@ def leaves(obj, path: str = ""):
 
 def as_json(o, obj) -> tuple:
     """The response as one JSON text (no indent) and the place of each string leaf in it: (start, end, path, raw).
-    A leaf of the corpus needs no escape, so its text in the JSON is the leaf itself."""
+    A leaf of the corpus needs no escape, so its text in the JSON is the leaf itself; a leaf that needs one raises
+    ValueError, as its spans could not be placed."""
     out, places, n = [], [], 0
 
     def put(s):
@@ -83,9 +84,11 @@ def as_json(o, obj) -> tuple:
         elif isinstance(x, str):
             text = o.leaf(x)[0]
             written = json.dumps(text, ensure_ascii=False)[1:-1]
+            if written != text:
+                # an escape moves the offsets of the leaf's spans; the corpus writes none, so this is a corpus bug
+                raise ValueError("a leaf of the gateway corpus needs a JSON escape; as_json maps no escaped offsets")
             put('"')
-            if written == text:
-                places.append((n, n + len(text), path, x))
+            places.append((n, n + len(text), path, x))
             put(written + '"')
         else:
             put(json.dumps(x))
