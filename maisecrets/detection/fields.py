@@ -221,17 +221,19 @@ def added(text: str, hits: list, spans: tuple, scan, same_scan: bool = False) ->
         if not value.strip():
             continue
         lead = len(label) + 2
-        if whole is not None and (start, end) == (0, len(text)):
-            bare = whole
-        else:
-            bare = [(m.start, m.end) for m in scan(value)]
+        bare = whole if whole is not None and (start, end) == (0, len(text)) else None
         for m in scan(f"{label}: {value}"):
             a, b = m.start - lead, m.end - lead
-            if a < 0 or b > len(value) or any(a < y and x < b for x, y in bare):
-                continue   # in the label, or the bare value has a hit there: the field gives no evidence for it
+            if a < 0 or b > len(value) or text[a + start:b + start] != m.value \
+                    or any(a + start < y and x < b + start for x, y in taken):
+                continue   # in the label, or the text has a hit there already
+            if bare is None:
+                # the bare value is scanned only for a hit the label gave: most fields give none, and the scan of
+                # each value was half the cost of a field (gateway corpus, 2026-11-02)
+                bare = [(m.start, m.end) for m in scan(value)]
+            if any(a < y and x < b for x, y in bare):
+                continue   # the bare value has a hit there: the field gives no evidence for it
             a, b = a + start, b + start
-            if text[a:b] != m.value or any(a < y and x < b for x, y in taken):
-                continue
             taken.append((a, b))
             extra.append(dataclasses.replace(m, start=a, end=b))
     if not extra:
