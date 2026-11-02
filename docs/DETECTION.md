@@ -266,6 +266,12 @@ for leaf, m in findings_by_leaf(detector, response):     # layout "lines", the d
   break is the two characters `\n` and a quote gets a backslash, so an address can run over a line end and a label
   inside a string is lost; and a context word of one record can give a finding in the next. The gateway's check of
   0.8.10 found 4 such differences in 48 cases. `json_text(obj)` gives that text with the place of each string.
+- **The name of a person's role** (since 0.8.12): under `author`, `reviewer(s)`, `assignee(s)`, `reporter`,
+  `creator`, `organizer`, `attendee(s)`, `committer`, `approver`, `requester`, `merge_user`, `merged_by`, `closed_by`,
+  `approved_by` and `requested_by`, the key `name`, `displayName` or `fullName` is written as `<role>_name`
+  (`author_name: …`), a person label of the core: a full name whose surname is also an English word is found there,
+  which after the weak `name` read as words. A value with a word of an account, a group or a state (Deleted User,
+  Platform Team, Plattform Mannschaft) stays text after such a key, in a scan of text too.
 - **The label** of a string is its last key, unless that key could change the label line: a key that is empty or
   longer than 64 characters, holds a line boundary (`\r`, U+2028 and the others of `str.splitlines`) or a control
   character, holds one of `: = | " '`, or names the cursor of a paged list (`nextPageToken`, as the gateway). Such a

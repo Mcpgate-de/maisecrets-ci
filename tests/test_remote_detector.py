@@ -309,6 +309,22 @@ class RemoteDetectorTests(unittest.TestCase):
         self.assertEqual(status.state, "ok")
         self.assertEqual([text[s:e] for s, e, _t, _sc in spans], [full])
 
+    def test_a_greeting_alone_is_no_name_and_the_name_after_it_stays(self):
+        # a corpus of gateway responses, 2026-11-02: 88 of 117 false names were "Hallo" before a name
+        text = f"Hallo {NAME}, Moin! Dear team, hi."
+
+        def answer(t):
+            out = []
+            for word in ("Hallo", NAME, "Moin", "Dear", "hi"):
+                at = t.find(word)
+                out.append({"entity_group": "PER", "start": at, "end": at + len(word), "score": 0.9, "word": word})
+            return out
+        svc = Service(answer=answer)
+        self.addCleanup(svc.close)
+        spans, status = rm.RemoteDetector(svc.url).ask(text, [])
+        self.assertEqual(status.state, "ok")
+        self.assertEqual([text[s:e] for s, e, _t, _sc in spans], [NAME])
+
     def test_the_hf_format_adds_a_name_with_its_score(self):
         r = self.run_with(Service("hf"), model="d3@test")
         names = [m for m in r.findings if m.type == "NAME"]

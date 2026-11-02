@@ -266,6 +266,29 @@ class LinesLayoutTests(unittest.TestCase):
         L.findings_by_leaf(Det(), {"email": "a", "x\rpassword": "b", "x=password": "c", "nextPageToken": "d"})
         self.assertEqual(calls, ["email: a", "b", "c", "d"])
 
+    def test_the_name_of_a_persons_role_is_read_after_its_role(self):
+        calls = []
+
+        class Det:
+            def findings(self, text, channel, **kw):
+                calls.append(text)
+                return []
+        L.findings_by_leaf(Det(), {"author": {"name": "a"}, "reviewers": [{"name": "b"}],
+                                   "fields": {"assignee": {"displayName": "c"}}, "project": {"name": "d"}})
+        # the object's own strings are one record; the item of the list "reviewers" is a record of its own
+        self.assertEqual(calls, ["author_name: a\nassignee_display_name: c\nname: d", "reviewer_name: b"])
+
+    def test_a_surname_that_is_a_word_is_found_under_a_role_and_a_team_is_not(self):
+        name = "Nora" + " " + "Baker"
+        self.assertEqual([m.type for _l, m in L.findings_by_leaf(D, {"name": name})], [], "the premise: weak label")
+        for obj in ({"author": {"name": name}}, {"reviewers": [{"name": name}]},
+                    {"fields": {"reporter": {"displayName": name}}}, {"merge_user": {"name": name}}):
+            with self.subTest(obj=list(obj)):
+                self.assertEqual([m.type for _l, m in L.findings_by_leaf(D, obj)], ["NAME"])
+        for team in ("Deleted User", "Platform Team", "Human Resources", "Plattform Mannschaft", "GitLab Bot"):
+            with self.subTest(team=team):
+                self.assertEqual([m for _l, m in L.findings_by_leaf(D, {"author": {"name": team}})], [])
+
     def test_an_unknown_layout_is_refused(self):
         with self.assertRaises(ValueError):
             L.findings_by_leaf(D, {}, layout="xml")

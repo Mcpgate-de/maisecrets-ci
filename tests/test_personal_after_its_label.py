@@ -965,3 +965,33 @@ class SharpSTests(Base):
             with self.subTest(n=len(value)):
                 self.assertText("Name: " + value + "\n")
                 self.assertNotIn("NAME", [m.type for m in scan(value + " <info@example.com>\n")])
+
+
+class RoleKeyTests(Base):
+    # the role keys of API data that findings_by_leaf writes for author.name and the like (2026-11-02): a person's
+    # name after them, also with a surname that is an English word; no account, team or state word
+    NAME = "Nora" + " " + "Baker"
+
+    def test_a_name_after_a_role_key_is_masked(self):
+        for key in ("author_name", "reviewer_name", "assignee_display_name", "reporter_display_name",
+                    "merged_by_name", "merge_user_name", "organizer_display_name"):
+            with self.subTest(key=key):
+                self.assertMasked(f"{key}: {self.NAME}\n", self.NAME)
+        self.assertText(f"name: {self.NAME}\n")   # the premise: after the weak label it reads as words
+
+    def test_an_account_or_a_team_after_a_role_key_stays_text(self):
+        for key in ("author_name", "github_author_name", "gitlab_merge_request_author_name",
+                    "foo_reviewer_display_name"):
+            for value in ("Deleted User", "Platform Team", "Human Resources", "Plattform Mannschaft", "Release Bot",
+                          "Guest User"):
+                with self.subTest(key=key, n=len(value)):
+                    self.assertText(f"{key}: {value}\n")
+
+    def test_a_surname_that_is_also_an_account_word_stays_a_name(self):
+        for name in ("Christopher" + " " + "Guest", "Priyanka" + " " + "User"):
+            for key in ("author_name", "customer_name", "full_name"):
+                with self.subTest(key=key, n=len(name)):
+                    self.assertMasked(f"{key}: {name}\n", name)
+        for phrase in ("Guest User", "Ghost User", "Test User"):
+            with self.subTest(phrase=phrase):
+                self.assertText(f"author_name: {phrase}\n")

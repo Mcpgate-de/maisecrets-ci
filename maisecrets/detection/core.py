@@ -53,6 +53,7 @@ from . import checksums
 from .lazy_regex import LazyRx as _LazyRx
 from . import registry as _registry
 from . import fields as _fields
+from .prefilter import NONE as _NO_PREFIX, any_keyword as _any_keyword, lacks_prefix as _lacks_prefix  # noqa: F401
 # The value checks, the own rules and the text index live in modules of their own, so that each file stays readable.
 # The core imports each of their names: `core.<name>` stays the same object. A patch must go to the module that
 # defines it.
@@ -172,6 +173,7 @@ class Rule:
     filters: frozenset | None = None   # the named checks after a hit (registry.filters_of); set by rules()
     region: str = "generic"            # the country of a regional or Presidio rule, set by its loader
     phase: int = 0                     # registry.PHASES: 1 the built-in rules, 3 the rules of your own; set by rules()
+    prefix: tuple = _NO_PREFIX         # the literal every match starts with (prefilter.py); set by rules()
 
 
 # ----------------------------------------------------- value checks that read the detector --
@@ -1392,6 +1394,7 @@ def _rule_sources(active) -> list:
 def _ranked(active) -> list:
     """(priority, rule) of every rule, sorted by priority = (phase, band, seq) (maisecrets/detection/registry.py)."""
     from .registry import BANDS, PHASES, filters_of, form_of, key_of, matcher_of
+    from .prefilter import leading_literal
     rules_phase, user_phase = PHASES["rules"], PHASES["user"]
     out = []
     for source, rs in _rule_sources(active):
@@ -1402,6 +1405,7 @@ def _ranked(active) -> list:
             object.__setattr__(r, "matcher", matcher_of(r.id, source))
             object.__setattr__(r, "filters", filters_of(r.id))
             object.__setattr__(r, "phase", phase)
+            object.__setattr__(r, "prefix", leading_literal(r.regex, r.matcher, r.keywords, source))
             out.append(((phase, band, seq), r))
     out.sort(key=lambda x: x[0])
     return out
@@ -2797,18 +2801,6 @@ def _export_hits(text: str, low: str, path: str = "") -> list:
     return out
 
 
-def _any_keyword(keywords: tuple, low: str, known: dict) -> bool:
-    """Whether the lower-case text holds one of the keywords. Each keyword is searched once per text: a search runs
-    over the whole text, and the same keyword gates several rules."""
-    for k in keywords:
-        hit = known.get(k)
-        if hit is None:
-            hit = known[k] = k in low
-        if hit:
-            return True
-    return False
-
-
 def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
           rule_list: list[Rule] | None = None, channel: str = "prompt", path: str = "") -> list[Match]:
     """_copy: the text is the normaliser's cleaned copy of a tool result, which is not cleaned again."""
@@ -2865,6 +2857,8 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
         if enabled is not None and rule.id not in enabled and rule.key not in enabled:
             continue
         if rule.keywords and not _any_keyword(rule.keywords, low, keywords_in):
+            continue
+        if _lacks_prefix(rule.prefix, text, low):
             continue
         # a rule that cannot fire without a context word need not run its regex without one
         alone = channel == "tool" and rule.id in CARD_ALONE_IN_TOOL

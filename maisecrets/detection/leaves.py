@@ -129,10 +129,34 @@ _NOT_IN_LABEL = frozenset(':=|"\'')
 _LABEL_MAX = 64
 
 
+# a parent whose name field names a person: its string is read after `<parent>_name` (author_name), a person label of
+# the core (personal._COMPOUND_PERSON_KEY_RE), not after the weak `name`
+_PERSON_PARENTS = frozenset({"author", "reviewer", "reviewers", "assignee", "assignees", "reporter", "creator",
+                             "organizer", "attendee", "attendees", "committer", "approver", "requester",
+                             "merged_by", "closed_by", "approved_by", "requested_by", "merge_user"})
+_NAME_KEYS = {"name": "name", "displayname": "display_name", "display_name": "display_name", "fullname": "full_name",
+              "full_name": "full_name"}
+
+
+def _role_label(path: tuple) -> str:
+    keys = [part for part in path if isinstance(part, str)]
+    if len(keys) < 2 or keys[-1].lower() not in _NAME_KEYS:
+        return ""
+    parent = keys[-2].lower()
+    if parent not in _PERSON_PARENTS:
+        return ""
+    return f"{parent.rstrip('s') if parent.endswith('ees') or parent.endswith('ers') else parent}_" \
+           f"{_NAME_KEYS[keys[-1].lower()]}"
+
+
 def _label(path: tuple) -> str:
-    """The last key of the path as the label of its string, or "" when it can be none: a key that is empty, longer
-    than 64 characters, holds a line boundary of str.splitlines() (\\r, U+2028 …) or a control character, holds
-    one of `: = | " '`, or names the cursor of a paged list (nextPageToken: the gateway gives no label there either)."""
+    """The label of a string: `<role>_name` for the name of a person's role (author.name -> author_name, a person
+    label of the core), else the last key of the path, or "" when it can be none: a key that is empty, longer than 64
+    characters, holds a line boundary of str.splitlines() (\\r, U+2028 …) or a control character, holds one of
+    `: = | " '`, or names the cursor of a paged list (nextPageToken: the gateway gives no label there either)."""
+    role = _role_label(path)
+    if role:
+        return role
     last = next((part for part in reversed(path) if isinstance(part, str)), "")
     if not last or len(last) > _LABEL_MAX or any(c in _NOT_IN_LABEL for c in last):
         return ""

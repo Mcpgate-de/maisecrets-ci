@@ -432,8 +432,8 @@ class RemoteDetector:
             s, e = words.widen(s, e)
             if s >= e:
                 continue                          # white space only: no word to take
-            if type_ == "NAME" and text[s:e].lower() in PRODUCT_WORDS:
-                continue                          # a product word alone is no person
+            if type_ == "NAME" and text[s:e].strip().lower() in _NOT_A_PERSON_ALONE:
+                continue                          # a product word or a greeting alone is no person
             if _overlaps(occ, ends, s, e):
                 continue
             i = bisect.bisect_left(taken, (s, e))
@@ -451,6 +451,14 @@ PRODUCT_WORDS = frozenset({
     "anthropic", "chatgpt", "claude", "codex", "confluence", "copilot", "cursor", "docker", "gemini", "github",
     "gitlab", "grafana", "jenkins", "jira", "kubernetes", "nginx", "notion", "ollama", "openai", "opencms", "postgres",
     "redis", "sentry", "slack", "tomcat", "windsurf"})
+
+
+# greetings that the model takes for a person when they stand alone before a name (`Hallo` in "Hallo Lena, …": 88 of
+# 117 false names on a corpus of gateway responses, 2026-11-02); the name after them stays a name. On the DialogPII
+# dev split: 27 fewer false names, no name lost (netcup, prompt NER)
+GREETING_WORDS = frozenset({"hallo", "hello", "hi", "hey", "moin", "servus", "grüezi", "hej", "hoi", "ciao", "hola",
+                            "salut", "bonjour", "dear", "liebe", "lieber", "danke", "thanks", "cheers"})
+_NOT_A_PERSON_ALONE = PRODUCT_WORDS | GREETING_WORDS
 
 
 class _HttpStatus(Exception):

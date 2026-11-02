@@ -349,8 +349,21 @@ _COMPOUND_PERSON_KEY_RE = re.compile(
     r"(?:[a-z0-9]+_){0,3}(?:account_holder|card_holder|cardholder|holder|investor|contact|client|customer|cust"
     r"|recipient|sender|trader|beneficiary|payer|payee|applicant|patient|employee|owner|policyholder|policy_holder"
     r"|insured|borrower|member|student|passenger|tenant|guarantor|signer|consignee|shipper|buyer|seller|person"
-    r"|representative|rep|manager|advisor|adviser|physician|doctor|witness)_(?:full_)?name"
+    r"|representative|rep|manager|advisor|adviser|physician|doctor|witness|author|reviewer|assignee|reporter"
+    r"|creator|organizer|organiser|attendee|committer|approver|requester|merged_by|closed_by|approved_by"
+    r"|requested_by|merge_user)_(?:full_|display_)?name"
     r"|full_name")
+# the role keys of API data (author_name, github_reviewer_display_name: findings_by_leaf writes them for author.name);
+# there a value with a word of an account, a group or a state is no person (Deleted User, Platform Team, Plattform
+# Mannschaft). Not `guest` or `user`: they are surnames (codex review, 2026-11-02); Guest User stays text by the
+# core's other checks. A name-shaped value that is no person (United Kingdom, Bad Request) becomes a name here as after
+# customer_name or full_name: a person label trusts the shape
+_ROLE_KEY_RE = re.compile(r"(?:^|_)(?:author|reviewer|assignee|reporter|creator|organi[sz]er|attendee|committer"
+                          r"|approver|requester|merged_by|closed_by|approved_by|requested_by|merge_user)"
+                          r"_(?:full_|display_)?name$")
+_ACCOUNT_WORDS = frozenset({"account", "team", "teams", "group", "department", "resources", "deleted",
+                            "removed", "former", "unknown", "bot", "service", "system", "automation",
+                            "benutzer", "nutzer", "konto", "gruppe", "abteilung", "mannschaft", "verein", "ehemalig"})
 # an element whose name is a person label, around a name alone: <card_holder>, <customerName>, <ns:fullName>
 _XML_NAME_ELEMENT_RE = re.compile(r"<([A-Za-z_][\w.:-]{0,64})(?:\s[^<>]{0,200})?>[ \t]*" + _NAME_VALUE
                                   + r"[ \t]*</\1>")
@@ -2606,6 +2619,8 @@ def hits(text: str, channel: str, regions: tuple, company: list | None = None) -
                 continue
             v = m.group(2).rstrip("'’")
             plain = re.sub(r"-[^\s]*", "", v)
+            if _ROLE_KEY_RE.search(key) and any(w.lower() in _ACCOUNT_WORDS for w in v.split()):
+                continue   # author_name: Deleted User, a team or a group in a role field of an API, no person
             if _name_ok(v) and not (_reads_as_words(v, every=True) and _reads_as_words(plain, every=True)):
                 out.append((m.start(2), m.start(2) + len(v), "name-after-label", NAME))
     if "name-after-label" in want and "</" in text:
