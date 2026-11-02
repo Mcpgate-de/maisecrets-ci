@@ -14,7 +14,9 @@ repository.
     nym dialogpii                 external PII sets, sealed dev, val and holdout splits (bench/nym.py,
                                   bench/dialogpii.py), one split at a time
     structured                    structured text made at run time by bench/structgen.py, template set A
-                                  (development data, docs/BENCHMARK-STRUCTURED.md)"""
+                                  (development data, docs/BENCHMARK-STRUCTURED.md)
+    gateway                       gateway tool responses made at run time by bench/gatewaygen.py: persons in
+                                  GitLab, calendar, Slack, Jira and Notion objects, bots as look-alikes"""
 from __future__ import annotations
 
 import collections
@@ -29,7 +31,8 @@ BANK = ROOT / "bench" / "bank"
 DATASETS = ("nemotron", "gretel", "mendeley", "piilo", "privy", "aparte", "llmredactor", "credsweeper")
 SEALED_SETS = ("nym", "dialogpii")
 HOLDOUT_SETS = SEALED_SETS + ("ghissues",)   # sources with a sealed holdout split: totals only
-SOURCES = ("bank",) + DATASETS + ("catalogs", "catalogs-example", "traces", "ghissues", "structured") + SEALED_SETS
+SOURCES = (("bank",) + DATASETS + ("catalogs", "catalogs-example", "traces", "ghissues", "structured", "gateway")
+           + SEALED_SETS)
 
 # a type to its class, from the published vocabulary (docs/DETECTION.md, "The type vocabulary"): the types of
 # scripts/measure_datasets.py and those maisecrets finds (bench/adapters/maisecrets.py). A dataset's SECRET span takes
@@ -189,6 +192,9 @@ def load(name: str, data: Path | None = None, catalogs: Path | None = None, limi
     if name == "structured":
         from bench import structgen
         return structgen.generate()
+    if name == "gateway":
+        from bench import gatewaygen
+        return gatewaygen.generate()
     if name == "catalogs":
         if catalogs is None:
             raise SystemExit("the catalogs source needs --catalogs DIR (one clone per catalog)")

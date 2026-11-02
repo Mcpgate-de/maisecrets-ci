@@ -534,16 +534,18 @@ class TeamFileTests(unittest.TestCase):
         base = terms.Matcher(terms.parse("S_1  Testowsk*\n")[0])
         text = " ".join(f"Testowski{i % 97}" for i in range(1000))[:10240]
 
-        def best(matcher):
-            # the fastest of five runs: a loaded CI runner slows both scans alike, so their ratio holds
-            times = []
-            for _ in range(5):
-                t = time.perf_counter()
-                found = matcher.find(text)
-                times.append(time.perf_counter() - t)
-            return min(times), found
-        took, found = best(m)
-        alone, _found = best(base)
+        def once(matcher):
+            t = time.perf_counter()
+            found = matcher.find(text)
+            return time.perf_counter() - t, found
+
+        # the two scans in turns, the fastest of five each: one after the other, a wave of load met only the scan of
+        # one entry in CI (2.1 ms against 0.55 ms on a quiet laptop) and the ratio read 20.2 against 4.8
+        took, alone = 9e9, 9e9
+        for _ in range(5):
+            t, found = once(m)
+            took = min(took, t)
+            alone = min(alone, once(base)[0])
         self.assertEqual(len(found), len(text.split()))
         self.assertLess(took, 20 * alone, f"10 KB took {took * 1000:.1f} ms, {took / alone:.1f} times the scan of "
                                           f"one entry ({alone * 1000:.1f} ms); without the bound it was thousands")

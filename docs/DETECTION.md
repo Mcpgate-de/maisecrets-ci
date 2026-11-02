@@ -243,6 +243,32 @@ the schema, runs one request twice in fresh processes and compares the bytes, an
 wrong field and checks that no output holds it. `scripts/wheel_smoke.py` calls the entry point from the installed
 wheel.
 
+## A parsed object: one scan, findings per string (since 0.8.10, provisional)
+
+A caller that holds a parsed response (a `dict` from an API) can scan each string in it apart, or write the object as
+JSON once and scan that. One scan sees each string after its key, as a scan of each string after its key does (the
+core reads JSON keys as labels); it also sees the strings around it, so a record can add a finding that a string
+alone does not give (`last_name` next to `first_name`). On the gateway corpus both found the same, at a fraction of
+the time: a call has a fixed cost of about 0.6 ms, and on the gateway corpus a response had
+about 170 strings, so one call took 34 ms (p50) against 109 ms for one call per string
+(`bench/gateway_report.py`, netcup, 2026-11-02). `maisecrets.detection.leaves` gives each finding back in the
+coordinates of its string:
+
+```python
+from maisecrets.detection.leaves import findings_by_leaf
+for leaf, m in findings_by_leaf(detector, response):     # one scan of json.dumps(response, ensure_ascii=False)
+    leaf.path, leaf.value[m.start:m.end], m.type          # path: dict keys and list indices, outermost first
+```
+
+- **The text** is the one `json.dumps(obj, ensure_ascii=False)` writes (`json_text(obj)` gives it with the place of
+  each string), also for a subclass of `str` and for any depth (the walk keeps its own stack). A value JSON cannot
+  hold raises `TypeError`, a cycle `ValueError`, as `json.dumps` does.
+- **A span** is one of the string as the caller holds it, also when the string needs escapes (a quote, a backslash,
+  a control character): it is mapped back character by character, and `m.value` is `leaf.value[m.start:m.end]`.
+- **A finding in a key** or in the structure belongs to no string (`leaf` is None); one that starts in a string and
+  runs past its end is cut at the end of the string; a span of length zero stays one.
+- `tests/test_detection_leaves.py` holds these points.
+
 ## A remote detector (optional)
 
 The rules find few names (docs/NER-EXPERIMENT.md). A named-entity service can add them after the rules, through

@@ -32,8 +32,10 @@ def rnd(n: int, alphabet: str = string.ascii_letters + string.digits) -> str:
 
 
 def have_tomllib() -> bool:
+    """The script reads the catalogs with tomllib (Python 3.11+) and PyYAML; without one it exits 2."""
     try:
         import tomllib  # noqa: F401
+        import yaml  # noqa: F401
     except ImportError:
         return False
     return True
@@ -88,7 +90,7 @@ class CatalogCoverageTests(unittest.TestCase):
 
     def test_counts_found_bare_and_after_a_label_and_prints_no_example(self):
         if not have_tomllib():
-            self.skipTest("tomllib is Python 3.11+")
+            self.skipTest("tomllib is Python 3.11+, and the script needs PyYAML")
         printed, data, raw = self.run_script()
         np = data["counts"]["maisecrets"]["noseyparker"]
         self.assertEqual((np["rules"], np["with_examples"]), (5, 4))
@@ -106,7 +108,7 @@ class CatalogCoverageTests(unittest.TestCase):
 
     def test_a_baseline_gets_its_own_counts(self):
         if not have_tomllib():
-            self.skipTest("tomllib is Python 3.11+")
+            self.skipTest("tomllib is Python 3.11+, and the script needs PyYAML")
         printed, data, _ = self.run_script("--baseline", str(ROOT))
         self.assertEqual(data["counts"]["maisecrets"], data["counts"]["baseline"])
         self.assertIn("baseline bare", printed)
