@@ -56,6 +56,11 @@ def _home() -> str:
     return os.environ.get("MAISECRETS_HOME") or os.path.join(os.path.expanduser("~"), ".maisecrets")
 
 
+# how long the hook waits for the marker folder after its answer; the guard's tests raise it, as they call main() in
+# their own process, where os._exit below would end the test run with exit code 0 (a loaded Windows runner, 2026-11-02)
+_MARKER_WAIT = 0.3
+
+
 def _marker(code: str) -> None:
     """An incident marker for /maisecrets:report incident (docs/DIAGNOSTICS.md, section 3): one empty folder made with
     one mkdir in a home that exists and is no link, after the answer, waited for at most 0.3 s. Never raises."""
@@ -72,7 +77,7 @@ def _marker(code: str) -> None:
         sys.stdout.flush()
         t = threading.Thread(target=make, daemon=True)
         t.start()
-        t.join(0.3)
+        t.join(_MARKER_WAIT)
         if t.is_alive():
             os._exit(0)          # a thread alive at the shutdown of the interpreter can crash it (signal 11)
     except Exception:  # noqa: BLE001

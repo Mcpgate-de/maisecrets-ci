@@ -285,6 +285,11 @@ class DecisionTests(_Env):
         import io
         self.installed("always")
         marker = Path(HOME, "incident-marker.guard.fired")
+        # main() runs in this process: a slow disk must fail the test, not end the test run with exit code 0
+        for patcher in (mock.patch.object(guard, "_MARKER_WAIT", 30.0),
+                        mock.patch.object(guard.os, "_exit", side_effect=AssertionError("os._exit in a test"))):
+            patcher.start()
+            self.addCleanup(patcher.stop)
         with mock.patch.dict(os.environ, {"MAISECRETS_GUARD_WAIT": "0.1"}), \
                 mock.patch.object(sys, "stdin", io.StringIO(json.dumps(PAYLOADS["UserPromptSubmit"]))), \
                 mock.patch.object(sys, "stdout", io.StringIO()):

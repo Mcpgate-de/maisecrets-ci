@@ -535,20 +535,22 @@ class TeamFileTests(unittest.TestCase):
         text = " ".join(f"Testowski{i % 97}" for i in range(1000))[:10240]
 
         def once(matcher):
-            t = time.perf_counter()
+            t = time.process_time()
             found = matcher.find(text)
-            return time.perf_counter() - t, found
+            return time.process_time() - t, found
 
-        # the two scans in turns, the fastest of five each: one after the other, a wave of load met only the scan of
-        # one entry in CI (2.1 ms against 0.55 ms on a quiet laptop) and the ratio read 20.2 against 4.8
+        # CPU time, the two scans in turns, the fastest of five each. A loaded CI runner slows the large scan far more
+        # than the small one (50.7 against 1.8 ms; 2.6 against 0.55 ms on a quiet laptop), so the ratio read 27.5
+        # where it is 4.8. Without the bound it is 22,639 (MAX_BUCKET lifted, 2026-11-02): 100 keeps a wide margin
         took, alone = 9e9, 9e9
         for _ in range(5):
             t, found = once(m)
             took = min(took, t)
             alone = min(alone, once(base)[0])
         self.assertEqual(len(found), len(text.split()))
-        self.assertLess(took, 20 * alone, f"10 KB took {took * 1000:.1f} ms, {took / alone:.1f} times the scan of "
-                                          f"one entry ({alone * 1000:.1f} ms); without the bound it was thousands")
+        self.assertLess(took, 100 * alone + SLACK, f"10 KB took {took * 1000:.1f} ms, {took / max(alone, 1e-9):.1f} "
+                                                   f"times the scan of one entry ({alone * 1000:.1f} ms); without the "
+                                                   f"bound it was 22,639 times")
 
     def test_all_the_team_lists_together_have_one_size_cap(self):
         from unittest import mock
