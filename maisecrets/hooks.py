@@ -505,7 +505,9 @@ _PRIMER_TAIL = (
     "stored values and the settings. When the user asks for the value in a file or a command, put the "
     "placeholder there as they asked. In test data, write values that name themselves (testpass, "
     "my-test-token), addresses at example.com and placeholders such as <your-token>: maisecrets leaves "
-    "them alone, and a password in a test file is taken for a fixture."
+    "them alone, and a password in a test file is taken for a fixture. maisecrets also leaves example values "
+    "unmasked on purpose: a run of digits (040 3456789), a documented test card, an address at example.com, a "
+    "documentation IP; when the user asks why such a value is not masked, that is the reason."
 )
 PRIMER = _PRIMER_HEAD + _PRIMER_DOCUMENT + _PRIMER_TAIL
 # on Windows a shell command takes a value only in the Bash tool of Claude Code (Git Bash)
@@ -1708,7 +1710,9 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
     the resolver script reads it under a one-time grant. Every key passes the session rule and
     the limiter before anything is recorded or served, so a refused command leaves no audit
     line and no value waiting (reviews, 2026-09-26)."""
-    command = tool_input.get("command", "")
+    from . import vault_refs
+    command = vault_refs.canonical_noted(tool_input.get("command", ""), cfg, payload.get("session_id"))
+    tool_input = {**tool_input, "command": command}
     bad_args = _args_call_refusal(command)
     if bad_args:
         return _deny(bad_args)

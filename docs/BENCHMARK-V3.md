@@ -187,6 +187,10 @@ are not in the denominators of V3 and not in its comparisons with earlier releas
 
 ## Repeat
 
+To check the published maisecrets numbers of a release on your own computer, without the other scanners,
+`docs/REPRODUCE.md` takes about 10 minutes and compares your result with ours case by case. The full run with every
+scanner:
+
 ```bash
 git worktree add --detach ../ms-rc <tag or commit>         # the maisecrets under test
 # the environments as for V1 (docs/BENCHMARK-V1.md, "Repeat a measurement"), and a clean ai-gateway checkout

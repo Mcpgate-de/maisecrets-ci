@@ -149,13 +149,15 @@ class FormsChannelTests(unittest.TestCase):
     def test_a_form_never_blocks_a_typed_prompt(self):
         for name, text, values in corpus.FORMS_HIT:
             rule = OWNER[name]
-            if rule in personal.FORMS:
+            if rule in personal.FORMS and personal.FORMS[rule][1] == "tool":
                 with self.subTest(name=name):
                     self.assertNotIn(rule, {m.kind for m in scan(text, "prompt")})
 
-    def test_every_form_runs_in_the_tool_channel_only(self):
-        # a typed question about a form (`How does ::add-mask::x work?`) is no secret, and a hit blocks the prompt
-        self.assertEqual({v[1] for v in personal.FORMS.values()}, {"tool"})
+    def test_every_form_runs_in_the_tool_channel_only_but_the_phone_after_a_phone_word(self):
+        # a typed question about a form (`How does ::add-mask::x work?`) is no secret, and a hit blocks the prompt. A
+        # number after Tel. or Telefon is no question about a form: measured on typed prompts, 4 of 25,387 developer
+        # prompts got a new hit and none of DialogPII's on an unlabelled value (2026-11-02)
+        self.assertEqual({k for k, v in personal.FORMS.items() if v[1] != "tool"}, {"phone-after-phone-word"})
 
     def test_the_indian_address_form_runs_only_in_its_region(self):
         name, text, values = next(x for x in corpus.FORMS_HIT if x[0] == "indian address")

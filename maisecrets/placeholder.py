@@ -115,7 +115,11 @@ class MaisecretsReferences:
         return text.rfind(OPEN, 0, pos) > text.rfind(CLOSE, 0, pos)
 
     def hit_is_a_reference(self, text: str, start: int, secret: str) -> bool:
-        if text[max(0, start - 1):start] in ("<", OPEN) and _rx("key after open").match(secret):
+        # the key alone, and only where it ends as a key does: `⟦EMAIL_c1<address>⟧` starts like a key, and its
+        # address went to the model unmasked (the gateway found the same gap in its scrubber, 2026-11-02)
+        key = _rx("key after open").match(secret)
+        if text[max(0, start - 1):start] in ("<", OPEN) and key and key.end() == len(secret) \
+                and text[start + key.end():start + key.end() + 1] in (":", CLOSE, ">"):
             return True
         return OPEN in secret or _rx("legacy in value").search(secret) is not None
 

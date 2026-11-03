@@ -1289,9 +1289,10 @@ def run_pair(state: str, event: str, client: str) -> list[str]:
                 if "withheld" not in text:
                     problems.append(f"{cell}: the output was not withheld: {text[:200]!r}")
             elif client == "codex" and (out.get("decision") != "block" or "⟦" not in out.get("reason", "")):
-                problems.append(f"{cell}: Codex did not get the redacted text as the block reason")
+                # the answer holds no value (checked above): its start names the path it took, for a flake on a runner
+                problems.append(f"{cell}: Codex did not get the redacted text as the block reason: {text[:300]!r}")
             elif client == "claude" and "⟦" not in json.dumps(hso.get("updatedToolOutput"), ensure_ascii=False):
-                problems.append(f"{cell}: Claude Code did not get updatedToolOutput")
+                problems.append(f"{cell}: Claude Code did not get updatedToolOutput: {text[:300]!r}")
         return problems
     finally:
         sb.remove()

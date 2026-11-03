@@ -215,8 +215,9 @@ class PhoneAfterWordTests(Base):
             with self.subTest(text=text):
                 self.assertNotIn("phone-after-phone-word", {m.kind for m in scan(text, region=("de",))})
 
-    def test_a_typed_prompt_is_not_blocked_by_it(self):
-        self.assertNotIn("phone-after-phone-word", {m.kind for m in scan("Phone number: " + US, "prompt")})
+    def test_a_typed_prompt_takes_it_too(self):
+        # since 2026-11-02 (tests/test_personal_data.py, PromptPhoneWordTests, has the measurement)
+        self.assertIn("phone-after-phone-word", {m.kind for m in scan("Phone number: " + US, "prompt")})
 
     def test_a_north_american_number_needs_region_us_or_ca(self):
         self.assertNotIn("phone-after-phone-word", {m.kind for m in scan("Phone number: " + US, region=("de",))})

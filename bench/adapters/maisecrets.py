@@ -44,8 +44,15 @@ def describe(root: Path, regions: str) -> dict:
     commit = _git(root, "rev-parse", "HEAD")
     # untracked files count: the worker imports from this checkout (ignored files such as __pycache__ do not)
     status = _git(root, "status", "--porcelain", "--untracked-files=all") if commit else None
+    # the manifest of next keeps an old number until a release writes it on main (0.8.12 was measured as "0.7.2", an
+    # outside review, 2026-11-02), and next reaches no recent release tag (they sit on main): the commit's own tag,
+    # else the newest tag (the base scripts/release_gate.py takes) and the commit measured after it
+    exact = _git(root, "tag", "--points-at", "HEAD", "--list", "v[0-9]*") if commit else None
+    newest = (_git(root, "tag", "--list", "v[0-9]*", "--sort=-v:refname") or "").split("\n")[0] if commit else ""
+    version = (exact.split()[0][1:] if exact else f"{newest[1:]}+{commit[:8]}" if newest
+               else manifest.get("version"))
     # dirty is None when the state is unknown (a copy without git): the report refuses it like a modified tree
-    return {"scanner": NAME, "version": manifest.get("version"), "commit": commit,
+    return {"scanner": NAME, "version": version, "commit": commit,
             "dirty": None if status is None else bool(status),
             "configuration": {"regions": ["generic"] + regions.split(","), "sources": "none", "references": "none",
                               "host": "fixed user, year 2026"},

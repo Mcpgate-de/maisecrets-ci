@@ -380,7 +380,7 @@
    "why": "an emoji outside the BMP is one code point: the value starts at 29; a UTF-16 count (two units each) would give 31"
   },
   {
-   "id": "phone-word-is-a-tool-form",
+   "id": "phone-word-in-a-typed-prompt-is-a-hit",
    "input": "{\"customer\": {\"telefon\": \"0171 4829173\", \"build_number\": \"20261021\"}}",
    "kind": "normative",
    "channel": "prompt",
@@ -392,15 +392,21 @@
     "en",
     "de"
    ],
-   "expected": [],
-   "not_expected": [
+   "expected": [
     {
      "start": 26,
      "end": 38,
      "type": "PHONE"
     }
    ],
-   "why": "the channel decides: a prompt a person typed does not take a phone number from a key of a record"
+   "not_expected": [
+    {
+     "start": 58,
+     "end": 66,
+     "type": "PHONE"
+    }
+   ],
+   "why": "a typed prompt takes a phone number after a phone word too, also a customer record pasted into it; the build number stays text. Until 2026-11-02 the rule ran in tool results only; measured on the prompts of DialogPII and GitHub issues: 11 more labelled phones, none on an unlabelled value, 4 of 25,387 developer prompts with a new hit"
   },
   {
    "id": "field-phone-under-customer-telefon",

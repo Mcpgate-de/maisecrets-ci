@@ -1,10 +1,10 @@
 # c1-a-phone-number-after-a-phone-word-is-a-hit: the test owns the rule; this file names it and the mutation that must turn it red.
 belief = "c1-a-phone-number-after-a-phone-word-is-a-hit"
 control = "C1"
-statement = "In a tool result, a phone number in its national form after a phone label (Phone number:, Telefon:, telefoonnummer:, contact number is) or a North American number after a phone verb (call, reach ... at) is masked; a date, a time, a version, a timestamp, a range of years, a placeholder run and the fictional 555-01xx stay text."
+statement = "In a tool result and, since 0.8.13, in a typed prompt, a phone number in its national form after a phone label (Phone number:, Telefon:, telefoonnummer:, contact number is) or a North American number after a phone verb (call, reach ... at) is masked; a date, a time, a version, a timestamp, a range of years, a placeholder run and the fictional 555-01xx stay text."
 runner = ["tests/test_personal_after_its_label.py::PhoneAfterWordTests::test_a_national_number_after_a_phone_word_is_masked"]
 
 [proof]
 file = "maisecrets/detection/personal.py"
-find = '''    if "phone-after-phone-word" in want and any(w in low for w in _PHONE_WORDS):'''
-replace = '''    if "phone-after-phone-word" in want and not low:'''
+find = '''    if "phone-after-phone-word" not in want or not any(w in low for w in _PHONE_WORDS):'''
+replace = '''    if True:'''

@@ -1337,8 +1337,9 @@ def _quoted_json_hits(text: str) -> list:
 # ------------------------------------------------------------------------------------------ the forms of 0.6.24 --
 # A value in a fixed form or after a label that names it, from the holdout values that 0.6.21 still leaked
 # (2026-10-15). Each rule declares (type, channel, region, needs): channel "tool" (tool results and files) or "both".
-# All run in the tool channel only: a typed question about a form (`How does ::add-mask::x work?`) is no secret, and
-# a hit there blocks the prompt (review of 0.6.24);
+# All but one run in the tool channel only: a typed question about a form (`How does ::add-mask::x work?`) is no
+# secret, and a hit there blocks the prompt (review of 0.6.24). phone-after-phone-word runs in both: a number after
+# Tel. is no question about a form (4 of 25,387 developer prompts got a new hit, 2026-11-02);
 # region "generic" or a country; needs "form" (a fixed syntax names the value: ::add-mask::, SharedAccessKey=, a FHIR
 # identifier, a 〒 postcode) or "label" (a word before the value names it: member, record, token, address).
 # tests/fp_corpus_forms.py holds the developer text in the same shapes that each rule must leave alone.
@@ -1364,7 +1365,7 @@ FORMS = {
     "address-vcard-fields": (ADDRESS, "tool", "generic", "form"),
     "name-vcard-n": (NAME, "tool", "generic", "form"),
     "birth-date-vcard-compact": (BIRTH_DATE, "tool", "generic", "form"),
-    "phone-after-phone-word": (PHONE, "tool", "generic", "label"),
+    "phone-after-phone-word": (PHONE, "both", "generic", "label"),
     "name-single-after-label": (NAME, "tool", "generic", "label"),
     "name-next-to-a-person-cue": (NAME, "tool", "generic", "label"),
     "address-street-after-label": (ADDRESS, "tool", "generic", "label"),
@@ -2118,6 +2119,43 @@ _EMAIL_SHAPE_RE = _lazy(r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}")
 _PW_REFERENCE_VALUE_RE = _lazy(r"#?[A-Z][A-Z0-9]{0,9}-\d{1,7}|#\d{1,7}")
 
 
+def _phone_word_hits(text: str, low: str, regions: tuple, want, prompt: bool = False) -> list:
+    """phone-after-phone-word: a number after a phone word (Tel., Telefon, phone, mobile …) or a call cue; in both
+    channels, as its FORMS entry says. A typed prompt takes only a number after a phone label: a call cue there
+    (`call the function at`, `contact the API team at`) blocked developer prompts (review, 2026-11-02)."""
+    out: list = []
+    if "phone-after-phone-word" not in want or not any(w in low for w in _PHONE_WORDS):
+        return out
+    us = bool(_US_PHONE_REGIONS.intersection(regions))
+    for rx in (_PHONE_TIGHT_RE,) if prompt else (_PHONE_TIGHT_RE, _PHONE_LOOSE_RE):
+        for m in rx.finditer(text):
+            v = m.group(1).rstrip(" .-/")
+            if _US_PHONE_RE.fullmatch(v):
+                # (312) 846-2291 is phone-us-national's when its phone word is there; after a cue of this rule
+                # only (reached at, me at) it is this rule's. The 555 exchange stays an example, as there
+                # in a prompt phone-us-national does not run, so this rule keeps the number there
+                if not us or re.search(r"\)\s?555[-. ]", v) or ("phone-us-national" in want and _PHONE_WORD_RE.search(
+                        text, max(0, m.start(1) - 30), m.start(1))):
+                    continue
+            elif _NANP_SHAPE_RE.fullmatch(v) and not us:
+                continue   # a North American number needs us or ca
+            gap = text[m.start():m.start(1)]
+            sep = [x.start() for x in _GAP_SEP_RE.finditer(gap)] if rx is _PHONE_LOOSE_RE else ()
+            if sep and not _PHONE_GAP_END_RE.search(_PAREN_END_RE.sub("", gap[:sep[-1]]).rstrip(" )\"'")):
+                continue   # Mobile build artifact: 938-274-6157: the words before the colon name no phone
+            if sep and gap.lower().startswith("contact") and gap[sep[-1] + 1:].strip(" \t\"'*_`"):
+                # Contact: build 938-274-6157: after a contact label's colon the number comes first, unless the
+                # words there name it themselves (Escalation contact: Contact the coordinator at …), which the
+                # label's match would else swallow (0.7.6 lost such a number, Benchmark V3, 2026-10-22)
+                rest = _PHONE_LOOSE_RE.search(text, m.start() + sep[-1] + 1, m.end())
+                if not (rest and rest.start(1) == m.start(1)
+                        and not _GAP_SEP_RE.search(text[rest.start():rest.start(1)])):
+                    continue
+            if (_national_phone_ok(v) if rx is _PHONE_TIGHT_RE else _nanp_ok(v)):
+                out.append((m.start(1), m.start(1) + len(v), "phone-after-phone-word", PHONE))
+    return out
+
+
 def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> list:
     out = []
     if "secret-password-with-sign" in want and ("pass" in text.lower() or "pwd" in text.lower()):
@@ -2153,7 +2191,7 @@ def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> l
             if sum(c.isdigit() for c in v) >= 4 and sum(c.isalpha() for c in v) >= 4:
                 out.append((m.start(2), m.end(2), "secret-hex48-after-token-word", "SECRET"))
     if channel != "tool":
-        return out
+        return out + _phone_word_hits(text, low, regions, want, prompt=True)
     if "secret-in-login-code" in want:
         for rx, g in ((_REDIS_AUTH_RE, 1), (_LOGIN_CALL_RE, 3), (_OP_FIELDS_RE, 1)):
             for m in rx.finditer(text):
@@ -2268,33 +2306,7 @@ def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> l
             d = m.group(1)[3:]
             if 8 <= len(d) <= 15 and len(set(d)) > 2:
                 out.append((m.start(1), m.end(1), "phone-url-encoded", PHONE))
-    if "phone-after-phone-word" in want and any(w in low for w in _PHONE_WORDS):
-        us = bool(_US_PHONE_REGIONS.intersection(regions))
-        for rx in (_PHONE_TIGHT_RE, _PHONE_LOOSE_RE):
-            for m in rx.finditer(text):
-                v = m.group(1).rstrip(" .-/")
-                if _US_PHONE_RE.fullmatch(v):
-                    # (312) 846-2291 is phone-us-national's when its phone word is there; after a cue of this rule
-                    # only (reached at, me at) it is this rule's. The 555 exchange stays an example, as there
-                    if not us or re.search(r"\)\s?555[-. ]", v) or _PHONE_WORD_RE.search(
-                            text, max(0, m.start(1) - 30), m.start(1)):
-                        continue
-                elif _NANP_SHAPE_RE.fullmatch(v) and not us:
-                    continue   # a North American number needs us or ca
-                gap = text[m.start():m.start(1)]
-                sep = [x.start() for x in _GAP_SEP_RE.finditer(gap)] if rx is _PHONE_LOOSE_RE else ()
-                if sep and not _PHONE_GAP_END_RE.search(_PAREN_END_RE.sub("", gap[:sep[-1]]).rstrip(" )\"'")):
-                    continue   # Mobile build artifact: 938-274-6157: the words before the colon name no phone
-                if sep and gap.lower().startswith("contact") and gap[sep[-1] + 1:].strip(" \t\"'*_`"):
-                    # Contact: build 938-274-6157: after a contact label's colon the number comes first, unless the
-                    # words there name it themselves (Escalation contact: Contact the coordinator at …), which the
-                    # label's match would else swallow (0.7.6 lost such a number, Benchmark V3, 2026-10-22)
-                    rest = _PHONE_LOOSE_RE.search(text, m.start() + sep[-1] + 1, m.end())
-                    if not (rest and rest.start(1) == m.start(1)
-                            and not _GAP_SEP_RE.search(text[rest.start():rest.start(1)])):
-                        continue
-                if (_national_phone_ok(v) if rx is _PHONE_TIGHT_RE else _nanp_ok(v)):
-                    out.append((m.start(1), m.start(1) + len(v), "phone-after-phone-word", PHONE))
+    out += _phone_word_hits(text, low, regions, want)
     if "name-single-after-label" in want and ("name" in low or "nom" in low or "apellido" in low or "cognome" in low
                                               or "voornaam" in low or "achternaam" in low or "namn" in low):
         found, wordy = [], []

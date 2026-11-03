@@ -822,6 +822,16 @@ def forget(keys: list[str], origin: str, url: str, deadline: float | None = None
         atomic_write(NOTES, json.dumps(data, indent=1))
 
 
+def canonical_noted(text: str, cfg: dict | None, session: str | None) -> str:
+    """text with each token this session may resolve in its canonical form `⟦TYPE_n⟧`, without the display part. A
+    display is chosen by whoever wrote the text, and a quote in it moved the shell analysis of a command: `| base64`,
+    `eval` and `ssh` after the token were taken for quoted text and passed the refusals (Fable review, 2026-11-02)."""
+    out = text
+    for key, a, b in sorted(find_noted(text, cfg, session), key=lambda r: -r[1]):
+        out = out[:a] + f"{OPEN}{key}{CLOSE}" + out[b:]
+    return out
+
+
 def find_noted(text: str, cfg: dict | None, session: str | None) -> list[tuple[str, int, int]]:
     """The server-range tokens in text that a server result noted for this session; any other one stays text, and
     every one does when client_header is off."""

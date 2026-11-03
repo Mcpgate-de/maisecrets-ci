@@ -482,6 +482,24 @@ class Online(OnlineBase):
         self.assertEqual(out["hookSpecificOutput"]["updatedInput"]["new_string"], "my-own-stored-value-xyz Value Two")
 
     @unittest.skipUnless(BASH and os.name != "nt", "bash on POSIX")
+    def test_a_display_part_cannot_move_the_shell_analysis_or_reach_the_shell(self):
+        # Fable review, 2026-11-02: a quote in the display of a noted token hid `| base64` and `eval` from the refusals
+        self.ready()
+        for display, tail in (("'", " | base64"), ('"', " | base64"), ("'", "; eval x")):
+            with self.subTest(display=display, tail=tail):
+                out = hooks.pre_tool({"tool_name": "Bash", "session_id": "s1", **CLAUDE,
+                                      "tool_input": {"command": f"printf %s {tok('NAME_2', display)}{tail}"}})
+                self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+        marker = self.work / "ran"
+        out = hooks.pre_tool({"tool_name": "Bash", "session_id": "s1", **CLAUDE,
+                              "tool_input": {"command": f"printf 'got:%s' {tok('NAME_2', '$(touch ran)')}"}})
+        command = out["hookSpecificOutput"]["updatedInput"]["command"]
+        self.assertNotIn("touch", command)
+        run = subprocess.run([BASH, "-c", command], capture_output=True, text=True, cwd=self.work)
+        self.assertEqual(run.stdout, "got:Value Two")
+        self.assertFalse(marker.exists())
+
+    @unittest.skipUnless(BASH and os.name != "nt", "bash on POSIX")
     def test_bash_reads_the_value_in_the_shell_and_the_command_carries_none(self):
         self.ready()
         out = hooks.pre_tool({"tool_name": "Bash", "session_id": "s1", **CLAUDE,

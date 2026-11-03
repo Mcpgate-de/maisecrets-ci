@@ -1,0 +1,16 @@
+{
+ "source": "ghissues",
+ "split": "dev",
+ "cut": 1000,
+ "timeout_ms": 300,
+ "parallel": 4,
+ "cases": 25387,
+ "words": 2925773,
+ "no_answer_in_time": 39,
+ "requests_per_second": 37.6,
+ "ms_median": 104.6,
+ "ms_p95": 170.6,
+ "ner_spans": 1445,
+ "ner_spans_per_1000_words": 0.49,
+ "texts_with_a_span": 972
+}

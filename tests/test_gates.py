@@ -1197,6 +1197,19 @@ class DocumentRouteTests(unittest.TestCase):
         self.assertIn("python3 make_pdf.py ⟦KEY⟧", hooks.PRIMER)
         self.assertIn("Write, Edit or apply_patch", hooks.PRIMER)
 
+    def test_the_primer_gives_the_reason_for_an_example_value_and_the_core_keeps_it(self):
+        # the model is asked why `Tel. 040 3456789` stays in clear: the primer must say so, and say it truly
+        for text in (hooks.PRIMER, hooks.PRIMER_WINDOWS):
+            self.assertIn("leaves example values unmasked on purpose", text)
+        run = re.search(r"a run of digits \(([\d ]+)\)", hooks.PRIMER).group(1)
+        from maisecrets.detection import NO_REFERENCES, NO_SOURCES, Active, Detector, Host, resolve_regions
+        act = resolve_regions({"regions": ["de"]}, locale="de")
+        det = Detector(regions=Active(regions=act.regions, languages=act.languages, source="test"),
+                       sources=NO_SOURCES, references=NO_REFERENCES, host=Host(user="", year=None))
+        self.assertEqual(det.findings("Tel. " + run, channel="tool"), [])
+        self.assertNotEqual(det.findings("Tel. " + run[:4] + "3829147", channel="tool"), [],
+                            "a real number after the same label is masked")
+
 
 class TipTests(unittest.TestCase):
     def test_one_tip_per_day_rotating_and_switchable_off(self):

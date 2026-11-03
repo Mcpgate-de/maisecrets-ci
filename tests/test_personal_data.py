@@ -266,6 +266,34 @@ class ChannelTests(unittest.TestCase):
         self.assertIn("email", kinds)
 
 
+class PromptPhoneWordTests(unittest.TestCase):
+    def test_a_number_after_a_german_phone_word_is_masked_in_a_typed_prompt_but_an_example_run_is_not(self):
+        # field report 2026-11-02: `Tel. 040 …` was masked in a tool result only. Measured on the prompts of DialogPII
+        # and GitHub issues (dev, 1,000 characters): 11 more labelled phones, 0 on no labelled value, 0 lost; 4 of
+        # 25,387 developer prompts got a new hit
+        number = "040 " + "382" + "9147"
+        for text in ("Tel. " + number, "Telefon: " + number, "Ruf mich an unter Tel. " + number + " ab 9 Uhr."):
+            with self.subTest(text=text[:12]):
+                self.assertEqual(values(text, "prompt", ("de",)), [("phone-after-phone-word", number)])
+        self.assertEqual(values("Tel. 040 " + "345" + "6789", "prompt", ("de",)), [], "a counted run is an example")
+        self.assertEqual(values(number, "prompt", ("de",)), [], "a number without a phone word stays text")
+
+    def test_a_us_number_in_parentheses_after_a_phone_label_is_masked_in_a_prompt(self):
+        # phone-us-national, which takes this form in a tool result, does not run in a prompt (review, 2026-11-02)
+        us = "(312) 846-" + "2917"
+        self.assertEqual(values("Phone: " + us, "prompt", ("us",)), [("phone-after-phone-word", us)])
+
+    def test_a_call_cue_without_a_phone_label_does_not_block_a_prompt(self):
+        # in a prompt a hit blocks the whole prompt: only a number after a phone label counts there
+        num = "312-846-" + "2917"
+        for text in ("call the function at " + num, "contact the API team at " + num, "reach the service at " + num,
+                     "call me at " + num):
+            with self.subTest(text=text[:20]):
+                self.assertEqual(values(text, "prompt", ("us",)), [])
+        self.assertEqual(values("contact me at " + num, "tool", ("us",)), [("phone-after-phone-word", num)],
+                         "a tool result keeps the call cues")
+
+
 class CorpusTests(unittest.TestCase):
     def test_the_personal_data_corpus_has_no_false_hit_in_either_channel(self):
         for ch in ("tool", "prompt"):
