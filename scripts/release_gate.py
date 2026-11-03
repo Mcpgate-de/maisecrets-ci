@@ -214,6 +214,29 @@ def keep(out: Path, dest: Path, cand: Path, version: str, python: str = "") -> N
     _sums(dest)
 
 
+def keep_unchanged(prev: Path, dest: Path, cand: Path, version: str, since: str) -> None:
+    """A release that does not change the detection is not measured again; its results directory still has to exist,
+    as the next gate's baseline and for --verify-tag (0.8.14 had none, 2026-11-03). It holds the results of the last
+    release, unchanged, a NOTE.md that says so, and measured.json with the runtime trees of this candidate."""
+    import shutil
+    dest.mkdir(parents=True, exist_ok=True)
+    for f in prev.rglob("*"):
+        if not f.is_file() or (f.parent == prev and f.name in ("measured.json", "SHA256SUMS", "NOTE.md")):
+            continue       # written new below; holdout-v2/SHA256SUMS stays with its files
+        target = dest / f.relative_to(prev)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(f, target)
+    commit = _git("rev-parse", "HEAD", cwd=cand)
+    trees = [{"dir": d, "tree": t} for d, t in runtime_trees(commit, cand).items()]
+    (dest / "measured.json").write_text(json.dumps({"version": version, "commit": commit, "trees": trees},
+                                                   indent=2) + "\n", encoding="utf-8")
+    (dest / "NOTE.md").write_text(
+        f"The detection did not change since {since}, so the release gate did not measure it again. The results here "
+        f"are those of {prev.name}, unchanged. measured.json names the runtime trees of {version} (commit "
+        f"{commit[:8]}), which --verify-tag compares with the tag.\n", encoding="utf-8")
+    _sums(dest)
+
+
 def verify_tag(tag: str, root: Path = ROOT) -> list:
     """The runtime directories of the tag whose tree differs from the measured commit's (empty: the results of
     bench/results/*-v3-<version> are the tag's)."""
@@ -354,6 +377,11 @@ def main(argv: list) -> int:
     if a.dry_run or not kind["retest"]:
         text, failed = report(kind, {}, None)
         print(text)
+        prev = default_baseline(tag)
+        if a.keep and not a.dry_run and prev is not None:
+            dest = ROOT / "bench" / "results" / f"{datetime.date.today().isoformat()}-v3-{next_version(tag)}"
+            keep_unchanged(prev, dest, cand, next_version(tag), tag)
+            print(f"kept the results of {tag} as the baseline of {next_version(tag)}: {dest.relative_to(ROOT)}")
         return 0
     baseline = a.baseline or default_baseline(tag)
     if baseline is None:

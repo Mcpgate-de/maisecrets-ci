@@ -66,7 +66,8 @@ exits with 1. Please tell us then (an issue on GitHub): a difference is a defect
 - The timing in your result file depends on your computer and is not compared.
 - What this does not cover: the private holdout (it gives totals only, `bench/HOLDOUT-LOG.md`), the other scanners in
   `report-v3.md` (each needs its own environment, `docs/BENCHMARK-V3.md`, "Repeat"), and the optional name service
-  (`bench/results/2026-11-01-v3-0.8.7-prompt-ner/README.md` has its own recipe; it needs Docker).
+  (the README of each prompt NER run has its own recipe, for example
+  `bench/results/2026-11-02-v3-0.8.12-prompt-ner/README.md`; it needs Docker).
 - Another release: use its tag and the folder of its results in `bench/results/`.
 
 If you reproduced a result, we are glad to hear it, with your platform and the output of `bench/verify_result.py`.

@@ -432,8 +432,8 @@ class RemoteDetector:
             s, e = words.widen(s, e)
             if s >= e:
                 continue                          # white space only: no word to take
-            if type_ == "NAME" and text[s:e].strip().lower() in _NOT_A_PERSON_ALONE:
-                continue                          # a product word or a greeting alone is no person
+            if type_ == "NAME" and _no_person(text[s:e]):
+                continue                          # a product word, a product name or a greeting alone is no person
             if _overlaps(occ, ends, s, e):
                 continue
             i = bisect.bisect_left(taken, (s, e))
@@ -458,7 +458,24 @@ PRODUCT_WORDS = frozenset({
 # dev split: 27 fewer false names, no name lost (netcup, prompt NER)
 GREETING_WORDS = frozenset({"hallo", "hello", "hi", "hey", "moin", "servus", "grüezi", "hej", "hoi", "ciao", "hola",
                             "salut", "bonjour", "dear", "liebe", "lieber", "danke", "thanks", "cheers"})
-_NOT_A_PERSON_ALONE = PRODUCT_WORDS | GREETING_WORDS
+# the words after a product word in a product name ("Claude Code", "GitHub Actions", "Docker Desktop"): the model
+# takes the whole name for a person. Never a word that is also a first name (no "max", no "pro")
+PRODUCT_TAILS = frozenset({
+    "actions", "agent", "api", "app", "cli", "cloud", "code", "compose", "desktop", "enterprise", "haiku", "hub",
+    "opus", "pages", "registry", "runner", "server", "sonnet", "studio", "web", "workspace"})
+
+
+def is_product_name(span: str) -> bool:
+    """Whether a name span is a product word alone, or a product word followed only by product words and
+    PRODUCT_TAILS ("Claude Code"). Public since 0.8.15: a caller that applies the spans itself drops these."""
+    words = span.strip().lower().split()
+    return bool(words) and words[0] in PRODUCT_WORDS and all(w in PRODUCT_WORDS or w in PRODUCT_TAILS
+                                                             for w in words[1:])
+
+
+def _no_person(span: str) -> bool:
+    """Whether a NAME span is a product name (is_product_name) or a greeting alone."""
+    return is_product_name(span) or span.strip().lower() in GREETING_WORDS
 
 
 class _HttpStatus(Exception):

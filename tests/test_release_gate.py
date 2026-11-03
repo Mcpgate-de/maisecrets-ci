@@ -174,6 +174,29 @@ class MeasuredBaselineTests(unittest.TestCase):
             (res.parent / "2026-01-01-v3-0.0.3" / "measured.json").write_text((res / "measured.json").read_text())
             self.assertEqual(["maisecrets"], gate.verify_tag("v0.0.3", r))
 
+    def test_a_release_without_a_retest_keeps_the_last_results_and_its_own_trees(self):
+        # 0.8.14 changed no detection: the gate measured nothing and wrote no results, so --verify-tag found no
+        # measured.json, and the next gate would have found no baseline (2026-11-03)
+        with tempfile.TemporaryDirectory() as d:
+            r = self.repo(d)
+            prev = Path(d) / "2026-01-01-v3-0.0.2"
+            (prev / "holdout-v2").mkdir(parents=True)
+            (prev / "nemotron-dev-maisecrets-full.json.gz").write_bytes(b"run")
+            (prev / "holdout-v2" / "SHA256SUMS").write_text("x  holdout-v2-v0.0.2.json.gz\n")
+            (prev / "measured.json").write_text('{"commit": "old"}')
+            dest = r / "bench" / "results" / "2026-01-02-v3-0.0.3"
+            gate.keep_unchanged(prev, dest, r, "0.0.3", "v0.0.2")
+            self.assertEqual((dest / "nemotron-dev-maisecrets-full.json.gz").read_bytes(), b"run")
+            self.assertTrue((dest / "holdout-v2" / "SHA256SUMS").exists())
+            measured = json.loads((dest / "measured.json").read_text())
+            self.assertEqual(git(r, "rev-parse", "HEAD"), measured["commit"], "this candidate, not the last release")
+            self.assertIn("v0.0.2", (dest / "NOTE.md").read_text())
+            self.assertIn("measured.json", (dest / "SHA256SUMS").read_text())
+            (r / ".claude-plugin" / "plugin.json").write_text('{"version": "0.0.3"}\n')
+            git(r, "commit", "-qam", "release")
+            git(r, "tag", "v0.0.3")
+            self.assertEqual([], gate.verify_tag("v0.0.3", r))
+
 
 
 class CoverageAndTimeTests(unittest.TestCase):

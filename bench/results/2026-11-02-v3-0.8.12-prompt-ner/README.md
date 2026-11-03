@@ -29,3 +29,33 @@ Against 0.8.7 on the same data: 3 and 3 more names found whole (3,040 and 4,789)
 (592 instead of 619, 952 instead of 984; since 0.8.7 a greeting or a product name alone is no longer masked as a
 person), and the same times within their scatter. In ghissues the spans went from 1,590 to 1,445. In ghissues, 39 of 25,387 requests had no answer in time
 (0.15 %); in the 0.8.7 run it was 13.
+
+## Repeat
+
+Use a host with 8 cores and Docker. `DIALOGPII_DIR` and `GHISSUES_DIR` are the directories that
+`bench/dialogpii.py seal` and `bench/ghissues.py seal` wrote. Pin the service by its digest, so that you test the same
+model:
+
+```bash
+git clone https://github.com/Mcpgate-de/maisecrets && cd maisecrets && git checkout v0.8.12
+docker run -d --name ner-bench --cpus 4 --memory 1536m -p 127.0.0.1:8766:8765 \
+  mcpgate/ner@sha256:cc871eb56c6fad40855bb1967832acddc5c2e8b6ada9118eece4f8fc8095fe3e
+bash bench/ner/quiet_bench.sh OUT_DIR dialogpii DIALOGPII_DIR 500 dialogpii DIALOGPII_DIR 1000 \
+  ghissues GHISSUES_DIR 1000
+```
+
+Compare `names`, `names_whole_rules`, `names_whole_rules_ner`, `ner_spans_on_no_labelled_value` and `words` in each
+JSON file of `OUT_DIR` with the file of the same name here. The counts can differ by a few: a request that gets no
+answer in 300 ms counts as no name, and that depends on the load of your host (`no_answer_in_time`). The times depend
+on your CPU and are not compared.
+
+### A rerun on 2026-11-03
+
+`rerun-2026-11-03/` is the same measurement on the same host and service (`service-info.json` is identical), with the
+runtime of `next` at `a669fa40`: 0.8.14 and a fix of the release tool. Its detection differs from 0.8.12 only in the
+phone rule for typed prompts (`maisecrets/detection/personal.py`); the name service client and the bench scripts are
+the same. The run was from 10:26 to 10:41 UTC, with no CI build and a highest load average of 4.79, the run itself.
+
+- DialogPII, cut at 500 and at 1,000: the same counts, 3,040 of 5,361 and 4,789 of 8,297 names found whole, 592 and
+  952 spans on no labelled value.
+- ghissues: 1,449 spans instead of 1,445, with 13 requests without an answer in time instead of 39.

@@ -309,6 +309,32 @@ class RemoteDetectorTests(unittest.TestCase):
         self.assertEqual(status.state, "ok")
         self.assertEqual([text[s:e] for s, e, _t, _sc in spans], [full])
 
+    def test_a_product_name_is_no_name_and_a_person_with_a_product_surname_stays(self):
+        # mcpgate/ner v2.0.3584, 2026-11-03: "Claude Code" came back as one PER span; only a product word alone was
+        # dropped
+        person, first = NAME + " Docker", "Claude " + NAME.split()[-1]
+        text = f"Claude Code ran it, GitHub Actions too, then {person}, {first} and Docker Desktop. Claude Opus too."
+        phrases = ("Claude Code", "GitHub Actions", person, first, "Docker Desktop", "Claude Opus")
+
+        def answer(t):
+            out = []
+            for word in phrases:
+                at = t.find(word)
+                out.append({"entity_group": "PER", "start": at, "end": at + len(word), "score": 0.9, "word": word})
+            return out
+        svc = Service(answer=answer)
+        self.addCleanup(svc.close)
+        spans, status = rm.RemoteDetector(svc.url).ask(text, [])
+        self.assertEqual(status.state, "ok")
+        self.assertEqual([text[s:e] for s, e, _t, _sc in spans], [person, first])
+
+    def test_is_product_name_is_the_rule_a_caller_applies_itself(self):
+        # the gateway applies the spans itself and asks this function (public since 0.8.15)
+        for span in ("Claude", " claude code ", "GitHub Actions", "Docker Desktop", "Claude Opus", "GitHub Copilot"):
+            self.assertTrue(rm.is_product_name(span), span)
+        for span in ("", "Hallo", NAME, NAME + " Docker", "Claude " + NAME.split()[-1], "Code", "Desktop Claude"):
+            self.assertFalse(rm.is_product_name(span), span)
+
     def test_a_greeting_alone_is_no_name_and_the_name_after_it_stays(self):
         # a corpus of gateway responses, 2026-11-02: 88 of 117 false names were "Hallo" before a name
         text = f"Hallo {NAME}, Moin! Dear team, hi."
