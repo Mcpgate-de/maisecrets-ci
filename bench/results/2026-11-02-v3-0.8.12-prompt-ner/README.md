@@ -48,3 +48,14 @@ Compare `names`, `names_whole_rules`, `names_whole_rules_ner`, `ner_spans_on_no_
 JSON file of `OUT_DIR` with the file of the same name here. The counts can differ by a few: a request that gets no
 answer in 300 ms counts as no name, and that depends on the load of your host (`no_answer_in_time`). The times depend
 on your CPU and are not compared.
+
+### A rerun on 2026-11-03
+
+`rerun-2026-11-03/` is the same measurement on the same host and service (`service-info.json` is identical), with the
+runtime of `next` at `a669fa40`: 0.8.14 and a fix of the release tool. Its detection differs from 0.8.12 only in the
+phone rule for typed prompts (`maisecrets/detection/personal.py`); the name service client and the bench scripts are
+the same. The run was from 10:26 to 10:41 UTC, with no CI build and a highest load average of 4.79, the run itself.
+
+- DialogPII, cut at 500 and at 1,000: the same counts, 3,040 of 5,361 and 4,789 of 8,297 names found whole, 592 and
+  952 spans on no labelled value.
+- ghissues: 1,449 spans instead of 1,445, with 13 requests without an answer in time instead of 39.

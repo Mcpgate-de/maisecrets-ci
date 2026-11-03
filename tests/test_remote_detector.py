@@ -328,6 +328,13 @@ class RemoteDetectorTests(unittest.TestCase):
         self.assertEqual(status.state, "ok")
         self.assertEqual([text[s:e] for s, e, _t, _sc in spans], [person, first])
 
+    def test_is_product_name_is_the_rule_a_caller_applies_itself(self):
+        # the gateway applies the spans itself and asks this function (public since 0.8.15)
+        for span in ("Claude", " claude code ", "GitHub Actions", "Docker Desktop", "Claude Opus", "GitHub Copilot"):
+            self.assertTrue(rm.is_product_name(span), span)
+        for span in ("", "Hallo", NAME, NAME + " Docker", "Claude " + NAME.split()[-1], "Code", "Desktop Claude"):
+            self.assertFalse(rm.is_product_name(span), span)
+
     def test_a_greeting_alone_is_no_name_and_the_name_after_it_stays(self):
         # a corpus of gateway responses, 2026-11-02: 88 of 117 false names were "Hallo" before a name
         text = f"Hallo {NAME}, Moin! Dear team, hi."

@@ -458,8 +458,6 @@ PRODUCT_WORDS = frozenset({
 # dev split: 27 fewer false names, no name lost (netcup, prompt NER)
 GREETING_WORDS = frozenset({"hallo", "hello", "hi", "hey", "moin", "servus", "grüezi", "hej", "hoi", "ciao", "hola",
                             "salut", "bonjour", "dear", "liebe", "lieber", "danke", "thanks", "cheers"})
-_NOT_A_PERSON_ALONE = PRODUCT_WORDS | GREETING_WORDS
-
 # the words after a product word in a product name ("Claude Code", "GitHub Actions", "Docker Desktop"): the model
 # takes the whole name for a person. Never a word that is also a first name (no "max", no "pro")
 PRODUCT_TAILS = frozenset({
@@ -467,14 +465,17 @@ PRODUCT_TAILS = frozenset({
     "opus", "pages", "registry", "runner", "server", "sonnet", "studio", "web", "workspace"})
 
 
-def _no_person(span: str) -> bool:
-    """Whether a NAME span is a product word or a greeting alone, or a product word followed only by product words
-    and PRODUCT_TAILS."""
+def is_product_name(span: str) -> bool:
+    """Whether a name span is a product word alone, or a product word followed only by product words and
+    PRODUCT_TAILS ("Claude Code"). Public since 0.8.15: a caller that applies the spans itself drops these."""
     words = span.strip().lower().split()
-    if len(words) == 1:
-        return words[0] in _NOT_A_PERSON_ALONE
     return bool(words) and words[0] in PRODUCT_WORDS and all(w in PRODUCT_WORDS or w in PRODUCT_TAILS
                                                              for w in words[1:])
+
+
+def _no_person(span: str) -> bool:
+    """Whether a NAME span is a product name (is_product_name) or a greeting alone."""
+    return is_product_name(span) or span.strip().lower() in GREETING_WORDS
 
 
 class _HttpStatus(Exception):
