@@ -45,6 +45,9 @@ OWNER = {
     "address after label": "address-after-label", "jp postcode": "address-jp-postcode",
     "indian address": "address-in-form", "name cyrillic": "name-non-latin-after-label",
     "name cjk": "name-non-latin-after-label", "name latin ext": "name-after-label",
+    "name after frau": "name-after-german-title", "name after herr and a role": "name-after-german-title",
+    "name after herrn": "name-after-german-title", "name after frau dr med": "name-after-german-title",
+    "name after herr dipl ing": "name-after-german-title", "name at the end of a sentence": "name-after-german-title",
     "name in a declaration": "name-next-to-a-person-cue", "name before born on": "name-next-to-a-person-cue",
     "name after my name is": "name-next-to-a-person-cue", "us address on two lines": "address-us-two-lines",
     "us address on one line": "address-us-one-line",
@@ -158,6 +161,14 @@ class FormsChannelTests(unittest.TestCase):
         # number after Tel. or Telefon is no question about a form: measured on typed prompts, 4 of 25,387 developer
         # prompts got a new hit and none of DialogPII's on an unlabelled value (2026-11-02)
         self.assertEqual({k for k, v in personal.FORMS.items() if v[1] != "tool"}, {"phone-after-phone-word"})
+
+    def test_the_german_title_runs_only_where_herr_and_frau_are_titles(self):
+        text = "Sehr geehrte Frau " + "Wei" + "gand" + ", danke."
+        for region, want in ((("de",), True), (("at",), True), (("ch",), True), (("us",), False), ((), False)):
+            with self.subTest(region=region):
+                self.assertEqual("name-after-german-title" in {m.kind for m in scan(text, "tool", region)}, want)
+        # a person who types a name means to send it
+        self.assertNotIn("name-after-german-title", {m.kind for m in scan(text, "prompt", ("de",))})
 
     def test_the_indian_address_form_runs_only_in_its_region(self):
         name, text, values = next(x for x in corpus.FORMS_HIT if x[0] == "indian address")

@@ -711,6 +711,35 @@
     }
    ],
    "why": "the core parses the JSON itself; fields that name its own keys give the same one hit, not a second"
+  },
+  {
+   "id": "name-after-frau-in-a-tool-result-is-a-hit",
+   "input": "Sehr geehrte Frau Weigand, Frau Doktor ist heute nicht da.",
+   "kind": "normative",
+   "channel": "tool",
+   "regions": [
+    "generic",
+    "de"
+   ],
+   "languages": [
+    "en",
+    "de"
+   ],
+   "expected": [
+    {
+     "start": 18,
+     "end": 25,
+     "type": "NAME"
+    }
+   ],
+   "not_expected": [
+    {
+     "start": 32,
+     "end": 38,
+     "type": "NAME"
+    }
+   ],
+   "why": "in German the title Herr or Frau names a person, and one capital word after it is the surname, also when it is a word (Koch); a role noun after the title (Frau Doktor) is no name. Tool results only: a person who types a name means to send it. Measured on DialogPII dev, 2026-11-03: 211 new spans in tool texts, all on labelled names, none in 25,387 developer texts"
   }
  ]
 }

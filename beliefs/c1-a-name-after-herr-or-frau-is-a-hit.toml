@@ -1,0 +1,18 @@
+# c1-a-name-after-herr-or-frau-is-a-hit: an invariant belief. Each mutation must turn at least one owning test red, and each owning test must be red under at least one mutation.
+belief = "c1-a-name-after-herr-or-frau-is-a-hit"
+kind = "invariant"
+control = "C1"
+statement = "Since 0.8.16, in a tool result and in a German-speaking region (de, at, ch, li, lu), one capital word after Herr, Herrn or Frau is masked as a name, also after an academic abbreviation (Dr. med., Dipl.-Ing.) or a role (Herr Professor <Name>); a role alone (Frau Doktor, Herr Geschäftsführer), a template word (Vorname), a pronoun (Sie), a word after an article and a placeholder name stay text. A typed prompt keeps the name."
+runner = ["tests/test_fp_corpus_forms.py::FormsChannelTests::test_the_german_title_runs_only_where_herr_and_frau_are_titles", "tests/test_fp_corpus_forms.py::FormsCorpusTests::test_no_rule_fires_on_the_developer_text_in_the_shapes_of_the_forms"]
+
+[[proof]]
+path = "the rule runs in no region"
+file = "maisecrets/detection/personal.py"
+find = '''    if not _DE_TITLE_REGIONS.intersection(regions) or not ("Herr" in text or "Frau" in text):'''
+replace = '''    if True:'''
+
+[[proof]]
+path = "a compound role is taken as the name"
+file = "maisecrets/detection/personal.py"
+find = '''    return w in _DE_TITLE_ROLES or w.endswith(_DE_ROLE_STEMS)'''
+replace = '''    return w in _DE_TITLE_ROLES'''

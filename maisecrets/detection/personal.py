@@ -489,6 +489,74 @@ def _name_ok(v: str) -> bool:
     return sum(1 for w in words if len(w.strip(".")) >= 2) >= 2
 
 
+# ------------------------------------------------------------------------------ name after Herr or Frau (German) --
+# "Frau <Name>, …", "an Herrn <Name>": in German the title alone names a person, and the surname is often a word (Koch,
+# Fischer, Becker), so one capital word after it is the name (DialogPII dev, 2026-11-03: 632 of 637 such words were
+# labelled names, and no rule found one). Tool results only: a person who types a name means to send it. After the
+# title, an academic abbreviation (Dr. med., Dipl.-Ing.) and a role (Frau Doktor, Herr Geschäftsführer) are no name; a
+# name after them is (Herr Professor Dr. <Name>). A template word (Vorname), a pronoun (Frau Doktor Sie haben …) and a
+# word after an article (die erste Frau Deutschlands) stay text. Review of 2026-11-03 (Fable): 34 of 86 such sentences
+# hit before these checks
+_DE_WORD = r"[A-ZÄÖÜ][a-zäöüß]+(?:-[A-ZÄÖÜ][a-zäöüß]+)?"
+# a fixed list: a general "short word and a dot" takes a surname at the end of a sentence and the next word as the name
+_DE_ABBR = (r"(?:Dr|Prof|Dipl|Mag|med|dent|vet|phil|jur|rer|nat|pol|oec|theol|habil)\."
+            r"(?:-(?:Ing|Kfm|Inf|Psych|Päd|Volksw|Betriebsw)\.)?")
+_DE_TITLE_RE = re.compile(r"(?<![\w])(?:Herr|Herrn|Frau)(?: " + _DE_ABBR + r")* (" + _DE_WORD + r")(?: (?:"
+                          + _DE_ABBR + r" )*(" + _DE_WORD + r"))?(?![\w'’-])")
+_DE_ARTICLE_BEFORE_RE = re.compile(r"(?i)(?:^|[^\w])(?:der|die|das|den|dem|des|ein|eine|einer|einen|einem|eines|jede|"
+                                   r"jeder|jeden|jedem|keine|keiner|diese|dieser|diesen|jene|meine|deine|seine|ihre|"
+                                   r"unsere|eure|welche|welcher|erste|zweite|letzte|junge|alte) $")
+# a role after the title: the word itself, or a compound that ends in one of the stems (Oberarzt, Geschäftsführerin)
+_DE_TITLE_ROLES = frozenset({
+    "doktor", "doktorin", "professor", "professorin", "pfarrer", "pfarrerin", "pastor", "pastorin", "kollege",
+    "kollegin", "ober", "rat", "rätin", "abgeordnete", "abgeordneter", "vorsitzende", "vorsitzender", "oberst",
+    "general", "major", "leutnant", "kapitän", "chef", "chefin", "kunde", "kundin", "mama", "papa", "mutter", "vater",
+    "oma", "opa", "tante", "onkel", "schwester", "bruder", "gott", "jesus", "christus", "holle", "konsul", "konsulin",
+    "kaplan", "diakon", "diakonin", "vikar", "vikarin", "dekan", "dekanin", "rektor", "rektorin", "magister", "dozent",
+    "dozentin", "notar", "notarin", "zeuge", "zeugin", "angeklagte", "angeklagter", "wirt", "wirtin", "graf",
+    "gräfin", "baron", "baronin", "coach", "dr", "prof", "dipl", "mag"})
+_DE_ROLE_STEMS = (
+    "arzt", "ärztin", "leiter", "leiterin", "führer", "führerin", "vorstand", "sekretär", "sekretärin", "präsident",
+    "präsidentin", "minister", "ministerin", "direktor", "direktorin", "kommissar", "kommissarin", "meister",
+    "meisterin", "kanzler", "kanzlerin", "senator", "senatorin", "botschafter", "botschafterin", "inspektor",
+    "inspektorin", "ingenieur", "ingenieurin", "richter", "richterin", "anwalt", "anwältin", "lehrer", "lehrerin",
+    "nachbar", "nachbarin", "pfleger", "pflegerin", "verwalter", "verwalterin", "mieter", "mieterin", "trainer",
+    "trainerin", "erzieher", "erzieherin", "ausbilder", "ausbilderin", "hauptmann", "wachtmeister", "bürgermeister",
+    "landrat", "stadtrat", "geheimrat", "rätin", "leutnant", "oberst", "general", "major")
+# a word after the title that names no one: a template field, a pronoun, a greeting, the title again
+_DE_TITLE_NOT_A_NAME = frozenset({
+    "vorname", "nachname", "name", "familienname", "firstname", "lastname", "surname", "test", "beispiel",
+    "platzhalter", "anrede", "titel", "nutzer", "benutzer", "user", "sie", "ihnen", "ihre", "ihr", "ihrer", "ihrem",
+    "ihren", "du", "dein", "deine", "danke", "bitte", "hallo", "guten", "liebe", "lieber", "herr", "herrn", "frau",
+    "namens"})
+# the countries where Herr and Frau are the titles; the registry names "de", the gate takes all five
+_DE_TITLE_REGIONS = frozenset({"de", "at", "ch", "li", "lu"})
+
+
+def _de_role(word: str) -> bool:
+    w = word.lower()
+    return w in _DE_TITLE_ROLES or w.endswith(_DE_ROLE_STEMS)
+
+
+def _de_title_names(text: str, regions: tuple) -> list:
+    if not _DE_TITLE_REGIONS.intersection(regions) or not ("Herr" in text or "Frau" in text):
+        return []
+    out = []
+    for m in _DE_TITLE_RE.finditer(text):
+        if _DE_ARTICLE_BEFORE_RE.search(text, max(0, m.start() - 16), m.start()):
+            continue
+        g = 1
+        if _de_role(m.group(1)):
+            if not m.group(2) or _de_role(m.group(2)):
+                continue
+            g = 2
+        v = m.group(g).lower()
+        if v in _PLACEHOLDER_NAME_WORDS or v in _DE_TITLE_NOT_A_NAME:
+            continue
+        out.append((m.start(g), m.end(g), "name-after-german-title", NAME))
+    return out
+
+
 # ------------------------------------------------------------------------------- name before an e-mail address --
 # "Erika Beispiel <erika@example.org>", a git log line, a mail header. The address is the e-mail rule's; this is the
 # name before it. A service mailbox (noreply, a bot) names no person
@@ -1368,6 +1436,7 @@ FORMS = {
     "phone-after-phone-word": (PHONE, "both", "generic", "label"),
     "name-single-after-label": (NAME, "tool", "generic", "label"),
     "name-next-to-a-person-cue": (NAME, "tool", "generic", "label"),
+    "name-after-german-title": (NAME, "tool", "de", "label"),
     "address-street-after-label": (ADDRESS, "tool", "generic", "label"),
     "address-street-postcode-city": (ADDRESS, "tool", "generic", "form"),
     "address-us-two-lines": (ADDRESS, "tool", "us", "form"),
@@ -2671,6 +2740,8 @@ def hits(text: str, channel: str, regions: tuple, company: list | None = None) -
                 if rx is _PERSON_CUE_RES[-1] and any(w.lower() in _ROLE_WORDS for w in words):
                     continue
                 out.append((start, start + len(v), "name-next-to-a-person-cue", NAME))
+    if "name-after-german-title" in want:
+        out += _de_title_names(text, regions)
     if "name-before-email" in want and "@" in text:
         for m in _NAME_MAIL_RE.finditer(text):
             if _SERVICE_LOCAL_RE.match(m.group(2)) or not _name_ok(m.group(1)) or _reads_as_words(m.group(1)):

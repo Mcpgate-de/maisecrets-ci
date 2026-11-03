@@ -289,6 +289,13 @@ class LinesLayoutTests(unittest.TestCase):
             with self.subTest(team=team):
                 self.assertEqual([m for _l, m in L.findings_by_leaf(D, {"author": {"name": team}})], [])
 
+    def test_label_is_the_label_the_scan_text_carries(self):
+        obj = {"author": {"name": "x"}, "a:b": "y", "token": "z", "nextPageToken": "w"}
+        got = {leaf.path: L.label(leaf.path) for leaf in L.json_text(obj)[1]}
+        self.assertEqual(got, {("author", "name"): "author_name", ("a:b",): "", ("token",): "token",
+                               ("nextPageToken",): ""})
+        self.assertEqual([L._label(p) for p in got], list(got.values()))
+
     def test_an_unknown_layout_is_refused(self):
         with self.assertRaises(ValueError):
             L.findings_by_leaf(D, {}, layout="xml")

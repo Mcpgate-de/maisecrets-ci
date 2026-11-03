@@ -166,6 +166,12 @@ def _label(path: tuple) -> str:
     return "" if is_cursor(label_words(last), field=True) else last
 
 
+def label(path: tuple) -> str:
+    """The label that findings_by_leaf (layout "lines") writes before the string at `path`, or "" for none. Public
+    since 0.8.16 for a caller that reports by label; `_label` stays an alias."""
+    return _label(path)
+
+
 def _segments(group: list) -> list:
     """A record cut before each string that has no label: on its own line after another string, the last line of that
     string (`password:`) would read as its label, which neither string gives alone (codex review, 2026-11-02)."""
