@@ -129,7 +129,7 @@ class SrefBashTests(unittest.TestCase):
         return hooks.pre_tool({"tool_name": "Write", "session_id": "s1", **CLAUDE, "cwd": str(self.profile),
                                "tool_input": {"file_path": path, "content": content}})
 
-    def test_a_file_gets_the_value_and_the_gateway_learns_the_path(self):
+    def test_a_file_gets_the_value_and_the_gateway_is_sent_the_path(self):
         self.login()
         self.result()
         target = str(self.profile / "invite.txt")

@@ -1,0 +1,18 @@
+# c1-a-rule-without-a-gate-runs-only-where-its-literal-can-be: an invariant belief. Each mutation must turn at least one owning test red, and each owning test must be red under at least one mutation.
+belief = "c1-a-rule-without-a-gate-runs-only-where-its-literal-can-be"
+kind = "invariant"
+control = "C1"
+statement = "Since 0.8.17, a built-in rule with no keyword, no leading literal and no context gate skips its regex only on an ASCII text whose lower case holds none of the literals every match of it holds; a text that is not ASCII always runs it (dotless i and long s fold to i and s only under the regex), and the findings on every corpus text are the same with and without the gate."
+runner = ["tests/test_required_literals.py::RequiredLiteralTests::test_a_folded_letter_still_reaches_the_rule", "tests/test_required_literals.py::RequiredLiteralTests::test_a_text_that_is_not_ascii_always_runs_the_rule", "tests/test_required_literals.py::RequiredLiteralTests::test_the_findings_are_the_same_with_and_without_the_gate"]
+
+[[proof]]
+path = "the gate also skips a text that is not ASCII"
+file = "maisecrets/detection/prefilter.py"
+find = '''    return bool(need) and text.isascii() and not any(x in low for x in need)'''
+replace = '''    return bool(need) and not any(x in low for x in need)'''
+
+[[proof]]
+path = "the gate skips every rule that has literals"
+file = "maisecrets/detection/prefilter.py"
+find = '''    return bool(need) and text.isascii() and not any(x in low for x in need)'''
+replace = '''    return bool(need)'''

@@ -194,3 +194,27 @@ def added(text: str, hits: list, spans: tuple, scan, same_scan: bool = False) ->
     if not extra:
         return hits
     return sorted(hits + extra, key=lambda m: m.start)
+
+
+# a row of a two-column Markdown table whose first cell names the second: | Date of Birth | 1984-07-12 |. The cell is
+# a label as `Date of Birth: 1984-07-12` would be (the field rule of this module), and only personal data comes of it
+_MD_KV_ROW_RE = _LazyRx(r"(?m)^[ \t]*\|[ \t]*(\*{0,2})([A-Za-z][A-Za-z ()/#.'_-]{1,40}?)\1[ \t]*:?[ \t]*\|[ \t]*"
+                        r"([^|\n]{1,120}?)[ \t]*\|[ \t]*$")
+
+
+def md_key_value_hits(text: str, hits: list, scanner) -> list:
+    spans = []
+    for m in _MD_KV_ROW_RE.finditer(text):
+        if set(m.group(3)) <= set("-: "):
+            continue
+        label = _label((m.group(2).strip(),))
+        if label:
+            spans.append((m.start(3), m.end(3), label))
+    if not spans:
+        return hits
+    from .vocabulary import TYPES
+    before = {(h.start, h.end) for h in hits}
+    out = added(text, hits, tuple(spans), scanner)
+    # a name stays with the record rules of the Markdown table: a first name alone in a form is no person
+    return [h for h in out if (h.start, h.end) in before
+            or (h.type != "NAME" and TYPES.get(h.type, {}).get("family") == "pii")]

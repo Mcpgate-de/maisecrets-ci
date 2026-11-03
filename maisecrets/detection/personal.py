@@ -18,7 +18,12 @@ Every check is bounded: each regex has bounded repeats, and a CSV header is read
 """
 from __future__ import annotations
 
+import bisect
+import itertools
 import re
+
+from .lazy_regex import LazyRx as _LazyRx
+from .text_index import field_start
 
 # ---------------------------------------------------------------------------------------------------- types --
 NAME, ADDRESS, BIRTH_DATE, ID_NUMBER, USERNAME, PHONE = "NAME", "ADDRESS", "BIRTH_DATE", "ID_NUMBER", "USERNAME", \
@@ -32,12 +37,12 @@ PLACEHOLDER_NAMES = frozenset({"jane doe", "john doe", "max mustermann", "erika 
 # ------------------------------------------------------------------------------- phone with one-digit groups --
 # the phone rule of detect.py wants groups of two digits or more after the country code: "+1 4 15 22 3344" and
 # "+44 7 911 123456" passed (holdout v6). Same bounds otherwise: 8 to 15 digits, not a run of two digits
-_PHONE_GROUPS_RE = re.compile(r"(?<![\w+])\+(?!0)\d{1,3}(?:[ \-]\(?\d{1,5}\)?){2,10}(?![\w.]\d|\w)")
+_PHONE_GROUPS_RE = _LazyRx(r"(?<![\w+])\+(?!0)\d{1,3}(?:[ \-]\(?\d{1,5}\)?){2,10}(?![\w.]\d|\w)")
 
 # a US number in its national form, (415) 555-0123, after a phone word; the 555 exchange is fictional
-_US_PHONE_RE = re.compile(r"(?<![\w(])\([2-9]\d{2}\)[ ]?[2-9]\d{2}[-. ]\d{4}(?!\d)")   # NANP: no 0 or 1 first
-_PHONE_WORD_RE = re.compile(r"(?i)phone|(?<![a-z])(?:telefon\w*|tel|cell|mobile?|handy|fax|contact|kontakt|call"
-                            r"|reach|whatsapp|sms)(?![a-z])")
+_US_PHONE_RE = _LazyRx(r"(?<![\w(])\([2-9]\d{2}\)[ ]?[2-9]\d{2}[-. ]\d{4}(?!\d)")   # NANP: no 0 or 1 first
+_PHONE_WORD_RE = _LazyRx(r"(?i)phone|(?<![a-z])(?:telefon\w*|tel|cell|mobile?|handy|fax|contact|kontakt|call"
+                         r"|reach|whatsapp|sms)(?![a-z])")
 
 # ------------------------------------------------------------------------------------ birth date after a label --
 _DATE = (r"(?:\d{4}-\d{2}-\d{2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{1,2}\.?\s+[A-Za-zäéû]{3,9}\.?\s+\d{4}"
@@ -47,24 +52,24 @@ _DATE = (r"(?:\d{4}-\d{2}-\d{2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{1,2}\.?\s+[A-
 # A colon must follow: /api/users/bday;from=2020-01-01 is a path, and its date is no birth date (review of 0.6.25)
 _VCARD_PARAMS = r"(?:(?:;[A-Za-z][\w-]{0,20}(?:=(?:\"[^\"\n]{0,80}\"|[^:;\"\n]{0,60}))?){1,8}(?=:))?"
 # "born" alone is left out: "born 23 June 1912" is history in a text about a public person (holdout v6 negative)
-_BIRTH_RE = re.compile(r"(?i)(?:\bd\.?o\.?b\b|date[ _-]?of[ _-]?birth|birth[ _-]?date|\bborn on"
-                       r"|\bbday\b" + _VCARD_PARAMS
-                       + r"|\bgeb(?:\.|oren am|urtsdatum)"
-                       r"|n[ée]\(?e?\)? le|date de naissance|fecha de nacimiento|\bnac[ií](?:d[oa])? el"
-                       r"|data de nascimento|data di nascita|\bnat[oa] il|\bnascid[oa] em"
-                       # the label in the other label languages and in Greek, Romanian, Ukrainian and Arabic (nym dev,
-                       # 2026-10-25: 1,693 of 2,140 birth dates stayed text, most after such a label). A verb of birth
-                       # with its preposition only (geboren op, född den), as `born on`: alone it is history
-                       r"|geboortedatum|\bgeboren op|f[öo]delsedatum|\bf[öo]dd den|f[øo]dselsdato"
-                       r"|syntym[äa]aika(?:ni|nsa|si)?|data urodzenia|\burodzon[ya] dnia|datum narozen[íi]"
-                       r"|\bnarozen[ýáa]? dne|do[ğg]um tarih(?:i|im|iniz)?|дат[аеуы] рождения|дата народження"
-                       r"|data na[șşs]terii|data na[șşs]tere|ημερομηνία γέννησης|تاريخ (?:ال)?ميلاد\w*"
-                       r"|生年月日|出生日期|생년월일(?:은|는)?)[\"'\]]?"
-                       # a comma (Date of birth, 1984-07-12, …) and Markdown bold around the colon (**DOB:**)
-                       r"\*{0,2}\s{0,3}(?:(?:is|was|as|ist|war|est|es|era|è|é|er|var|är|on|oli|jest|je|este|είναι)"
-                       r"\s{1,3})?"
-                       r"[:=,\uff1a]?\*{0,2}\s{0,3}[\"'(]?\s{0,3}"
-                       r"(" + _DATE + r"|(?:19|20)\d{6})(?!\d)")   # and YYYYMMDD after the label (Gretel, 2026-10-19)
+_BIRTH_RE = _LazyRx(r"(?i)(?:\bd\.?o\.?b\b|date[ _-]?of[ _-]?birth|birth[ _-]?date|\bborn on"
+                    r"|\bbday\b" + _VCARD_PARAMS
+                    + r"|\bgeb(?:\.|oren am|urtsdatum)"
+                    r"|n[ée]\(?e?\)? le|date de naissance|fecha de nacimiento|\bnac[ií](?:d[oa])? el"
+                    r"|data de nascimento|data di nascita|\bnat[oa] il|\bnascid[oa] em"
+                    # the label in the other label languages and in Greek, Romanian, Ukrainian and Arabic (nym dev,
+                    # 2026-10-25: 1,693 of 2,140 birth dates stayed text, most after such a label). A verb of birth
+                    # with its preposition only (geboren op, född den), as `born on`: alone it is history
+                    r"|geboortedatum|\bgeboren op|f[öo]delsedatum|\bf[öo]dd den|f[øo]dselsdato"
+                    r"|syntym[äa]aika(?:ni|nsa|si)?|data urodzenia|\burodzon[ya] dnia|datum narozen[íi]"
+                    r"|\bnarozen[ýáa]? dne|do[ğg]um tarih(?:i|im|iniz)?|дат[аеуы] рождения|дата народження"
+                    r"|data na[șşs]terii|data na[șşs]tere|ημερομηνία γέννησης|تاريخ (?:ال)?ميلاد\w*"
+                    r"|生年月日|出生日期|생년월일(?:은|는)?)[\"'\]]?"
+                    # a comma (Date of birth, 1984-07-12, …) and Markdown bold around the colon (**DOB:**)
+                    r"\*{0,2}\s{0,3}(?:(?:is|was|as|ist|war|est|es|era|è|é|er|var|är|on|oli|jest|je|este|είναι)"
+                    r"\s{1,3})?"
+                    r"[:=,\uff1a]?\*{0,2}\s{0,3}[\"'(]?\s{0,3}"
+                    r"(" + _DATE + r"|(?:19|20)\d{6})(?!\d)")   # and YYYYMMDD after the label (Gretel, 2026-10-19)
 
 # --------------------------------------------------------------------------------- ID number after a label --
 # the labels of health, tax and national numbers: the number of a health plan's beneficiary, a medical record, a
@@ -88,21 +93,21 @@ _TRAVEL_ID_LABELS = (r"|driving[ _-]?licen[cs]e(?:[ _-]?(?:no|number))?"
                      r"|(?:numero (?:di |del |della )?)?passaporto|numero (?:di |della )?patente|patente di guida"
                      r"|paspoort(?:nummer)?|rijbewijs(?:nummer)?|k[öo]rkort(?:snummer)?"
                      r"|(?:numer )?paszportu?|(?:numer )?praw[oa] jazdy")
-_ID_RE = re.compile(r"(?i)(?<![a-z])(?:mrn|member[ -]?id|passport(?:[ _-]?(?:no|number))?|driver'?s? licen[cs]e"
-                    r"(?:[ _-]?(?:no|number))?|dl[ _-]?(?:no|number|#)|(?-i:DL)(?=\s{0,3}[:#])|sin|tfn|nir|tax[ _-]?id"
-                    r"|insurance (?:member )?id"
-                    r"|account[ _-]?(?:number|no\.?)|(?:certificate[ _-]?)?licen[cs]e[ _-]?(?:number|no\.?)"
-                    r"|patient[ -]?id|id on file" + _HEALTH_ID_LABELS
-                    + _TRAVEL_ID_LABELS + r")(?![a-z])[\"']?"
-                    r"(?:\s{0,3}(?:on file|is|of|number|no\.?|#|n\.?[º°o]\.?|nr\.?|num[ée]ro|n[úu]mero|numero"
-                    r"|nummer|numer))?"
-                    # a comma too: `your health plan beneficiary number, <id>, to medical professionals` (Nemotron-PII)
-                    r"\s{0,3}[:=#,]?\s{0,3}[\"']?"
-                    r"((?-i:[A-Z0-9](?:[A-Z0-9]|[ -](?=[A-Z0-9])){4,24}))(?![A-Za-z0-9])")
+_ID_RE = _LazyRx(r"(?i)(?<![a-z])(?:mrn|member[ -]?id|passport(?:[ _-]?(?:no|number))?|driver'?s? licen[cs]e"
+                 r"(?:[ _-]?(?:no|number))?|dl[ _-]?(?:no|number|#)|(?-i:DL)(?=\s{0,3}[:#])|sin|tfn|nir|tax[ _-]?id"
+                 r"|insurance (?:member )?id"
+                 r"|account[ _-]?(?:number|no\.?)|(?:certificate[ _-]?)?licen[cs]e[ _-]?(?:number|no\.?)"
+                 r"|patient[ -]?id|id on file" + _HEALTH_ID_LABELS
+                 + _TRAVEL_ID_LABELS + r")(?![a-z])[\"']?"
+                 r"(?:\s{0,3}(?:on file|is|of|number|no\.?|#|n\.?[º°o]\.?|nr\.?|num[ée]ro|n[úu]mero|numero"
+                 r"|nummer|numer))?"
+                 # a comma too: `your health plan beneficiary number, <id>, to medical professionals` (Nemotron-PII)
+                 r"\s{0,3}[:=#,]?\s{0,3}[\"']?"
+                 r"((?-i:[A-Z0-9](?:[A-Z0-9]|[ -](?=[A-Z0-9])){4,24}))(?![A-Za-z0-9])")
 
 # ------------------------------------------------------------------------------------- user in a URL or path --
-_URL_USER_RE = re.compile(r"://([^:/?#\s@\[\]]{1,64}):[^@\s/]{1,128}@")
-_HOME_USER_RE = re.compile(r"(?:/home/|/Users/|[A-Za-z]:\\\\?Users\\\\?)([A-Za-z][A-Za-z0-9._-]{1,31})(?=[/\\])")
+_URL_USER_RE = _LazyRx(r"://([^:/?#\s@\[\]]{1,64}):[^@\s/]{1,128}@")
+_HOME_USER_RE = _LazyRx(r"(?:/home/|/Users/|[A-Za-z]:\\\\?Users\\\\?)([A-Za-z][A-Za-z0-9._-]{1,31})(?=[/\\])")
 # service accounts and the words of documentation: no person
 SERVICE_USERS = frozenset({
     "root", "runner", "ubuntu", "user", "admin", "shared", "public", "default", "ec2-user", "git", "node", "app",
@@ -131,8 +136,8 @@ SERVICE_USERS = frozenset({
     "reporting", "integration", "webhook", "smtp", "imap", "noreply", "no-reply", "relay", "upload", "download",
 })
 # a user name that a tool or an image creates, not a person: appuser, app_user, mambauser, seluser, pwuser, user1
-_SERVICE_USER_RE = re.compile(r"(?i)^(?:.{0,12}[-_]?user\d*|user[-_]?\d+|.{0,20}(?:bot|svc|service|admin|runner|"
-                              r"agent|daemon|worker|deploy|build)(?:[-_]?\d+)?|[a-z]{1,3}\d+|.*\[bot\])$")
+_SERVICE_USER_RE = _LazyRx(r"(?i)^(?:.{0,12}[-_]?user\d*|user[-_]?\d+|.{0,20}(?:bot|svc|service|admin|runner|"
+                           r"agent|daemon|worker|deploy|build)(?:[-_]?\d+)?|[a-z]{1,3}\d+|.*\[bot\])$")
 
 
 def _service_user(u: str) -> bool:
@@ -155,14 +160,14 @@ _EN_STREET = (r"\b\d{1,5}[A-Za-z]?(?:/\d{1,4})?,? (?:[A-Z][\w'.-]{0,30} ){1,4}" 
 _CITY = r"[A-ZÄÖÜÉ][\wäöüßéèàç-]{1,40}"
 # street and postcode on two lines (Hafenweg 3\n12345 Ort). No address rule masks it; after a company's name it feeds
 # the company decision alone, so its postcode and VAT ID follow the street, which stays text
-_DE_TWO_LINES_RE = re.compile(r"\b[A-ZÄÖÜ][\wäöüß-]{0,40}(?:straße|strasse|str\.|weg|gasse|platz|allee|ring|damm) "
-                              r"\d{1,4}[a-z]?[ \t]*\r?\n[ \t]*\d{4,5} (" + _CITY + ")")
+_DE_TWO_LINES_RE = _LazyRx(r"\b[A-ZÄÖÜ][\wäöüß-]{0,40}(?:straße|strasse|str\.|weg|gasse|platz|allee|ring|damm) "
+                           r"\d{1,4}[a-z]?[ \t]*\r?\n[ \t]*\d{4,5} (" + _CITY + ")")
 # a US postal address on two lines (1234 Harbor Mission Apt. 5\nSpringfield, IL 62704), and the military one (PSC 1234,
 # Box 5678\nAPO AE 09876): the second line, a city, a state code and a ZIP code, is the strong part, so the street line
 # needs no street word (Mendeley, 2026-10-20: 27,427 such addresses, all on two lines, were missed)
 _US_STATES = ("AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND"
               "|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|PR|GU|VI|AS|MP")
-_US_TWO_LINES_RE = re.compile(
+_US_TWO_LINES_RE = _LazyRx(
     # the house number starts the line or follows a separator or a word of place (at, to, is): `Release 2 Notes` has
     # its number inside a heading
     r"(?:(?<=^)|(?<=\n)|(?<=[:;,(\"'] )|(?<=\()|(?<=\bat )|(?<=\bto )|(?<=\bis )|(?<=\bin )|(?<=\bon )"
@@ -176,7 +181,7 @@ _US_TWO_LINES_RE = re.compile(
 # the same address on one line (4821 Harbor Mission Apt. 5 Springfield, IL 62704; PSC 1234, Box 5678, APO AE 09876):
 # the city, the state code and the ZIP code still end it, and the street starts after a separator or a word of place,
 # as on two lines. Benchmark V3, Mendeley dev: about 8,400 such addresses were missed
-_US_ONE_LINE_RE = re.compile(
+_US_ONE_LINE_RE = _LazyRx(
     r"(?:(?<=^)|(?<=\n)|(?<=[:;,(\"'] )|(?<=\()|(?<=\bat )|(?<=\bto )|(?<=\bis )|(?<=\bin )|(?<=\bon )"
     r"|(?<=\bfrom )|(?<=\baddress ))"
     r"(?:\d{1,6} (?:[A-Z][a-z'.-]{1,30} ){1,4}"
@@ -187,40 +192,40 @@ _US_ONE_LINE_RE = re.compile(
     r",?[ \t]+(?:APO|FPO|DPO) (?:AA|AE|AP) \d{5})(?![\w-])")
 # a label that names a person's home right before the address (residential address (…), home address: …): the address
 # is the person's, whatever company the sentence names before it
-_HOME_ADDRESS_BEFORE_RE = re.compile(r"(?i)(?<![a-z])(?:residential|home|permanent|private)[ _-]?(?:address|addr\.?)"
-                                     r"[\"']?[ \t]{0,3}[:(=-]?[ \t]{0,3}$")
-_NAMED_PLACE_BEFORE_RE = re.compile(r"\bat the (?:[A-Z][\w'&.-]*[ \t]+){0,4}[A-Z][\w'&.-]*,[ \t]*$")
-_DEPARTMENT_LINE_RE = re.compile(r"(?i)[ \t]*(?:abteilung|abt\.|department|dept\.?|division|bereich)[ \t]")
+_HOME_ADDRESS_BEFORE_RE = _LazyRx(r"(?i)(?<![a-z])(?:residential|home|permanent|private)[ _-]?(?:address|addr\.?)"
+                                  r"[\"']?[ \t]{0,3}[:(=-]?[ \t]{0,3}$")
+_NAMED_PLACE_BEFORE_RE = _LazyRx(r"\bat the (?:[A-Z][\w'&.-]*[ \t]+){0,4}[A-Z][\w'&.-]*,[ \t]*$")
+_DEPARTMENT_LINE_RE = _LazyRx(r"(?i)[ \t]*(?:abteilung|abt\.|department|dept\.?|division|bereich)[ \t]")
 _ADDRESS_FORMS = tuple(
-    (frozenset({r}), re.compile(_EN_STREET.replace("{codes}", code))) for r, code in _POSTCODES.items()) + (
+    (frozenset({r}), _LazyRx(_EN_STREET.replace("{codes}", code))) for r, code in _POSTCODES.items()) + (
     (frozenset({"de", "at", "ch"}),
-     re.compile(r"\b[A-ZÄÖÜ][\wäöüß-]{0,40}(?:straße|strasse|str\.|weg|gasse|platz|allee|ring|damm) \d{1,4}[a-z]?, "
-                r"\d{4,5} (" + _CITY + ")")),
+     _LazyRx(r"\b[A-ZÄÖÜ][\wäöüß-]{0,40}(?:straße|strasse|str\.|weg|gasse|platz|allee|ring|damm) \d{1,4}[a-z]?, "
+             r"\d{4,5} (" + _CITY + ")")),
     (frozenset({"fr", "be", "lu", "ch"}),
-     re.compile(r"\b\d{1,4},? (?:rue|avenue|boulevard|bd|chemin|allée|place|impasse) [^\n,\"]{2,40}, \d{5} "
-                r"(" + _CITY + ")")),
+     _LazyRx(r"\b\d{1,4},? (?:rue|avenue|boulevard|bd|chemin|allée|place|impasse) [^\n,\"]{2,40}, \d{5} "
+             r"(" + _CITY + ")")),
     (frozenset({"pt", "br", "es", "it"}),
-     re.compile(r"(?:^|(?<=[\s:;,(\"']))(?:Rua|Avenida|Av\.|Calle|Carrer|Via|Viale|Piazza) [^\n,\"]{2,40}, \d{1,5}"
-                r"[^\n\"]{0,40}?\b(?:\d{5}(?:-\d{3})?|\d{4}-\d{3}) (" + _CITY + ")")),
+     _LazyRx(r"(?:^|(?<=[\s:;,(\"']))(?:Rua|Avenida|Av\.|Calle|Carrer|Via|Viale|Piazza) [^\n,\"]{2,40}, \d{1,5}"
+             r"[^\n\"]{0,40}?\b(?:\d{5}(?:-\d{3})?|\d{4}-\d{3}) (" + _CITY + ")")),
 )
 # the street word of an English gerund is no German street: Filtering 2, Scoring 4
-_GERUND_STREET_RE = re.compile(r"(?:er|or|ur|ar|ir|in)ing \d")
+_GERUND_STREET_RE = _LazyRx(r"(?:er|or|ur|ar|ir|in)ing \d")
 # the address of a company, an office or a public building is no personal data: a word for one on the same line
 # before the address, or inside it, keeps it text (Impressum, HQ, the Empire State Building in a travel text)
 # The legal forms among these words name a company as the holder of the address. _company_window() reads them alone:
 # the postcode and the VAT ID of such an address follow the address (README, "Personal data")
 _LEGAL_FORMS = (r"gmbh|ag|ug|kg|sas|sa|srl|bv|e\.v\."
                 r"|inc|corp|corporation|llc|ltd|limited|plc|s\.a\.|sarl|s\.r\.l\.")
-_NOT_A_HOME_RE = re.compile(
+_NOT_A_HOME_RE = _LazyRx(
     r"(?i)(?<![a-z])(?:hq|headquarters?|head office|office|offices|campus|building|tower|center|centre|museum"
     r"|embassy|botschaft|consulate|station|airport|flughafen|hotel|hospital|klinik|university|universität|school"
     r"|library|stadium|arena|park|mall|store|shop|restaurant|caf[eé]|bank|impressum|anschrift der firma|firmensitz"
     r"|sitz der gesellschaft|niederlassung|filiale|zweigstelle|branch office|" + _LEGAL_FORMS
     + r"|company|firm|registered|visitor|visit us|our address|unsere adresse|landmark|monument|parliament"
     r"|town hall|rathaus|city hall|cathedral|church|kirche|mairie)(?![a-z])")
-_LEGAL_FORM_RE = re.compile(r"(?i)(?<![a-z])(?:" + _LEGAL_FORMS + r")(?![a-z])")
+_LEGAL_FORM_RE = _LazyRx(r"(?i)(?<![a-z])(?:" + _LEGAL_FORMS + r")(?![a-z])")
 # Before a legal form: a word of the company's name (Beispiel GmbH, Muster & Co. KG)
-_NAME_BEFORE_FORM_RE = re.compile(r"\w[\w&.'’-]{0,40}[ ]$")
+_NAME_BEFORE_FORM_RE = _LazyRx(r"\w[\w&.'’-]{0,40}[ ]$")
 # between the company's name and its address: separators, at most one department of one or two words (Abteilung Einkauf,
 # on its line or before a comma) and at most one label of the company's own address. A label that names another party
 # (recipient_address, Lieferadresse, ship to) or a home keeps the mask
@@ -230,18 +235,18 @@ _DEPARTMENTS = (r"einkauf|beschaffung|buchhaltung|finanzbuchhaltung|kreditorenbu
                 r"|verkauf|marketing|logistik|versand|lager|recht|rechtsabteilung|it|edv|verwaltung|kundenservice"
                 r"|accounting|accounts|payable|receivable|purchasing|procurement|finance|sales|hr|human|resources"
                 r"|legal|billing|operations|shipping|support|administration")
-_FORM_TO_ADDRESS_RE = re.compile(r"[\s,;:|·\"'()]{0,12}"
-                                 r"(?:(?i:abteilung|abt\.|department|dept\.?|division|bereich)[ \t]"
-                                 r"(?i:" + _DEPARTMENTS + r")(?:[ ](?:(?:und|and|&)[ ])?(?i:" + _DEPARTMENTS + r"))?"
-                                 r"[ \t]*(?:,[ \t]*|\r?\n[ \t]*))?"
-                                 r"(?:(?i:(?:rechnungs|firmen|geschäfts|post|haupt)?(?:adresse|anschrift)"
-                                 r"|(?:(?:company|business|billing|postal|registered|office)[ _-]?)?address|sitz|adr)"
-                                 r"[\"']?[ \t]{0,3}[:=][ \t]{0,3}[\"']?)?")
+_FORM_TO_ADDRESS_RE = _LazyRx(r"[\s,;:|·\"'()]{0,12}"
+                              r"(?:(?i:abteilung|abt\.|department|dept\.?|division|bereich)[ \t]"
+                              r"(?i:" + _DEPARTMENTS + r")(?:[ ](?:(?:und|and|&)[ ])?(?i:" + _DEPARTMENTS + r"))?"
+                              r"[ \t]*(?:,[ \t]*|\r?\n[ \t]*))?"
+                              r"(?:(?i:(?:rechnungs|firmen|geschäfts|post|haupt)?(?:adresse|anschrift)"
+                              r"|(?:(?:company|business|billing|postal|registered|office)[ _-]?)?address|sitz|adr)"
+                              r"[\"']?[ \t]{0,3}[:=][ \t]{0,3}[\"']?)?")
 # a label before the legal form that makes the company a person's employer, job or club
-_EMPLOYER_RE = re.compile(r"(?i)employ|arbeitgeber|works? (?:at|for)|beschäftigt|angestellt|tätig bei|mitglied|member"
-                          r"|job|title|role|position|occupation|beruf|tätigkeit")
+_EMPLOYER_RE = _LazyRx(r"(?i)employ|arbeitgeber|works? (?:at|for)|beschäftigt|angestellt|tätig bei|mitglied|member"
+                       r"|job|title|role|position|occupation|beruf|tätigkeit")
 # a short legal form after a preposition is a floor or a court: im UG (Untergeschoss), beim AG
-_PREPOSITION_BEFORE_RE = re.compile(r"(?i)(?:^|[^\w])(?:im|in|ins|am|an|vom|zum|beim|unter|über|ab|bis|at|on)[ ]$")
+_PREPOSITION_BEFORE_RE = _LazyRx(r"(?i)(?:^|[^\w])(?:im|in|ins|am|an|vom|zum|beim|unter|über|ab|bis|at|on)[ ]$")
 
 
 def _company_window(text: str, lo: int, a_start: int, a_end: int, kind: str, company) -> None:
@@ -307,17 +312,17 @@ _NAME_VALUE = (r"((?:" + _NAME_STEM + r")(?:[ ](?:" + _NAME_WORD + "|" + _NAME_P
 # at most two words, and & or und between them: a person and a company without a separator
 # (Kunde: Lena Brückner Lindner GmbH) cannot be told from a longer company name, so a longer name keeps the mask
 _COMPANY_NAME = r"\w[\w.'’-]{0,40}(?:[ ](?:(?:&|\+|und|and)[ ])?\w[\w.'’-]{0,40})?[ ]"
-_COMPANY_AFTER_KEY_RE = re.compile(r"[ \t\"']{0,3}(?!(?i:frau|herrn?|mrs?|ms|mx|dr|prof)\b)" + _COMPANY_NAME)
+_COMPANY_AFTER_KEY_RE = _LazyRx(r"[ \t\"']{0,3}(?!(?i:frau|herrn?|mrs?|ms|mx|dr|prof)\b)" + _COMPANY_NAME)
 # the key itself, not a longer one (customer_name: is a person's)
-_CUSTOMER_KEY_RE = re.compile(r"(?i)(?:kunde|customer)[\"']?[ \t]{0,3}[:=]")
+_CUSTOMER_KEY_RE = _LazyRx(r"(?i)(?:kunde|customer)[\"']?[ \t]{0,3}[:=]")
 # before the company's name on its line, in the two-line form: the start of the text, a blank line or a heading of the
 # address. Another line there may be a person (Frau Lena Brückner\nBeispiel GmbH\nHafenweg 3\n12345 Ort)
-_ADDRESS_HEADING_RE = re.compile(r"(?i)[ \t]*(?:(?:rechnungs|liefer)?(?:adresse|anschrift)|rechnungsempfänger"
-                                 r"|empfänger|billing address|invoice address|bill to|invoice to|sold to|an|to)"
-                                 r"[ \t]*:?[ \t]*\r?")
+_ADDRESS_HEADING_RE = _LazyRx(r"(?i)[ \t]*(?:(?:rechnungs|liefer)?(?:adresse|anschrift)|rechnungsempfänger"
+                              r"|empfänger|billing address|invoice address|bill to|invoice to|sold to|an|to)"
+                              r"[ \t]*:?[ \t]*\r?")
 # the company's line in the two-line form: the company's name alone, or after a Kunde: or Customer: key
-_COMPANY_LINE_RE = re.compile(r"[ \t]*(?:(?i:kunde|customer)[ \t]*:[ \t]*)?(?!(?i:frau|herrn?|mrs?|ms|mx|dr|prof)\b)"
-                              + _COMPANY_NAME)
+_COMPANY_LINE_RE = _LazyRx(r"[ \t]*(?:(?i:kunde|customer)[ \t]*:[ \t]*)?(?!(?i:frau|herrn?|mrs?|ms|mx|dr|prof)\b)"
+                           + _COMPANY_NAME)
 # a label that names a person and nothing else
 _PERSON_LABELS = (r"full[ _-]?name|customer[ _-]?name|first[ _-]?name|last[ _-]?name|given[ _-]?name|family[ _-]?name"
                   r"|patient(?:[ _-]?name)?|employee(?:[ _-]?name)?|student(?:[ _-]?name)?|contact[ _-]?person"
@@ -326,26 +331,26 @@ _PERSON_LABELS = (r"full[ _-]?name|customer[ _-]?name|first[ _-]?name|last[ _-]?
                   r"|vorname|nachname|mieter|vermieter|ansprechpartner(?:in)?|pr[ée]nom")
 # a key or label of a person's record before the company's name, in the same paragraph: the record is a person's,
 # whether or not the name rules find the name in its value (a lower-case or abbreviated name)
-_PERSON_KEY_RE = re.compile(r"(?i)(?<![a-z])(?:" + _PERSON_LABELS + r"|name|person|resident|bewohner(?:in)?"
-                            r"|privat\w*|private|home|wohn\w*|customer|kunde|user|login|mitarbeiter(?:in)?"
-                            r"|employee|staff|member|mitglied|student|schüler(?:in)?)(?![a-z])[\"']?[ \t]{0,3}[:=]")
+_PERSON_KEY_RE = _LazyRx(r"(?i)(?<![a-z])(?:" + _PERSON_LABELS + r"|name|person|resident|bewohner(?:in)?"
+                         r"|privat\w*|private|home|wohn\w*|customer|kunde|user|login|mitarbeiter(?:in)?"
+                         r"|employee|staff|member|mitglied|student|schüler(?:in)?)(?![a-z])[\"']?[ \t]{0,3}[:=]")
 # a label that also names a product, a service, a team or a document: its value must not read as words
 _WEAK_LABELS = (r"fn" + _VCARD_PARAMS
                 + r"|name|display[ _-]?name|owner|author|driver|holder|kunde|inhaber(?:in)?|nom|nombre|nome|naam|namn")
-_NAME_LABEL_RE = re.compile(
+_NAME_LABEL_RE = _LazyRx(
     r"(?i:(?<![a-z_./-])(?:(" + _PERSON_LABELS + r")|(" + _WEAK_LABELS + r")))"
     r"[\"']?[ \t]{0,3}[:=][ \t]{0,3}[\"']?[ \t]{0,3}" + _NAME_VALUE + r"(?![\w'’])")
 # a key that names a role only a person has: the value after it is that person (payer: …, "policyholder": "…")
 _ROLE_KEYS = (r"payer|payee|policyholder|policy[ _-]?holder|borrower|insured|physician|recipient|consignee"
               r"|shipper|buyer|seller|sender|guarantor")
-_ROLE_KEY_NAME_RE = re.compile(r"(?i:(?<![\w.-])(?:" + _ROLE_KEYS + r"))[\"']?[ \t]{0,3}[:=][ \t]{0,3}[\"']?[ \t]{0,3}"
-                               + _NAME_VALUE + r"(?![\w'’])")
+_ROLE_KEY_NAME_RE = _LazyRx(r"(?i:(?<![\w.-])(?:" + _ROLE_KEYS + r"))[\"']?[ \t]{0,3}[:=][ \t]{0,3}[\"']?[ \t]{0,3}"
+                            + _NAME_VALUE + r"(?![\w'’])")
 # a key of words joined by _ - or camel case before a name; the key is judged after folding (_COMPOUND_PERSON_KEY_RE)
-_COMPOUND_NAME_KEY_RE = re.compile(r"(?<![\w.-])[\"']?([A-Za-z][A-Za-z0-9]{0,30}(?:[_-]{1,3}[A-Za-z0-9]{1,30}){0,4})"
-                                   r"[\"']?[ \t]{0,3}[:=][ \t]{0,3}[\"']?[ \t]{0,3}" + _NAME_VALUE + r"(?![\w'’])")
+_COMPOUND_NAME_KEY_RE = _LazyRx(r"(?<![\w.-])[\"']?([A-Za-z][A-Za-z0-9]{0,30}(?:[_-]{1,3}[A-Za-z0-9]{1,30}){0,4})"
+                                r"[\"']?[ \t]{0,3}[:=][ \t]{0,3}[\"']?[ \t]{0,3}" + _NAME_VALUE + r"(?![\w'’])")
 # a person's role, then name (account_holder_name, investorName, card_holder_name), or a full name (full__name). Not
 # account, company, fund or issuer: their name is no person's; not user (a login) or agent (a program)
-_COMPOUND_PERSON_KEY_RE = re.compile(
+_COMPOUND_PERSON_KEY_RE = _LazyRx(
     r"(?:[a-z0-9]+_){0,3}(?:account_holder|card_holder|cardholder|holder|investor|contact|client|customer|cust"
     r"|recipient|sender|trader|beneficiary|payer|payee|applicant|patient|employee|owner|policyholder|policy_holder"
     r"|insured|borrower|member|student|passenger|tenant|guarantor|signer|consignee|shipper|buyer|seller|person"
@@ -358,16 +363,16 @@ _COMPOUND_PERSON_KEY_RE = re.compile(
 # Mannschaft). Not `guest` or `user`: they are surnames (codex review, 2026-11-02); Guest User stays text by the
 # core's other checks. A name-shaped value that is no person (United Kingdom, Bad Request) becomes a name here as after
 # customer_name or full_name: a person label trusts the shape
-_ROLE_KEY_RE = re.compile(r"(?:^|_)(?:author|reviewer|assignee|reporter|creator|organi[sz]er|attendee|committer"
-                          r"|approver|requester|merged_by|closed_by|approved_by|requested_by|merge_user)"
-                          r"_(?:full_|display_)?name$")
+_ROLE_KEY_RE = _LazyRx(r"(?:^|_)(?:author|reviewer|assignee|reporter|creator|organi[sz]er|attendee|committer"
+                       r"|approver|requester|merged_by|closed_by|approved_by|requested_by|merge_user)"
+                       r"_(?:full_|display_)?name$")
 _ACCOUNT_WORDS = frozenset({"account", "team", "teams", "group", "department", "resources", "deleted",
                             "removed", "former", "unknown", "bot", "service", "system", "automation",
                             "benutzer", "nutzer", "konto", "gruppe", "abteilung", "mannschaft", "verein", "ehemalig"})
 # an element whose name is a person label, around a name alone: <card_holder>, <customerName>, <ns:fullName>
-_XML_NAME_ELEMENT_RE = re.compile(r"<([A-Za-z_][\w.:-]{0,64})(?:\s[^<>]{0,200})?>[ \t]*" + _NAME_VALUE
-                                  + r"[ \t]*</\1>")
-_PERSON_TAG_RE = re.compile(r"(?i)(" + _PERSON_LABELS + r")|(" + _WEAK_LABELS + r")")
+_XML_NAME_ELEMENT_RE = _LazyRx(r"<([A-Za-z_][\w.:-]{0,64})(?:\s[^<>]{0,200})?>[ \t]*" + _NAME_VALUE
+                               + r"[ \t]*</\1>")
+_PERSON_TAG_RE = _LazyRx(r"(?i)(" + _PERSON_LABELS + r")|(" + _WEAK_LABELS + r")")
 # the parent of a name element that is a thing, not a person: a pom.xml project, a product, a package, and the
 # instruments and parties of a financial message (a party or a counterparty is a company as often as a person)
 _THING_PARENTS = frozenset({"project", "product", "item", "package", "plugin", "dependency", "module", "artifact",
@@ -375,7 +380,7 @@ _THING_PARENTS = frozenset({"project", "product", "item", "package", "plugin", "
                             "organisation", "company", "team", "group", "parent", "build", "profile", "site",
                             "instrument", "security", "commodity", "unit", "issuer", "party", "counterparty", "fund",
                             "asset"})
-_XML_OPEN_RE = re.compile(r"<(/?)([A-Za-z_][\w.:-]{0,64})(?:\s[^<>]{0,200})?(/?)>")
+_XML_OPEN_RE = _LazyRx(r"<(/?)([A-Za-z_][\w.:-]{0,64})(?:\s[^<>]{0,200})?(/?)>")
 
 
 def _xml_parent(text: str, at: int) -> str:
@@ -393,10 +398,10 @@ def _xml_parent(text: str, at: int) -> str:
             return t.group(2).rsplit(":", 1)[-1].lower()
     return ""
 # a lower-case word right after a value, or after its comma: the sentence goes on, the value is no field of a record
-_PROSE_GOES_ON_RE = re.compile(r"(?:,[ \t]?| )[a-zà-ÿ]")
+_PROSE_GOES_ON_RE = _LazyRx(r"(?:,[ \t]?| )[a-zà-ÿ]")
 # the end of a word that makes it a noun, not a name: Streaming, Expedition, Management, Wörterbuch, Verwaltung
-_NOUN_END_RE = re.compile(r"(?i)(?:ing|tion|sion|ment|ness|ity|ism|ogy|ware|ance|ence|able|ible|buch|ung|heit|keit"
-                          r"|schaft|isch|tät|ive|ics|ers|ies)$")
+_NOUN_END_RE = _LazyRx(r"(?i)(?:ing|tion|sion|ment|ness|ity|ism|ogy|ware|ance|ence|able|ible|buch|ung|heit|keit"
+                       r"|schaft|isch|tät|ive|ics|ers|ies)$")
 
 
 # English words of two and three letters (the word list starts at four): the verb of a CI step name, `Run Pytest`
@@ -501,11 +506,11 @@ _DE_WORD = r"[A-ZÄÖÜ][a-zäöüß]+(?:-[A-ZÄÖÜ][a-zäöüß]+)?"
 # a fixed list: a general "short word and a dot" takes a surname at the end of a sentence and the next word as the name
 _DE_ABBR = (r"(?:Dr|Prof|Dipl|Mag|med|dent|vet|phil|jur|rer|nat|pol|oec|theol|habil)\."
             r"(?:-(?:Ing|Kfm|Inf|Psych|Päd|Volksw|Betriebsw)\.)?")
-_DE_TITLE_RE = re.compile(r"(?<![\w])(?:Herr|Herrn|Frau)(?: " + _DE_ABBR + r")* (" + _DE_WORD + r")(?: (?:"
-                          + _DE_ABBR + r" )*(" + _DE_WORD + r"))?(?![\w'’-])")
-_DE_ARTICLE_BEFORE_RE = re.compile(r"(?i)(?:^|[^\w])(?:der|die|das|den|dem|des|ein|eine|einer|einen|einem|eines|jede|"
-                                   r"jeder|jeden|jedem|keine|keiner|diese|dieser|diesen|jene|meine|deine|seine|ihre|"
-                                   r"unsere|eure|welche|welcher|erste|zweite|letzte|junge|alte) $")
+_DE_TITLE_RE = _LazyRx(r"(?<![\w])(?:Herr|Herrn|Frau)(?: " + _DE_ABBR + r")* (" + _DE_WORD + r")(?: (?:"
+                       + _DE_ABBR + r" )*(" + _DE_WORD + r"))?(?![\w'’-])")
+_DE_ARTICLE_BEFORE_RE = _LazyRx(r"(?i)(?:^|[^\w])(?:der|die|das|den|dem|des|ein|eine|einer|einen|einem|eines|jede|"
+                                r"jeder|jeden|jedem|keine|keiner|diese|dieser|diesen|jene|meine|deine|seine|ihre|"
+                                r"unsere|eure|welche|welcher|erste|zweite|letzte|junge|alte) $")
 # a role after the title: the word itself, or a compound that ends in one of the stems (Oberarzt, Geschäftsführerin)
 _DE_TITLE_ROLES = frozenset({
     "doktor", "doktorin", "professor", "professorin", "pfarrer", "pfarrerin", "pastor", "pastorin", "kollege",
@@ -560,31 +565,31 @@ def _de_title_names(text: str, regions: tuple) -> list:
 # ------------------------------------------------------------------------------- name before an e-mail address --
 # "Erika Beispiel <erika@example.org>", a git log line, a mail header. The address is the e-mail rule's; this is the
 # name before it. A service mailbox (noreply, a bot) names no person
-_NAME_MAIL_RE = re.compile(r"((?:[A-ZÀ-ÖØ-Þ][a-zßà-öø-ÿ'’-]{1,30})"
-                           r"(?: (?:[A-ZÀ-ÖØ-Þ][a-zßà-öø-ÿ'’-]{1,30}|[A-Z]\.)){1,3})"
-                           r"[ \t]{0,2}[<(\[]([\w.%+-]{1,64})@([\w-]{1,63}(?:\.[\w-]{1,63}){0,8})")
+_NAME_MAIL_RE = _LazyRx(r"((?:[A-ZÀ-ÖØ-Þ][a-zßà-öø-ÿ'’-]{1,30})"
+                        r"(?: (?:[A-ZÀ-ÖØ-Þ][a-zßà-öø-ÿ'’-]{1,30}|[A-Z]\.)){1,3})"
+                        r"[ \t]{0,2}[<(\[]([\w.%+-]{1,64})@([\w-]{1,63}(?:\.[\w-]{1,63}){0,8})")
 # a name next to words that say it is a person (Nemotron-PII and Gretel, 2026-10-20): a declaration (I, <name>, hereby),
 # a self-introduction (my name is <name>), and a person's birth or residence right after the name (<name>, born on).
 # One primitive for the three: the cue is a short phrase, the value has the shape of a name and does not read as words
 _CUE_NAME = r"((?:" + _NAME_STEM + r")(?: (?:" + _NAME_STEM + r")){0,3})"
 _PERSON_CUE_RES = (
-    re.compile(r"(?<![\w,])I, " + _CUE_NAME + r", (?=(?:hereby|am|the undersigned|residing|currently|born|a resident"
-               r"|being|declare|certify|of legal age)\b)"),
+    _LazyRx(r"(?<![\w,])I, " + _CUE_NAME + r", (?=(?:hereby|am|the undersigned|residing|currently|born|a resident"
+            r"|being|declare|certify|of legal age)\b)"),
     # and in the other label languages (nym dev, 2026-10-25: a self-introduction in another language stayed text)
     # (not `ich heiße`: ich heiße Neue Kollegen willkommen is a welcome)
-    re.compile(r"(?<![\w])(?i:my (?:full )?name is|mein (?:vollständiger )?name ist"
-               r"|je m['’]appelle|mon nom (?:complet )?est|mi nombre (?:completo )?es|me llamo"
-               r"|il mio nome (?:completo )?è|mi chiamo|mijn (?:volledige )?naam is|ik heet|jag heter"
-               r"|mitt (?:fullständiga )?namn är|jeg heter|jeg hedder|mit (?:fulde )?navn er|mitt navn er"
-               r"|nazywam się|mam na imię|(?:o )?meu nome (?:completo )?é|chamo-me|eu me chamo|jmenuji se"
-               r"|nimeni on|numele meu (?:complet )?este|mă numesc) " + _CUE_NAME
-               + r"(?![\w'’-])"),
-    re.compile(_CUE_NAME + r", (?=(?:born on|born in|date of birth|a resident of|residing at|resides at|who resides"
-               r"|who lives|currently residing|currently resides)\b)"),
+    _LazyRx(r"(?<![\w])(?i:my (?:full )?name is|mein (?:vollständiger )?name ist"
+            r"|je m['’]appelle|mon nom (?:complet )?est|mi nombre (?:completo )?es|me llamo"
+            r"|il mio nome (?:completo )?è|mi chiamo|mijn (?:volledige )?naam is|ik heet|jag heter"
+            r"|mitt (?:fullständiga )?namn är|jeg heter|jeg hedder|mit (?:fulde )?navn er|mitt navn er"
+            r"|nazywam się|mam na imię|(?:o )?meu nome (?:completo )?é|chamo-me|eu me chamo|jmenuji se"
+            r"|nimeni on|numele meu (?:complet )?este|mă numesc) " + _CUE_NAME
+            + r"(?![\w'’-])"),
+    _LazyRx(_CUE_NAME + r", (?=(?:born on|born in|date of birth|a resident of|residing at|resides at|who resides"
+            r"|who lives|currently residing|currently resides)\b)"),
     # a title before a full name (Mr Dana Okafor, Mrs. …); not Dr, which is also a street (… Dr. We are)
-    re.compile(r"(?<![A-Za-z])(?:Mr|Mrs|Ms|Mx|Miss)\.? " + _CUE_NAME + r"(?![\w'’-])"),
+    _LazyRx(r"(?<![A-Za-z])(?:Mr|Mrs|Ms|Mx|Miss)\.? " + _CUE_NAME + r"(?![\w'’-])"),
     # a salutation before a full name and its comma or line end (Dear Dana Okafor,)
-    re.compile(r"(?<![A-Za-z])(?:Dear|Hi|Hello|Hey) " + _CUE_NAME + r"(?=[ \t]*[,:!\n])"))
+    _LazyRx(r"(?<![A-Za-z])(?:Dear|Hi|Hello|Hey) " + _CUE_NAME + r"(?=[ \t]*[,:!\n])"))
 # the roles a salutation names instead of a person, which the word list lacks (Dear Valued Policyholder): read on the
 # dev split of Gretel and Nemotron-PII, 2026-10-20, with their common relatives
 _ROLE_WORDS = frozenset({
@@ -596,10 +601,10 @@ _ROLE_WORDS = frozenset({
     "insured",
     "claimant", "account", "holder", "student", "students", "parent", "parents", "guardian", "patient", "patients",
     "employee", "employees", "friend", "friends", "admissions", "hiring", "selection", "support", "sales", "board"})
-_SERVICE_LOCAL_RE = re.compile(r"(?i)^(?:no-?reply|do-?not-?reply|notifications?|support|info|hello|contact|team"
-                               r"|admin|root|git|bot|ci|build|release|deploy|security|alerts?|monitoring|postmaster"
-                               r"|webmaster|mailer-daemon|bounces?|github-actions|actions|dependabot|renovate)"
-                               r"(?:[+._-].*)?$|.*[-_.]bot$|.*\[bot\]$")
+_SERVICE_LOCAL_RE = _LazyRx(r"(?i)^(?:no-?reply|do-?not-?reply|notifications?|support|info|hello|contact|team"
+                            r"|admin|root|git|bot|ci|build|release|deploy|security|alerts?|monitoring|postmaster"
+                            r"|webmaster|mailer-daemon|bounces?|github-actions|actions|dependabot|renovate)"
+                            r"(?:[+._-].*)?$|.*[-_.]bot$|.*\[bot\]$")
 
 # ---------------------------------------------------------------------------------------- CSV header columns --
 # a header with a column that holds personal data on every row. A name or a user column alone is no proof (a product
@@ -630,14 +635,14 @@ _WEAK_COLS = frozenset({"name", "full_name", "fullname", "first_name", "last_nam
                         "student_name", "member_name", "contact_name", "passenger_name", "beneficiary_name",
                         "tenant_name"})
 _CSV_ROWS = 10000   # rows read under one header; a larger table is read in its first rows only
-_CSV_CELL_RE = {sep: re.compile(r'"[^"\n]{0,512}"|[^' + sep + r'\n]{0,512}') for sep in (",", ";", "\t")}
+_CSV_CELL_RE = {sep: _LazyRx(r'"[^"\n]{0,512}"|[^' + sep + r'\n]{0,512}') for sep in (",", ";", "\t")}
 _NOT_A_CELL = frozenset({"", "null", "none", "n/a", "na", "-", "true", "false", "nan"})
 
 
-_DATE_CELL_RE = re.compile(_DATE)
-_ADDRESS_WORD_RE = re.compile(r"[^\W\d_]{3}")
-_HOST_PORT_RE = re.compile(r":\d{2,5}(?!\d)|://|\b\d{1,3}(?:\.\d{1,3}){3}\b|\.(?:com|net|org|io|local|internal)\b")
-_NAME_CELL_RE = re.compile(_NAME_VALUE)
+_DATE_CELL_RE = _LazyRx(_DATE)
+_ADDRESS_WORD_RE = _LazyRx(r"[^\W\d_]{3}")
+_HOST_PORT_RE = _LazyRx(r":\d{2,5}(?!\d)|://|\b\d{1,3}(?:\.\d{1,3}){3}\b|\.(?:com|net|org|io|local|internal)\b")
+_NAME_CELL_RE = _LazyRx(_NAME_VALUE)
 
 
 def _column_type(col: str) -> str:
@@ -658,7 +663,7 @@ def _column_type(col: str) -> str:
 # (Benchmark V3 Phase C, 2026-10-21: 1,272 first and last names alone in field-value tables of Nemotron dev stayed text)
 _NAME_PART_COLS = frozenset({"first_name", "last_name", "firstname", "lastname", "given_name", "family_name",
                              "surname", "vorname", "nachname"})
-_NAME_PART_RE = re.compile(_NAME_STEM)
+_NAME_PART_RE = _LazyRx(_NAME_STEM)
 _NOT_A_NAME_PART = frozenset({"required", "optional", "unknown", "none", "redacted", "pending", "mandatory",
                               "string", "text", "varchar", "first", "last", "name", "value", "field", "example",
                               "sample", "test",
@@ -668,7 +673,7 @@ _NOT_A_NAME_PART = frozenset({"required", "optional", "unknown", "none", "redact
 _FIRST_PART_COLS = frozenset({"first_name", "firstname", "given_name", "vorname"})
 
 
-_FIXTURE_USER_RE = re.compile(r"(?i)(?:^|[^a-z])(?:fixture|mock|sample|dummy|test|example|demo|fake|placeholder)"
+_FIXTURE_USER_RE = _LazyRx(r"(?i)(?:^|[^a-z])(?:fixture|mock|sample|dummy|test|example|demo|fake|placeholder)"
                                r"(?:[^a-z]|s?$|user|account)")
 
 
@@ -742,7 +747,7 @@ def _csv_hits(text: str) -> list:
 # the CSV rule for a Markdown table: a header row of `|` cells, a row of dashes, then rows. Its column names hold
 # spaces (Date of Birth, Phone Number), so a name is folded to the CSV form (date_of_birth) and a few longer names map
 # to a column of the CSV rule. The same person check: a strong column, and a row that also names a person
-_MD_SEP_RE = re.compile(r"[ \t]*(?:\|[ \t]*)?:?-{3,}:?(?:[ \t]*\|[ \t]*:?-{3,}:?)*[ \t]*(?:\|[ \t]*)?")
+_MD_SEP_RE = _LazyRx(r"[ \t]*(?:\|[ \t]*)?:?-{3,}:?(?:[ \t]*\|[ \t]*:?-{3,}:?)*[ \t]*(?:\|[ \t]*)?")
 _MD_ALIASES = {"telephone_number": "telephone", "mobile_number": "mobile", "cell_phone": "cell",
                "contact_number": "phone", "phone_no": "phone", "social_security_number": "ssn",
                "national_id_number": "national_id", "tax_id_number": "tax_id", "medical_record_number": "mrn",
@@ -842,9 +847,9 @@ def _fold(name: str) -> str:
 
 # an entity before a field name (customer__surname, kunde.geburtsdatum, klient__nazwisko): the field alone names the
 # value. Only the entities of a person: company_name and account_name stay text
-_PERSON_PREFIX_RE = re.compile(r"(?:customer|cust|client|cliente|klient|klant|kunde|kunden|kund|patient|paciente"
-                               r"|member|person|persona|persoon|employee|mitarbeiter|applicant|student|guest|buyer"
-                               r"|contact|kontakt|user|utente|usuario|benutzer)_(?=[a-z])")
+_PERSON_PREFIX_RE = _LazyRx(r"(?:customer|cust|client|cliente|klient|klant|kunde|kunden|kund|patient|paciente"
+                            r"|member|person|persona|persoon|employee|mitarbeiter|applicant|student|guest|buyer"
+                            r"|contact|kontakt|user|utente|usuario|benutzer)_(?=[a-z])")
 
 
 def _known_column(name: str) -> str:
@@ -896,9 +901,9 @@ def _md_cells(line: str) -> list:
 # Nemotron, 40 of the 73 account numbers that the us-bank label window lost were cells under `Account Number`. Only
 # the names that say number: `account`, `account_id` and `aws_account` hold a cloud account or a user id, and a
 # 12-digit AWS account id in a table of resources is no bank account
-_ACCOUNT_NUMBER_COL_RE = re.compile(r"(?:bank_|mortgage_|savings_|checking_|loan_|customer_|primary_)?"
-                                    r"(?:account|acct)_?(?:number|no|nr|num|#)|kontonummer|iban")
-_ACCOUNT_CELL_RE = re.compile(r"\d{2,17}(?:[ -]\d{2,12}){0,3}")
+_ACCOUNT_NUMBER_COL_RE = _LazyRx(r"(?:bank_|mortgage_|savings_|checking_|loan_|customer_|primary_)?"
+                                 r"(?:account|acct)_?(?:number|no|nr|num|#)|kontonummer|iban")
+_ACCOUNT_CELL_RE = _LazyRx(r"\d{2,17}(?:[ -]\d{2,12}){0,3}")
 
 
 def _account_cell(v: str) -> bool:
@@ -959,11 +964,11 @@ class _lazy:
 # `pass` alone names a boarding pass or a test result: only after a part that names an account (db_pass)
 _PASSWORD_WORDS = ("password|passwort|passwd|pwd|kennwort|wachtwoord|losenord|haslo|contrasena|mot_de_passe"
                    "|mdp|senha|palavra_passe|parola_d_ordine|adgangskode|passord|salasana|heslo|sifre|passphrase")
-_PASSWORD_COL_RE = re.compile(r"(?:(?!(?:hash|hashed|encrypted|enc|crypt|crypted|salted|salt)_)[a-z0-9]{1,16}_){0,2}"
-                              r"(?:" + _PASSWORD_WORDS + r")|(?:[a-z0-9]{1,16}_)?(?:db|database|user|admin|root|login"
-                              r"|account|mail|smtp|ftp|wifi|wlan|app|api|sql|redis|ldap)_pass")
+_PASSWORD_COL_RE = _LazyRx(r"(?:(?!(?:hash|hashed|encrypted|enc|crypt|crypted|salted|salt)_)[a-z0-9]{1,16}_){0,2}"
+                           r"(?:" + _PASSWORD_WORDS + r")|(?:[a-z0-9]{1,16}_)?(?:db|database|user|admin|root|login"
+                           r"|account|mail|smtp|ftp|wifi|wlan|app|api|sql|redis|ldap)_pass")
 # a value that is no password: a hash or a reference to one, a placeholder or a type
-_NOT_A_PASSWORD_RE = re.compile(
+_NOT_A_PASSWORD_RE = _LazyRx(
     r"(?i)\$(?:2[abxy]?|argon2\w*|pbkdf2[\w-]*|scrypt|[156]|sha\d+)\$|(?:pbkdf2|bcrypt|argon2|sha\d+|md5)[_$:]"
     r"|\{[A-Z0-9-]+\}|[0-9a-f]{32,}$|[$%{<\[(*]|\w+\(\d*\)$|^(?:enc|env|vault|secret|ref|file|op):|^x{4,}$")
 
@@ -1640,9 +1645,9 @@ _USERNAME_ATTRIBUTE_END = frozenset({"name", "user", "username", "login", "princ
 # forge's own forms (service_account_<id>, the token bots project_<id>_bot_<hex> and group_<id>_bot_<hex>). A service
 # word alone is no service form in a longer name: a person's handle can end in -bot (a surname), -svc or -worker, and
 # start with svc- or bot- (svc-jsmith, bot-anna99).
-_USERNAME_SERVICE_RE = re.compile(r"(?i)^(?:.{0,12}[-_]?user\d*|user[-_]?\d+|.{0,20}(?:bot|svc|service|admin|runner|"
-                                  r"agent|daemon|worker|deploy|build)(?:[-_]?\d+)?|.*\[bot\]"
-                                  r"|service_account_[a-z0-9_]*[a-z0-9][a-z0-9_]*|(?:project|group)_\d+_bot_[0-9a-f]{8,})$")
+_USERNAME_SERVICE_RE = _LazyRx(r"(?i)^(?:.{0,12}[-_]?user\d*|user[-_]?\d+|.{0,20}(?:bot|svc|service|admin|runner|"
+                               r"agent|daemon|worker|deploy|build)(?:[-_]?\d+)?|.*\[bot\]"
+                               r"|service_account_[a-z0-9_]*[a-z0-9][a-z0-9_]*|(?:project|group)_\d+_bot_[0-9a-f]{8,})$")
 _USERNAME_NOT_A_VALUE = frozenset({"string", "null", "none", "true", "false", "required", "optional", "undefined",
                                    "unknown", "changeme", "placeholder", "value", "empty", "text", "varchar",
                                    "your_username", "yourusername", "my_username", "myusername", "username_here",
@@ -2034,20 +2039,20 @@ _VCARD_FORMS = ("address-vcard-fields", "name-vcard-n", "birth-date-vcard-compac
 # field, N in capitals with its five fields and a title or nothing as the prefix, BDAY with a parameter of a card
 # (BDAY:20240101 alone is no card)
 _VCARD_KIND = {"ADR": "address-vcard-fields", "N": "name-vcard-n", "BDAY": "birth-date-vcard-compact"}
-_VCARD_BDAY_VALUE_RE = re.compile(r"(\d{8})(?:T[\dZ:+-]{1,20})?(?![\w-])")
+_VCARD_BDAY_VALUE_RE = _LazyRx(r"(\d{8})(?:T[\dZ:+-]{1,20})?(?![\w-])")
 _VCARD_BARE_RE = _lazy(r"(?im)^(?:((?:[a-z]:\\)?[^\s:]{1,200}):(?:\d{1,9}[:-])?|\d{1,9}[:-])?[ \t]*"
                        r"(?:[a-z0-9-]{1,64}\.)?"
                        r"(ADR|N|BDAY)(" + _VCARD_PARAMS + r")" + _VCARD_VALUE)
 # the cheap check before _VCARD_BARE_RE: a property name before its parameters or its colon at the start of a line
-_VCARD_BARE_HINT_RE = re.compile(r"(?im)(?:^|:)[ \t]*(?:[a-z0-9-]{1,64}\.)?(?:ADR|N|BDAY)[;:]")
+_VCARD_BARE_HINT_RE = _LazyRx(r"(?im)(?:^|:)[ \t]*(?:[a-z0-9-]{1,64}\.)?(?:ADR|N|BDAY)[;:]")
 # a parameter of a card; TYPE with a type of an address or a date (TYPE=cache is a config key)
-_VCARD_PARAM_NAME_RE = re.compile(r"(?i);(?:type=\"?(?:home|work|pref|postal|parcel|dom|intl|other)(?![\w-])"
-                                  r"|pref|label|charset|language|value|altid|pid|calscale|home|work|postal|parcel"
-                                  r"|dom|intl)(?![\w-])")
-_VCARD_BARE_WORDS_RE = re.compile(r"(?i)adr|n[:;]|bday")
-_VCARD_TITLE_RE = re.compile(r"(?i)(?:dr|prof|mr|mrs|ms|mx|miss|sir|herr|frau|mme|mlle|m|sr|sra|sig|dott|ing|mag)\.?"
-                             r"(?:[ ,]+(?:dr|prof|med|rer|nat|phil|ing)\.?){0,3}")
-_VCARD_SUFFIX_RE = re.compile(r"(?i)(?:jr|sr|ii|iii|iv|phd|md|esq|msc|bsc|mba)\.?")
+_VCARD_PARAM_NAME_RE = _LazyRx(r"(?i);(?:type=\"?(?:home|work|pref|postal|parcel|dom|intl|other)(?![\w-])"
+                               r"|pref|label|charset|language|value|altid|pid|calscale|home|work|postal|parcel"
+                               r"|dom|intl)(?![\w-])")
+_VCARD_BARE_WORDS_RE = _LazyRx(r"(?i)adr|n[:;]|bday")
+_VCARD_TITLE_RE = _LazyRx(r"(?i)(?:dr|prof|mr|mrs|ms|mx|miss|sir|herr|frau|mme|mlle|m|sr|sra|sig|dott|ing|mag)\.?"
+                          r"(?:[ ,]+(?:dr|prof|med|rer|nat|phil|ing)\.?){0,3}")
+_VCARD_SUFFIX_RE = _LazyRx(r"(?i)(?:jr|sr|ii|iii|iv|phd|md|esq|msc|bsc|mba)\.?")
 
 
 def _vcard_fields(value: str, start: int) -> list:
@@ -2067,8 +2072,8 @@ def _vcard_fields(value: str, start: int) -> list:
 
 # BEGIN:VCARD at the start of a line, after an escaped \n or after a quote (a card in a JSON string): in a sentence
 # (the markers are BEGIN:VCARD and END:VCARD) it starts no card
-_VCARD_BEGIN_LINE_RE = re.compile(r"(?m)(?:^[ \t]*|(?<=\\N)[ \t]*|(?<=[\"'>]))BEGIN:VCARD")
-_VCARD_END_LINE_RE = re.compile(r"(?im)(?:^|(?<=\\n))[ \t]*END:VCARD")
+_VCARD_BEGIN_LINE_RE = _LazyRx(r"(?m)(?:^[ \t]*|(?<=\\N)[ \t]*|(?<=[\"'>]))BEGIN:VCARD")
+_VCARD_END_LINE_RE = _LazyRx(r"(?im)(?:^|(?<=\\n))[ \t]*END:VCARD")
 
 
 def _vcard_spans(text: str) -> list:
@@ -2610,7 +2615,7 @@ def hits(text: str, channel: str, regions: tuple, company: list | None = None) -
     if "address-us-two-lines" in want and "\n" in text and "us" in regions:
         for m in _US_TWO_LINES_RE.finditer(text):
             line = text.rfind("\n", 0, m.start()) + 1
-            lo = max(_block_back(text, line), m.start() - 160)
+            lo = max(_block_back(text, line), m.start() - 160, field_start(text, m.start()))
             # a company, an office or a public place on the lines above or before it keeps the address text
             home = _HOME_ADDRESS_BEFORE_RE.search(text, max(line, m.start() - 40), m.start())
             if not home and (_NOT_A_HOME_RE.search(text, lo, m.start()) or _BUSINESS_RE.search(text, lo, m.start())):
@@ -2620,7 +2625,7 @@ def hits(text: str, channel: str, regions: tuple, company: list | None = None) -
     if "address-us-one-line" in want and "us" in regions and ", " in text:
         for m in _US_ONE_LINE_RE.finditer(text):
             line = text.rfind("\n", 0, m.start()) + 1
-            lo = max(_block_back(text, line), m.start() - 160)
+            lo = max(_block_back(text, line), m.start() - 160, field_start(text, m.start()))
             # "at the Harbor View Inn, 12 …": a named place before the address, as a venue's name on the line above
             home = _HOME_ADDRESS_BEFORE_RE.search(text, max(line, m.start() - 40), m.start())
             if not home and (_NOT_A_HOME_RE.search(text, lo, m.start()) or _BUSINESS_RE.search(text, lo, m.start())
@@ -2642,7 +2647,7 @@ def hits(text: str, channel: str, regions: tuple, company: list | None = None) -
                 if _GERUND_STREET_RE.search(m.group()) or (rx.groups and _city_is_a_word(m.group(1))):
                     continue
                 end = m.end(1) if rx.groups else m.end()
-                lo = max(line, m.start() - 160)
+                lo = max(line, m.start() - 160, field_start(text, m.start()))
                 if _NOT_A_HOME_RE.search(text, lo, m.end()):
                     _company_window(text, lo, m.start(), end, "street-address", company)
                     continue
@@ -2805,11 +2810,15 @@ def _address_with_its_place(text: str, out: list) -> list:
     if not any(k in _ADDRESS_RULES_WITH_PLACE for _s, _e, k, _t in out):
         return out
     res = []
-    wider = [(s, e) for s, e, _k, typ in out if typ == ADDRESS]
+    # the address hits by start, and the furthest end up to each: one lookup per hit (a scan of all of them per hit
+    # took 129 s for 16,000 addresses in one text, netcup 2026-11-03)
+    wider = sorted((s, e) for s, e, _k, typ in out if typ == ADDRESS)
+    starts = [s for s, _e in wider]
+    reach = list(itertools.accumulate((e for _s, e in wider), max))
     for s, e, k, typ in out:
         # an address hit that another one already holds and runs past stays as it was: that one owns the span
-        if typ == ADDRESS and k in _ADDRESS_RULES_WITH_PLACE \
-                and not any(s2 <= s and e2 > e for s2, e2 in wider):
+        i = bisect.bisect_right(starts, s)
+        if typ == ADDRESS and k in _ADDRESS_RULES_WITH_PLACE and not (i and reach[i - 1] > e):
             m = _PLACE_AFTER_RE.match(text, e)
             if m:
                 e = m.end()

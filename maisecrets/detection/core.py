@@ -54,6 +54,7 @@ from .lazy_regex import LazyRx as _LazyRx
 from . import registry as _registry
 from . import fields as _fields
 from .prefilter import NONE as _NO_PREFIX, any_keyword as _any_keyword, lacks_prefix as _lacks_prefix  # noqa: F401
+from .prefilter import lacks_required as _lacks_required
 # The value checks, the own rules and the text index live in modules of their own, so that each file stays readable.
 # The core imports each of their names: `core.<name>` stays the same object. A patch must go to the module that
 # defines it.
@@ -174,6 +175,7 @@ class Rule:
     region: str = "generic"            # the country of a regional or Presidio rule, set by its loader
     phase: int = 0                     # registry.PHASES: 1 the built-in rules, 3 the rules of your own; set by rules()
     prefix: tuple = _NO_PREFIX         # the literal every match starts with (prefilter.py); set by rules()
+    need: tuple = ()                   # prefilter.required_literals; set by rules()
 
 
 # ----------------------------------------------------- value checks that read the detector --
@@ -1394,7 +1396,7 @@ def _rule_sources(active) -> list:
 def _ranked(active) -> list:
     """(priority, rule) of every rule, sorted by priority = (phase, band, seq) (maisecrets/detection/registry.py)."""
     from .registry import BANDS, PHASES, filters_of, form_of, key_of, matcher_of
-    from .prefilter import leading_literal
+    from .prefilter import leading_literal, required_literals
     rules_phase, user_phase = PHASES["rules"], PHASES["user"]
     out = []
     for source, rs in _rule_sources(active):
@@ -1406,6 +1408,7 @@ def _ranked(active) -> list:
             object.__setattr__(r, "filters", filters_of(r.id))
             object.__setattr__(r, "phase", phase)
             object.__setattr__(r, "prefix", leading_literal(r.regex, r.matcher, r.keywords, source))
+            object.__setattr__(r, "need", required_literals(r, source))
             out.append(((phase, band, seq), r))
     out.sort(key=lambda x: x[0])
     return out
@@ -2596,32 +2599,8 @@ def scan(text: str, enabled: set[str] | None = None, channel: str = "prompt", pa
     hits = _scan(text, enabled, rule_list=rule_list, channel="tool" if channel == "tool" else "prompt", path=path or "")
     hits = _fields.added(text, hits, spans, lambda t: scan(t, enabled, channel, "", rule_list)) if spans else hits
     if channel == "tool" and rule_list is None and "|" in text:
-        hits = _md_key_value_hits(text, hits, lambda t: scan(t, enabled, channel, "", rule_list))
+        hits = _fields.md_key_value_hits(text, hits, lambda t: scan(t, enabled, channel, "", rule_list))
     return hits
-
-
-# a row of a two-column Markdown table whose first cell names the second: | Date of Birth | 1984-07-12 |. The cell is
-# a label as `Date of Birth: 1984-07-12` would be (the field rule of fields.py), and only personal data comes of it
-_MD_KV_ROW_RE = _LazyRx(r"(?m)^[ \t]*\|[ \t]*(\*{0,2})([A-Za-z][A-Za-z ()/#.'_-]{1,40}?)\1[ \t]*:?[ \t]*\|[ \t]*"
-                        r"([^|\n]{1,120}?)[ \t]*\|[ \t]*$")
-
-
-def _md_key_value_hits(text: str, hits: list, scanner) -> list:
-    spans = []
-    for m in _MD_KV_ROW_RE.finditer(text):
-        if set(m.group(3)) <= set("-: "):
-            continue
-        label = _fields._label((m.group(2).strip(),))
-        if label:
-            spans.append((m.start(3), m.end(3), label))
-    if not spans:
-        return hits
-    from .vocabulary import TYPES
-    before = {(h.start, h.end) for h in hits}
-    out = _fields.added(text, hits, tuple(spans), scanner)
-    # a name stays with the record rules of the Markdown table: a first name alone in a form is no person
-    return [h for h in out if (h.start, h.end) in before
-            or (h.type != "NAME" and TYPES.get(h.type, {}).get("family") == "pii")]
 
 
 # a label rule (LABEL_RULES): its header labels the cell, so a word in it is stored quiet and a fixture in test code
@@ -2859,6 +2838,8 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
         if rule.keywords and not _any_keyword(rule.keywords, low, keywords_in):
             continue
         if _lacks_prefix(rule.prefix, text, low):
+            continue
+        if _lacks_required(rule.need, text, low):
             continue
         # a rule that cannot fire without a context word need not run its regex without one
         alone = channel == "tool" and rule.id in CARD_ALONE_IN_TOOL

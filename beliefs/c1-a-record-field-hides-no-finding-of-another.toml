@@ -1,0 +1,12 @@
+# c1-a-record-field-hides-no-finding-of-another: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c1-a-record-field-hides-no-finding-of-another"
+control = "C1"
+statement = "Since 0.8.17, a record scan of findings_by_leaf finds every span that a scan of one field alone after its label finds: a negative context (a test marker up to 40 lines back, a company or place word on the line before an address) counts only inside the field of the hit, while a positive context (a first name next to a last name) still spans the record."
+runner = ["tests/test_record_negative_context.py::RecordNegativeContextTests::test_a_neighbour_field_hides_no_finding"]
+
+[proof]
+file = "maisecrets/detection/text_index.py"
+find = '''    if fields is None or fields[0] is not text:
+        return 0'''
+replace = '''    if True:
+        return 0'''

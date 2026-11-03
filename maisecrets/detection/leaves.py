@@ -20,6 +20,8 @@ from __future__ import annotations
 import dataclasses
 import json
 
+from .text_index import record_fields
+
 _SHORT = {'"': '\\"', "\\": "\\\\", "\n": "\\n", "\r": "\\r", "\t": "\\t", "\b": "\\b", "\f": "\\f"}
 
 
@@ -174,9 +176,13 @@ def label(path: tuple) -> str:
 
 def _segments(group: list) -> list:
     """A record cut before each string that has no label: on its own line after another string, the last line of that
-    string (`password:`) would read as its label, which neither string gives alone (codex review, 2026-11-02)."""
+    string (`password:`) would read as its label, which neither string gives alone (codex review, 2026-11-02). A string
+    that is empty or white space only is left out: it holds nothing to find, and its label line (`address: `) would take
+    the next line as its value (gateway review, 2026-11-03); cutting the record there cost a scan per empty field."""
     out = []
     for leaf in group:
+        if not leaf.value.strip():
+            continue
         if not out or not _label(leaf.path):
             out.append([])
         out[-1].append(leaf)
@@ -186,16 +192,19 @@ def _segments(group: list) -> list:
 def _lines(detector, obj, channel: str, **kwargs) -> list:
     out = []
     for group in (seg for rec in records(json_text(obj)[1]) for seg in _segments(rec)):
-        parts, placed, n = [], [], 0
+        parts, placed, starts, n = [], [], [], 0
         for leaf in group:
             label = _label(leaf.path)
             lead = f"{label}: " if label else ""
             placed.append((leaf, n + len(lead)))
+            starts.append(n)
             parts.append(lead + leaf.value)
             n += len(lead) + len(leaf.value) + 1
         text = "\n".join(parts)
+        with record_fields(text, starts):       # a negative context counts only inside its field (text_index.py)
+            found = detector.findings(text, channel=channel, **kwargs)
         k = 0   # the findings come sorted by start and the strings in text order: one pass over both
-        for m in sorted(detector.findings(text, channel=channel, **kwargs), key=lambda m: m.start):
+        for m in sorted(found, key=lambda m: m.start):
             while k < len(placed) and placed[k][1] + len(placed[k][0].value) < m.start:
                 k += 1
             hit = None

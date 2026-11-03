@@ -7,7 +7,10 @@ sk-); a text without it cannot hold a match (2026-11-02: no finding changed in 2
 less time). Only the built-in rules that run as one regex over the text take part, never a rule of your own."""
 from __future__ import annotations
 
+import hashlib
+import json
 import re
+from pathlib import Path
 
 MIN = 3
 NONE = ("", False)
@@ -25,6 +28,31 @@ def any_keyword(keywords: tuple, low: str, known: dict) -> bool:
     return False
 
 
+# the literal of each built-in pattern, worked out ahead (scripts/gen_leading_literals.py): parsing 920 patterns took
+# ~20 ms of each hook process (netcup, 2026-11-03). The key is a hash of the flags and the pattern, so a changed pattern
+# misses and is parsed as before; tests/test_leading_literals.py recomputes every entry
+LITERALS_FILE = Path(__file__).parent / "rules" / "leading_literals.json"
+
+
+def literal_key(pattern: str, flags: int) -> str:
+    return hashlib.sha256(f"{int(flags)}\n{pattern}".encode("utf-8", "surrogatepass")).hexdigest()[:24]
+
+
+def _read_literals() -> dict:
+    try:
+        return json.loads(LITERALS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+# read once at import (26 KB, under 1 ms): a scan then writes no module state (tests/test_scan_context.py)
+_LITERALS = _read_literals()
+
+
+def _known() -> dict:
+    return _LITERALS
+
+
 def leading_literal(regex, matcher: str, keywords: tuple, source: str) -> tuple:
     """(literal, ignore_case) that every match of the regex starts with, or NONE: the leading literal characters of
     the pattern, at least MIN. NONE for a rule with keywords (they gate it already), a rule of your own, a rule that
@@ -32,6 +60,15 @@ def leading_literal(regex, matcher: str, keywords: tuple, source: str) -> tuple:
     pattern = getattr(regex, "pattern", None)
     if keywords or source == "user" or matcher not in ("", "regex") or not isinstance(pattern, str):
         return NONE
+    hit = _known().get(literal_key(pattern, regex.flags))
+    if isinstance(hit, list) and len(hit) in (2, 3) and isinstance(hit[0], str):
+        return (hit[0], bool(hit[1])) if hit[0] else NONE
+    return parsed_literal(regex)
+
+
+def parsed_literal(regex) -> tuple:
+    """leading_literal by parsing the pattern: the reference of the file and the way for a pattern it lacks."""
+    pattern = regex.pattern
     try:
         try:
             import re._parser as parser
@@ -45,6 +82,149 @@ def leading_literal(regex, matcher: str, keywords: tuple, source: str) -> tuple:
     except Exception:  # noqa: BLE001
         return NONE
     return ("".join(lit), bool(regex.flags & re.IGNORECASE)) if len(lit) >= MIN else NONE
+
+
+# --------------------------------------------------------------------------- required literals --
+# A rule with no keyword, no leading literal and no context gate ran its regex over every text: 58 rules, a third of the
+# time of a Slack-shaped response on the reference host (2026-11-03). Most of them still need one of a few literals
+# somewhere in each match (%40, the password label words, x-amz-security-token). In an ASCII text str.lower() folds as
+# re.IGNORECASE does, so a text whose lower case holds none of them cannot hold a match; any other text runs the rule
+# (dotless i and long s fold to i and s only under the regex)
+_MAX_ALTS, _MAX_CLASS, _MIN_LEN = 64, 4, 3
+
+
+def _parser():
+    try:
+        import re._constants as constants
+        import re._parser as parser
+    except ImportError:            # Python before 3.11
+        import sre_constants as constants
+        import sre_parse as parser
+    return parser, constants
+
+
+def _alternatives(items, C, repeats) -> set | None:
+    """Every string an all-literal piece can be, or None when it is not all-literal (a class of at most _MAX_CLASS
+    literals counts)."""
+    cur = {""}
+    for op, av in items:
+        if op is C.LITERAL:
+            cur = {c + chr(av) for c in cur}
+        elif op is C.IN:
+            if len(av) > _MAX_CLASS or any(o is not C.LITERAL for o, _ in av):
+                return None
+            cur = {c + chr(v) for c in cur for _, v in av}
+        elif op is C.AT:
+            continue
+        elif op is C.SUBPATTERN:
+            sub = _alternatives(av[3], C, repeats)
+            if sub is None:
+                return None
+            cur = {c + x for c in cur for x in sub}
+        elif op is C.BRANCH:
+            alts: set = set()
+            for b in av[1]:
+                sub = _alternatives(b, C, repeats)
+                if sub is None:
+                    return None
+                alts |= sub
+            cur = {c + x for c in cur for x in alts}
+        elif op in repeats and av[0] == av[1] and av[0] >= 1:
+            sub = _alternatives(av[2], C, repeats)
+            if sub is None:
+                return None
+            for _ in range(av[0]):
+                cur = {c + x for c in cur for x in sub}
+        else:
+            return None
+        if len(cur) > _MAX_ALTS:
+            return None
+    return cur
+
+
+def _strong(x: str) -> bool:
+    """A literal rare enough to gate on: 3 characters, or 2 that are not ASCII (密码, 암호)."""
+    return len(x) >= _MIN_LEN or (len(x) >= 2 and not x.isascii())
+
+
+def _required(items, C, repeats) -> set | None:
+    """A set of strings one of which every match contains, or None. A zero-width item continues a literal run; the
+    content of a positive lookaround stands in the text too."""
+    cands: list = []
+    run = {""}
+
+    def flush():
+        nonlocal run
+        if run != {""}:
+            cands.append(set(run))
+        run = {""}
+
+    for op, av in items:
+        alts = _alternatives([(op, av)], C, repeats)
+        if alts is not None:
+            new = {c + x for c in run for x in alts}
+            if len(new) <= _MAX_ALTS:
+                run = new
+                continue
+        if op is C.AT or op is C.ASSERT_NOT:
+            continue
+        if op is C.ASSERT:
+            s = _required(av[1], C, repeats)
+            if s:
+                cands.append(s)
+            continue
+        flush()
+        s = None
+        if op is C.SUBPATTERN:
+            s = _required(av[3], C, repeats)
+        elif op is C.BRANCH:
+            parts = [_required(b, C, repeats) for b in av[1]]
+            s = set().union(*parts) if all(parts) else None
+        elif op in repeats:
+            s = _required(av[2], C, repeats) if av[0] >= 1 else None
+        elif op is getattr(C, "ATOMIC_GROUP", object()):
+            s = _required(av, C, repeats)
+        if s:
+            cands.append(s)
+    flush()
+    usable = [s for s in cands if s and len(s) <= _MAX_ALTS and all(_strong(x) for x in s)]
+    return max(usable, key=lambda s: (min(len(x) for x in s), -len(s))) if usable else None
+
+
+def _folds_to_ascii(ch: str) -> bool:
+    """Whether re.IGNORECASE matches this non-ASCII character against an ASCII one (long s and s, Kelvin and k)."""
+    return any(re.fullmatch(re.escape(ch), a, re.IGNORECASE) for a in "abcdefghijklmnopqrstuvwxyz")
+
+
+def parsed_required(regex) -> tuple:
+    """required_literals by parsing the pattern: the reference of the file and the way for a pattern it lacks."""
+    parser, C = _parser()
+    repeats = tuple(getattr(C, n) for n in ("MAX_REPEAT", "MIN_REPEAT", "POSSESSIVE_REPEAT") if hasattr(C, n))
+    try:
+        found = _required(parser.parse(regex.pattern, regex.flags), C, repeats)
+    except Exception:  # noqa: BLE001 - a pattern the parser cannot read gets no gate
+        return ()
+    if not found or any(_folds_to_ascii(ch) for x in found for ch in x if not ch.isascii()):
+        return ()
+    return tuple(sorted({x.lower() for x in found}))
+
+
+def required_literals(rule, source: str) -> tuple:
+    """The literals one of which every match of the rule holds, lower case, or (): only for a built-in rule that runs as
+    one regex and has no other gate (a keyword, a leading literal or a context word that it needs)."""
+    regex, pattern = rule.regex, getattr(rule.regex, "pattern", None)
+    gated = rule.keywords or rule.prefix[0] or (rule.context and (rule.require_context or rule.score < 0.5))
+    if gated or source == "user" or rule.matcher not in ("", "regex") or not isinstance(pattern, str):
+        return ()
+    hit = _known().get(literal_key(pattern, regex.flags))
+    if isinstance(hit, list) and len(hit) == 3 and isinstance(hit[2], list):
+        return tuple(hit[2])
+    return parsed_required(regex)
+
+
+def lacks_required(need: tuple, text: str, low: str) -> bool:
+    """The text cannot hold a match of a rule that needs one of `need`: it is ASCII and its lower case holds none."""
+    return bool(need) and text.isascii() and not any(x in low for x in need)
 
 
 def lacks_prefix(prefix: tuple, text: str, low: str) -> bool:

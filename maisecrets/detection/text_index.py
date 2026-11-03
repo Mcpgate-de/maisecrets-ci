@@ -6,6 +6,8 @@ object. A patch of one of these names on the core does not reach the functions o
 from __future__ import annotations
 
 import bisect
+import contextlib
+import contextvars
 import re
 import threading
 
@@ -85,6 +87,35 @@ _TEST_CLASS_LINE_RE = _LazyRx(r"[ \t+-]*class[ \t]+Tests?(?:[A-Z_(:]|$)|@@[^\n]*
 _DIFF_FILE_RE = _LazyRx(r"(?m)^(?:diff --git |\+\+\+ |--- a/)")
 _GREP_PATH_RE = _LazyRx(r"((?:[A-Za-z]:)?[^\s:]+):\d+[:-]")
 _TEST_LOOKBACK_LINES = 40
+# The fields of a JSON record that leaves.findings_by_leaf scans as one text, as the start of each field's line: a
+# negative context (a test marker, a company word on the line before) counts only inside the field of the hit, so the
+# record finds what each field alone after its label finds (gateway review, 2026-11-03). Only that exact text object
+_FIELDS: contextvars.ContextVar = contextvars.ContextVar("maisecrets_record_fields", default=None)
+
+
+def field_start(text: str, pos: int) -> int:
+    """The start of the field of a record scan that holds `pos`, or 0 outside a record scan."""
+    fields = _FIELDS.get()
+    if fields is None or fields[0] is not text:
+        return 0
+    i = bisect.bisect_right(fields[1], pos) - 1
+    return fields[1][i] if i >= 0 else 0
+
+
+def in_record(text: str) -> bool:
+    """Whether `text` is the text of a record scan of findings_by_leaf (record_fields)."""
+    fields = _FIELDS.get()
+    return fields is not None and fields[0] is text
+
+
+@contextlib.contextmanager
+def record_fields(text: str, starts: list):
+    """In this block, field_start() knows the fields of `text` (the line start of each one, ascending)."""
+    token = _FIELDS.set((text, tuple(starts)))
+    try:
+        yield
+    finally:
+        _FIELDS.reset(token)
 
 
 def is_test_path(path: str) -> bool:
@@ -103,6 +134,7 @@ def in_test_code(text: str, start: int, path: str = "") -> bool:
     nl = _newlines(text)
     i = bisect.bisect_left(nl, line_start)       # the line of the hit is line i
     begin = nl[i - _TEST_LOOKBACK_LINES - 1] + 1 if i > _TEST_LOOKBACK_LINES else 0
+    begin = max(begin, field_start(text, start))
     diffs = _positions(text, "diff", _DIFF_FILE_RE)
     j = bisect.bisect_left(diffs, line_start)
     if j and diffs[j - 1] >= begin:

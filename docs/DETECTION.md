@@ -280,7 +280,8 @@ for leaf, m in findings_by_leaf(detector, response):     # layout "lines", the d
   0.8.16; `_label` stays an alias).
 - **A span** is one of the string as the caller holds it; `m.value` is `leaf.value[m.start:m.end]`. A finding in a
   key, a label or the structure belongs to no string (`leaf` is None); one that runs past the end of its string is cut
-  there; a span of length zero stays one, also at the end of a string and in an empty string. Placing the findings is
+  there; a span of length zero stays one, also at the end of a string. A string that is empty or white space only
+  is not scanned and does not cut its record (it holds nothing to find). Placing the findings is
   one pass over the strings and the findings. A value JSON cannot hold raises `TypeError`, a cycle `ValueError`.
 - `tests/test_detection_leaves.py` holds these points.
 

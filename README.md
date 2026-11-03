@@ -337,7 +337,7 @@ claude --plugin-dir /path/to/maisecrets                 # one session, straight 
 python3 -m unittest discover -s tests -v               # about 30 seconds
 python3 harness/run.py                                 # 40 scenarios against a fake upstream (4 for the PowerShell tool of Windows)
 python3 harness/codex.py [--real]                      # 15 scenarios through codex exec (five need --real)
-python3 scripts/replay_can_fail.py                     # 389 proofs: each control's test, and each path of the seven invariants, goes red without its guard
+python3 scripts/replay_can_fail.py                     # 392 proofs: each control's test, and each path of the seven invariants, goes red without its guard
 python3 scripts/derived_counts.py                      # the numbers in the docs, measured again
 python3 scripts/lint_plugin.py                         # frontmatter YAML, manifests, hook paths (pre-commit, CI)
 scripts/install-hooks.sh                               # git pre-commit / pre-push
@@ -2281,11 +2281,14 @@ revoke bound that. A value written into a file is plain text there.
 
 ## Sensitive References
 
-A gateway with Sensitive References (for example mcpgate) can mask a value in
+A gateway with Sensitive References (for example mcpgate, where the resolver is
+experimental and on only for accounts its admin enables) can mask a value in
 its tool results with a reference such as `⟦sref:email:<id>:ma•••@example.org⟧`.
-The AI sees the reference and its display part, never the value. With
-maisecrets, a command or a file that needs the value gets it on your computer,
-at the moment of the call, from the gateway's resolver.
+The AI sees the reference and its display part, not the value in the call.
+With maisecrets, a command or a file that needs the value gets it on your
+computer, at the moment of the call, from the gateway's resolver. A file keeps
+the value, so the AI sees it if it reads that file later; for one hour after a
+resolve, output that prints the value shows the reference instead.
 
 1. Log in once: `/maisecrets:sref login` (in Codex: `run.sh sref login` in a
    terminal). Your browser opens; you log in to the gateway and give the
@@ -2296,14 +2299,17 @@ at the moment of the call, from the gateway's resolver.
    reference from another session, or one the AI typed itself, gets a reason
    and no value.
 3. In a Bash command the value is fetched only when the command starts and
-   reads it; a command that never runs costs no resolve. The gateway learns
-   the program's name (sink `process`). In the content of Write, Edit,
-   MultiEdit, NotebookEdit or a Codex patch the file gets the value; the
-   gateway learns the path (sink `local_file`). A reference in a path is
-   refused. Anywhere else (another MCP server, WebFetch, a subagent) it stays
-   text.
-4. If the command prints the value, maisecrets shows the reference instead,
-   for an hour. An error names the reason and a count, never a value. The
+   reads it; a command that never runs costs no resolve. maisecrets sends the
+   program's name as the target (sink `process`). In the content of Write,
+   Edit, MultiEdit, NotebookEdit or a Codex patch the file gets the value, and
+   maisecrets sends the path as the target (sink `local_file`); mcpgate checks
+   the kind of target, not the path. The value of a file write is fetched
+   before the client asks you about the write, so a write you refuse has
+   already cost a resolve (counted in the gateway's daily quota and audit) and
+   the AI still gets nothing. A reference in a path is refused. Anywhere else
+   (another MCP server, WebFetch, a subagent) it stays text.
+4. For an hour after a resolve, output that prints the value shows the
+   reference instead. An error names the reason and a count, never a value. The
    audit (`/maisecrets:audit`) names each resolve with the kind of the
    reference and 4 characters of its id.
 

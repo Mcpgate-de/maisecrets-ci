@@ -25,6 +25,8 @@ import html
 import re
 import zlib
 
+from .text_index import field_start, in_record
+
 # entities first: `&#8203;` and `&#27;[1m` written as entities become a zero-width character and an ANSI code that the
 # next stages remove (`&#27;` by _ESCAPE_ENTITIES: html.unescape drops it)
 STAGES = ("unfold", "entity", "ansi", "invisible", "fullwidth", "emphasis", "decode")
@@ -268,7 +270,7 @@ def _decode_text(text: str, depth: int, budget: Budget) -> str:
     return "".join(out) + text[pos:] if out else text
 
 
-def _stage(name: str, text: str):
+def _stage(name: str, text: str, field_of=None):
     """One stage as (text, starts, ends) relative to its input, or None when it changes nothing."""
     if name == "unfold":
         return _unfold(text) if "VCARD" in text.upper() else None
@@ -285,9 +287,25 @@ def _stage(name: str, text: str):
     if name == "fullwidth":
         return None if text.isascii() else _sub(text, _FULLWIDTH_RE, lambda m: chr(ord(m.group(0)) - 0xFEE0))
     if name == "decode":
-        budget = Budget()
-        return _sub(text, RUN_RE, lambda m: decode_run(m.group(0), MAX_DEPTH, budget) or m.group(0), budget.spent)
+        if field_of is None:
+            budget = Budget()
+            return _sub(text, RUN_RE, lambda m: decode_run(m.group(0), MAX_DEPTH, budget) or m.group(0), budget.spent)
+        # a record scan: each field spends its own budget, as a scan of the field alone would (gateway review,
+        # 2026-11-03: 70 hashes in one record kept a base64 secret in a later field from being decoded)
+        budgets: dict = {}
+
+        def repl(m):
+            key = field_of(m.start())
+            if key not in budgets:
+                budgets[key] = Budget()
+            return decode_run(m.group(0), MAX_DEPTH, budgets[key]) or m.group(0)
+        return _sub(text, RUN_RE, repl)
     raise ValueError(f"unknown normaliser stage {name!r}")
+
+
+def _fields_of(text: str, starts):
+    """A position of the current text -> the start of its field in `text` (the starts map leads back to it)."""
+    return lambda p: field_start(text, starts[min(p, len(starts) - 1)] if starts else p)
 
 
 def normalise(text: str, stages=STAGES) -> Normalised:
@@ -303,7 +321,7 @@ def normalise(text: str, stages=STAGES) -> Normalised:
     for name in STAGES:
         if name not in stages:
             continue
-        step = _stage(name, cur)
+        step = _stage(name, cur, _fields_of(text, starts) if name == "decode" and in_record(text) else None)
         if step is None:
             continue
         new, s, e = step

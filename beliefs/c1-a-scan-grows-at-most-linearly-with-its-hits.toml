@@ -1,0 +1,10 @@
+# c1-a-scan-grows-at-most-linearly-with-its-hits: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c1-a-scan-grows-at-most-linearly-with-its-hits"
+control = "C1"
+statement = "Since 0.8.17, the CPU time of a scan grows at most linearly with the number of hits in one text: four times the hits cost less than eight times the time (linear gives about 4, quadratic about 16), for addresses, e-mails, phone numbers, passwords after a label, names after Herr or Frau, the records of a JSON response, and the step that widens an address to its place, timed alone because the whole scan dilutes it until about 2,000 addresses."
+runner = ["tests/test_scaling.py::ScalingTests::test_the_address_place_step_alone"]
+
+[proof]
+file = "maisecrets/detection/personal.py"
+find = '''if typ == ADDRESS and k in _ADDRESS_RULES_WITH_PLACE and not (i and reach[i - 1] > e):'''
+replace = '''if typ == ADDRESS and k in _ADDRESS_RULES_WITH_PLACE and not any(s2 <= s and e2 > e for s2, e2 in wider):'''
