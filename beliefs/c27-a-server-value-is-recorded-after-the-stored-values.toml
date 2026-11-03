@@ -6,10 +6,10 @@ runner = ["tests/test_vault_refs.py::Online::test_a_stored_value_that_fails_leav
 
 [proof]
 file = "maisecrets/hooks.py"
-find = '''    got, why = _server_fetch(cfg, vault, server, session)
+find = '''    got, why = _server_fetch(cfg, vault, server, session, ("local_file", paths[0] if len(paths) == 1 else path))
     if why:
         return _deny(why + " Nothing was written.")'''
-replace = '''    got, why = _server_fetch(cfg, vault, server, session)
+replace = '''    got, why = _server_fetch(cfg, vault, server, session, ("local_file", paths[0] if len(paths) == 1 else path))
     _server_release(vault, got, session, tool, "early")
     if why:
         return _deny(why + " Nothing was written.")'''

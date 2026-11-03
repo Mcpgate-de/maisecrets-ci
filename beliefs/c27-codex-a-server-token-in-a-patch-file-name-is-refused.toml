@@ -6,5 +6,7 @@ runner = ["tests/test_codex_vault.py::CodexHooks::test_a_token_in_a_file_name_of
 
 [proof]
 file = "maisecrets/hooks.py"
-find = '''find_refs(line) + vault_refs.find_noted(line, cfg, payload.get("session_id"))]'''
-replace = '''find_refs(line)]'''
+find = '''find_refs(line) + vault_refs.find_noted(line, cfg, payload.get("session_id"))
+'''
+replace = '''find_refs(line)
+'''

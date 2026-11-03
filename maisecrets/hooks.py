@@ -58,6 +58,10 @@ from .guarded_paths import (  # noqa: F401
     _is_ssh_config_path, _names_a_guarded_file, _holds_a_guarded_folder, _a_guarded_path, _identity, _abs,
     _touches_store, _hardlinked_into, _in_the_home,
 )
+from .server_values import _all_refs, _elsewhere_reason, _server_fetch, _server_limit_keys, \
+    _server_release
+from .sref_hooks import canonical as _sref_canonical, note as _sref_note, precheck as _sref_precheck, \
+    program_of as _program_of, refs as _sref_refs
 
 # a Windows path carries a drive letter and backslashes: @C:\Users\x\.env
 AT_MENTION_RE = _LazyRx(r"(?<![\w@])@(?P<path>[\w./~\\:-]+)")
@@ -1217,7 +1221,8 @@ def _resolver_call(key: str, nonce: str) -> str:
     return f'$("{py}" "{script}" {key} --grant {nonce})'
 
 
-def _serve_value_later(fifo: str, value: str, seconds: float = 120.0, approve: str | None = None) -> bool:
+def _serve_value_later(fifo: str, value: str, seconds: float = 120.0, approve: str | None = None,
+                       sref: dict | None = None) -> bool:
     """Deliver one value once through a FIFO from a detached child. The command runs later, and
     on Codex inside a sandbox that may neither write the vault nor read the keychain (measured:
     resolve.py failed there and the command died); a FIFO in TMPDIR is readable from inside.
@@ -1227,7 +1232,10 @@ def _serve_value_later(fifo: str, value: str, seconds: float = 120.0, approve: s
     with the value in its memory (suite review, 2026-09-27). With ``approve``, the child confirms that
     ssh session-approval token once the value was read. That FIFO sits in the sealed directory, which
     nobody can list: only the command that holds its name can open it, and only the rewritten command
-    the user allowed holds that name (ssh_approval.py)."""
+    the user allowed holds that name (ssh_approval.py). With ``sref``, the child resolves a Sensitive
+    Reference only once a reader opened the FIFO: a command the client refuses never starts, so it costs
+    no resolve (prod run, 2026-11-03), and the child, not the sandboxed command, reaches the store and the
+    gateway. A failed resolve writes nothing; the prelude refuses an empty value."""
     code = (
         "import json,os,sys,time\n"
         "spec = json.load(sys.stdin)\n"
@@ -1246,6 +1254,13 @@ def _serve_value_later(fifo: str, value: str, seconds: float = 120.0, approve: s
         "        time.sleep(0.05)\n"
         "if fd is not None:\n"
         "    os.set_blocking(fd, True)\n"
+        "    if spec.get('sref'):\n"
+        "        try:\n"
+        "            sys.path.insert(0, spec['root'])\n"
+        "            from maisecrets import sref_hooks\n"
+        "            spec['value'] = sref_hooks.serve(**spec['sref'])\n"
+        "        except Exception:\n"
+        "            spec['value'] = ''\n"
         "    try:\n"
         "        os.write(fd, spec['value'].encode())\n"
         "    finally:\n"
@@ -1267,7 +1282,7 @@ def _serve_value_later(fifo: str, value: str, seconds: float = 120.0, approve: s
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         child.stdin.write(json.dumps({"fifo": fifo, "value": value, "seconds": seconds, "approve": approve,
-                                      "root": root}).encode())
+                                      "root": root, "sref": sref}).encode())
         child.stdin.close()
         # the FIFO must exist before the command starts: wait for the child to create it
         for _ in range(100):
@@ -1710,8 +1725,7 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
     the resolver script reads it under a one-time grant. Every key passes the session rule and
     the limiter before anything is recorded or served, so a refused command leaves no audit
     line and no value waiting (reviews, 2026-09-26)."""
-    from . import vault_refs
-    command = vault_refs.canonical_noted(tool_input.get("command", ""), cfg, payload.get("session_id"))
+    command = _sref_canonical(tool_input.get("command", ""), payload.get("session_id"), cfg)
     tool_input = {**tool_input, "command": command}
     bad_args = _args_call_refusal(command)
     if bad_args:
@@ -1735,9 +1749,13 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
     # a token a server minted and a server result noted (vault_refs.py): it takes the same way as a stored value
     server = [(k, a, b) for k, a, b in vault_refs.find_noted(command, cfg, payload.get("session_id"))
               if ctxs[a] != "comment"]
+    # a Sensitive Reference this session received (sref_notes.py): it takes the same way as a vault token
+    srefs, sref_elsewhere = _sref_refs(command, payload.get("session_id"), ctxs)
+    server = server + srefs
     refs = sorted(refs + server, key=lambda r: r[1])
     server_keys = list(dict.fromkeys(k for k, _a, _b in server))
-    elsewhere = vault_refs.noted_elsewhere(command, cfg, payload.get("session_id"))
+    elsewhere = vault_refs.noted_elsewhere(command, cfg, payload.get("session_id")) + \
+        [r[1:-1] for r in sref_elsewhere]
     if elsewhere:
         return _deny(_elsewhere_reason(elsewhere) + " The command did not run.")
     from . import settings as settings_mod
@@ -1818,7 +1836,10 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
     if failed:
         return _deny(_deny_reason(failed))
     # before any stored value is recorded: a server that refuses leaves no audit line of ours
-    got, why = _server_fetch(cfg, vault, server_keys, session)
+    srefs = [k for k in server_keys if k.startswith("sref:")]
+    # a reference resolves when the command starts (a grant below): here only whether it can
+    got, why = _server_fetch(cfg, vault, [k for k in server_keys if k not in srefs], session)
+    why = why or (_sref_precheck(cfg, vault.backend, srefs, session) if srefs else None)
     if why:
         return _deny(why + " The command did not run.")
     guarded = [k for k, (v, _o) in got.items() if _names_a_guarded_file(v, str(payload.get("cwd") or ""))]
@@ -1847,6 +1868,9 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
     # phase 2: record (audit line, limiter) and fetch; a failure here has recorded nothing served
     plan: dict[str, tuple[str | None, str | None]] = {}    # key -> (nonce, value)
     for key in uniq:
+        if key in srefs:
+            plan[key] = (None, None)          # resolved by the serving child when the command reads it
+            continue
         if key in fetched:
             plan[key] = (None, fetched[key])
             continue
@@ -1871,9 +1895,10 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
     _released, why = _server_release(vault, got, session, "Bash", command)
     if why:
         return _deny(why + " The command did not run.")
-    noted = _note_destinations(cfg, payload, "Bash", tool_input, [k for k in plan if k not in fetched],
+    stored = [k for k in plan if k not in fetched and k not in srefs]
+    noted = _note_destinations(cfg, payload, "Bash", tool_input, stored,
                                ssh_command=command, ssh_dest=ssh_plan["dest"] if ssh_plan else None)
-    stop = _unnoted(cfg, noted, [k for k in plan if k not in fetched], "The command did not run.")
+    stop = _unnoted(cfg, noted, stored, "The command did not run.")
     if stop:
         return stop
     # phase 3: serve and rewrite
@@ -1898,14 +1923,17 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
             if approve:
                 # the first use: its FIFO sits where nobody can list it, so reading it proves the yes
                 fifo = os.path.join(_sealed_dir(), os.path.basename(fifo))
-            if not _serve_value_later(fifo, value or "", approve=approve):
+            sref = {"key": key, "session": session, "program": _program_of(command), "command": command[:2000]} \
+                if key in srefs else None
+            if not _serve_value_later(fifo, value or "", approve=approve, sref=sref):
                 _unserve(served)
                 return _deny(f"maisecrets: the value for ⟦{key}⟧ could not be prepared for delivery "
                              "(delivery unavailable). The command did not run. Retry once; if this "
                              "message comes again, stop and tell the user.")
             served.append(fifo)
             read = f"$(cat {shlex_quote(fifo)})"
-        prelude.append(f'{var}="{read}" || {{ echo "maisecrets: the value for {key} was not delivered '
+        check = f' && [ -n "${{{var}}}" ]' if key in srefs else ""   # a failed resolve writes nothing
+        prelude.append(f'{var}="{read}"{check} || {{ echo "maisecrets: the value for {key} was not delivered '
                        f'(served for 120 s, or read by another process); the command did not run. Run it again '
                        f'once; if it fails again, stop and tell the user" >&2; exit 97; }}')
     for key, start, end in sorted(refs, key=lambda r: r[1], reverse=True):
@@ -1980,60 +2008,6 @@ def _precheck(vault: Vault, keys: list[str], session: str | None, extra: list[st
     server keys of the call (`KEY@host`): no session rule of the store, but the same limiter (C7)."""
     failed = [f"{k} ({st})" for k in keys for st in [vault.status(k, session)] if st != "ok"]
     return failed or vault._limit_all(list(keys) + list(extra), session)
-
-
-def _server_limit_keys(keys: list[str], session: str | None) -> list[str]:
-    """The limiter names of server keys: `KEY@host` of the origin that noted the key for this session."""
-    if not keys:
-        return []
-    from urllib.parse import urlsplit
-
-    from . import vault_refs
-    origins = vault_refs.noted(keys, session)
-    return [f"{k}@{urlsplit(origins[k][0]).hostname}" for k in keys if origins.get(k)]
-
-
-def _server_fetch(cfg: dict, vault: Vault, keys: list[str], session: str | None) -> tuple[dict, str | None]:
-    """Vault references (vault_refs.py): the values of server-range tokens, from the server that minted them, all
-    or none. Returns (key -> (value, origin), None) or ({}, the reason without a value). Nothing is recorded yet."""
-    if not keys:
-        return {}, None
-    from . import vault_refs
-    names = ", ".join(f"⟦{k}⟧" for k in keys)
-    try:
-        return vault_refs.resolve(cfg, vault.backend, keys, session), None
-    except vault_refs.Refused as exc:
-        return {}, (f"maisecrets: cannot get the value of {names} from the server that sent it: {exc}. Do not ask "
-                    "the user for the value; tell them this reason.")
-
-
-def _server_release(vault: Vault, got: dict, session: str | None, tool: str, context: str) -> tuple[dict, str | None]:
-    """The limiter record and one audit line per server value (`KEY@host`, rotated like every audit line), then
-    the values are kept for an hour, so an echo in a later tool result is redacted to the server's token.
-    Returns (key -> value, None) or ({}, the reason)."""
-    if not got:
-        return {}, None
-    from urllib.parse import urlsplit
-
-    from . import vault_refs
-    status = vault.record_server([f"{k}@{urlsplit(o).hostname}" for k, (_v, o) in got.items()], session, tool,
-                                 context)
-    if status != "ok":
-        return {}, (f"maisecrets: no value from the server is released ({status}). Tell the user.")
-    vault_refs.remember_released(vault.backend, session, got)
-    return {k: v for k, (v, _origin) in got.items()}, None
-
-
-def _elsewhere_reason(keys: list[str]) -> str:
-    names = ", ".join(f"⟦{k}⟧" for k in keys)
-    return (f"maisecrets: {names} came from a server in another session or more than 24 hours ago, so it does not "
-            "resolve here. Call that server's tool again in this session and use the new tokens.")
-
-
-def _all_refs(text: str, values: dict) -> list[tuple[str, int, int]]:
-    """The stored-value placeholders of text, and the server-range tokens that have a value in `values`."""
-    from . import vault_refs
-    return find_refs(text) + [r for r in vault_refs.find(text) if r[0] in values]
 
 
 def _deny_reason(failed: list[str]) -> str:
@@ -2285,7 +2259,8 @@ def _pre_file_tool(payload: dict, cfg: dict, tool: str, tool_input: dict, cwd: s
         from . import vault_refs
         # a server token in a file name too: the server would choose the file (C27)
         in_header = [k for line, _path in headers for k, _a, _b in
-                     find_refs(line) + vault_refs.find_noted(line, cfg, payload.get("session_id"))]
+                     find_refs(line) + vault_refs.find_noted(line, cfg, payload.get("session_id"))
+                     + _sref_refs(line, payload.get("session_id"))[0]]
         if in_header:
             return _deny(f"maisecrets: ⟦{in_header[0]}⟧ is in a file name of the patch, where it is not resolved. "
                          "Nothing was written. Put the placeholder into the content, not into a path.")
@@ -2314,6 +2289,7 @@ def _pre_file_tool(payload: dict, cfg: dict, tool: str, tool_input: dict, cwd: s
 
     def collect_server(v: str) -> str:
         server.extend(k for k, _a, _b in vault_refs.find_noted(v, cfg, payload.get("session_id")))
+        server.extend(k for k, _a, _b in _sref_refs(v, payload.get("session_id"))[0])
         return v
     _walk_strings(target, collect_server)
     server = list(dict.fromkeys(server))
@@ -2321,6 +2297,7 @@ def _pre_file_tool(payload: dict, cfg: dict, tool: str, tool_input: dict, cwd: s
 
     def collect_elsewhere(v: str) -> str:
         elsewhere.extend(vault_refs.noted_elsewhere(v, cfg, payload.get("session_id")))
+        elsewhere.extend(r[1:-1] for r in _sref_refs(v, payload.get("session_id"))[1])
         return v
     _walk_strings(target, collect_elsewhere)
     if elsewhere:
@@ -2331,6 +2308,7 @@ def _pre_file_tool(payload: dict, cfg: dict, tool: str, tool_input: dict, cwd: s
 
     def collect_outside(v: str) -> str:
         outside.extend(k for k, _a, _b in vault_refs.find_noted(v, cfg, payload.get("session_id")))
+        outside.extend(k for k, _a, _b in _sref_refs(v, payload.get("session_id"))[0])
         return v
     _walk_strings({k: v for k, v in target.items() if k not in _CONTENT_FIELDS}, collect_outside)
     if outside:
@@ -2348,7 +2326,7 @@ def _pre_file_tool(payload: dict, cfg: dict, tool: str, tool_input: dict, cwd: s
     failed = _precheck(vault, list(dict.fromkeys(found)), session, extra=_server_limit_keys(server, session))
     if failed:
         return _deny(_deny_reason(failed).replace("The command did not run.", "Nothing was written."))
-    got, why = _server_fetch(cfg, vault, server, session)
+    got, why = _server_fetch(cfg, vault, server, session, ("local_file", paths[0] if len(paths) == 1 else path))
     if why:
         return _deny(why + " Nothing was written.")
     for key in dict.fromkeys(found):
@@ -2939,6 +2917,10 @@ def _post_tool_guarded(payload: dict) -> dict:
             _count, notice = vault_refs.note_result(noted_payload, cfg, Vault(cfg).backend)
     except Exception as exc:  # noqa: BLE001 - a token not noted stays text; the output must not be withheld for it
         _debug(f"post-tool vault-refs: {type(exc).__name__}")
+    try:
+        _sref_note(payload)       # a Sensitive Reference of the gateway, noted for this session (sref_hooks.py)
+    except Exception as exc:  # noqa: BLE001 - a note that fails leaves the reference as text; the output goes on
+        _debug(f"post-tool sref notes: {type(exc).__name__}")
     result = _post_tool_guarded_rest(payload)
     if notice:
         try:

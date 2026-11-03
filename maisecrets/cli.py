@@ -941,6 +941,70 @@ def cmd_ner(args: list[str]) -> int:
     return code
 
 
+def cmd_sref(args: list[str]) -> int:
+    """Sensitive References (/maisecrets:sref): `status` (the default) names each user-scope server whose gateway
+    offers a resolver and whether maisecrets is logged in there; `login [NAME]` logs in in the browser (the person
+    gives the consent there; nothing starts without this command); `logout [NAME]` forgets the login. No token, id or
+    value is printed."""
+    from urllib.parse import urlsplit
+
+    from . import sref_client, vault_refs
+    from .vault import make_backend
+    action, name = (args[0] if args else "status"), (args[1] if len(args) > 1 else None)
+    if action not in ("status", "login", "logout"):
+        print("usage: sref [status | login [NAME] | logout [NAME]]", file=sys.stderr)
+        return 2
+    cfg = load_config()
+    backend = make_backend(cfg)
+    servers = vault_refs.user_servers()
+    if name is not None:
+        servers = {k: v for k, v in servers.items() if k == name}
+        if not servers:
+            print(f"maisecrets: no MCP server named {name} in your user configuration.")
+            return 1
+    found = {}
+    for server, url in servers.items():
+        f = sref_client.discover(cfg, url)
+        if f:
+            found[server] = f
+    if not found:
+        print("maisecrets: no MCP server of your user configuration offers Sensitive References.")
+        return 1
+    if action == "status":
+        for server, f in found.items():
+            state = "logged in" if sref_client.logged_in(backend, f["origin"]) else "not logged in (/maisecrets:sref " \
+                                                                                    f"login {server})"
+            print(f"{server} ({urlsplit(f['origin']).hostname}): {state}")
+        return 0
+    if len(found) > 1:
+        print("maisecrets: more than one server offers Sensitive References; name one: " + ", ".join(found))
+        return 2
+    server, f = next(iter(found.items()))
+    host = urlsplit(f["origin"]).hostname
+    if action == "logout":
+        sref_client.forget(backend, f["origin"])
+        print(f"maisecrets: logged out of {host}.")
+        return 0
+
+    def open_browser(url: str) -> None:
+        import webbrowser
+        print(f"maisecrets: log in to {host} in your browser and give the consent. If no browser opened, open:\n{url}",
+              flush=True)
+        try:
+            webbrowser.open(url)
+        except Exception:  # noqa: BLE001 - the printed URL is the way then
+            pass
+    try:
+        # 110 s: inside the 2 minutes a client gives a command
+        sref_client.login(cfg, backend, f, open_browser, wait=110.0)
+    except sref_client.Refused as exc:
+        print(f"maisecrets: the login to {host} did not complete: {exc}")
+        return 1
+    print(f"maisecrets: logged in to {host}. A reference that this gateway shows in a session now gets its value "
+          "where a tool call needs it.")
+    return 0
+
+
 def cmd_consent_report(args: list[str]) -> int:
     from . import consent_report
     return consent_report.run(args)
@@ -951,7 +1015,7 @@ COMMANDS = {"list": cmd_list, "get": cmd_get, "put": cmd_put, "resolve": cmd_res
             "status": cmd_status, "wipe": cmd_wipe, "repair": cmd_repair, "shortcut": cmd_shortcut,
             "forget": cmd_forget, "guard": cmd_guard, "settings": cmd_settings,
             "consent-report": cmd_consent_report, "rules": cmd_rules, "terms": cmd_terms, "values": cmd_values,
-            "ner": cmd_ner}
+            "ner": cmd_ner, "sref": cmd_sref}
 
 
 def _stdin_words() -> list[str]:
@@ -973,6 +1037,7 @@ def main(argv: list[str] | None = None) -> int:
               "           | settings [--all]"
               " | wipe --yes | repair | shortcut [name] | resolve <KEY> --grant <NONCE> | hook <event>\n"
               "           | consent-report ssh [--last 30d|N] [--json] [--excerpts FILE]\n"
+              "           | sref [status | login [NAME] | logout [NAME]]\n"
               "           | rules [check [DIR] | test [text] | init DIR | import FILE.toml]\n"
               "           | terms [suggest FILE] | values [import FILE] | ner [--wait N]")
         return 0

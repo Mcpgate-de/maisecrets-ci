@@ -1002,6 +1002,10 @@ class Vault:
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
             with os.fdopen(fd, "a", encoding="utf-8") as f:
                 stamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(now))
+                if "sref:" in context:
+                    # a Sensitive Reference resolves for its user: the audit names its kind and 4 characters of its id
+                    from .sref_client import SREF_RE
+                    context = SREF_RE.sub(lambda m: f"⟦sref:{m.group('kind')}:{m.group('id')[:4]}…⟧", context)
                 ctx = context.replace("\n", " ").replace("\t", " ")[:160]
                 f.write(f"{stamp}\t{(session or '-')[:8]}\t{key}\t{tool}\t{ctx}\n")
             self._rotate_audit(path)

@@ -334,6 +334,16 @@ class FindTests(unittest.TestCase):
     def test_a_short_id_is_no_reference(self):
         self.assertEqual(S.find("⟦sref:email:short⟧"), [])
 
+    def test_the_display_part_follows_the_contract_of_the_gateway(self):
+        # 1 to 256 characters, colons allowed, no line break (ai-gateway pii_display.SREF_TOKEN_RE, 2026-11-02)
+        rid = "b" * 24
+        for display in ("2001:db8::•", "x" * 256):
+            with self.subTest(display=display[:12]):
+                self.assertEqual([c for _r, c, _s, _e in S.find(f"⟦sref:ip:{rid}:{display}⟧")], [f"⟦sref:ip:{rid}⟧"])
+        for display in ("x" * 257, "two\nlines", "", "a b"):
+            with self.subTest(display=repr(display[:12])):
+                self.assertEqual(S.find(f"⟦sref:ip:{rid}:{display}⟧"), [])
+
 
 if __name__ == "__main__":
     unittest.main()

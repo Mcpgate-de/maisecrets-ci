@@ -35,9 +35,11 @@ from urllib.parse import urlencode, urlsplit
 from .vault_refs import Refused, _is_json, _net_errors, _request, origin_of
 
 OPEN, CLOSE = "⟦", "⟧"
-# the canonical form, with the optional display part a gateway may add (it is for the model; the resolver reads the id)
+# the canonical form, with the optional display part a gateway may add (it is for the model; the resolver reads the id).
+# The gateway's contract (pii_display.SREF_TOKEN_RE): a display of 1 to 256 characters, colons allowed (an IPv6
+# address), no bracket and no line break
 SREF_RE = re.compile(rf"{OPEN}sref:(?P<kind>[A-Za-z0-9_-]{{1,32}}):(?P<id>[A-Za-z0-9_-]{{20,128}})"
-                     rf"(?::(?P<display>[^{OPEN}{CLOSE}]{{0,80}}))?{CLOSE}")
+                     rf"(?::(?P<display>[^{OPEN}{CLOSE}\r\n\u2028\u2029]{{1,256}}))?{CLOSE}")
 SCOPE = "sensitive-references.resolve"
 SINKS = {"local_file": "local-file-1", "process": "mcpgate-process-1"}
 MAX_REFS = 100

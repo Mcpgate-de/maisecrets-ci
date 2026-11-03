@@ -2279,6 +2279,37 @@ The limit: an AI agent that runs as your user can read the key from the
 store, as it can read any stored value. The server's cap, its audit and the
 revoke bound that. A value written into a file is plain text there.
 
+## Sensitive References
+
+A gateway with Sensitive References (for example mcpgate) can mask a value in
+its tool results with a reference such as `⟦sref:email:<id>:ma•••@example.org⟧`.
+The AI sees the reference and its display part, never the value. With
+maisecrets, a command or a file that needs the value gets it on your computer,
+at the moment of the call, from the gateway's resolver.
+
+1. Log in once: `/maisecrets:sref login` (in Codex: `run.sh sref login` in a
+   terminal). Your browser opens; you log in to the gateway and give the
+   consent there. Nothing logs in by itself. `/maisecrets:sref` shows the
+   state, `/maisecrets:sref logout` forgets the login.
+2. A reference counts only when a tool result of a gateway that you added
+   yourself (user scope) showed it in the same session in the last 24 hours. A
+   reference from another session, or one the AI typed itself, gets a reason
+   and no value.
+3. In a Bash command the value is fetched only when the command starts and
+   reads it; a command that never runs costs no resolve. The gateway learns
+   the program's name (sink `process`). In the content of Write, Edit,
+   MultiEdit, NotebookEdit or a Codex patch the file gets the value; the
+   gateway learns the path (sink `local_file`). A reference in a path is
+   refused. Anywhere else (another MCP server, WebFetch, a subagent) it stays
+   text.
+4. If the command prints the value, maisecrets shows the reference instead,
+   for an hour. An error names the reason and a count, never a value. The
+   audit (`/maisecrets:audit`) names each resolve with the kind of the
+   reference and 4 characters of its id.
+
+The gateway decides who may resolve and which sinks it allows; maisecrets
+adds the session rule on your computer (`docs/THREAT-MODEL.md`, C31).
+
 ## Names from a service (optional)
 
 The rules find few names: a name has no shape (docs/NER-EXPERIMENT.md). A
