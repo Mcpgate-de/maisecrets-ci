@@ -267,6 +267,7 @@ def _lines(detector, obj, channel: str, **kwargs) -> list:
 # with a letter and a digit and none of the common shapes (a label rule takes any word after `password:`, and the word
 # is in the code around it)
 _SPREAD_MIN, _SPREAD_MAX = 8, 256
+_RUN = LazyRx(r"[^\W_]+")
 _WORD_TYPES = frozenset({"NAME", "USERNAME"})
 
 
@@ -309,12 +310,27 @@ def _spread(out: list, every: list) -> list:
     for leaf, m in out:
         if leaf is not None:
             taken.setdefault(id(leaf), []).append((m.start, m.end))
+    # a value that stands as a whole word holds its longest run of letters and digits as a whole run of the string
+    # ([^\W_] is str.isalnum): each string is searched only for the values whose run it holds, not for all of them
+    order = {value: i for i, value in enumerate(values)}
+    by_run: dict = {}
+    loose = []
+    for value in values:
+        runs = _RUN.findall(value)
+        if runs:
+            by_run.setdefault(max(runs, key=len), []).append(value)
+        else:
+            loose.append(value)
     added = []
     for leaf in every:
         if _keeps(leaf):
             continue
         text = leaf.value
-        for value, m in values.items():
+        hits = {v for run in set(_RUN.findall(text)) for v in by_run.get(run, ())}
+        if not hits and not loose:
+            continue
+        for value in sorted(hits.union(loose), key=order.__getitem__):
+            m = values[value]
             at = text.find(value)
             while at >= 0:
                 end = at + len(value)
