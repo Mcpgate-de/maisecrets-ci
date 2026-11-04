@@ -326,6 +326,8 @@ _COMPANY_LINE_RE = _LazyRx(r"[ \t]*(?:(?i:kunde|customer)[ \t]*:[ \t]*)?(?!(?i:f
                            + _COMPANY_NAME)
 # a label that names a person and nothing else
 _PERSON_LABELS = (r"full[ _-]?name|customer[ _-]?name|first[ _-]?name|last[ _-]?name|given[ _-]?name|family[ _-]?name"
+                  # the person's name in a Slack user profile (user_profile.real_name)
+                  r"|real[ _-]?name"
                   r"|patient(?:[ _-]?name)?|employee(?:[ _-]?name)?|student(?:[ _-]?name)?|contact[ _-]?person"
                   r"|account[ _-]?holder|card[ _-]?holder|cardholder|passenger|tenant|landlord|signer|co-signer"
                   r"|guardian|beneficiary|billed to|oncall|on-call|requested by|reviewed by|approved by|salari[ée]"
@@ -1907,7 +1909,9 @@ _PHONE_URL_RE = _lazy(r"(?i)(?<![a-z])(?:phone|tel|mobile|msisdn|cell)[\w-]{0,10
 # "phone number:", 99 9999 9999 after "telefoonnummer:"). A label (phone, Telefon, téléphone, + number, then `:`, `=`
 # or "is") takes any national form; a verb (call, reach … at, contact … at) and a label with words between them take a
 # North American number only, whose shape is rare outside a phone number
-_PHONE_LABEL_WORDS = (r"phone|telephone|tel|mobile?|mobil(?:e|nummer|telefon)?|cell(?:ular|phone)?|fax|handy"
+# business_phones, homePhones: the phones of a person in a directory (Microsoft Graph user, Google People)
+_PHONE_LABEL_WORDS = (r"phones?|(?:business|home|work|mobile|other)[ _-]?phones?|telephone|tel|mobile?"
+                      r"|mobil(?:e|nummer|telefon)?|cell(?:ular|phone)?|fax|handy"
                       r"|telefon(?:nummer|o)?|t[ée]l[ée]phone|tel[ée]fono|telefoon(?:nummer)?|telefone|portable"
                       r"|cellulare|rufnummer|rufnr|durchwahl|festnetz(?:nummer)?|whatsapp|hotline"
                       r"|contact[ _-]?(?:number|no)")

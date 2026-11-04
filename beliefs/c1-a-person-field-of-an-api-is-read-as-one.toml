@@ -1,0 +1,24 @@
+# c1-a-person-field-of-an-api-is-read-as-one: an invariant belief. Each mutation must turn at least one owning test red, and each owning test must be red under at least one mutation.
+belief = "c1-a-person-field-of-an-api-is-read-as-one"
+kind = "invariant"
+control = "C1"
+statement = "Since 0.8.20, the real_name of a profile is a person label, a number under a plural or directory phone key (phones, businessPhones, homePhones, workPhone) is a phone after its label, and forty lower-case hex digits after an AWS key id are a git commit, not the secret half of the key."
+runner = ["tests/test_personal_after_its_label.py::ApiFieldTests::test_the_real_name_of_a_profile_is_a_name", "tests/test_personal_after_its_label.py::ApiFieldTests::test_a_number_under_a_plural_or_directory_phone_key_is_a_phone", "tests/test_personal_after_its_label.py::ApiFieldTests::test_a_commit_hash_after_an_aws_key_id_is_no_secret"]
+
+[[proof]]
+path = "real_name is no person label"
+file = "maisecrets/detection/personal.py"
+find = '''                  r"|real[ _-]?name"'''
+replace = '''                  r"|unreal[ _-]?name"'''
+
+[[proof]]
+path = "a plural or directory phone key is no phone label"
+file = "maisecrets/detection/personal.py"
+find = '''_PHONE_LABEL_WORDS = (r"phones?|(?:business|home|work|mobile|other)[ _-]?phones?|telephone|tel|mobile?"'''
+replace = '''_PHONE_LABEL_WORDS = (r"phone|telephone|tel|mobile?"'''
+
+[[proof]]
+path = "a commit hash after an AWS key id is a secret"
+file = "maisecrets/detection/own_rules.py"
+find = '''(?<![A-Za-z0-9/+=])(?![0-9a-f]{40}(?![A-Za-z0-9/+=]))([A-Za-z0-9/+]{40})'''
+replace = '''(?<![A-Za-z0-9/+=])([A-Za-z0-9/+]{40})'''

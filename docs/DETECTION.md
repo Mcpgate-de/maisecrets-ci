@@ -59,9 +59,10 @@ for m in d.findings(text, channel="tool", path="notes.txt"):
 
 The rule tables and the helpers of `core.py` are no API: they change with the rules.
 
-`core.py` keeps four parts in modules of their own, so that each file stays readable: `value_checks.py` (the
+`core.py` keeps five parts in modules of their own, so that each file stays readable: `value_checks.py` (the
 checks of a value), `own_rules.py` (`OWN_RULES`, `FALLBACK_RULES`), `text_index.py` (the index of a text and the
-test-code check) and `encoded_mail.py` (an address with its @ as %40). `core.py` imports each of their names, so
+test-code check), `encoded_mail.py` (an address with its @ as %40) and `keyword_tail.py` (the vendored keyword
+rules in linear time). `core.py` imports each of their names, so
 `core.<name>` is the same object. A patch of such a name on the core does not reach the functions of the part:
 patch the module that defines the name.
 
@@ -298,6 +299,7 @@ for leaf, m in findings_by_leaf(detector, response):     # layout "lines", the d
   is not scanned and does not cut its record (it holds nothing to find). Placing the findings is
   one pass over the strings and the findings. A value JSON cannot hold raises `TypeError`, a cycle `ValueError`.
 - `tests/test_detection_leaves.py` holds these points.
+  So a password and a first and last name reach such an element; a single surname alone in it stays as it is.
 
 ## A remote detector (optional)
 

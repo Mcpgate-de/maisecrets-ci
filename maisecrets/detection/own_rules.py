@@ -104,10 +104,11 @@ OWN_RULES: list[dict] = [
     # and a chat paste show it within a few lines after the AKIA… id (field report, 2026-09-26). Each line part is
     # bounded at 400 characters: unbounded, each id scanned the rest of its line, and a line of ids took O(n^2)
     # (32K: 2.3 s, 256K: 97 s, past the client's timeout). The longest field form, the console's credentials CSV
-    # row (user, password, id, secret, console link), puts about 150 characters around the secret.
+    # row (user, password, id, secret, console link), puts about 150 characters around the secret. Forty lower-case hex
+    # digits are a git commit (a `sha` field next to the id in a JSON record), never the base64 of a secret key.
     {"id": "aws-secret-after-access-key", "type": "SECRET", "secret_group": 1,
      "regex": r"(?<![A-Z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}(?![A-Z0-9])(?:[^\n]{0,400}\n){0,4}?[^\n]{0,400}?"
-              r"(?<![A-Za-z0-9/+=])([A-Za-z0-9/+]{40})(?![A-Za-z0-9/+=])"},
+              r"(?<![A-Za-z0-9/+=])(?![0-9a-f]{40}(?![A-Za-z0-9/+=]))([A-Za-z0-9/+]{40})(?![A-Za-z0-9/+=])"},
     # a password with no shape where no `=` or `:` stands between label and value (public benchmark holdout v7,
     # 2026-10-12: all ten leaked passwords had one of these five forms). They are label rules (LABEL_RULES): the
     # keyword filters of scan() and the test-code rule apply as to `password=<value>`.

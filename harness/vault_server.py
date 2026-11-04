@@ -192,6 +192,8 @@ class VaultServer:
                     return self._send(302, b"", "text/plain", {"Location": server.redirect_to})
                 if mode == "rate_limited":
                     return self._send(429, {"error": "rate_limited"}, extra={"Retry-After": "30"})
+                if mode == "audit_unavailable":
+                    return self._send(503, {"error": "audit_unavailable"})
                 auth = self.headers.get("Authorization", "")
                 if not auth.startswith("Bearer "):
                     return self._send(401, {"error": "unknown_key"})

@@ -911,6 +911,32 @@ class NoValueLostAgainTests(Base):
                 self.assertNotIn(text.split(": ")[1].split(",")[0], out)
 
 
+
+# --------------------------------------------------------------------------------------- fields of API responses --
+class ApiFieldTests(Base):
+    """Fields of public APIs that name a person or a person's phone (bench/json_bench.py, 2026-11-04: 240 names under
+    a Slack profile's real_name and 80 numbers under a Microsoft Graph user's businessPhones stayed text)."""
+
+    def test_the_real_name_of_a_profile_is_a_name(self):
+        self.assertMasked("real_name: " + NAME, NAME)
+        self.assertMasked('"real_name": "' + NAME + '"', NAME)
+
+    def test_a_number_under_a_plural_or_directory_phone_key_is_a_phone(self):
+        number = "030 " + "8912" + "4507"
+        for label in ("phones", "businessPhones", "homePhones", "business_phones", "workPhone"):
+            with self.subTest(label):
+                self.assertMasked(f"{label}: {number}", number)
+
+    def test_a_commit_hash_after_an_aws_key_id_is_no_secret(self):
+        key_id = "AKIA" + "Z7Q2" + "M4XK" + "8PLD" + "3VWN"
+        sha = "3f2a9c1d8e7b6a5f" + "4e3d2c1b0a9f8e7d" + "6c5b4a39"
+        text = f"aws_access_key_id={key_id}\nsha: {sha}"
+        self.assertEqual([m.kind for m in scan(text) if m.start > text.index("sha")], [])
+        secret = "Kq9vT2" + "mZ8xR4wL7p/N3bF6" + "hJ1cY5dQ0sG+eU8kW2aV"[:18]
+        self.assertEqual(len(secret), 40)
+        self.assertTrue([m for m in scan(f"{key_id}\n{secret}") if m.kind == "aws-secret-after-access-key"],
+                        "premise: a real secret half after the id is still found")
+
 if __name__ == "__main__":
     unittest.main()
 

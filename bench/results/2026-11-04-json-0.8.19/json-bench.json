@@ -1,0 +1,315 @@
+{
+ "responses": 160,
+ "kb": 241.9,
+ "seed": 7,
+ "tools": {
+  "maisecrets_record": {
+   "per_class": {
+    "name": {
+     "found": 661,
+     "missed": 270,
+     "false_alarm": 0
+    },
+    "phone": {
+     "found": 420,
+     "missed": 85,
+     "false_alarm": 0
+    },
+    "iban": {
+     "found": 40,
+     "missed": 0,
+     "false_alarm": 0
+    },
+    "email": {
+     "found": 503,
+     "missed": 0,
+     "false_alarm": 0
+    },
+    "secret": {
+     "found": 123,
+     "missed": 31,
+     "false_alarm": 9
+    },
+    "username": {
+     "found": 79,
+     "missed": 1,
+     "false_alarm": 0
+    },
+    "address": {
+     "found": 160,
+     "missed": 0,
+     "false_alarm": 0
+    }
+   },
+   "total": {
+    "found": 1986,
+    "missed": 387,
+    "false_alarm": 9
+   },
+   "recall": 0.8369,
+   "precision": 0.9955,
+   "cpu_ms_median": 7.17,
+   "cpu_ms_per_kb": 5.23
+  },
+  "maisecrets_text": {
+   "per_class": {
+    "name": {
+     "found": 600,
+     "missed": 331,
+     "false_alarm": 0
+    },
+    "phone": {
+     "found": 414,
+     "missed": 91,
+     "false_alarm": 0
+    },
+    "iban": {
+     "found": 40,
+     "missed": 0,
+     "false_alarm": 0
+    },
+    "email": {
+     "found": 503,
+     "missed": 0,
+     "false_alarm": 0
+    },
+    "secret": {
+     "found": 119,
+     "missed": 35,
+     "false_alarm": 9
+    },
+    "username": {
+     "found": 79,
+     "missed": 1,
+     "false_alarm": 0
+    },
+    "address": {
+     "found": 160,
+     "missed": 0,
+     "false_alarm": 0
+    }
+   },
+   "total": {
+    "found": 1915,
+    "missed": 458,
+    "false_alarm": 9
+   },
+   "recall": 0.807,
+   "precision": 0.9953,
+   "cpu_ms_median": 8.55,
+   "cpu_ms_per_kb": 6.66
+  },
+  "presidio_text": {
+   "per_class": {
+    "name": {
+     "found": 879,
+     "missed": 52,
+     "false_alarm": 519
+    },
+    "phone": {
+     "found": 434,
+     "missed": 71,
+     "false_alarm": 145
+    },
+    "iban": {
+     "found": 40,
+     "missed": 0,
+     "false_alarm": 0
+    },
+    "email": {
+     "found": 503,
+     "missed": 0,
+     "false_alarm": 0
+    },
+    "secret": {
+     "found": 0,
+     "missed": 154,
+     "false_alarm": 0
+    },
+    "address": {
+     "found": 10,
+     "missed": 150,
+     "false_alarm": 205
+    },
+    "other": {
+     "found": 0,
+     "missed": 0,
+     "false_alarm": 565
+    },
+    "username": {
+     "found": 0,
+     "missed": 80,
+     "false_alarm": 0
+    }
+   },
+   "total": {
+    "found": 1866,
+    "missed": 507,
+    "false_alarm": 1434
+   },
+   "recall": 0.7863,
+   "precision": 0.5655,
+   "cpu_ms_median": 127.76,
+   "cpu_ms_per_kb": 88.99
+  },
+  "presidio_structured": {
+   "per_class": {
+    "phone": {
+     "found": 188,
+     "missed": 317,
+     "false_alarm": 129
+    },
+    "other": {
+     "found": 0,
+     "missed": 0,
+     "false_alarm": 848
+    },
+    "secret": {
+     "found": 0,
+     "missed": 154,
+     "false_alarm": 0
+    },
+    "address": {
+     "found": 23,
+     "missed": 137,
+     "false_alarm": 169
+    },
+    "name": {
+     "found": 890,
+     "missed": 41,
+     "false_alarm": 391
+    },
+    "iban": {
+     "found": 40,
+     "missed": 0,
+     "false_alarm": 0
+    },
+    "email": {
+     "found": 503,
+     "missed": 0,
+     "false_alarm": 0
+    },
+    "username": {
+     "found": 0,
+     "missed": 80,
+     "false_alarm": 0
+    }
+   },
+   "total": {
+    "found": 1644,
+    "missed": 729,
+    "false_alarm": 1537
+   },
+   "recall": 0.6928,
+   "precision": 0.5168,
+   "cpu_ms_median": 218.96,
+   "cpu_ms_per_kb": 149.62
+  },
+  "pii_anon_text": {
+   "per_class": {
+    "name": {
+     "found": 771,
+     "missed": 160,
+     "false_alarm": 342
+    },
+    "phone": {
+     "found": 268,
+     "missed": 237,
+     "false_alarm": 0
+    },
+    "other": {
+     "found": 0,
+     "missed": 0,
+     "false_alarm": 120
+    },
+    "iban": {
+     "found": 24,
+     "missed": 16,
+     "false_alarm": 0
+    },
+    "card": {
+     "found": 0,
+     "missed": 0,
+     "false_alarm": 6
+    },
+    "email": {
+     "found": 503,
+     "missed": 0,
+     "false_alarm": 0
+    },
+    "secret": {
+     "found": 34,
+     "missed": 120,
+     "false_alarm": 0
+    },
+    "username": {
+     "found": 80,
+     "missed": 0,
+     "false_alarm": 0
+    },
+    "address": {
+     "found": 80,
+     "missed": 80,
+     "false_alarm": 0
+    }
+   },
+   "total": {
+    "found": 1760,
+    "missed": 613,
+    "false_alarm": 468
+   },
+   "recall": 0.7417,
+   "precision": 0.7899,
+   "cpu_ms_median": 7.86,
+   "cpu_ms_per_kb": 5.01
+  },
+  "detect_secrets_text": {
+   "per_class": {
+    "name": {
+     "found": 0,
+     "missed": 931,
+     "false_alarm": 0
+    },
+    "phone": {
+     "found": 0,
+     "missed": 505,
+     "false_alarm": 0
+    },
+    "secret": {
+     "found": 72,
+     "missed": 82,
+     "false_alarm": 130
+    },
+    "iban": {
+     "found": 0,
+     "missed": 40,
+     "false_alarm": 0
+    },
+    "email": {
+     "found": 0,
+     "missed": 503,
+     "false_alarm": 0
+    },
+    "username": {
+     "found": 0,
+     "missed": 80,
+     "false_alarm": 0
+    },
+    "address": {
+     "found": 0,
+     "missed": 160,
+     "false_alarm": 0
+    }
+   },
+   "total": {
+    "found": 72,
+    "missed": 2301,
+    "false_alarm": 130
+   },
+   "recall": 0.0303,
+   "precision": 0.3564,
+   "cpu_ms_median": 3.26,
+   "cpu_ms_per_kb": 2.91
+  }
+ }
+}

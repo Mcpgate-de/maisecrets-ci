@@ -953,7 +953,7 @@ def endpoint(cfg: dict, url: str, deadline: float) -> str | None:
 
 # ---------------------------------------------------------------- the resolve --
 _CODES = {(401, "unknown_key"), (403, "pending"), (403, "clock_skew"), (404, "unknown_ref"), (410, "expired"),
-          (429, "rate_limited"), (503, "disabled")}
+          (429, "rate_limited"), (503, "disabled"), (503, "audit_unavailable")}
 
 
 def _safe_time(value: object) -> str | None:
@@ -977,6 +977,10 @@ def _why(origin: str, status: int, code: str | None, body: dict, headers: dict, 
         return f"{host} does not know one of {names}; use only tokens from a result of that server"
     if code == "expired":
         return f"{names} are older than {host}'s data; read the data again and use the new tokens"
+    if code == "audit_unavailable":
+        # the server could not write the audit row of the release, so it gave no value: its audit store is down for a
+        # moment, the binding holds (no new sign-in)
+        return f"{host} could not record the release of {names}; try again shortly"
     if code == "rate_limited":
         after = headers.get("retry-after", "")
         return f"{host} reached its limit" + (f"; try again in {after} s" if after.isdigit() else "; try later")

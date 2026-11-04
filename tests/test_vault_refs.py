@@ -555,6 +555,7 @@ class Online(OnlineBase):
     def test_every_error_code_denies_with_its_reason(self):
         self.ready()
         cases = {"rate_limited": "try again in 30 s", "disabled": "the server's operator switch is off",
+                 "audit_unavailable": "could not record the release",
                  "wrong_type": "no usable answer", "too_big": "no usable answer",
                  "not_text": "no usable answer", "missing_key": "no usable answer"}
         for mode, words in cases.items():
