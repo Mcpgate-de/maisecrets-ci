@@ -7,6 +7,8 @@ sk-); a text without it cannot hold a match (2026-11-02: no finding changed in 2
 less time). Only the built-in rules that run as one regex over the text take part, never a rule of your own."""
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import hashlib
 import json
 import re
@@ -231,3 +233,44 @@ def lacks_prefix(prefix: tuple, text: str, low: str) -> bool:
     """The rule's literal is not in the text, so its regex cannot match."""
     need, icase = prefix
     return bool(need) and (need.lower() not in low if icase else need not in text)
+
+
+# ------------------------------------------------------------------------------- the rules of a response --
+# findings_by_leaf scans each record of a response apart, and each scan walked all 920 rules with their keyword and
+# literal checks. A rule whose keyword, literal and required literals occur nowhere in the whole response cannot fire in
+# any of its records (each check is a substring test, so it holds for the joined text): the response decides once, and
+# each record scan walks only the rules left (a fifth of the time of a Slack-shaped response on the reference host,
+# 2026-11-03). Only for that exact text object: the cleaned copy and a nested scan take every rule
+_RESPONSE: contextvars.ContextVar = contextvars.ContextVar("maisecrets_response_rules", default=None)
+
+
+def response_rules(text: str):
+    """The rules in scan order for this text of a response scan, or None (then every rule)."""
+    got = _RESPONSE.get()
+    return got[1] if got is not None and got[0] is text else None
+
+
+@contextlib.contextmanager
+def with_response_rules(text: str, order: tuple):
+    token = _RESPONSE.set((text, order))
+    try:
+        yield
+    finally:
+        _RESPONSE.reset(token)
+
+
+def rules_for(order: tuple, joined: str, low: str) -> tuple:
+    """The rules of `order` that can fire somewhere in `joined` (its lower case is `low`); the steps that are no rule
+    (the personal data, the terms, the imported values) stay in their place."""
+    known: dict = {}
+    out = []
+    for rule in order:
+        if not hasattr(rule, "keywords"):
+            out.append(rule)
+            continue
+        if rule.keywords and not any_keyword(rule.keywords, low, known):
+            continue
+        if lacks_prefix(rule.prefix, joined, low) or lacks_required(rule.need, joined, low):
+            continue
+        out.append(rule)
+    return tuple(out)

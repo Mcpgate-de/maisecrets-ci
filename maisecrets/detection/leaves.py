@@ -17,9 +17,11 @@ runs past its end is cut at the end of the string.
 """
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import json
 
+from .prefilter import rules_for, with_response_rules
 from .text_index import record_fields
 
 _SHORT = {'"': '\\"', "\\": "\\\\", "\n": "\\n", "\r": "\\r", "\t": "\\t", "\b": "\\b", "\f": "\\f"}
@@ -189,8 +191,20 @@ def _segments(group: list) -> list:
     return out
 
 
+def _response_order(detector, texts: list, kwargs: dict):
+    """The rules that can fire somewhere in the texts of this response, in scan order (prefilter.rules_for), or None:
+    only for a Detector of this package, without further arguments, and for two texts or more."""
+    from . import core
+    if kwargs or len(texts) < 2 or not isinstance(detector, core.Detector):
+        return None
+    joined = "\n".join(texts)
+    order = detector._run(lambda: core._in_scan_order(core.rules()))
+    return rules_for(order, joined, core._lower(joined))
+
+
 def _lines(detector, obj, channel: str, **kwargs) -> list:
     out = []
+    segments = []
     for group in (seg for rec in records(json_text(obj)[1]) for seg in _segments(rec)):
         parts, placed, starts, n = [], [], [], 0
         for leaf in group:
@@ -200,8 +214,11 @@ def _lines(detector, obj, channel: str, **kwargs) -> list:
             starts.append(n)
             parts.append(lead + leaf.value)
             n += len(lead) + len(leaf.value) + 1
-        text = "\n".join(parts)
-        with record_fields(text, starts):       # a negative context counts only inside its field (text_index.py)
+        segments.append(("\n".join(parts), placed, starts))
+    order = _response_order(detector, [t for t, _p, _s in segments], kwargs)
+    for text, placed, starts in segments:
+        # a negative context counts only inside its field (text_index.py); the rules of the response (prefilter.py)
+        with record_fields(text, starts), (with_response_rules(text, order) if order else contextlib.nullcontext()):
             found = detector.findings(text, channel=channel, **kwargs)
         k = 0   # the findings come sorted by start and the strings in text order: one pass over both
         for m in sorted(found, key=lambda m: m.start):

@@ -1,0 +1,14 @@
+# c1-a-response-scan-walks-only-rules-that-can-fire: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c1-a-response-scan-walks-only-rules-that-can-fire"
+control = "C1"
+statement = "Since 0.8.17, a response scan of findings_by_leaf walks in each record only the rules whose keyword, leading literal and required literals occur somewhere in the whole response; the findings on records built from every corpus text are the same as with every rule, and the cleaned copy and nested scans take every rule."
+runner = ["tests/test_response_rules.py::ResponseRulesTests::test_the_findings_are_the_same_with_every_rule"]
+
+[proof]
+file = "maisecrets/detection/prefilter.py"
+find = '''        if rule.keywords and not any_keyword(rule.keywords, low, known):
+            continue
+        if lacks_prefix(rule.prefix, joined, low)'''
+replace = '''        if rule.keywords:
+            continue
+        if lacks_prefix(rule.prefix, joined, low)'''

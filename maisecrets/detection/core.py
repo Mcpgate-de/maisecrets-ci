@@ -54,7 +54,7 @@ from .lazy_regex import LazyRx as _LazyRx
 from . import registry as _registry
 from . import fields as _fields
 from .prefilter import NONE as _NO_PREFIX, any_keyword as _any_keyword, lacks_prefix as _lacks_prefix  # noqa: F401
-from .prefilter import lacks_required as _lacks_required
+from .prefilter import lacks_required as _lacks_required, response_rules as _response_rules
 # The value checks, the own rules and the text index live in modules of their own, so that each file stays readable.
 # The core imports each of their names: `core.<name>` stays the same object. A patch must go to the module that
 # defines it.
@@ -2818,7 +2818,7 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
         for m in _export_hits(text, low, path):
             take(m)
     keywords_in: dict = {}      # keyword -> whether the text holds it: the 652 keywords of the rules are 519 texts
-    for rule in (_in_scan_order(rules()) if rule_list is None else rule_list):
+    for rule in (_response_rules(text) or _in_scan_order(rules()) if rule_list is None else rule_list):
         if rule is _PERSONAL:
             # the personal data of 0.6.21 and the cleaned copy of the tool channel run after every built-in rule and
             # before the rules of your own: a rule of your own never takes a span that a built-in step would have
