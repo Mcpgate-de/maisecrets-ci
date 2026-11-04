@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ast
 import os
+import platform
 import subprocess
 import sys
 import unittest
@@ -48,6 +49,7 @@ class ChildStreamTests(unittest.TestCase):
         self.assertEqual([c for f in files for c in unpiped_calls(f)], [])
 
     def test_the_clipboard_child_gets_no_stream_of_the_hook(self):
+        platform.system()   # on Windows the first call runs a child of its own; cache it before the mock
         with mock.patch.object(hooks.subprocess, "run") as run:
             hooks._clipboard("text")
         if run.called:

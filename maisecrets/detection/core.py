@@ -181,6 +181,21 @@ class Rule:
 # ----------------------------------------------------- value checks that read the detector --
 # The other value checks are in value_checks.py. These stay here: they ask the detector of the scan (_det,
 # _references, active_regions), which this module holds.
+_PASSWORD_LABEL_RE = _LazyRx(r"(?i)pass|pwd|kennwort|passwort|mot de passe|contrase|senha|wachtwoord|haslo|has\u0142o"
+                             r"|secret|geheim")
+_WORD_ENDS = ("s", "es", "ed", "d", "ing", "er", "ers", "ion", "ions", "ation", "ly", "able", "ment")
+
+
+def _dictionary_word(v: str) -> bool:
+    """An English word of the word list, also with a common ending (resolver, configured, encryption)."""
+    w = v.lower()
+    words = english_words()
+    if not words:
+        return False
+    return w in words or any(w.endswith(e) and (w[:-len(e)] in words or w[:-len(e)] + "e" in words)
+                             for e in _WORD_ENDS if len(w) - len(e) >= 3)
+
+
 def _ds_value_ok(v: str, min_len: int = 8) -> bool:
     """Port of detect-secrets' heuristic filters for keyword hits."""
     v = v.strip()
@@ -2871,6 +2886,15 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
                 except (ValueError, IndexError, TypeError):
                     ok = False   # a validator that cannot parse the value has not validated it
                 if not ok:
+                    continue
+                bare = secret.strip("\"'")
+                if rule.validator == "ds_value" and channel == "tool" and bare.isascii() and bare.isalpha() \
+                        and _dictionary_word(bare) \
+                        and not _PASSWORD_LABEL_RE.search(   # the label may end the line before (YAML)
+                            text, min(m.start(), max(_line_start(text, start), start - 40)), start):
+                    # an English word after a token or key label in a tool result is prose or code (a token named
+                    # "response" in a doc); after a password or secret label it is a weak password (DB_PASSWORD in a
+                    # .env), and a word the person types stays a hit in a prompt (maisecrets#25)
                     continue
             if rule.type == "SECRET" and "seed-phrase" not in filters and looks_like_placeholder(secret):
                 # the checksum of a seed phrase is its proof; "example" and "sample" are words of the list
