@@ -12,7 +12,8 @@ scripts/release_gate.py cuts its time text):
 - **warm latency**: median and 95th percentile of the later calls in the same process (the worker's `times_s`). A
   release binary keeps no state between runs, so for it each run is a new process: its latency is one process over
   one file, cold each time, and the table says so;
-- **peak RSS**: the maximum resident set size of the process tree (`/usr/bin/time -l` on macOS, `-v` on Linux);
+- **peak RSS**: the maximum resident set size of the process tree (`/usr/bin/time -l` on macOS, `-v` on Linux; another
+  path to GNU time in BENCH_TIME);
 - **install footprint**: the size on disk of the scanner's environment (its virtual environment, its binary, or the
   `maisecrets/` folder of the candidate) and of the model files in it (spaCy and transformer weights), and whether
   torch is installed. Network at run time: a binary runs under a deny-network sandbox on macOS; a Python worker is not
@@ -94,7 +95,9 @@ def texts(cand: Path, scratch: Path) -> dict:
 
 # ------------------------------------------------------------------ the process wrapper: peak RSS of every child
 
-TIME_CMD = ["/usr/bin/time", "-l"] if sys.platform == "darwin" else ["/usr/bin/time", "-v"]
+# BENCH_TIME: GNU time where /usr/bin/time is missing (a Debian host without the time package; unpack its .deb)
+_TIME = os.environ.get("BENCH_TIME", "/usr/bin/time")
+TIME_CMD = [_TIME, "-l"] if sys.platform == "darwin" else [_TIME, "-v"]
 
 
 def peak_rss_bytes(stderr: str) -> int | None:
