@@ -1,0 +1,32 @@
+ab start 2026-11-04T06:49:16Z load 0.33 base 98281e31 fix ee5efeed
+slack 1 base {"slack_prod_45": 7.758, "slack_prose_90": 4.564}
+slack 1 fix {"slack_prod_45": 6.081, "slack_prose_90": 1.619}
+slack 2 base {"slack_prod_45": 8.525, "slack_prose_90": 4.004}
+slack 2 fix {"slack_prod_45": 5.152, "slack_prose_90": 1.386}
+slack 3 base {"slack_prod_45": 7.468, "slack_prose_90": 3.056}
+slack 3 fix {"slack_prod_45": 5.649, "slack_prose_90": 1.421}
+slack 4 base {"slack_prod_45": 7.056, "slack_prose_90": 3.45}
+slack 4 fix {"slack_prod_45": 4.465, "slack_prose_90": 1.44}
+slack 5 base {"slack_prod_45": 6.897, "slack_prose_90": 3.312}
+slack 5 fix {"slack_prod_45": 5.342, "slack_prose_90": 1.335}
+slack 6 base {"slack_prod_45": 7.156, "slack_prose_90": 3.48}
+slack 6 fix {"slack_prod_45": 5.007, "slack_prose_90": 1.41}
+slack 7 base {"slack_prod_45": 7.697, "slack_prose_90": 3.299}
+slack 7 fix {"slack_prod_45": 4.575, "slack_prose_90": 1.288}
+slack 8 base {"slack_prod_45": 7.224, "slack_prose_90": 3.344}
+slack 8 fix {"slack_prod_45": 4.744, "slack_prose_90": 1.588}
+slack 9 base {"slack_prod_45": 8.368, "slack_prose_90": 4.729}
+slack 9 fix {"slack_prod_45": 6.48, "slack_prose_90": 1.32}
+slack 10 base {"slack_prod_45": 10.802, "slack_prose_90": 3.807}
+slack 10 fix {"slack_prod_45": 4.623, "slack_prose_90": 1.283}
+slack 11 base {"slack_prod_45": 7.31, "slack_prose_90": 3.476}
+slack 11 fix {"slack_prod_45": 6.388, "slack_prose_90": 1.48}
+slack 12 base {"slack_prod_45": 11.92, "slack_prose_90": 5.068}
+slack 12 fix {"slack_prod_45": 5.833, "slack_prose_90": 1.599}
+slack 13 base {"slack_prod_45": 10.417, "slack_prose_90": 5.42}
+slack 13 fix {"slack_prod_45": 6.816, "slack_prose_90": 1.848}
+slack 14 base {"slack_prod_45": 10.714, "slack_prose_90": 5.761}
+slack 14 fix {"slack_prod_45": 6.857, "slack_prose_90": 1.658}
+slack 15 base {"slack_prod_45": 10.506, "slack_prose_90": 4.629}
+slack 15 fix {"slack_prod_45": 5.539, "slack_prose_90": 1.867}
+ab exit end 2026-11-04T06:50:51Z builds 0

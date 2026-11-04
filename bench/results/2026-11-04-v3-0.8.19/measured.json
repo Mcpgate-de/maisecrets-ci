@@ -1,0 +1,26 @@
+{
+  "version": "0.8.19",
+  "commit": "5e1b19b8ef67ce8ae6ca87fb0403b584849319d7",
+  "trees": [
+    {
+      "dir": "maisecrets",
+      "tree": "c5047de908bea8ab967b94dc04c23bc4d3d171e8"
+    },
+    {
+      "dir": "hooks",
+      "tree": "ef1da5374c0212b45c6eedae13bd16761c0468d8"
+    },
+    {
+      "dir": "claude-mod",
+      "tree": "02519c73dc0c381332fe40934c0f5485cec2e657"
+    },
+    {
+      "dir": "commands",
+      "tree": "989042a6209731738edb2d76cae2a541c51d7c31"
+    },
+    {
+      "dir": "skills",
+      "tree": "f831c2667556f0d072e9ec1063c1a2bab3a5a649"
+    }
+  ]
+}

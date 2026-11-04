@@ -1043,12 +1043,13 @@ _WHITESPACE_RE = _LazyRx(r"\s")
 # with the vendored regex on runs of 0 to 5000 characters
 class _KeywordTail:
     r"""A vendored keyword regex `(<alternatives>)\w*<tail>` matched without backtracking into the word run."""
-    __slots__ = ("pattern", "flags", "_prefix", "_alts", "_any", "_tail", "_heads", "_cross", "_rx")
+    __slots__ = ("pattern", "flags", "_prefix", "_alts", "_any", "_tail", "_heads", "_alone", "_cross", "_rx")
 
     def __init__(self, pattern: str, keywords_prefix: str, alts: list, flags: int) -> None:
         self.pattern, self.flags, self._prefix, self._alts = pattern, flags, keywords_prefix, alts
         self._any = self._tail = None
         self._heads: list = []
+        self._alone: list = []
 
     def _compile(self) -> None:
         if self._any is not None:
@@ -1060,9 +1061,10 @@ class _KeywordTail:
         # word run and end past it. Every other one ends inside the run, at the run's end once \w* has run
         cross = [a for a in self._alts if _CROSS_CHARS_RE.search(_LOOKAROUND_RE.sub("", a))]
         self._rx = re.compile(self.pattern, self.flags)
-        # one head per alternative, in the regex's order; the others never match but keep their group numbers
-        self._heads = [re.compile("(?<!mai)(" + "|".join(a if j == i else "(?!)" + a for j, a in enumerate(self._alts))
-                                  + ")", self.flags) for i in range(len(self._alts))]
+        # a head per alternative (the others never match, keep the group numbers), compiled where the alternative
+        # alone matches (a head holds all alternatives: 18 ms each, 3 s of a hook's first long text)
+        self._alone = [re.compile("(?<!mai)(?:" + a + ")", self.flags) for a in self._alts]
+        self._heads = [None] * len(self._alts)
         self._tail = re.compile("()" * groups + tail, self.flags)   # empty groups keep the numbers of backreferences
         self._cross = re.compile("(?<!mai)(?:" + "|".join(cross) + ")", self.flags) if cross else None
         self._any = any_   # last: another thread takes a set _any for a complete rule
@@ -1096,8 +1098,9 @@ class _KeywordTail:
                 continue
             hit = None
             e = -1
-            # the first alternative that matches at p is the one the regex tries first: the search found it already
-            for h in itertools.chain((m,), (head.match(text, p) for head in self._heads)):
+            # the first alternative to match at p is the one the regex tries first: the search found it
+            for h in itertools.chain((m,), (self._head(i).match(text, p) for i, alone in enumerate(self._alone)
+                                            if alone.match(text, p) is not None)):
                 if h is None:
                     continue
                 q = h.end()
@@ -1120,6 +1123,14 @@ class _KeywordTail:
                 continue
             yield hit
             pos = hit.end() if hit.end() > p else p + 1
+
+    def _head(self, i: int):
+        head = self._heads[i]
+        if head is None:
+            head = self._heads[i] = re.compile("(?<!mai)(" + "|".join(a if j == i else "(?!)" + a
+                                                                      for j, a in enumerate(self._alts)) + ")",
+                                               self.flags)
+        return head
 
     def search(self, text: str):
         return next(self.finditer(text), None)
