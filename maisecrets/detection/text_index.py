@@ -102,6 +102,15 @@ def field_start(text: str, pos: int) -> int:
     return fields[1][i] if i >= 0 else 0
 
 
+def field_end(text: str, pos: int) -> int:
+    """The start of the next field of a record scan after `pos`, or len(text) outside a record scan."""
+    fields = _FIELDS.get()
+    if fields is None or fields[0] is not text:
+        return len(text)
+    i = bisect.bisect_right(fields[1], pos)
+    return fields[1][i] if i < len(fields[1]) else len(text)
+
+
 def in_record(text: str) -> bool:
     """Whether `text` is the text of a record scan of findings_by_leaf (record_fields)."""
     fields = _FIELDS.get()

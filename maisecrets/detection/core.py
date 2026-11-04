@@ -61,7 +61,7 @@ from .prefilter import lacks_required as _lacks_required, response_rules as _res
 from .text_index import (  # noqa: F401
     _NL_RE, _TEXT_INDEX, _text_index, _newlines, _line_start, _line_end, _positions, LABEL_RULES, KEYWORD_RULES,
     _TEST_PATH_RE, _REAL_VALUE_FILE_RE, _TEST_MARKER_RE, _TEST_METHOD_RE, _CLASS_LINE_RE, _TEST_CLASS_LINE_RE,
-    _DIFF_FILE_RE, _GREP_PATH_RE, _TEST_LOOKBACK_LINES, is_test_path, in_test_code,
+    _DIFF_FILE_RE, _GREP_PATH_RE, _TEST_LOOKBACK_LINES, is_test_path, in_test_code, field_start,
 )
 from .own_rules import (  # noqa: F401
     _CJK, _CJK_RANGES, _NOT_CJK_WORD, _CJK_CHAR_RE, _has_cjk, _without_cjk, _is_cjk, _PW_COMPOUND, _SENTENCE_VALUE,
@@ -769,7 +769,7 @@ def _card_shaped(text: str, start: int, secret: str) -> bool:
     if start and text[start - 1] in "+.-0123456789" or text[end:end + 1].isalnum() \
             or re.match(r"\.\d", text[end:end + 2]) or fifth:
         return False   # a decimal, a phone number, a longer run, a fifth group (an expiry such as 12/28 may follow)
-    if _ID_LABEL_BEFORE_RE.search(text, max(0, start - 30), start):
+    if _ID_LABEL_BEFORE_RE.search(text, max(field_start(text, start), start - 30), start):
         return False   # order_id=4111 ...: an id that passes Luhn
     # an unbroken run too, with the prefix and the length of a card network: Benchmark V1, Gretel cards 299 to 431,
     # Mendeley +119, 14 more false alarms in Gretel, the false-alarm bank +0. A float, a timestamp, an IMEI and an
@@ -2959,7 +2959,8 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
                 continue   # a UUID, an elided value (sk-...), or a label of a derived thing (secret_id, nextPageToken)
             if "user-equals-password" in filters and _pass_equals_user(m.group(0), secret):
                 continue
-            if ("sigv4-scope" in filters and _SIGV4_CREDENTIAL_RE.search(text, max(0, start - 24), start)
+            if ("sigv4-scope" in filters
+                    and _SIGV4_CREDENTIAL_RE.search(text, max(field_start(text, start), start - 24), start)
                     and _SIGV4_SCOPE_RE.match(text, end)):
                 continue   # the key id in a SigV4 credential scope (a presigned URL, an Authorization header)
             if ("pg-password-switch" in filters and text[start - 1:start] not in "'\""
@@ -2973,7 +2974,7 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
                 continue
             if "phone-shape" in filters and not _phone_ok(text, start, secret):
                 continue
-            if rule.type == "IP" and _SECTION_BEFORE_RE.search(text, max(0, start - 24), start):
+            if rule.type == "IP" and _SECTION_BEFORE_RE.search(text, max(field_start(text, start), start - 24), start):
                 continue   # a section number: RFC 6749 4.1.2.1, OIDC Core 3.1.2.1, section 7.1.2.3
             if rule.id == "ip#2" and _a_version(text, start, end, secret):
                 continue

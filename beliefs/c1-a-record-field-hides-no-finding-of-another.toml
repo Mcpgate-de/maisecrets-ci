@@ -1,12 +1,27 @@
-# c1-a-record-field-hides-no-finding-of-another: the test owns the rule; this file names it and the mutation that must turn it red.
+# c1-a-record-field-hides-no-finding-of-another: an invariant belief. Each mutation must turn at least one owning test red, and each owning test must be red under at least one mutation.
 belief = "c1-a-record-field-hides-no-finding-of-another"
+kind = "invariant"
 control = "C1"
-statement = "Since 0.8.17, a record scan of findings_by_leaf finds every span that a scan of one field alone after its label finds: a negative context (a test marker up to 40 lines back, a company or place word on the line before an address) counts only inside the field of the hit, while a positive context (a first name next to a last name) still spans the record."
-runner = ["tests/test_record_negative_context.py::RecordNegativeContextTests::test_a_neighbour_field_hides_no_finding"]
+statement = "Since 0.8.17, a record scan of findings_by_leaf finds every span that a scan of one field alone after its label finds: a negative context (a test marker up to 40 lines back, a company or place word on the line before an address, since 0.8.18 also a company word before a street after its label and a template after an EU street) counts only inside the field of the hit, while a positive context (a first name next to a last name) still spans the record. leaves.RECORD_CONTEXT_PER_FIELD names the level (2 since 0.8.18)."
+runner = ["tests/test_record_negative_context.py::RecordNegativeContextTests::test_a_neighbour_field_hides_no_finding", "tests/test_record_negative_context.py::RecordNegativeContextTests::test_a_neighbour_field_keeps_a_labelled_street", "tests/test_record_negative_context.py::RecordNegativeContextTests::test_a_template_in_the_next_field_keeps_an_eu_street"]
 
-[proof]
+[[proof]]
+path = "no window knows the field"
 file = "maisecrets/detection/text_index.py"
 find = '''    if fields is None or fields[0] is not text:
         return 0'''
 replace = '''    if True:
         return 0'''
+
+[[proof]]
+path = "the street after its label reads the line before across the field"
+file = "maisecrets/detection/personal.py"
+find = '''            line = max(line, fs)
+'''
+replace = ''''''
+
+[[proof]]
+path = "the look-ahead of an EU street reads the next field"
+file = "maisecrets/detection/personal.py"
+find = '''    after = text[b:min(end if end != -1 else len(text), field_end(text, a))][:200]'''
+replace = '''    after = text[b:end if end != -1 else len(text)][:200]'''

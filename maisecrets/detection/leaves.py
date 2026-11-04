@@ -24,6 +24,11 @@ import json
 from .prefilter import rules_for, with_response_rules
 from .text_index import record_fields
 
+# The level of the record guarantee: in layout "lines" a record finds every span that a scan of each field alone after
+# its label finds. A caller can gate on it; it moves up each time a context window that crossed a field is closed.
+# 1: negative contexts, the decode budget and the US address windows (0.8.17). 2: the street after its label (0.8.18).
+RECORD_CONTEXT_PER_FIELD = 2
+
 _SHORT = {'"': '\\"', "\\": "\\\\", "\n": "\\n", "\r": "\\r", "\t": "\\t", "\b": "\\b", "\f": "\\f"}
 
 
