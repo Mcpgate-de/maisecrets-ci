@@ -329,5 +329,112 @@ class LinesLayoutTests(unittest.TestCase):
             L.findings_by_leaf(D, {}, layout="xml")
 
 
+
+class RecordCopyTests(unittest.TestCase):
+    """A string that its record already holds after the same label is scanned once, and the copy gets the findings of
+    the first (Slack writes each message twice, in text and in blocks)."""
+
+    PW = "Qz" + "7!vRk2" + "pLm9"
+    TOKEN = "a8f3" + "K9zQx2" + "Lm7vPwR4tY"
+    # a password of letters: no other string takes it by the spread of a found value (InlineNodeTests), so only the
+    # copy path gives it to the copy
+    LETTERS = "Zqxv" + "bnml" + "kw"
+
+    def _msg(self, text):
+        return {"messages": [{"text": text, "user": "U01", "blocks": [{"type": "section", "text": text}]},
+                             {"text": "no secret here", "blocks": [{"text": "no secret here"}]}]}
+
+    def test_a_copy_gets_the_findings_of_the_first(self):
+        text = "deploy note, password: " + self.LETTERS
+        found = L.findings_by_leaf(D, self._msg(text))
+        by_path: dict = {}
+        for leaf, m in found:
+            if leaf is not None:
+                by_path.setdefault(leaf.path, set()).add((m.start, m.end, m.type))
+        first = by_path.get(("messages", 0, "text"), set())
+        self.assertTrue(first, "premise: the message has findings")
+        self.assertEqual(by_path.get(("messages", 0, "blocks", 0, "text")), first)
+
+    def test_a_copy_finds_what_the_field_alone_finds(self):
+        # the per-field oracle of the record scan holds for a copy too
+        text = "password: " + self.LETTERS
+        alone = {(m.start - 6, m.end - 6) for m in D.findings("text: " + text, channel="tool")}
+        copy = {(m.start, m.end) for leaf, m in L.findings_by_leaf(D, self._msg(text))
+                if leaf is not None and leaf.path == ("messages", 0, "blocks", 0, "text")}
+        self.assertTrue(alone, "premise: the field alone has a finding")
+        self.assertLessEqual(alone, copy)
+
+    def test_a_copy_under_another_label_is_scanned_as_its_own(self):
+        obj = {"a": {"note": "token=" + self.TOKEN, "comment": "token=" + self.TOKEN}}
+        paths = {leaf.path for leaf, _m in L.findings_by_leaf(D, obj) if leaf is not None}
+        self.assertEqual(paths, {("a", "note"), ("a", "comment")})
+
+
+class InlineNodeTests(unittest.TestCase):
+    """A value in its own inline node after a cue node (maisecrets#24): Slack writes the message once in text, where
+    the cue stands before the value, and once in the elements of its blocks; Atlassian's document format has only the
+    nodes of a paragraph."""
+
+    PW = "Qz" + "7!vRk2" + "pLm9"
+
+    def _paths(self, obj):
+        return {(leaf.path, m.start, m.end) for leaf, m in L.findings_by_leaf(D, obj) if leaf is not None}
+
+    def test_a_slack_value_in_a_bold_element_is_found_from_the_text_field(self):
+        section = [{"type": "text", "text": "Passwort: "}, {"type": "text", "text": self.PW, "style": {"bold": True}}]
+        obj = {"messages": [{"text": "Passwort: *" + self.PW + "*",
+                             "blocks": [{"type": "rich_text",
+                                         "elements": [{"type": "rich_text_section", "elements": section}]}]}]}
+        node = ("messages", 0, "blocks", 0, "elements", 0, "elements", 1, "text")
+        self.assertIn((node, 0, len(self.PW)), self._paths(obj))
+
+    def test_an_adf_value_in_a_code_node_gets_the_cue_of_the_node_before(self):
+        para = [{"type": "text", "text": "Das Passwort ist "},
+                {"type": "text", "text": self.PW, "marks": [{"type": "code"}]}]
+        obj = {"fields": {"description": {"type": "doc", "content": [{"type": "paragraph", "content": para}]}}}
+        node = ("fields", "description", "content", 0, "content", 1, "text")
+        self.assertIn((node, 0, len(self.PW)), self._paths(obj))
+
+    def test_a_one_word_name_does_not_spread(self):
+        # Wolf after Herr is a surname in its message; in the next messages it is an animal and a word
+        obj = {"messages": [{"text": "Hallo Herr Wolf, danke"}, {"text": "Ein Wolf lief durch den Wald"},
+                            {"text": "Wolf"}]}
+        found = {leaf.path[1] for leaf, m in L.findings_by_leaf(D, obj) if leaf is not None and m.type == "NAME"}
+        self.assertEqual(found, {0})
+
+    def test_a_spread_keeps_a_field_whose_label_names_no_secret(self):
+        # a cursor, the key of a component, a lone key and the time of a secret keep their value, as a scan of the
+        # field alone does; the ai-gateway's spread once masked a Figma component key in meta.components.key
+        obj = {"a": {"password": self.PW, "note": "the value " + self.PW, "component_key": self.PW, "key": self.PW,
+                     "nextPageToken": self.PW, "token_expires_at": self.PW}}
+        found = {leaf.path[-1] for leaf, _m in L.findings_by_leaf(D, obj) if leaf is not None}
+        self.assertEqual(found, {"password", "note"})
+
+    def test_a_word_after_a_password_label_does_not_spread(self):
+        # a label rule takes any word after password:, and that word is in the code around it
+        word = "func" + "tion"
+        obj = {"content": "db:\n  password: " + word + "\n  host: " + word + "\n", "title": "Field " + word + " check"}
+        found = [(leaf.path, m.start) for leaf, m in L.findings_by_leaf(D, obj) if leaf is not None]
+        self.assertTrue(found, "premise: the word after the label is a finding")
+        self.assertEqual({p for p, _s in found}, {("content",)})
+        self.assertEqual(len(found), 1)
+
+    def test_a_common_shape_after_a_password_label_does_not_spread(self):
+        # a date, a host with its port, a ticket key and a version after a password label stand in other strings too
+        checked = 0
+        for value in ("2026" + "-11-04", "localhost" + ":8080", "ABCD" + "-1234", "release" + "-2026.11"):
+            obj = {"content": "password: " + value, "title": "Planned for " + value + " today"}
+            found = {leaf.path for leaf, _m in L.findings_by_leaf(D, obj) if leaf is not None}
+            if ("content",) in found:
+                checked += 1
+            self.assertNotIn(("title",), found, value[:4])
+        self.assertGreater(checked, 0, "premise: a label rule takes one of the shapes")
+
+    def test_a_spread_value_marks_whole_words_only(self):
+        obj = {"a": {"password": self.PW, "note": "x" + self.PW + " and " + self.PW + "y and " + self.PW + "."}}
+        notes = sorted((s, e) for p, s, e in self._paths(obj) if p == ("a", "note"))
+        at = len("x" + self.PW + " and " + self.PW + "y and ")
+        self.assertEqual(notes, [(at, at + len(self.PW))])
+
 if __name__ == "__main__":
     unittest.main()

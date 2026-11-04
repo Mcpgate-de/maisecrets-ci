@@ -30,7 +30,9 @@ def _iban() -> str:
 
 
 TARGETS = [("password", PW), ("note", "Passwort: " + PW), ("api_key", TOKEN), ("comment", "token=" + TOKEN),
-           ("address", STREET), ("iban", _iban()), ("name", "Svet" + "lana " + SURNAME)]
+           ("address", STREET), ("iban", _iban()), ("name", "Svet" + "lana " + SURNAME),
+           ("note", "Sehr geehrter Herr " + SURNAME), ("card", "4532 0151 " + "1283 0366"),
+           ("ip", "85.214." + "132.117")]
 NEIGHBOURS = {
     "test def": "x = 1\ndef test_login():\n    pass",
     "import pytest": "notes\nimport pytest",
@@ -48,7 +50,26 @@ NEIGHBOURS = {
     "html": "&lt;b&gt;x&lt;/b&gt;",
     "csv header": "id;status;code",
     "json example": '{"example": {',
+    "impressum": "Impressum",
+    "supplier": "supplier",
+    "employer": "employer",
+    "vendor": "the vendor",
+    "bank": "Sparkasse",
+    "server key": "server:\n  ",
+    "article": "Besuch der",
+    "digest": "sha256",
+    "order id": "order_id",
+    "section": "RFC 6749 section",
 }
+# the street after its label (address-street-after-label) reads the line before and up to 60 characters back for a
+# company, a parent or a thing; a field before it held these windows open across the record (gateway review round 5)
+STREET_LABELLED = [("address", "Linden" + "strasse 14"), ("address", "Linden" + "str. 14"),
+                   ("adresse", "Linden" + "str. 14"), ("note", "wohnt in der Linden" + "str. 14"),
+                   ("note", "located at Linden" + "str. 14")]
+# an EU street form after its label checks the text after it for a template; the next field is not that text
+EU_STREETS = [("address", "12 rue de la " + "Paix"),
+              ("indirizzo", "Via " + "Roma 12"), ("address", "Calle " + "Mayor 5")]
+TEMPLATES = ["[x]", "<b>", "{a}", "see [city]", "<postal code>"]
 
 
 def _leaf_spans(obj) -> list:
@@ -84,6 +105,28 @@ class RecordNegativeContextTests(unittest.TestCase):
                         self.assertEqual(_lost(obj), [])
                         checked += 1
         self.assertEqual(checked, len(NEIGHBOURS) * len(TARGETS) * 2)
+
+    def test_a_neighbour_field_keeps_a_labelled_street(self):
+        checked = 0
+        for kind, neighbour in NEIGHBOURS.items():
+            for key, value in STREET_LABELLED:
+                for obj in ({"text": neighbour, key: value}, {key: value, "text": neighbour}):
+                    with self.subTest(neighbour=kind, target=key, value=value):
+                        self.assertTrue(_leaf_spans(obj), "premise: the field alone has a finding")
+                        self.assertEqual(_lost(obj), [])
+                        checked += 1
+        self.assertEqual(checked, len(NEIGHBOURS) * len(STREET_LABELLED) * 2)
+
+    def test_a_template_in_the_next_field_keeps_an_eu_street(self):
+        checked = 0
+        for key, value in EU_STREETS:
+            for tmpl in TEMPLATES:
+                obj = {key: value, "tags": tmpl}
+                with self.subTest(target=value, template=tmpl):
+                    self.assertTrue(_leaf_spans(obj), "premise: the field alone has a finding")
+                    self.assertEqual(_lost(obj), [])
+                    checked += 1
+        self.assertEqual(checked, len(EU_STREETS) * len(TEMPLATES))
 
     def test_each_field_decodes_with_its_own_budget(self):
         # the decode stage spends at most 64 runs per text; a record shared them across its fields, so 70 hashes kept a

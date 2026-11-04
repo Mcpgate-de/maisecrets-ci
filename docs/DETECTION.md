@@ -262,6 +262,20 @@ for leaf, m in findings_by_leaf(detector, response):     # layout "lines", the d
   of its record (`last_name` next to `first_name`), and nothing of another record. On the shapes of the gateway's
   check (a line break, JSON inside a string, a context word in a neighbouring record) it finds what each string
   alone after its key finds (`tests/test_detection_leaves.py`, `LinesLayoutTests`).
+  A context of one field that speaks against a finding (a test marker, a company word, a template) counts only
+  inside that field (`tests/test_record_negative_context.py`). `leaves.RECORD_CONTEXT_PER_FIELD` names the level of
+  this guarantee and moves up each time a window that crossed a field is closed: 2 since 0.8.18 (the street after
+  its label). A release without the constant is below 2.
+  A string that its record already holds after the same label (Slack writes each message twice, in `text` and in
+  `blocks`) is scanned once, and the copy gets the findings of the first (since 0.8.18).
+  A value in an inline node of its own after a cue node (since 0.8.18): the text nodes of an Atlassian document
+  paragraph are scanned also as one sentence, and the findings are cut into the nodes; a value found in one string
+  of a response is masked in the other strings that hold it as a whole word (Slack's bold or code element after
+  `Passwort: ` in its blocks, found from the message's text field). A name or user name spreads with two words or
+  more, any other value with 8 to 256 characters, a letter and a digit and none of the common shapes (a date or a time,
+  `host:port`, `file:line`, `__name__`, `@Annotation`, a ticket key, a version): one word (Wolf, Sommer, a word after
+  `password:`) is also a word of other strings. A string whose key
+  names no secret (a cursor, `component_key`, a lone `key`, an id, `token_expires_at`, a revision) gets no spread.
 - **layout "json"** (the default of 0.8.10): one scan of `json.dumps(obj, ensure_ascii=False)`. In that text a line
   break is the two characters `\n` and a quote gets a backslash, so an address can run over a line end and a label
   inside a string is lost; and a context word of one record can give a finding in the next. The gateway's check of

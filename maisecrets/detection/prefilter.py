@@ -7,6 +7,9 @@ sk-); a text without it cannot hold a match (2026-11-02: no finding changed in 2
 less time). Only the built-in rules that run as one regex over the text take part, never a rule of your own."""
 from __future__ import annotations
 
+import contextlib
+import functools
+import contextvars
 import hashlib
 import json
 import re
@@ -231,3 +234,67 @@ def lacks_prefix(prefix: tuple, text: str, low: str) -> bool:
     """The rule's literal is not in the text, so its regex cannot match."""
     need, icase = prefix
     return bool(need) and (need.lower() not in low if icase else need not in text)
+
+
+# ------------------------------------------------------------------------------- the rules of a response --
+# findings_by_leaf scans each record of a response apart, and each scan walked all 920 rules with their keyword and
+# literal checks. A rule whose keyword, literal and required literals occur nowhere in the whole response cannot fire in
+# any of its records (each check is a substring test, so it holds for the joined text): the response decides once, and
+# each record scan walks only the rules left (a fifth of the time of a Slack-shaped response on the reference host,
+# 2026-11-03). Only for that exact text object: the cleaned copy and a nested scan take every rule
+_RESPONSE: contextvars.ContextVar = contextvars.ContextVar("maisecrets_response_rules", default=None)
+
+
+def response_rules(text: str):
+    """The rules in scan order for this text of a response scan, or None (then every rule)."""
+    got = _RESPONSE.get()
+    return got[1] if got is not None and got[0] is text else None
+
+
+@contextlib.contextmanager
+def with_response_rules(text: str, order: tuple):
+    token = _RESPONSE.set((text, order))
+    try:
+        yield
+    finally:
+        _RESPONSE.reset(token)
+
+
+@functools.lru_cache(maxsize=8192)
+def _trigrams(word: str) -> frozenset:
+    return frozenset(word[i:i + 3] for i in range(len(word) - 2))
+
+
+class _Grams(dict):
+    """A dict of `word in low`, answered first by the three-letter pieces of `low`: a word with a piece the text lacks
+    cannot be in it. A response holds a few of the 553 keywords, and a search of the whole text for each of them was
+    most of the time of rules_for."""
+
+    def __init__(self, low: str) -> None:
+        super().__init__()
+        self.low = low
+        self.grams = {low[i:i + 3] for i in range(len(low) - 2)}
+
+    def __missing__(self, word: str) -> bool:
+        hit = self[word] = (len(word) < 3 or _trigrams(word) <= self.grams) and word in self.low
+        return hit
+
+
+def rules_for(order: tuple, joined: str, low: str) -> tuple:
+    """The rules of `order` that can fire somewhere in `joined` (its lower case is `low`); the steps that are no rule
+    (the personal data, the terms, the imported values) stay in their place."""
+    known = _Grams(low)
+    out = []
+    for rule in order:
+        if not hasattr(rule, "keywords"):
+            out.append(rule)
+            continue
+        if rule.keywords and not any(known[k] for k in rule.keywords):
+            continue
+        need, icase = rule.prefix or NONE
+        if need and (not known[need.lower()] if icase else need not in joined):
+            continue
+        if rule.need and joined.isascii() and not any(known[x] for x in rule.need):
+            continue
+        out.append(rule)
+    return tuple(out)

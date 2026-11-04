@@ -1,0 +1,10 @@
+# c1-the-three-letter-filter-picks-the-rules-the-plain-checks-pick: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c1-the-three-letter-filter-picks-the-rules-the-plain-checks-pick"
+control = "C1"
+statement = "Since 0.8.18, prefilter.rules_for answers each keyword, literal and required literal of a response first by the three-letter pieces of its lower case and searches only a word whose pieces are all there; the rules it picks are the ones the plain substring checks pick, in the same order, on every corpus text and on dotted and dotless i, long s and final sigma."
+runner = ["tests/test_response_rules.py::ResponseRulesTests::test_the_three_letter_filter_picks_the_rules_the_plain_checks_pick"]
+
+[proof]
+file = "maisecrets/detection/prefilter.py"
+find = '''        hit = self[word] = (len(word) < 3 or _trigrams(word) <= self.grams) and word in self.low'''
+replace = '''        hit = self[word] = len(word) < 3 or _trigrams(word) <= self.grams'''

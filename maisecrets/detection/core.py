@@ -54,14 +54,14 @@ from .lazy_regex import LazyRx as _LazyRx
 from . import registry as _registry
 from . import fields as _fields
 from .prefilter import NONE as _NO_PREFIX, any_keyword as _any_keyword, lacks_prefix as _lacks_prefix  # noqa: F401
-from .prefilter import lacks_required as _lacks_required
+from .prefilter import lacks_required as _lacks_required, response_rules as _response_rules
 # The value checks, the own rules and the text index live in modules of their own, so that each file stays readable.
 # The core imports each of their names: `core.<name>` stays the same object. A patch must go to the module that
 # defines it.
 from .text_index import (  # noqa: F401
     _NL_RE, _TEXT_INDEX, _text_index, _newlines, _line_start, _line_end, _positions, LABEL_RULES, KEYWORD_RULES,
     _TEST_PATH_RE, _REAL_VALUE_FILE_RE, _TEST_MARKER_RE, _TEST_METHOD_RE, _CLASS_LINE_RE, _TEST_CLASS_LINE_RE,
-    _DIFF_FILE_RE, _GREP_PATH_RE, _TEST_LOOKBACK_LINES, is_test_path, in_test_code,
+    _DIFF_FILE_RE, _GREP_PATH_RE, _TEST_LOOKBACK_LINES, is_test_path, in_test_code, field_start,
 )
 from .own_rules import (  # noqa: F401
     _CJK, _CJK_RANGES, _NOT_CJK_WORD, _CJK_CHAR_RE, _has_cjk, _without_cjk, _is_cjk, _PW_COMPOUND, _SENTENCE_VALUE,
@@ -769,7 +769,7 @@ def _card_shaped(text: str, start: int, secret: str) -> bool:
     if start and text[start - 1] in "+.-0123456789" or text[end:end + 1].isalnum() \
             or re.match(r"\.\d", text[end:end + 2]) or fifth:
         return False   # a decimal, a phone number, a longer run, a fifth group (an expiry such as 12/28 may follow)
-    if _ID_LABEL_BEFORE_RE.search(text, max(0, start - 30), start):
+    if _ID_LABEL_BEFORE_RE.search(text, max(field_start(text, start), start - 30), start):
         return False   # order_id=4111 ...: an id that passes Luhn
     # an unbroken run too, with the prefix and the length of a card network: Benchmark V1, Gretel cards 299 to 431,
     # Mendeley +119, 14 more false alarms in Gretel, the false-alarm bank +0. A float, a timestamp, an IMEI and an
@@ -2038,8 +2038,8 @@ _CTX_CACHE: dict[tuple[str, ...], re.Pattern[str]] = {}
 
 def _has_context_word(window: str, context: tuple[str, ...]) -> bool:
     """A context word counts as a whole word: "ort" must not fire inside "report"."""
-    if not context:
-        return False
+    if not context or not any(c in window for c in context):
+        return False   # a word that is not in the window as a substring is not there as a whole word either
     rx = _CTX_CACHE.get(context)
     if rx is None:
         rx = re.compile(r"(?<![a-z0-9äöüß])(?:" + "|".join(re.escape(c) for c in context) + r")(?![a-z0-9äöüß])")
@@ -2818,7 +2818,7 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
         for m in _export_hits(text, low, path):
             take(m)
     keywords_in: dict = {}      # keyword -> whether the text holds it: the 652 keywords of the rules are 519 texts
-    for rule in (_in_scan_order(rules()) if rule_list is None else rule_list):
+    for rule in (_response_rules(text) or _in_scan_order(rules()) if rule_list is None else rule_list):
         if rule is _PERSONAL:
             # the personal data of 0.6.21 and the cleaned copy of the tool channel run after every built-in rule and
             # before the rules of your own: a rule of your own never takes a span that a built-in step would have
@@ -2959,7 +2959,8 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
                 continue   # a UUID, an elided value (sk-...), or a label of a derived thing (secret_id, nextPageToken)
             if "user-equals-password" in filters and _pass_equals_user(m.group(0), secret):
                 continue
-            if ("sigv4-scope" in filters and _SIGV4_CREDENTIAL_RE.search(text, max(0, start - 24), start)
+            if ("sigv4-scope" in filters
+                    and _SIGV4_CREDENTIAL_RE.search(text, max(field_start(text, start), start - 24), start)
                     and _SIGV4_SCOPE_RE.match(text, end)):
                 continue   # the key id in a SigV4 credential scope (a presigned URL, an Authorization header)
             if ("pg-password-switch" in filters and text[start - 1:start] not in "'\""
@@ -2973,7 +2974,7 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
                 continue
             if "phone-shape" in filters and not _phone_ok(text, start, secret):
                 continue
-            if rule.type == "IP" and _SECTION_BEFORE_RE.search(text, max(0, start - 24), start):
+            if rule.type == "IP" and _SECTION_BEFORE_RE.search(text, max(field_start(text, start), start - 24), start):
                 continue   # a section number: RFC 6749 4.1.2.1, OIDC Core 3.1.2.1, section 7.1.2.3
             if rule.id == "ip#2" and _a_version(text, start, end, secret):
                 continue

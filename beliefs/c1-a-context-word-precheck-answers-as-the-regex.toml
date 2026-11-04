@@ -1,0 +1,10 @@
+# c1-a-context-word-precheck-answers-as-the-regex: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c1-a-context-word-precheck-answers-as-the-regex"
+control = "C1"
+statement = "Since 0.8.18, core._has_context_word answers False without its regex when no context word of the rule is a substring of the window, and its answer is the regex's own on the windows of the corpus texts for the context words of every rule."
+runner = ["tests/test_context_word.py::ContextWordTests::test_the_precheck_answers_as_the_regex"]
+
+[proof]
+file = "maisecrets/detection/core.py"
+find = '''    if not context or not any(c in window for c in context):'''
+replace = '''    if not context or not any(c in window for c in context[:1]):'''

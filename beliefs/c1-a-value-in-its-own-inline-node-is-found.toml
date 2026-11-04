@@ -1,0 +1,50 @@
+# c1-a-value-in-its-own-inline-node-is-found: an invariant belief. Each mutation must turn at least one owning test red, and each owning test must be red under at least one mutation.
+belief = "c1-a-value-in-its-own-inline-node-is-found"
+kind = "invariant"
+control = "C1"
+statement = "Since 0.8.18, findings_by_leaf (layout lines) finds a value that stands in an inline node of its own after a cue node: the text nodes of an Atlassian document paragraph are scanned also as one sentence and its findings cut into the nodes, and a value found in one string of a response is masked in the other strings that hold it as a whole word (Slack's text field and its blocks): a name or user name with two words or more, any other value of 8 to 256 characters with a letter and a digit and none of the common shapes (a date, host:port, a ticket key, a version), and never into a string whose key names no secret (a cursor, a handle key, a lone key, an id, the time or state of a secret, a revision)."
+runner = ["tests/test_detection_leaves.py::InlineNodeTests::test_a_slack_value_in_a_bold_element_is_found_from_the_text_field", "tests/test_detection_leaves.py::InlineNodeTests::test_an_adf_value_in_a_code_node_gets_the_cue_of_the_node_before", "tests/test_detection_leaves.py::InlineNodeTests::test_a_spread_value_marks_whole_words_only", "tests/test_detection_leaves.py::InlineNodeTests::test_a_one_word_name_does_not_spread", "tests/test_detection_leaves.py::InlineNodeTests::test_a_spread_keeps_a_field_whose_label_names_no_secret", "tests/test_detection_leaves.py::InlineNodeTests::test_a_word_after_a_password_label_does_not_spread", "tests/test_detection_leaves.py::InlineNodeTests::test_a_common_shape_after_a_password_label_does_not_spread"]
+
+[[proof]]
+path = "no value is spread to the other strings"
+file = "maisecrets/detection/leaves.py"
+find = '''    return _spread(out, every)'''
+replace = '''    return out'''
+
+[[proof]]
+path = "no paragraph is scanned as one sentence"
+file = "maisecrets/detection/leaves.py"
+find = '''_INLINE_LISTS = frozenset({"content"})'''
+replace = '''_INLINE_LISTS = frozenset()'''
+
+[[proof]]
+path = "a spread value also marks the inside of a word"
+file = "maisecrets/detection/leaves.py"
+find = '''                if not (at and text[at - 1].isalnum()) and not (end < len(text) and text[end].isalnum()) \'''
+replace = '''                if True \'''
+
+[[proof]]
+path = "a one-word name spreads"
+file = "maisecrets/detection/leaves.py"
+find = '''        return len(value.split()) >= 2 and len(value) <= _SPREAD_MAX'''
+replace = '''        return len(value) >= 4'''
+
+[[proof]]
+path = "a spread overrides a field whose key names no secret"
+file = "maisecrets/detection/leaves.py"
+find = '''        if _keeps(leaf):
+            continue'''
+replace = '''        pass'''
+
+[[proof]]
+path = "a common shape spreads"
+file = "maisecrets/detection/leaves.py"
+find = '''            and not _COMMON_SHAPE.fullmatch(value))'''
+replace = '''            )'''
+
+[[proof]]
+path = "a value of letters spreads"
+file = "maisecrets/detection/leaves.py"
+find = '''    return (_SPREAD_MIN <= len(value) <= _SPREAD_MAX and any(c.isalpha() for c in value)
+            and any(c.isdigit() for c in value) and not value.startswith("@")'''
+replace = '''    return (_SPREAD_MIN <= len(value) <= _SPREAD_MAX and not value.startswith("@")'''

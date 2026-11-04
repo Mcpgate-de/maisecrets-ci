@@ -1,0 +1,10 @@
+# c1-a-copy-in-a-record-gets-the-findings-of-the-first: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c1-a-copy-in-a-record-gets-the-findings-of-the-first"
+control = "C1"
+statement = "Since 0.8.18, findings_by_leaf (layout lines) scans a string that its record already holds after the same label once, and the copy gets every finding of the first; so a copy finds at least what a scan of that field alone after its label finds (RECORD_CONTEXT_PER_FIELD), and a copy under another label is scanned as its own."
+runner = ["tests/test_detection_leaves.py::RecordCopyTests::test_a_copy_gets_the_findings_of_the_first", "tests/test_detection_leaves.py::RecordCopyTests::test_a_copy_finds_what_the_field_alone_finds"]
+
+[proof]
+file = "maisecrets/detection/leaves.py"
+find = '''        out += [(leaf, m) for leaf, seen in copies for m in by_leaf.get(id(seen), ())]'''
+replace = '''        pass'''
