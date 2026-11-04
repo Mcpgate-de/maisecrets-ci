@@ -2038,8 +2038,8 @@ _CTX_CACHE: dict[tuple[str, ...], re.Pattern[str]] = {}
 
 def _has_context_word(window: str, context: tuple[str, ...]) -> bool:
     """A context word counts as a whole word: "ort" must not fire inside "report"."""
-    if not context:
-        return False
+    if not context or not any(c in window for c in context):
+        return False   # a word that is not in the window as a substring is not there as a whole word either
     rx = _CTX_CACHE.get(context)
     if rx is None:
         rx = re.compile(r"(?<![a-z0-9äöüß])(?:" + "|".join(re.escape(c) for c in context) + r")(?![a-z0-9äöüß])")
