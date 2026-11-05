@@ -7,6 +7,7 @@ Every token is generated at run time, so no literal sits in the tree.
 """
 from __future__ import annotations
 
+import dataclasses
 import os
 import random
 import re
@@ -287,3 +288,83 @@ class KeywordLabelTailTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class KeywordHeadWindowTests(unittest.TestCase):
+    """The vendored rules with the lazy head `[\\w.-]{0,50}?` of generic-api-key (atlassian, jfrog, etsy, codecov) run
+    in windows around their own keywords on a long text: the same matches as the regex over the whole text."""
+    HEADED = ("atlassian-api-token.legacy", "jfrog-api-key", "jfrog-identity-token", "etsy-access-token",
+              "codecov-access-token.legacy")
+
+    def rules(self):
+        return [r for r in detect.rules() if r.id in self.HEADED]
+
+    def test_a_rule_of_your_own_never_takes_the_window_path(self):
+        # Gate A of this change: a rule of your own with the same head and keywords that miss an alternative (foo|bar
+        # with the keyword foo) or name only a suffix of one (prefixword, keyword word) lost or moved matches
+        base = self.rules()[0]
+        head = base.regex.pattern[:base.regex.pattern.index("(?:") + 3]
+        value = ":" + rnd(4, string.ascii_lowercase)
+        cases = [(head + r"foo|bar)[:=](\w{4})", ("foo",), "foo" + "\n" * 12 + "bar" + value),
+                 (head + r"prefixword)[:=](\w{4})", ("word",), "a" * 50 + "prefixword" + value)]
+        for pattern, keywords, needle in cases:
+            own = dataclasses.replace(base, id="own-head", key="own:own-head", phase=3, keywords=keywords,
+                                      regex=re.compile(pattern))
+            self.assertIsNone(detect._keyword_window(own))
+            text = "." * 5000 + " " + needle + " " + "." * 100
+            want = [m.span() for m in own.regex.finditer(text)]
+            self.assertTrue(want)
+            self.assertEqual([(m.start(), m.end()) for m in detect._matches(own, text, "tool")], want)
+
+    def test_a_changed_pattern_falls_back_to_the_whole_text(self):
+        # a sync that changes a vendored pattern: the rule runs over the whole text until the pattern is audited again
+        base = self.rules()[0]
+        changed = dataclasses.replace(base, regex=re.compile(base.regex.pattern + "|zz"))
+        self.assertIsNone(detect._keyword_window(changed))
+
+    def test_the_edges_of_the_window(self):
+        # 50 prefix characters, 8 line breaks around the separator, an upper-case keyword, the value at the window end
+        hits = 0
+        for rule in self.rules():
+            for k in rule.keywords:
+                for n in range(16, 80):
+                    for kw in (k, k.upper()):
+                        needle = "a" * 50 + kw + "\n\n\n" + ":" + "\n\n\n\n\n" + rnd(n, string.ascii_lowercase
+                                                                                         + string.digits) + "\n"
+                        text = "." * 5000 + "\n" + needle + "." * 300 + "\n" + "b" * 60 + needle
+                        want = [m.span() for m in rule.regex.finditer(text)]
+                        self.assertEqual([(m.start(), m.end()) for m in detect._matches(rule, text, "tool")], want,
+                                         rule.id)
+                        hits += len(want)
+        self.assertGreater(hits, 0)   # some lengths are the values of the rules
+
+    def test_the_headed_rules_take_the_window_path(self):
+        rules = self.rules()
+        self.assertEqual({r.id for r in rules}, set(self.HEADED))
+        for rule in rules:
+            self.assertIsNotNone(detect._keyword_window(rule), f"{rule.id}: a sync changed the head of its regex")
+
+    def test_fuzz_the_window_path_finds_what_the_regex_finds(self):
+        r = random.Random(25)
+        rules = self.rules()
+        seps = ["=", ": ", ":=", "=>", " = '", '":"', "\n:\n", "\n\n=\n\n", " ,"]
+        hits = 0
+        for _ in range(60):
+            parts = []
+            for _ in range(300):
+                if r.random() < 0.15:
+                    k = r.choice(r.choice(rules).keywords)
+                    head = rnd(r.randint(0, 60), string.ascii_letters + "_.-")
+                    value = rnd(r.choice([24, 32, 64, 73, r.randint(1, 90)]), string.ascii_lowercase + string.digits)
+                    parts.append(head + r.choice([k, k.upper(), k.title()]) + rnd(r.randint(0, 22), "_ -.x")
+                                 + r.choice(seps) + value + r.choice(["'", '"', " ", "\n", ";", ""]))
+                else:
+                    parts.append(rnd(r.randint(1, 80), string.ascii_letters + " \n.,:=-_"))
+            text = " ".join(parts)
+            self.assertGreater(len(text), 4096)   # the window path runs on a long text only
+            for rule in rules:
+                want = [(m.start(), m.end()) for m in rule.regex.finditer(text)]
+                got = [(m.start(), m.end()) for m in detect._matches(rule, text, "tool")]
+                self.assertEqual(got, want, rule.id)
+                hits += len(want)
+        self.assertGreater(hits, 100)   # the fuzz reaches the rules' values, not only their keywords

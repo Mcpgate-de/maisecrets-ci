@@ -2066,6 +2066,31 @@ def _phone_ok(text: str, start: int, secret: str) -> bool:
 # the end of the 8th line after it (the separators may hold line breaks; the window ends after a
 # newline, which the value's terminator class takes the same way as in the whole text).
 _WINDOWED = {"generic-api-key": _LazyRx(r"(?i)access|auth|api|credential|creds|key|passw(?:or)?d|secret|token")}
+# five more vendored rules have the lazy head of generic-api-key and run in the same windows around their keywords.
+# Each was audited: every match holds one of its keywords within the window (atlassian's ATATT3 branch outside the
+# head too). Only these built-in rules with the audited pattern (sha256[:16]) take the path: a rule of your own with
+# the same head may name keywords that do not cover its alternatives, and a sync that changes a pattern falls back
+# to the whole text until it is audited again (tests/test_scan_bounds.py)
+_KEYWORD_WINDOW_RULES = dict(zip(
+    ("atlassian-api-token.legacy", "jfrog-api-key", "jfrog-identity-token", "etsy-access-token",
+     "codecov-access-token.legacy"),
+    ("2861227e53a158b2", "902b233108826340", "026f657bf135316d", "b065c33ff07825e3", "01dfd9e4147b5cda")))
+_KEYWORD_WINDOWS: dict = {}
+
+
+def _keyword_window(rule: Rule):
+    """The keyword search of an audited built-in rule with the lazy head of generic-api-key, or None."""
+    audited = _KEYWORD_WINDOW_RULES.get(rule.id)
+    if audited is None or rule.phase != 1 or not rule.keywords:
+        return None
+    key = (rule.id, rule.regex.pattern)
+    kw = _KEYWORD_WINDOWS.get(key, False)
+    if kw is False:
+        kw = None
+        if hashlib.sha256(rule.regex.pattern.encode("utf-8")).hexdigest()[:16] == audited:
+            kw = re.compile("(?i)" + "|".join(re.escape(k) for k in rule.keywords))
+        _KEYWORD_WINDOWS[key] = kw
+    return kw
 
 
 def _windowed(rule: Rule, kw: re.Pattern, text: str):
@@ -2126,7 +2151,7 @@ def _matches(rule: Rule, text: str, channel: str = "prompt"):
                 continue
             yield _Spanned(_EMPTY_RE.match(text, b), a, text)
         return
-    kw = _WINDOWED.get(rule.id) if matcher == "windowed" else None
+    kw = _WINDOWED.get(rule.id) if matcher == "windowed" else _keyword_window(rule) if matcher == "regex" else None
     if kw is not None and len(text) > 4096:
         yield from _windowed(rule, kw, text)
         return
