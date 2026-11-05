@@ -235,3 +235,23 @@ class HookTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GermanLabelWithSignTests(unittest.TestCase):
+    """A password of a word, digits and a sign (Sommer2024!) after the German label without a colon is a hit in a tool
+    result, as after `password`: `secret-password-with-sign` knew only the English labels. A number or a rank after
+    the label (#1-Regel) stays text."""
+    WORD_SIGN = ("".join(("Sommer", "4821", "!")), "".join(("Winter", "2025", "#")),
+                 "".join(("Hafen", "77", "&", "kPq")))
+
+    def test_the_german_labels_find_a_word_digits_sign_password(self):
+        for value in self.WORD_SIGN:
+            for label in ("Passwort", "Kennwort", "das Passwort", "Mein Kennwort"):
+                with self.subTest(label=label, n=len(value)):
+                    self.assertEqual(_secrets(f"{label} {value}", "tool"), [value])
+
+    def test_german_prose_after_the_label_stays_text(self):
+        for text in ("Passwort zurücksetzen", "Kennwort vergessen?", "Passwort-Manager 1Password",
+                     "password #1-Rule", "Passwortlänge 12+ Zeichen", "Kennwort ändern, dann neu anmelden"):
+            with self.subTest(text=text):
+                self.assertEqual(_secrets(text, "tool"), [])

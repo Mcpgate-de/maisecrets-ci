@@ -1407,7 +1407,7 @@ def _rehydrated(payload: dict, cfg: dict, path: str, new_input: dict, reason: st
 
 _ARGS_END = "MAISECRETS_ARGS_END"
 _ARGS_CALL_RE = _LazyRx(r"\Abash \"[^\"\n$`]*/hooks/run\.sh\" "
-                           r"(?:audit|forget|guard|put --clipboard|report|settings|shortcut) "
+                           r"(?:audit|forget|guard|put --clipboard|report|settings|shortcut|sref) "
                            r"--args-stdin <<'" + _ARGS_END + r"'\n(.*)\n" + _ARGS_END + r"\n?\Z", re.S)
 
 
@@ -1419,10 +1419,13 @@ def _args_call_refusal(command: str) -> str | None:
     if "--args-stdin" not in command:
         return None
     m = _ARGS_CALL_RE.match(command)
-    if not m or any(line.strip() == _ARGS_END for line in m.group(1).split("\n")):
-        return ("maisecrets: a maisecrets command with --args-stdin must have exactly the form of its command "
-                f"file, and its arguments must not contain a line {_ARGS_END}. The command did not run. Tell the "
-                "user to write the arguments without that line.")
+    if not m:
+        return ("maisecrets: a maisecrets command with --args-stdin must have exactly the form of its command file "
+                "(the command name, then the arguments in the quoted heredoc). The command did not run. Run it as "
+                "its command file writes it.")
+    if any(line.strip() == _ARGS_END for line in m.group(1).split("\n")):
+        return (f"maisecrets: the arguments of a maisecrets command must not contain a line {_ARGS_END}. The "
+                "command did not run. Tell the user to write the arguments without that line.")
     return None
 
 

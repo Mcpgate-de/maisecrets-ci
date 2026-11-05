@@ -2191,7 +2191,7 @@ def _a_date(v: str) -> bool:
 # a plain space, so `Word@2024` stayed in the clear (Benchmark V1, Nemotron: 1,440 of 4,500 missed passwords had this
 # form). Only a value with a letter, a digit and a sign: a word, a version (iPhone15), a hash name (SHA256-Hash) and
 # an e-mail address stay text
-_PW_REFERENCE_RE = _lazy(r"(?i)(?<![\w-])(?:password|passwd|passphrase|pwd)s?"
+_PW_REFERENCE_RE = _lazy(r"(?i)(?<![\w-])(?:password|passwd|passphrase|pwd|passwort|kennwort)s?"
                          r"(?:[ \t]+(?:such[ \t]+as|like|e\.g\.,?|for[ \t]+example,?|of|set[ \t]+to|to))?"
                          r"[ \t]+[\"'`]?([^\s\"'`]{6,64})")
 _PW_WITH_SIGN_RE = _lazy(r"(?=.*[A-Za-z])(?=.*\d)(?=.*[@#$!%&*?])[A-Za-z0-9@#$!%&*?._+=~^-]{6,64}")
@@ -2239,12 +2239,12 @@ def _phone_word_hits(text: str, low: str, regions: tuple, want, prompt: bool = F
 
 def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> list:
     out = []
-    if "secret-password-with-sign" in want and ("pass" in text.lower() or "pwd" in text.lower()):
+    if "secret-password-with-sign" in want and any(w in text.lower() for w in ("pass", "pwd", "kennwort")):
         for m in _PW_REFERENCE_RE.finditer(text):
             v = m.group(1).rstrip(".,;:)")   # a stop of the sentence; `!` and `?` end many passwords and stay
             if len(v) >= 6 and _PW_WITH_SIGN_RE.fullmatch(v) and not _EMAIL_SHAPE_RE.fullmatch(v) \
                     and not _PW_REFERENCE_VALUE_RE.fullmatch(v) \
-                    and not v.startswith(("$", "%", "{", "<", "*")):
+                    and not v.startswith(("$", "%", "{", "<", "*")) and not re.match(r"#\d", v):   # #1-Regel: a rank
                 out.append((m.start(1), m.start(1) + len(v), "secret-password-with-sign", "SECRET"))
     if "secret-add-mask" in want and "::add-mask::" in text:
         for m in _ADD_MASK_RE.finditer(text):

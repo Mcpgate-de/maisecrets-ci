@@ -33,6 +33,38 @@ class CommandFormTests(unittest.TestCase):
                     self.assertRegex(s, r"@'\n\$ARGUMENTS\n'@ \| & ")
 
 
+class ArgsStdinFormTests(unittest.TestCase):
+    """The bash form of each command file that passes its arguments on stdin is a call the PreToolUse hook lets
+    run: sref was missing from the list of the hook, and /maisecrets:sref status was refused (0.8.22)."""
+
+    def test_each_args_stdin_command_passes_the_hook(self):
+        import sys
+        sys.path.insert(0, str(ROOT))
+        from maisecrets import hooks
+        names = []
+        form = re.compile(r"```\n(bash \"\$\{CLAUDE_PLUGIN_ROOT\}/hooks/run\.sh\" [^\n]*--args-stdin.*?)```", re.S)
+        for f in sorted((ROOT / "commands").glob("*.md")):
+            block = form.search(f.read_text(encoding="utf-8"))
+            if not block:
+                continue
+            names.append(f.stem)
+            for arguments in ("", "status", "two words"):
+                cmd = block.group(1).replace("${CLAUDE_PLUGIN_ROOT}", "/opt/p").replace("$ARGUMENTS", arguments)
+                with self.subTest(command=f.name, arguments=arguments):
+                    self.assertIsNone(hooks._args_call_refusal(cmd.rstrip("\n")))
+        self.assertIn("sref", names)        # the population: every command of this form, sref among them
+        self.assertGreaterEqual(len(names), 8)
+
+    def test_a_delimiter_line_in_the_arguments_names_its_cause(self):
+        import sys
+        sys.path.insert(0, str(ROOT))
+        from maisecrets import hooks
+        end = "MAISECRETS_ARGS_END"
+        head = "bash \"/opt/p/hooks/run.sh\" sref --args-stdin <<'" + end + "'\n"
+        self.assertIn("must not contain a line", hooks._args_call_refusal(head + end + "\nx\n" + end))
+        self.assertIn("exactly the form", hooks._args_call_refusal("bash \"/opt/p/hooks/run.sh\" nope --args-stdin"))
+
+
 def _powershell_block(name: str) -> str:
     text = (ROOT / "commands" / name).read_text(encoding="utf-8")
     return re.search(r"run this instead:\n\n```\n(.*?)```", text, re.S).group(1)
