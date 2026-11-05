@@ -51,6 +51,8 @@ from pathlib import Path
 from . import checksums
 from .lazy_regex import LazyRx as _LazyRx
 from .keyword_tail import _KeywordTail, _HeadTail  # noqa: F401
+from . import deadline as _deadline
+from .deadline import ScanIncomplete  # noqa: F401  the library's name: maisecrets.detection.ScanIncomplete
 from . import registry as _registry
 from . import fields as _fields
 from .prefilter import NONE as _NO_PREFIX, any_keyword as _any_keyword, lacks_prefix as _lacks_prefix  # noqa: F401
@@ -1795,11 +1797,13 @@ class Detector:
             return self._run(scan, text, enabled, channel, path, rule_list)
         return self._run(scan, text, enabled, channel, path, rule_list, fields=fields)
 
-    def findings(self, text: str, channel: str = "prompt", path: str = "", *, fields=None) -> list[Match]:
-        """The matches without the fixtures of a pasted test (detect.findings). `fields`: see scan()."""
-        if fields is None:
+    def findings(self, text: str, channel: str = "prompt", path: str = "", *, fields=None,
+                 deadline=None) -> list[Match]:
+        """The matches without the fixtures of a pasted test (detect.findings). `fields`: see scan(). `deadline`: a
+        time.monotonic() value; past it the scan raises ScanIncomplete with the matches so far."""
+        if fields is None and deadline is None:
             return self._run(findings, text, channel, path)
-        return self._run(findings, text, channel, path, fields=fields)
+        return self._run(findings, text, channel, path, fields=fields, deadline=deadline)
 
     def findings_with(self, text: str, channel: str = "prompt", path: str = "", *, fields=None, remote=None,
                       deadline: float | None = None):
@@ -2510,9 +2514,12 @@ def scan(text: str, enabled: set[str] | None = None, channel: str = "prompt", pa
     spans = _fields.checked(text, fields)
     # the channel and the path travel as arguments: a nested scan (is_fixture) or a scan in another thread has its own
     hits = _scan(text, enabled, rule_list=rule_list, channel="tool" if channel == "tool" else "prompt", path=path or "")
-    hits = _fields.added(text, hits, spans, lambda t: scan(t, enabled, channel, "", rule_list)) if spans else hits
-    if channel == "tool" and rule_list is None and "|" in text:
-        hits = _fields.md_key_value_hits(text, hits, lambda t: scan(t, enabled, channel, "", rule_list))
+    try:
+        hits = _fields.added(text, hits, spans, lambda t: scan(t, enabled, channel, "", rule_list)) if spans else hits
+        if channel == "tool" and rule_list is None and "|" in text:
+            hits = _fields.md_key_value_hits(text, hits, lambda t: scan(t, enabled, channel, "", rule_list))
+    except ScanIncomplete:
+        raise ScanIncomplete(list(hits)) from None   # a nested scan of a field: its offsets are not this text's
     return hits
 
 
@@ -2731,14 +2738,20 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
         for m in _export_hits(text, low, path):
             take(m)
     keywords_in: dict = {}      # keyword -> whether the text holds it: the 652 keywords of the rules are 519 texts
+    until = _deadline.current()
     for rule in (_response_rules(text) or _in_scan_order(rules()) if rule_list is None else rule_list):
+        if until is not None and time.monotonic() > until:
+            raise ScanIncomplete(list(found))     # between rules: what the rules before found, in this text's offsets
         if rule is _PERSONAL:
             # the personal data of 0.6.21 and the cleaned copy of the tool channel run after every built-in rule and
             # before the rules of your own: a rule of your own never takes a span that a built-in step would have
             # found (review of the rebase on 0.6.21: a user rule cut an address that the copy saw whole)
             _personal_hits(text, enabled, found, taken_starts, taken_ends, overlaps, channel)
             if channel == "tool" and not _copy:
-                _scan_cleaned_copy(text, enabled, found, taken_starts, taken_ends, channel, path)
+                try:
+                    _scan_cleaned_copy(text, enabled, found, taken_starts, taken_ends, channel, path)
+                except ScanIncomplete:
+                    raise ScanIncomplete(list(found)) from None   # the copy's offsets are not this text's
             continue
         if rule is _TERMS:
             _term_hits(text, enabled, found, taken_starts, taken_ends, overlaps, take)
@@ -3345,14 +3358,26 @@ def user_rule(id: str, type: str, pattern: str, keywords=(), secret_group: int =
 re2_to_python = _re2_to_python   # a pattern in RE2 syntax, as Python's re reads it
 
 
-def findings(text: str, channel: str = "prompt", path: str = "", *, fields=None) -> list[Match]:
+def findings(text: str, channel: str = "prompt", path: str = "", *, fields=None, deadline=None) -> list[Match]:
     """The hits of scan() without the fixtures of a pasted test (is_fixture). The scan runs in the channel of the
-    caller; is_fixture runs after it, and its own check of a value scans in the prompt channel, as before."""
+    caller; is_fixture runs after it, and its own check of a value scans in the prompt channel, as before.
+    `deadline`, a time.monotonic() value: past it the scan stops between rules and raises ScanIncomplete with the
+    hits so far (maisecrets/detection/deadline.py)."""
     spans = _fields.checked(text, fields)
-    hits = scan(text, channel=channel, path=path)   # the call of before: a caller may wrap detect.scan
-    if spans:
-        hits = _fields.added(text, hits, spans, lambda t: scan(t, channel=channel, path=""), same_scan=not path)
-    return [m for m in hits if not is_fixture(m, text, path)]
+    token = _deadline.set_for(deadline)
+    cut = None
+    try:
+        hits = scan(text, channel=channel, path=path)   # the call of before: a caller may wrap detect.scan
+        if spans:
+            hits = _fields.added(text, hits, spans, lambda t: scan(t, channel=channel, path=""), same_scan=not path)
+    except ScanIncomplete as e:
+        hits, cut = e.findings, e
+    finally:
+        _deadline.reset(token)      # the fixture check of each hit runs whole
+    kept = [m for m in hits if not is_fixture(m, text, path)]
+    if cut is not None:
+        raise ScanIncomplete(kept, cut.reason)
+    return kept
 
 
 def explain_allowed(value: str) -> str | None:

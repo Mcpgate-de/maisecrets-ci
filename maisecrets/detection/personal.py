@@ -23,6 +23,7 @@ import functools
 import itertools
 import re
 
+from . import deadline as _deadline
 from .lazy_regex import LazyRx as _LazyRx
 from .text_index import field_end, field_start
 
@@ -2587,8 +2588,8 @@ def hits(text: str, channel: str, regions: tuple, company: list | None = None) -
             if _PHONE_WORD_RE.search(text, max(0, m.start() - 30), m.start()):
                 out.append((m.start(), m.end(), "phone-us-national", PHONE))
     out += _form_hits(text, channel, regions, want, company)
-    if channel != "tool":
-        return out
+    if channel != "tool" or _deadline.passed():
+        return out          # past a scan's deadline: what the forms found; the scan stops before its next rule
     low = text.lower()
     if "birth-date-after-label" in want and any(k in low for k in _BIRTH_WORDS):
         for m in _BIRTH_RE.finditer(text):

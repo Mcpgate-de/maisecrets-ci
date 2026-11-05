@@ -12,8 +12,9 @@ The rule tables and the helpers of maisecrets/detection/core.py are not: maisecr
 plugin and its tests, and they change with the rules.
 """
 from .core import NO_REFERENCES, NO_SOURCES, THIS_COMPUTER, Detector, Host, Match, References, Rule, Sources, user_rule
+from .deadline import ScanIncomplete
 from .regions import Active, resolve as resolve_regions
 from .vocabulary import TYPES
 
-__all__ = ["Active", "Detector", "Host", "Match", "NO_REFERENCES", "NO_SOURCES", "References", "Rule", "Sources",
-           "THIS_COMPUTER", "TYPES", "resolve_regions", "user_rule"]
+__all__ = ["Active", "Detector", "Host", "Match", "NO_REFERENCES", "NO_SOURCES", "References", "Rule", "ScanIncomplete",
+           "Sources", "THIS_COMPUTER", "TYPES", "resolve_regions", "user_rule"]

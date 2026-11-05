@@ -22,6 +22,7 @@ import dataclasses
 import functools
 import json
 
+from .deadline import ScanIncomplete
 from .prefilter import rules_for, with_response_rules
 from .lazy_regex import LazyRx
 from .text_index import record_fields
@@ -250,7 +251,33 @@ def _lines(detector, obj, channel: str, **kwargs) -> list:
                 n += len(lead) + len(leaf.value) + 1
             if parts:
                 segments.append(("\n".join(parts), placed, starts))
-    out += _scan_segments(detector, segments, channel, kwargs)
+    try:
+        out += _scan_segments(detector, segments, channel, kwargs)
+    except ScanIncomplete as e:
+        # the steps below only add findings: run them on the part, so a read string keeps every mask they give it. A
+        # copy and a joined sentence are not read: their findings come from those steps, which saw only a part
+        cut = _after_scan(e.findings, copies, sentences, every)
+        raise ScanIncomplete(cut, e.reason, _read_whole(e.read or [], copies, sentences)) from None
+    return _after_scan(out, copies, sentences, every)
+
+
+def _read_whole(read: list, copies: list, sentences: list) -> list:
+    """The leaves of a cut scan whose findings are complete: read in a segment that ran to its end, not a copy (its
+    findings come from the leaf it copies, after the scan), and not a joined sentence or one of its nodes unless the
+    sentence was read too (the nodes get the sentence's findings after the scan)."""
+    done = {id(leaf) for leaf in read}
+    out = {id(leaf): leaf for leaf in read}
+    for leaf, _seen in copies:
+        out.pop(id(leaf), None)
+    for sentence, nodes in sentences:
+        if id(sentence) not in done:
+            for node in nodes:
+                out.pop(id(getattr(node, "leaf", node)), None)
+        out.pop(id(sentence), None)
+    return list(out.values())
+
+
+def _after_scan(out: list, copies: list, sentences: list, every: list) -> list:
     if copies:
         by_leaf: dict = {}
         for leaf, m in out:
@@ -388,28 +415,43 @@ def _sentence_findings(out: list, sentences: list) -> list:
 
 def _scan_segments(detector, segments: list, channel: str, kwargs: dict) -> list:
     out = []
-    order = _response_order(detector, [t for t, _p, _s in segments], kwargs)
+    order = _response_order(detector, [t for t, _p, _s in segments], {k: v for k, v in kwargs.items()
+                                                                       if k != "deadline"})
+    read: list = []
     for text, placed, starts in segments:
         # a negative context counts only inside its field (text_index.py); the rules of the response (prefilter.py)
-        with record_fields(text, starts), (with_response_rules(text, order) if order else contextlib.nullcontext()):
-            found = detector.findings(text, channel=channel, **kwargs)
-        k = 0   # the findings come sorted by start and the strings in text order: one pass over both
-        for m in sorted(found, key=lambda m: m.start):
-            while k < len(placed) and placed[k][1] + len(placed[k][0].value) < m.start:
-                k += 1
-            hit = None
-            for leaf, at in placed[k:k + 2]:
-                end = at + len(leaf.value)
-                # a span starts in a string; a point may also sit at its end, and an empty string owns its one point
-                if at <= m.start < end or (m.end <= m.start and m.start == end):
-                    hit = (leaf, at)
-                    break
-            if hit is None:
-                out.append((None, m))
-                continue
-            leaf, at = hit
-            s, e = m.start - at, min(m.end, at + len(leaf.value)) - at
-            out.append((leaf, dataclasses.replace(m, start=s, end=max(s, e), value=leaf.value[s:max(s, e)])))
+        try:
+            with record_fields(text, starts), (with_response_rules(text, order) if order else contextlib.nullcontext()):
+                found = detector.findings(text, channel=channel, **kwargs)
+        except ScanIncomplete as e:
+            # past the deadline: the segments before, and this one's findings so far, placed in their strings; the
+            # strings of the segments before are read whole
+            raise ScanIncomplete(out + _placed(e.findings, placed), e.reason, read) from None
+        out += _placed(found, placed)
+        read += [leaf for leaf, _at in placed]
+    return out
+
+
+def _placed(found: list, placed: list) -> list:
+    """(leaf, match) for the findings of one segment, the match in the offsets of its string."""
+    out = []
+    k = 0   # the findings come sorted by start and the strings in text order: one pass over both
+    for m in sorted(found, key=lambda m: m.start):
+        while k < len(placed) and placed[k][1] + len(placed[k][0].value) < m.start:
+            k += 1
+        hit = None
+        for leaf, at in placed[k:k + 2]:
+            end = at + len(leaf.value)
+            # a span starts in a string; a point may also sit at its end, and an empty string owns its one point
+            if at <= m.start < end or (m.end <= m.start and m.start == end):
+                hit = (leaf, at)
+                break
+        if hit is None:
+            out.append((None, m))
+            continue
+        leaf, at = hit
+        s, e = m.start - at, min(m.end, at + len(leaf.value)) - at
+        out.append((leaf, dataclasses.replace(m, start=s, end=max(s, e), value=leaf.value[s:max(s, e)])))
     return out
 
 
@@ -426,8 +468,17 @@ def findings_by_leaf(detector, obj, channel: str = "tool", layout: str = "lines"
     if layout != "json":
         raise ValueError("layout must be lines or json")
     text, leaves = json_text(obj)
+    try:
+        found = detector.findings(text, channel=channel, **kwargs)
+    except ScanIncomplete as e:
+        raise ScanIncomplete(_json_placed(e.findings, leaves), e.reason, []) from None   # one scan: none read whole
+    return _json_placed(found, leaves)
+
+
+def _json_placed(found: list, leaves: list) -> list:
+    """(leaf, match) for the findings of the JSON text, the match in the offsets of its string."""
     out, k = [], 0
-    for m in sorted(detector.findings(text, channel=channel, **kwargs), key=lambda m: m.start):
+    for m in sorted(found, key=lambda m: m.start):
         while k < len(leaves) and leaves[k].end < m.start:
             k += 1
         leaf = leaves[k] if k < len(leaves) and leaves[k].start <= m.start < max(leaves[k].end, leaves[k].start + 1) \

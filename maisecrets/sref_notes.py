@@ -19,6 +19,7 @@ from .vault_refs import MAX_NOTES_PER_ORIGIN, MAX_SESSIONS_PER_NOTE, NOTE_BUDGET
 DIR = HOME / "sref"
 NOTES = DIR / "notes.json"            # profile -> origin -> "kind:id" -> {"t", "sessions": [ids], "url": MCP URL}
 SENT = DIR / "sent.json"              # profile -> origin -> "kind:id" -> time: references the model sent in a call
+HINTS = DIR / "hints.json"            # profile -> origin -> [session ids]: the sessions told that a login is missing
 
 
 def _lock(deadline: float | None):
@@ -93,6 +94,24 @@ def note_result(payload: dict, deadline: float | None = None) -> int:
         DIR.mkdir(parents=True, exist_ok=True)
         atomic_write(NOTES, json.dumps(data, indent=1))
     return len(found)
+
+
+def first_hint(origin: str, session: str | None, deadline: float | None = None) -> bool:
+    """Whether this session has not yet been told that this gateway offers references without a login here; records
+    that it is told now. Once per session and gateway: a hint on every result would be noise."""
+    if not isinstance(session, str) or not session:
+        return False
+    deadline = deadline if deadline is not None else time.monotonic() + NOTE_BUDGET
+    with _lock(deadline):
+        data = _read_json(HINTS) or {}
+        told = data.setdefault(profile(), {}).setdefault(origin, [])
+        if not isinstance(told, list) or session in told:
+            return False
+        told.append(session)
+        data[profile()][origin] = told[-MAX_SESSIONS_PER_NOTE:]
+        DIR.mkdir(parents=True, exist_ok=True)
+        atomic_write(HINTS, json.dumps(data, indent=1))
+    return True
 
 
 def noted(refs: list, session: str | None) -> dict:

@@ -19,8 +19,8 @@ import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
 
 from maisecrets import detect, detection  # noqa: E402
 
-API = {"Active", "Detector", "Host", "Match", "NO_REFERENCES", "NO_SOURCES", "References", "Rule", "Sources",
-       "THIS_COMPUTER", "TYPES", "resolve_regions", "user_rule"}
+API = {"Active", "Detector", "Host", "Match", "NO_REFERENCES", "NO_SOURCES", "References", "Rule", "ScanIncomplete",
+       "Sources", "THIS_COMPUTER", "TYPES", "resolve_regions", "user_rule"}
 # maisecrets.<old name> -> the module of the package it is
 OLD_NAMES = {"detect": "core", "checksums": "checksums", "lazy_regex": "lazy_regex", "normalise": "normalise",
              "regions": "regions", "registry": "registry", "rulespec": "rulespec", "rule_filter": "rule_filter",

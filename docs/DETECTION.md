@@ -56,13 +56,14 @@ for m in d.findings(text, channel="tool", path="notes.txt"):
 | `Active`, `resolve_regions` | The regions and label languages, and their resolution from a config (`locale=` to give the locale) |
 | `user_rule` | A rule of your own, for `Sources.user_rules` (returns a `Rule`) |
 | `TYPES` | The type vocabulary: each type a `Match` can carry, with its `family` and `class` (`maisecrets/detection/types.json`) |
+| `ScanIncomplete` | Raised by a scan past its `deadline=` (since 0.8.24): `findings`, `reason`, `read`, below |
 
 The rule tables and the helpers of `core.py` are no API: they change with the rules.
 
-`core.py` keeps five parts in modules of their own, so that each file stays readable: `value_checks.py` (the
+`core.py` keeps six parts in modules of their own, so that each file stays readable: `value_checks.py` (the
 checks of a value), `own_rules.py` (`OWN_RULES`, `FALLBACK_RULES`), `text_index.py` (the index of a text and the
-test-code check), `encoded_mail.py` (an address with its @ as %40) and `keyword_tail.py` (the vendored keyword
-rules in linear time). `core.py` imports each of their names, so
+test-code check), `encoded_mail.py` (an address with its @ as %40), `keyword_tail.py` (the vendored keyword
+rules in linear time) and `deadline.py` (the deadline of a scan and `ScanIncomplete`). `core.py` imports each of their names, so
 `core.<name>` is the same object. A patch of such a name on the core does not reach the functions of the part:
 patch the module that defines the name.
 
@@ -110,6 +111,7 @@ maintainer on 2026-10-20 (merge request !160):
 | `user_rule(id, type, pattern, keywords=(), secret_group=0)` | **stable**: the one way for a caller to make a rule of its own. The id becomes `user:<id>`; a wrong argument raises `ValueError` |
 | `Rule` | **no stable constructor**: the type that `user_rule` returns and `Detector.rules()` lists. Of its fields only `id`, `type`, `keywords` and `secret_group` are promised; the other 17 belong to the detector |
 | `TYPES` and `maisecrets/detection/types.json` | **stable** as the section "The type vocabulary" says: a listed type and its family stay; a class may be refined in a minor release; new types may come |
+| `ScanIncomplete` and `deadline=` | **provisional** (since 0.8.24, for the gateway's time budget): the names may change in a minor release, until the maintainer decides |
 | `LazyRegex` | **removed in 0.8** (deprecated in 0.7.0): give `user_rule` the pattern as a string |
 | The text of `scan` and `findings` | **a `str`**: anything else raises `TypeError` since 0.8, decided without a `DeprecationWarning` in 0.7. Before, `None`, `b""` and `0` gave no hits and other bytes or numbers raised whatever the first regex raised |
 | The offsets of a `Match` | **Unicode code points** of the scanned `str`, `text[start:end] == value`. A UTF-16 caller (JavaScript, Java, .NET) counts a character outside the BMP, such as an emoji, as two units and converts. In a tool result a value hidden by ANSI codes or zero-width characters has the span of its original text, those characters included |
@@ -300,6 +302,32 @@ for leaf, m in findings_by_leaf(detector, response):     # layout "lines", the d
   one pass over the strings and the findings. A value JSON cannot hold raises `TypeError`, a cycle `ValueError`.
 - `tests/test_detection_leaves.py` holds these points.
   So a password and a first and last name reach such an element; a single surname alone in it stays as it is.
+
+## A deadline: stop a scan in time (since 0.8.24)
+
+`Detector.findings(text, ..., deadline=)` and `leaves.findings_by_leaf(detector, obj, ..., deadline=)` take a
+`time.monotonic()` value, as `findings_with()` does for the remote step. Without it nothing changes.
+
+Past the deadline the scan stops between rules, between its steps (the personal data, the cleaned copy, the terms)
+and between record segments. It raises `maisecrets.detection.ScanIncomplete`:
+
+- `findings`: what it found so far, in the call's return shape and offsets (`Match` for `findings()`,
+  `(leaf, Match)` for `findings_by_leaf()`);
+- `reason`: `"deadline"`;
+- `read` (`findings_by_leaf()` only): the leaves whose findings in `findings` are complete. Their segment ran to its
+  end. A copy of a string, and the nodes of a joined sentence whose sentence was not read, are not in it. A value
+  found only in a leaf outside `read` is not spread into the leaves in it. `None` for `findings()`.
+
+The text after the last finding is not scanned by every rule. A caller treats the rest as unscanned, for example
+with its own patterns.
+
+One rule's regex on one text cannot be interrupted, so a scan can pass its deadline by its slowest single step.
+Measured on the reference host (AMD EPYC 9645, 2026-11-05), five runs per budget of 0.05 to 1 s:
+
+| Input | Whole scan | Time past the deadline |
+|---|---:|---:|
+| 1 MB tool text, `findings()` | 9.2 s | at most 109 ms, median 5 to 53 ms |
+| Slack history of 88 KB JSON, `findings_by_leaf()` | 0.32 s | under 1 ms |
 
 ## A remote detector (optional)
 
