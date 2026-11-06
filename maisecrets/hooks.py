@@ -50,9 +50,10 @@ from .shell_commands import (  # noqa: F401
 )
 from .tool_output import (  # noqa: F401
     _TOKEN_SPLIT_RE, _FINE_SPLIT_RE, _EXACT_MIN_LEN, _candidates, _HEX_RE, _B64_RE, _decoded, _derived_forms,
-    _resolved_values, _inserted_values, _exact_redact, _raw_form, _TAGS_RE, _FLAG_TAGS, _VS_RE, _cjk, _selector_kept,
-    strip_hidden, _HIDDEN_BYTES_RE, _escaped_backslash, _mask_hidden_in_transcript, _BINARY_READ_TYPES, _DATA_URI_RE,
-    _IMAGE_MAGIC, _IMAGE_TRAILER, _is_image_data_uri, _binary_paths,
+    _resolved_values, _inserted_values, _exact_redact, _inside_server_values, _put_server_tokens, _raw_form, _TAGS_RE,
+    _FLAG_TAGS, _VS_RE, _cjk, _selector_kept, strip_hidden, _HIDDEN_BYTES_RE, _escaped_backslash,
+    _mask_hidden_in_transcript, _BINARY_READ_TYPES, _DATA_URI_RE, _IMAGE_MAGIC, _IMAGE_TRAILER, _is_image_data_uri,
+    _binary_paths,
 )
 from .guarded_paths import (  # noqa: F401
     _is_ssh_config_path, _names_a_guarded_file, _holds_a_guarded_folder, _a_guarded_path, _identity, _abs,
@@ -2625,6 +2626,7 @@ def post_tool(payload: dict) -> dict:
     values: list[str] = []
     entries: list = []
     resolved: list[tuple[str, str]] | None = None
+    short_server: list[tuple[str, str]] = []
 
     tool_input = payload.get("tool_input") if isinstance(payload.get("tool_input"), dict) else {}
     path = str(tool_input.get("file_path") or tool_input.get("notebook_path") or "")   # a test file keeps its fixtures
@@ -2643,7 +2645,7 @@ def post_tool(payload: dict) -> dict:
     _rl.note_result(layer)
 
     def redact(s: str) -> str:
-        nonlocal vault, resolved
+        nonlocal vault, resolved, short_server
         if strip:
             # before the detector: a value spelled in tag characters goes with them, and no shape spans a gap
             s, gone, runs = strip_hidden(s)
@@ -2656,9 +2658,20 @@ def post_tool(payload: dict) -> dict:
         if vault is None:
             vault = Vault(cfg)
             resolved = _resolved_values(vault, session)
+            from . import vault_refs
+            # the server values the exact redaction does not hunt: under 8 characters, or a word such as a name
+            short_server = [(v, r) for v, r in vault_refs.released(vault.backend, session)
+                            if v and (len(v) < _EXACT_MIN_LEN or detect.reads_as_word(v))]
         out = s
         if matches and _has_live(cfg):
+            matches, server_hits = _inside_server_values(s, matches, resolved, short_server)
             matches = _longest_wins(s, matches, vault, session, resolved)    # (C26)
+            if server_hits:
+                # an unhunted server value (short, or a word) only at the place a rule found it
+                s, matches, put = _put_server_tokens(s, matches, server_hits)
+                out = s
+                hit["n"] += len(put)
+                values.extend(put)
         if matches:
             out, ents = _replace(s, matches, vault, session, tool=True)
             hit["n"] += len(matches)

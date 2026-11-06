@@ -6,5 +6,7 @@ runner = ["tests/test_vault_refs.py::Online::test_a_value_echoed_by_a_command_is
 
 [proof]
 file = "maisecrets/tool_output.py"
-find = '''    out.extend((v, t) for v, t in vault_refs.released(vault.backend, session)'''
-replace = '''    out.extend((v, t) for v, t in []'''
+find = '''    for v, t in vault_refs.released(vault.backend, session):
+'''
+replace = '''    for v, t in []:
+'''

@@ -308,8 +308,8 @@ for leaf, m in findings_by_leaf(detector, response):     # layout "lines", the d
 `Detector.findings(text, ..., deadline=)` and `leaves.findings_by_leaf(detector, obj, ..., deadline=)` take a
 `time.monotonic()` value, as `findings_with()` does for the remote step. Without it nothing changes.
 
-Past the deadline the scan stops between rules, between its steps (the personal data, the cleaned copy, the terms)
-and between record segments. It raises `maisecrets.detection.ScanIncomplete`:
+Past the deadline the scan stops between rules, between the hits of a rule (since 0.8.25), between its steps (the
+personal data, the cleaned copy, the terms) and between record segments. It raises `maisecrets.detection.ScanIncomplete`:
 
 - `findings`: what it found so far, in the call's return shape and offsets (`Match` for `findings()`,
   `(leaf, Match)` for `findings_by_leaf()`);
@@ -321,7 +321,9 @@ and between record segments. It raises `maisecrets.detection.ScanIncomplete`:
 The text after the last finding is not scanned by every rule. A caller treats the rest as unscanned, for example
 with its own patterns.
 
-One rule's regex on one text cannot be interrupted, so a scan can pass its deadline by its slowest single step.
+One rule's regex on one text cannot be interrupted, so a scan can pass its deadline by its slowest single step. A
+`References` you give is asked during the work on each hit: a slow one adds its own time per hit, but past the
+deadline only the hit in work still asks it (before 0.8.25 every hit of the running rule did).
 Measured on the reference host (AMD EPYC 9645, 2026-11-05), five runs per budget of 0.05 to 1 s:
 
 | Input | Whole scan | Time past the deadline |

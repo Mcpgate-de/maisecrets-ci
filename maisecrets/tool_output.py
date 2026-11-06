@@ -4,6 +4,7 @@ a transcript, and the places of a result that hold a file as base64. hooks.py im
 hooks.<name> is the same object."""
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import re
@@ -133,9 +134,81 @@ def _resolved_values(vault: Vault, session: str | None, prompt: bool = False) ->
     from . import vault_refs
     # the values a server gave this session; a short one or a word would rewrite every output that holds it
     # ("true" inside "construed"), so those are not hunted (Fable review, round 3)
-    out.extend((v, t) for v, t in vault_refs.released(vault.backend, session)
-               if len(v) >= _EXACT_MIN_LEN and not detect.reads_as_word(v))
+    for v, t in vault_refs.released(vault.backend, session):
+        if len(v) >= _EXACT_MIN_LEN and not detect.reads_as_word(v):
+            out.append((v, t))
+        elif v:
+            # its encoded forms are no word: `| base64` of a short address went out in clear (Codex review,
+            # 2026-11-06). The value itself stays unhunted; a rule hit of it gets the token (hooks._put_server_tokens)
+            out.extend((_Form(f), t) for f in _derived_forms(v) if f != v and not detect.reads_as_word(f))
     return out
+
+
+def _inside_server_values(text: str, matches: list, resolved: list | None, short: list) -> tuple[list, list]:
+    """The hits without those inside a value a server gave this session (a Sensitive Reference): the exact
+    redaction gives that value back as the same reference. A rule hit made it a new placeholder of this computer
+    and stored the value here. A hit that reaches into a value and past it becomes one hit with the whole value.
+    short: (value, token) of the server values the exact redaction does not hunt (under 8 characters, or a word); a
+    hit that is one of them exactly goes to the second list with its token (_put_server_tokens puts the token at the
+    place of the hit)."""
+    spans: list = []
+    for value, ref in resolved or []:
+        if not ref.startswith("⟦sref:"):
+            continue
+        for form in _resolved_forms(value):
+            at = text.find(form)
+            while at >= 0:
+                spans.append((at, at + len(form)))
+                at = text.find(form, at + 1)
+    tokens = dict(short)
+    # inside a longer server value first: a short one taken there cut the longer one, and its rest went out in clear
+    # (Codex review, round 4)
+    outside = [m for m in matches if not any(a <= m.start and m.end <= b for a, b in spans)]
+    # a short one that touches a longer one is no short one: it grows with the longer one below (round 6)
+    taken = [(m, tokens[m.value]) for m in outside if m.value in tokens
+             and not any(a < m.end and m.start < b for a, b in spans)]
+    rest: list = []
+    for m in sorted((m for m in outside if not any(m is x for x, _ in taken)), key=lambda x: x.start):
+        # a hit that reaches into a server value takes the whole value with it: else it cut the value, and the exact
+        # redaction found the rest no more (Codex review, round 5)
+        a, b = m.start, m.end
+        grown = True
+        while grown:
+            cover = [(x, y) for x, y in spans if x < b and a < y and (x < a or b < y)]
+            grown = bool(cover)
+            a, b = min([a] + [x for x, _ in cover]), max([b] + [y for _, y in cover])
+        if rest and a < rest[-1].end:
+            last = rest.pop()
+            a, b = min(a, last.start), max(b, last.end)
+            m = last
+        rest.append(m if (a, b) == (m.start, m.end) else dataclasses.replace(m, value=text[a:b], start=a, end=b))
+    return rest, taken
+
+
+def _put_server_tokens(text: str, matches: list, taken: list) -> tuple[str, list, list]:
+    """The hits of `taken` replaced by their server tokens at the place the hit stands, and the other hits moved to
+    their place in the new text. A taken hit that overlaps another hit becomes one hit with it: it is replaced, only
+    not with the server's token."""
+    def meets(m, others) -> bool:
+        return any(o is not m and o.start < m.end and m.start < o.end for o in others)
+    every = list(matches) + [m for m, _ in taken]
+    kept = sorted(((m, ref) for m, ref in taken if not meets(m, every)), key=lambda p: p[0].start)
+    rest: list = []
+    for m in sorted(list(matches) + [m for m, _ in taken if meets(m, every)], key=lambda x: x.start):
+        if rest and m.start < rest[-1].end:
+            last = rest.pop()
+            a, b = last.start, max(last.end, m.end)
+            m = dataclasses.replace(last, value=text[a:b], start=a, end=b)
+        rest.append(m)
+    out, at, shift = [], 0, []
+    for m, ref in kept:
+        out += [text[at:m.start], ref]
+        shift.append((m.end, len(ref) - (m.end - m.start)))
+        at = m.end
+    out.append(text[at:])
+    moved = [dataclasses.replace(o, start=o.start + d, end=o.end + d)
+             for o in rest for d in [sum(x for e, x in shift if e <= o.start)]]
+    return "".join(out), moved, [m.value for m, _ in kept]
 
 
 def _inserted_values(text: str, vault: Vault, prompt: bool = False) -> list[tuple[str, str]]:
@@ -159,9 +232,15 @@ def _inserted_values(text: str, vault: Vault, prompt: bool = False) -> list[tupl
     return out
 
 
+class _Form(str):
+    """An encoded form of a value, already derived: _resolved_forms takes it as it is and does not encode it again."""
+
+
 def _resolved_forms(value: str) -> list[str]:
     """The forms of a value this session resolved that the exact match replaces: the derived forms, and a value of
     4 to 7 characters as it is."""
+    if isinstance(value, _Form):
+        return [str(value)]
     forms = _derived_forms(value)
     if value and 4 <= len(value) < _EXACT_MIN_LEN:
         forms.append(value)       # 4 to 7 characters: everywhere, also between letters
@@ -216,11 +295,39 @@ def _exact_redact(text: str, vault: Vault, session: str | None, hit: dict, entri
     match is by keyed fingerprint of each token, so no value is read from the store; the
     values this session itself resolved are matched as substrings in every derived form."""
     out = text
+    # every form of every value, longest first over all values: a shorter value replaced first inside a longer one
+    # left the rest of the longer one in clear (Codex review, 2026-11-06)
+    # a value this session itself put in is no guess: it goes at any length. The 8-character floor of
+    # _derived_forms is for the encoded forms and the fingerprint search below; a 6-character password
+    # stored with `put` came back to the model in plain text (external review, 2026-09-28)
+    spans: list = []
     for value, ref in resolved or []:
-        # a value this session itself put in is no guess: it goes at any length. The 8-character floor of
-        # _derived_forms is for the encoded forms and the fingerprint search below; a 6-character password
-        # stored with `put` came back to the model in plain text (external review, 2026-09-28)
-        forms = _resolved_forms(value)
+        for form in _resolved_forms(value):
+            at = out.find(form)
+            while at >= 0:
+                spans.append((at, at + len(form), ref, form))
+                at = out.find(form, at + 1)
+    # all places in the text as it came, joined where they overlap: one replaced first cut a value that overlaps it,
+    # and its rest stayed in clear (Codex review, round 6). A joined place gets the references of its outer values
+    groups: list = []
+    for span in sorted(spans, key=lambda s: (s[0], -s[1])):
+        if groups and span[0] < groups[-1][1]:
+            groups[-1][1] = max(groups[-1][1], span[1])
+            groups[-1][2].append(span)
+        else:
+            groups.append([span[0], span[1], [span]])
+    for a, b, members in reversed(groups):
+        outer = [s for s in members if not any(o is not s and o[0] <= s[0] and s[1] <= o[1]
+                                               and (o[0], o[1]) != (s[0], s[1]) for o in members)]
+        # two values with the same text at one place: the first one's reference
+        first: dict = {}
+        for s in outer:
+            first.setdefault(s[:2], s[2])
+        out = out[:a] + "".join(dict.fromkeys(first.values())) + out[b:]
+        hit["n"] += 1
+        if values is not None:
+            values.extend(f for f in dict.fromkeys(s[3] for s in members) if f not in values)
+    for value, ref in resolved or []:
         if value and len(value) < 4:
             # under 4 characters only where no letter or digit stands next to it: a plain substring replace
             # of `a` broke every word of the output (Codex review, 2026-09-28)
@@ -230,13 +337,6 @@ def _exact_redact(text: str, vault: Vault, session: str | None, hit: dict, entri
                 hit["n"] += n
                 if values is not None and value not in values:
                     values.append(value)
-        for form in sorted(forms, key=len, reverse=True):
-            if form in out:
-                n = out.count(form)
-                out = out.replace(form, ref)
-                hit["n"] += n
-                if values is not None and form not in values:
-                    values.append(form)
     live = vault.live_fingerprints(prompt)   # a typed prompt does not hunt a quiet entry (Entry.quiet)
     if not live:
         return out

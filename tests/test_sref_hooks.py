@@ -107,6 +107,122 @@ class SrefBashTests(unittest.TestCase):
         self.assertNotIn(VALUE, upd)
         self.assertIn(self.ref, upd, "the canonical reference: the display part is not trusted")
 
+    def echo(self, given: list, printed: str) -> tuple[str, list, dict]:
+        """The gateway shows each (kind, value) of `given` as a reference, a command resolves each one in turn, and a
+        later command prints `printed`: the redacted output, the tokens, and the local index."""
+        refs = [self.srv.mint(kind, value) for kind, value in given]
+        self.login()
+        for ref in refs:
+            hooks._post_tool_guarded({"tool_name": "mcp__gw__gitlab_read_actions", "session_id": "s1", **CLAUDE,
+                                      "mcp_server": {"name": "gw", "source": "user"}, "tool_input": {"iid": 8},
+                                      "tool_response": {"content": [{"type": "text", "text": "author: " + ref}]}})
+            self.run_command(f"printf 'got:%s' {ref}")
+        hooks._live_cache.clear()
+        out = hooks._post_tool_guarded({"tool_name": "Bash", "session_id": "s1", **CLAUDE,
+                                        "tool_input": {"command": "printf 'from: %s' x"},
+                                        "tool_response": {"stdout": f"from: {printed}\n", "stderr": ""}})
+        # no rewrite at all: the output went out as it was
+        upd = json.dumps(out.get("hookSpecificOutput", {}).get("updatedToolOutput", printed), ensure_ascii=False)
+        index = json.loads((HOME / "index.json").read_text()) if (HOME / "index.json").exists() else {}
+        return upd, refs, index.get("entries") or {}
+
+    def test_an_echo_of_an_address_the_rules_find_comes_back_as_the_reference_and_is_not_stored(self):
+        # the gateway pilot (2026-11-06): an address the email rule finds came back as a new local EMAIL placeholder,
+        # stored on this computer, where the gateway's audit and sink check do not reach it. example.org is no
+        # address to the rules, so the test above never took that way
+        found = "jana." + "weber" + "@" + "nordwind" + "-post.de"
+        upd, refs, entries = self.echo([("email", found)], found)
+        self.assertNotIn(found, upd)
+        self.assertIn(refs[0], upd, "the reference the gateway sent, not a placeholder of this computer")
+        self.assertNotIn("EMAIL_c", upd)
+        self.assertEqual([k for k in entries if k.startswith("EMAIL")], [],
+                         "no local entry for a value the gateway holds")
+
+    def test_a_server_value_inside_a_longer_one_does_not_cut_the_longer_one(self):
+        # Codex review (2026-11-06): the domain, released first, was replaced first inside the address, and the rest
+        # of the address went out in clear
+        domain = "post" + "-k7Qx92ab.de"           # no word: the exact redaction hunts it
+        found = "jana." + "weber" + "@" + domain
+        upd, refs, _ = self.echo([("domain", domain), ("email", found)], found)
+        self.assertNotIn("jana.", upd)
+        self.assertIn(refs[1], upd)
+
+    def test_a_short_server_value_the_rules_find_comes_back_as_the_reference(self):
+        # Codex review (2026-11-06): a value under 8 characters is not hunted as a substring, so the rule hit made it
+        # a local IP placeholder
+        ip = "9.8." + "7.6"
+        upd, refs, entries = self.echo([("ip", ip)], f"host {ip} up")
+        self.assertNotIn(ip, upd)
+        self.assertIn(refs[0], upd)
+        self.assertEqual([k for k in entries if k.startswith("IP")], [])
+
+    def test_a_server_name_a_name_service_finds_comes_back_as_the_reference(self):
+        # Codex review, round 2 (2026-11-06): a word such as a first name is not hunted as a substring either, so a hit
+        # of the name service made it a local NAME placeholder. The name service stands in as an extra hit here
+        import dataclasses
+        from maisecrets import detect
+        name = "Alex" + "andra"
+        template = detect.scan("author: Ann " + "Testerin", channel="tool")[0]
+        real = detect.scan
+
+        def with_name(s, *a, **k):
+            at = s.find(name)
+            extra = [dataclasses.replace(template, kind="name", value=name, start=at, end=at + len(name))]
+            return real(s, *a, **k) + (extra if at >= 0 else [])
+        with mock.patch.object(detect, "scan", with_name):
+            upd, refs, entries = self.echo([("name", name)], f"by {name} today")
+        self.assertTrue(detect.reads_as_word(name), "the premise: the exact redaction does not hunt it")
+        self.assertNotIn(name, upd)
+        self.assertIn(refs[0], upd)
+        self.assertEqual([k for k in entries if k.startswith("NAME")], [])
+
+    def test_a_short_server_value_in_base64_comes_back_as_the_reference(self):
+        # Codex review, round 3 (2026-11-06): the encoded forms of a short value were not hunted either
+        import base64
+        ip = "9.8." + "7.6"
+        b64 = base64.b64encode(ip.encode()).decode()
+        upd, refs, _ = self.echo([("ip", ip)], f"blob {b64} end")
+        self.assertNotIn(b64.rstrip("="), upd)
+        self.assertIn(refs[0], upd)
+
+    def test_a_short_server_value_inside_a_longer_one_does_not_cut_the_longer_one(self):
+        # Codex review, round 4 (2026-11-06): the IP rule hit inside the longer value took the IP's token first, and
+        # the rest of the longer value went out in clear
+        ip = "9.8." + "7.6"
+        longer = "hostq7Z-" + ip + "-k2Wx"
+        upd, refs, _ = self.echo([("ip", ip), ("host", longer)], longer)
+        self.assertNotIn("hostq7Z", upd)
+        self.assertNotIn("k2Wx", upd)
+        self.assertIn(refs[1], upd)
+
+    def test_a_hit_that_reaches_into_a_server_value_takes_the_whole_value(self):
+        # Codex review, round 5 (2026-11-06): a hit from the middle of the value past its end cut it, and the exact
+        # redaction found the first part no more
+        import dataclasses
+        from maisecrets import detect
+        value = "k7Qx92ab" + "-hostq"
+        cross = "hostq:tail9"
+        template = detect.scan("author: Ann " + "Testerin", channel="tool")[0]
+        real = detect.scan
+
+        def with_cross(s, *a, **k):
+            at = s.find(cross)
+            extra = [dataclasses.replace(template, kind="name", value=cross, start=at, end=at + len(cross))]
+            return real(s, *a, **k) + (extra if at >= 0 else [])
+        with mock.patch.object(detect, "scan", with_cross):
+            upd, _, _ = self.echo([("host", value)], f"id {value}:tail9 end")
+        self.assertNotIn("k7Qx92ab", upd)
+        self.assertNotIn("tail9", upd)
+
+    def test_a_short_server_value_that_touches_a_longer_one_does_not_cut_it(self):
+        # Codex review, round 6 (2026-11-06): the IP hit at the end of a longer value took its token, and the start of
+        # the longer value went out in clear
+        ip = "9.8." + "7.6"
+        longer = "k7Qx92ab-" + "9.8."
+        upd, _, _ = self.echo([("ip", ip), ("host", longer)], "k7Qx92ab-" + ip)
+        self.assertNotIn("k7Qx92ab", upd)
+        self.assertNotIn("7.6", upd)
+
     def test_another_session_gets_a_reason_and_the_gateway_is_not_asked(self):
         self.login()
         self.result("s1")
@@ -281,6 +397,71 @@ class SrefBashTests(unittest.TestCase):
         self.assertIn("sref:email:" + rid[:4], audit)
         self.assertNotIn(rid, audit)
 
+
+
+class ServerFormTests(unittest.TestCase):
+    def test_an_encoded_form_of_a_short_server_value_is_not_encoded_again(self):
+        # Codex review, round 5: each form was taken for a value and encoded once more (base64 of base64)
+        from maisecrets import tool_output
+        form = tool_output._Form("OS44Ljcu" + "Ng==")
+        self.assertEqual(tool_output._resolved_forms(form), [str(form)])
+
+
+class OverlapTests(unittest.TestCase):
+    """tool_output._exact_redact on values that overlap in the text (Codex review, round 6)."""
+
+    class NoStore:
+        def live_fingerprints(self, prompt=False):
+            return {}
+
+    def redact(self, text: str, resolved: list) -> str:
+        from maisecrets import tool_output
+        return tool_output._exact_redact(text, self.NoStore(), "s1", {"n": 0}, [], resolved, [])
+
+    def test_two_values_that_overlap_leave_no_part_in_clear(self):
+        a, b = "AA11BB" + "22CC", "22CC" + "DD33EE"
+        out = self.redact(f"x {a}DD33EE y", [(a, "<A>"), (b, "<B>")])
+        self.assertEqual(out, "x <A><B> y")
+
+    def test_a_value_inside_a_longer_one_gives_the_longer_one_only(self):
+        a, b = "q7Zk" + "-AA11BB22CC-w", "AA11BB" + "22CC"
+        self.assertEqual(self.redact(f"x {a} y", [(b, "<B>"), (a, "<A>")]), "x <A> y")
+
+    def test_one_value_that_overlaps_itself_leaves_no_part_in_clear(self):
+        v = "abab" + "abab"
+        self.assertEqual(self.redact("x ababababab y", [(v, "<V>")]), "x <V> y")
+
+
+class PutServerTokensTests(unittest.TestCase):
+    """hooks._put_server_tokens: a server token goes at the place of the rule hit, and no part of a hit stays in
+    clear (Codex review, round 3: a whole-word search found no word in xNAMEy, and the dropped hit went out)."""
+
+    def hit(self, text: str, value: str, kind: str = "name"):
+        import dataclasses
+        from maisecrets import detect
+        template = detect.scan("author: Ann " + "Testerin", channel="tool")[0]
+        at = text.index(value)
+        return dataclasses.replace(template, kind=kind, value=value, start=at, end=at + len(value))
+
+    def test_a_hit_between_letters_gets_its_token(self):
+        name = "Alex" + "andra"
+        text = f"x{name}y"
+        out, rest, put = hooks._put_server_tokens(text, [], [(self.hit(text, name), "<REF>")])
+        self.assertEqual(out, "x<REF>y")
+        self.assertEqual((rest, put), ([], [name]))
+
+    def test_the_other_hits_move_to_their_place_in_the_new_text(self):
+        name, other = "Alex" + "andra", "Bern" + "hardine"
+        text = f"{name} and {other}"
+        out, rest, _ = hooks._put_server_tokens(text, [self.hit(text, other)], [(self.hit(text, name), "<REF>")])
+        self.assertEqual([out[m.start:m.end] for m in rest], [other])
+
+    def test_a_taken_hit_that_overlaps_another_becomes_one_hit_with_it(self):
+        text = "id Alexandra" + "Bern end"
+        a, b = self.hit(text, "Alexandra"), self.hit(text, "andraBern")
+        out, rest, put = hooks._put_server_tokens(text, [b], [(a, "<REF>")])
+        self.assertEqual((out, put), (text, []))
+        self.assertEqual([(m.start, m.end) for m in rest], [(3, 3 + len("AlexandraBern"))])
 
 if __name__ == "__main__":
     unittest.main()

@@ -158,6 +158,12 @@ and OpenAI plugin directories.
   that the runtime directories of the tag are the measured trees. If one differs, the results are no baseline and the
   gate runs again on the tag. Why: until 0.7.6 the baseline was measured again after the release, 40 minutes for the
   same code, and the repository had it one release late (2026-10-22).
+- **A baseline merge request runs only the checks of its files.** Its branch is `chore/baseline-<version>`, and the
+  job `baseline_only` passes it only when every changed path is `bench/results/<run>/…`, `bench/HOLDOUT-LOG.md` or
+  `docs/coverage.json` (`scripts/baseline_only.py`). Then it runs the three test modules that read those files.
+  The long jobs (unit, Python 3.9, the replay, both harnesses, the Windows and macOS matrix) skip it; the release
+  merge request after it runs them on the same code. Why: a baseline ran the whole suite, 11 to 19 minutes and about
+  54 CPU minutes on the runner, three times on 2026-11-05.
   Why: 0.7.6 lost a phone number on Nemotron's holdout split that a measurement of `dev` and `val` before the
   merge could not see; Benchmark V3 on the release found it (2026-10-22).
 

@@ -92,6 +92,29 @@ class DeadlineTests(unittest.TestCase):
         self.assertEqual(spans(D.findings(self.t, channel="tool")), self.full)   # no deadline left behind
 
 
+class SlowCallbackTests(unittest.TestCase):
+    """A References callback the caller gives runs once per hit. A slow one carried a scan far past its deadline,
+    because the deadline was checked between rules only (a gateway callback: 185 s against a 10 s deadline)."""
+
+    def test_the_scan_stops_within_one_hit_after_the_deadline(self):
+        from maisecrets.detection import References
+        clock = {"now": 1000.0}
+        late = []
+
+        class Slow(References):
+            def hit_is_a_reference(self, text, start, secret):
+                clock["now"] += 1.0                  # each call takes a second
+                if clock["now"] > 1003.0:
+                    late.append(start)
+                return False
+
+        det = Detector(regions=Active(regions=("generic", "de", "us"), languages=("en", "de"), source="slow"),
+                       references=Slow())
+        with mock.patch.object(core.time, "monotonic", lambda: clock["now"]), self.assertRaises(ScanIncomplete):
+            det.findings(text(), channel="tool", deadline=1003.0)
+        self.assertLessEqual(len(late), 1, "calls after the deadline")
+
+
 class LeafDeadlineTests(unittest.TestCase):
     def setUp(self):
         self.obj = {"messages": [{"user": "U" + rnd(8, string.digits), "text": line}

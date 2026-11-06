@@ -18,8 +18,8 @@ runner = [
 [[proof]]
 path = "the encodings of a value this session resolved"
 file = "maisecrets/tool_output.py"
-find = "        for form in sorted(forms, key=len, reverse=True):\n"
-replace = "        for form in []:\n"
+find = "        for form in _resolved_forms(value):\n            at = out.find(form)\n"
+replace = "        for form in []:\n            at = out.find(form)\n"
 
 [[proof]]
 path = "JSON escaped twice (a JSON document in an MCP text)"
