@@ -80,6 +80,28 @@ class LeafRecordTests(unittest.TestCase):
                 self.assertEqual([t for _p, t in self.found(obj) if t == "PHONE"], [])
 
 
+class InternationalWithoutPlusTests(unittest.TestCase):
+    """A number in its international form without its +, as an API keeps it in a JSON number (ai-gateway #1763)."""
+
+    def test_it_is_a_phone_under_a_phone_field_or_after_a_phone_word(self):
+        intl = "49151" + "48291736"
+        for path in (("phone",), ("phone_cell",), ("phone", 0, "value")):
+            with self.subTest(path=path):
+                self.assertEqual(leaf(intl, *path), ["PHONE"])
+        self.assertEqual(hits("Telefon: " + intl), [("PHONE", intl)])
+        self.assertEqual(leaf("1415" + "8462291", "phone"), ["PHONE"], "the North American plan: 11 digits")
+
+    def test_a_timestamp_an_id_and_a_lost_trunk_zero_stay_text(self):
+        for value, path in (("15148" + "29173", ("phone",)),            # seconds, or a number without its 0
+                            ("17625" + "14829173", ("phone",)),         # milliseconds: 13 digits from 1
+                            ("49151" + "48291736", ("order_id",)),
+                            ("49111" + "11111111", ("phone",)),          # a specimen
+                            ("20261021" + "120000", ("fax",))):          # a timestamp from 20, a country code
+            with self.subTest(value=value, path=path):
+                self.assertEqual(leaf(value, *path), [])
+        self.assertEqual(hits("order 49151" + "48291736"), [])
+
+
 class PhoneSeriesTests(unittest.TestCase):
     def test_a_number_before_a_series_and_two_numbers_before_it_are_found(self):
         self.assertEqual(hits("Tel " + PHONE + " " + SERIES), [("PHONE", PHONE)])

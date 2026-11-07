@@ -1962,6 +1962,30 @@ _PHONE_GAP_END_RE = _lazy(r"(?i)(?:" + _PHONE_LABEL_WORDS + r"|number|no\.?|nr\.
                           r"|(?:" + _PHONE_LABEL_WORDS + r")" + _PHONE_NUMBER_WORD + r" for(?: \w{1,15}){1,2})$")
 
 
+# the country calling codes of ITU-T E.164 in use, by their first digits: codes of 1 digit (1, 7), of 2 and of 3
+_CC1 = frozenset("17")
+_CC2 = frozenset({"20", "27", "30", "31", "32", "33", "34", "36", "39", "40", "41", "43", "44", "45", "46", "47", "48",
+                  "49", "51", "52", "53", "54", "55", "56", "57", "58", "60", "61", "62", "63", "64", "65", "66", "81",
+                  "82", "84", "86", "90", "91", "92", "93", "94", "95", "98"})
+_CC3_HEADS = ("21", "22", "23", "24", "25", "26", "29", "35", "37", "38", "42", "50", "59", "67", "68", "69", "85",
+              "87", "88", "96", "97", "99")
+
+
+_DATE_HEAD_RE = _lazy(r"(?:19|20)\d\d(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])")
+
+
+def _e164_without_plus(d: str) -> bool:
+    """A number in its international form without its +, as an API stores it in a JSON number or a messenger id
+    (49 and the subscriber digits): 11 to 15 digits after a country calling code in use, and in the North American
+    plan (1) exactly 11. A timestamp in milliseconds (13 digits from 1) and a national number that lost its trunk 0
+    (10 digits, as the seconds of a timestamp) stay no number (ai-gateway #1763)."""
+    if not 11 <= len(d) <= 15 or d[0] == "0" or _DATE_HEAD_RE.match(d):
+        return False   # a date in front is a timestamp: fax: 20261021120000 (YYYYMMDDhhmmss)
+    if d[0] == "1":
+        return len(d) == 11 and d[1] not in "01" and d[4] not in "01"   # NANP: area code and exchange from 2
+    return d[0] in _CC1 or d[:2] in _CC2 or d[:2] in _CC3_HEADS
+
+
 def _national_phone_ok(v: str) -> bool:
     """7 to 15 digits in groups: not a date, a time, a version, an IP address, a range of years or a placeholder. A
     single run needs 10 to 12 digits, a pair of groups 9 or more; dots only in the North American 3.3.4 or in pairs."""
@@ -1974,7 +1998,7 @@ def _national_phone_ok(v: str) -> bool:
     # one run of digits: a national number starts with its trunk 0 (0171…, 030…), an international one with + (E.164);
     # a run without either is a timestamp, an order or a count (Telefon: 01714829173, 2026-10-21)
     national, e164 = v.startswith("0") and 10 <= len(d) <= 12, v.startswith("+") and 11 <= len(d) <= 15
-    if len(groups) == 1 and not (national or e164):
+    if len(groups) == 1 and not (national or e164 or (v[:1].isdigit() and _e164_without_plus(d))):
         return False
     tail = d[-7:]   # the subscriber part of one run: 01711111111 and 012345678901 are specimens
     if len(groups) == 1 and (len(set(tail)) <= 1 or tail in "0123456789" * 2 or tail in "9876543210" * 2):
