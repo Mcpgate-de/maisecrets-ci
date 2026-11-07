@@ -6,5 +6,7 @@ runner = ["tests/test_personal_after_its_label.py::PhoneAfterWordTests::test_a_n
 
 [proof]
 file = "maisecrets/detection/personal.py"
-find = '''    if "phone-after-phone-word" not in want or not any(w in low for w in _PHONE_WORDS):'''
-replace = '''    if True:'''
+find = '''    if "phone-after-phone-word" not in want:
+        return out'''
+replace = '''    if True:
+        return out'''

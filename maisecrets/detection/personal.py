@@ -26,6 +26,7 @@ import re
 from . import deadline as _deadline
 from .lazy_regex import LazyRx as _LazyRx
 from .text_index import field_end, field_start
+from .phone_forms import _DE_CALL_REGIONS, _PHONE_DE_CUE_RE, _PHONE_DE_NEXT_RE, _e164_without_plus
 
 # ---------------------------------------------------------------------------------------------------- types --
 NAME, ADDRESS, BIRTH_DATE, ID_NUMBER, USERNAME, PHONE = "NAME", "ADDRESS", "BIRTH_DATE", "ID_NUMBER", "USERNAME", \
@@ -1962,30 +1963,6 @@ _PHONE_GAP_END_RE = _lazy(r"(?i)(?:" + _PHONE_LABEL_WORDS + r"|number|no\.?|nr\.
                           r"|(?:" + _PHONE_LABEL_WORDS + r")" + _PHONE_NUMBER_WORD + r" for(?: \w{1,15}){1,2})$")
 
 
-# the country calling codes of ITU-T E.164 in use, by their first digits: codes of 1 digit (1, 7), of 2 and of 3
-_CC1 = frozenset("17")
-_CC2 = frozenset({"20", "27", "30", "31", "32", "33", "34", "36", "39", "40", "41", "43", "44", "45", "46", "47", "48",
-                  "49", "51", "52", "53", "54", "55", "56", "57", "58", "60", "61", "62", "63", "64", "65", "66", "81",
-                  "82", "84", "86", "90", "91", "92", "93", "94", "95", "98"})
-_CC3_HEADS = ("21", "22", "23", "24", "25", "26", "29", "35", "37", "38", "42", "50", "59", "67", "68", "69", "85",
-              "87", "88", "96", "97", "99")
-
-
-_DATE_HEAD_RE = _lazy(r"(?:19|20)\d\d(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])")
-
-
-def _e164_without_plus(d: str) -> bool:
-    """A number in its international form without its +, as an API stores it in a JSON number or a messenger id
-    (49 and the subscriber digits): 11 to 15 digits after a country calling code in use, and in the North American
-    plan (1) exactly 11. A timestamp in milliseconds (13 digits from 1) and a national number that lost its trunk 0
-    (10 digits, as the seconds of a timestamp) stay no number (ai-gateway #1763)."""
-    if not 11 <= len(d) <= 15 or d[0] == "0" or _DATE_HEAD_RE.match(d):
-        return False   # a date in front is a timestamp: fax: 20261021120000 (YYYYMMDDhhmmss)
-    if d[0] == "1":
-        return len(d) == 11 and d[1] not in "01" and d[4] not in "01"   # NANP: area code and exchange from 2
-    return d[0] in _CC1 or d[:2] in _CC2 or d[:2] in _CC3_HEADS
-
-
 def _national_phone_ok(v: str) -> bool:
     """7 to 15 digits in groups: not a date, a time, a version, an IP address, a range of years or a placeholder. A
     single run needs 10 to 12 digits, a pair of groups 9 or more; dots only in the North American 3.3.4 or in pairs."""
@@ -2277,7 +2254,16 @@ def _phone_word_hits(text: str, low: str, regions: tuple, want, prompt: bool = F
     channels, as its FORMS entry says. A typed prompt takes only a number after a phone label: a call cue there
     (`call the function at`, `contact the API team at`) blocked developer prompts (review, 2026-11-02)."""
     out: list = []
-    if "phone-after-phone-word" not in want or not any(w in low for w in _PHONE_WORDS):
+    if "phone-after-phone-word" not in want:
+        return out
+    if not prompt and "unter" in low and _DE_CALL_REGIONS.intersection(regions):
+        for m in _PHONE_DE_CUE_RE.finditer(text):
+            while m:
+                v = m.group(1).rstrip(" .-/")
+                if _national_phone_ok(v):
+                    out.append((m.start(1), m.start(1) + len(v), "phone-after-phone-word", PHONE))
+                m = _PHONE_DE_NEXT_RE.match(text, m.end(1))
+    if not any(w in low for w in _PHONE_WORDS):
         return out
     us = bool(_US_PHONE_REGIONS.intersection(regions))
     for rx in (_PHONE_TIGHT_RE,) if prompt else (_PHONE_TIGHT_RE, _PHONE_LOOSE_RE):

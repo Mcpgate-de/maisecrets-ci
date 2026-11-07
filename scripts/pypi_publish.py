@@ -5,11 +5,13 @@
 
 DIST holds the files the job `pypi_build` built once from the release commit, with their SHA256SUMS. This script:
 
-1. checks the files against SHA256SUMS and their version against the tag (CI_COMMIT_TAG);
+1. checks the files against SHA256SUMS and their version against the tag (CI_COMMIT_TAG, or GITHUB_REF_NAME of a
+   tag push);
 2. never overwrites: when the index has the version already, it succeeds only if every file there has the same sha256
    as here (a rerun of the same tag), and fails otherwise;
-3. exchanges the GitLab OIDC token (TESTPYPI_ID_TOKEN or PYPI_ID_TOKEN, `id_tokens` of the job) for a short-lived
-   upload token at the index's mint endpoint; no PyPI token is stored anywhere;
+3. exchanges the CI's OIDC token for a short-lived upload token at the index's mint endpoint; no PyPI token is
+   stored anywhere. GitLab: TESTPYPI_ID_TOKEN or PYPI_ID_TOKEN (`id_tokens` of the job). GitHub Actions (a job with
+   `permissions: id-token: write`): the token is requested with the audience of the index;
 4. uploads with twine (pinned in the job);
 5. waits until the index lists the version, compares the sha256 of each published file with the built one, installs
    `maisecrets==<version>` from the index into a fresh venv with --no-deps, and runs a detection there.
@@ -89,6 +91,30 @@ def decide(built: dict, on_index: dict | None) -> str:
     return "done" if on_index == built else "upload"
 
 
+def github_id_token(audience: str) -> str:
+    """The OIDC token of a GitHub Actions job for this audience, or "" outside such a job."""
+    url, bearer = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL"), os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+    if not url or not bearer:
+        return ""
+    req = urllib.request.Request(f"{url}&audience={audience}", headers={"Authorization": f"bearer {bearer}"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.load(r)["value"]
+
+
+def ci_tag() -> str:
+    """The tag of this pipeline: GitLab's CI_COMMIT_TAG, or the ref of a GitHub tag push. In a CI run that is no tag
+    pipeline nothing is published: it stops (Opus review: an empty tag skipped the version check)."""
+    if os.environ.get("CI_COMMIT_TAG"):
+        return os.environ["CI_COMMIT_TAG"]
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        if os.environ.get("GITHUB_REF_TYPE") != "tag":
+            raise SystemExit("this GitHub run is no tag push: nothing is published")
+        return os.environ.get("GITHUB_REF_NAME", "")
+    if os.environ.get("CI"):
+        raise SystemExit("this CI run is no tag pipeline: nothing is published")
+    return ""
+
+
 def mint_token(host: str, id_token: str) -> str:
     req = urllib.request.Request(f"{host}/_/oidc/mint-token", data=json.dumps({"token": id_token}).encode(),
                                  headers={"Content-Type": "application/json"}, method="POST")
@@ -156,7 +182,7 @@ def main(argv: list) -> int:
     idx, dist = INDEXES[argv[1]], Path(argv[2])
     built = built_files(dist)
     version = version_of(built)
-    tag = os.environ.get("CI_COMMIT_TAG", "")
+    tag = ci_tag()
     if tag and tag != f"v{version}":
         raise SystemExit(f"the files carry {version}, the tag is {tag}")
     state = decide(built, published(idx["host"], version))
@@ -164,9 +190,10 @@ def main(argv: list) -> int:
         raise SystemExit(f"{argv[1]} has other files under {PROJECT} {version}; a published version is never "
                          "replaced. Release a new version.")
     if state == "upload":
-        id_token = os.environ.get(idx["token_var"], "")
+        id_token = os.environ.get(idx["token_var"], "") or github_id_token(argv[1])
         if not id_token:
-            raise SystemExit(f"no {idx['token_var']}: the job needs `id_tokens` with the audience of {argv[1]}")
+            raise SystemExit(f"no OIDC token: on GitLab the job needs `id_tokens` {idx['token_var']} with the audience "
+                             f"{argv[1]}, on GitHub `permissions: id-token: write`")
         token = mint_token(idx["host"], id_token)
         env = dict(os.environ, TWINE_USERNAME="__token__", TWINE_PASSWORD=token, TWINE_NON_INTERACTIVE="1")
         on_index = published(idx["host"], version) or {}

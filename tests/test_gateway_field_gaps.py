@@ -102,6 +102,52 @@ class InternationalWithoutPlusTests(unittest.TestCase):
         self.assertEqual(hits("order 49151" + "48291736"), [])
 
 
+class GermanCallCueTests(unittest.TestCase):
+    """A phone field that holds a sentence (ai-gateway #1764): the number after a German call cue and `unter`."""
+
+    def test_a_number_after_a_call_cue_and_unter_is_found(self):
+        number = "030 " + "48291736"
+        for text in (f"erreichbar ab Montag unter {number}", f"Sie erreichen mich unter {number}.",
+                     f"Rufen Sie uns an unter {number}", f"bitte zurückrufen unter {number}"):
+            with self.subTest(text=text):
+                self.assertEqual(hits(text), [("PHONE", number)])
+        from maisecrets.detection.leaves import findings_by_leaf
+        found = [(leaf.path, m.type) for leaf, m in findings_by_leaf(D, {"notiz": f"erreichbar unter {number}"})]
+        self.assertEqual(found, [(("notiz",), "PHONE")], "a free-text field, not only a phone field")
+
+    def test_two_numbers_after_unter_are_two_hits(self):
+        # one span over both numbers left the subscriber digits of the second in the clear
+        second = "0171 " + "5829174"
+        self.assertEqual(hits("erreichbar unter 030 " + "48291736 " + second),
+                         [("PHONE", "030 " + "48291736"), ("PHONE", second)])
+
+    def test_unter_alone_a_date_or_a_number_that_is_no_phone_is_no_cue(self):
+        for text in ("Bestellung unter 030 " + "48291736 abholen", "erreichbar unter 2026 11 07",
+                     "erreichbar unter 0815-4711", "erreichbar unter 0 8080 8443"):
+            with self.subTest(text=text):
+                self.assertEqual([h for h in hits(text) if h[0] == "PHONE"], [])
+
+    def test_the_cue_needs_a_german_speaking_region_and_tool_output(self):
+        text = "erreichbar unter 030 " + "48291736"
+        us = Detector(regions=Active(regions=("generic", "us"), languages=("en", "de"), source="gaps-test"),
+                      sources=NO_SOURCES, references=NO_REFERENCES, host=Host(user="", year=2026))
+        self.assertEqual([m.type for m in D.findings(text, channel="tool")], ["PHONE"])
+        self.assertEqual([m.type for m in us.findings(text, channel="tool")], [])
+        # a typed prompt takes only a number after a phone label (Wir erreichen das Limit unter …)
+        self.assertEqual([m.type for m in D.findings(text, channel="prompt")], [])
+
+
+class CardAfterUuidTests(unittest.TestCase):
+    def test_a_card_right_after_a_uuid_is_found_whole(self):
+        # the card pattern started in the UUID's last group, Luhn refused that span, and the card stayed in the clear
+        card = "4508 " + "7194 0132 6529"
+        for uuid in ("550E8400-E29B-41D4-A716-" + "446655440000", "550e8400-e29b-41d4-a716-" + "446655440000"):
+            with self.subTest(uuid=uuid[:8]):
+                text = uuid + " " + card
+                self.assertEqual(hits(text), [("CARD", card)])
+                self.assertEqual(hits(uuid), [], "a UUID alone is no card")
+
+
 class PhoneSeriesTests(unittest.TestCase):
     def test_a_number_before_a_series_and_two_numbers_before_it_are_found(self):
         self.assertEqual(hits("Tel " + PHONE + " " + SERIES), [("PHONE", PHONE)])

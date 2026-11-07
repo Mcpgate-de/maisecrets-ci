@@ -959,6 +959,7 @@ PRESIDIO_LEFT_SUBFIELD = {"iban": "(?:(?<![A-Z0-9])|(?<=\\?[0-9]{2}))"}
 # numbers, all Luhn-valid, were covered only by chance, by the us-bank rule (2026-10-19). The first group takes those
 # two ranges too; the correction applies only to the upstream text it expects.
 _CARD_FIRST_UPSTREAM = r"((4\d{3})|(5[0-5]\d{2})|"
+_AFTER_UUID = r"(?<![0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-)"
 PRESIDIO_CARD_FIRST = {"credit-card": r"((4\d{3})|(5[0-5]\d{2})|(2(?:22[1-9]|2[3-9]\d|[3-6]\d\d|7[01]\d|720))|(2131)|"}
 
 
@@ -1004,7 +1005,10 @@ def _presidio_regex(rec_id: str, regex: str) -> str:
         # a Visa number of 19 digits (ISO/IEC 7812 allows 13, 16 and 19): Presidio's groups end at 17 digits, and
         # Mendeley's 2,081 such numbers (Luhn-valid, each after a card word) stayed in the clear (2026-10-20). It
         # keeps the rule's Luhn check and its card word: alone in a tool result the issuer check takes 16 digits only
-        return "(?:" + regex.replace(_CARD_FIRST_UPSTREAM, first) + r")|\b4\d{18}\b"
+        # never from the last group of a UUID: there the card pattern took its 12 hex digits and the first group of a
+        # card right after it, Luhn refused that span, and the scan went on behind the card's start, so the card stayed
+        # in the clear (ai-gateway #1764: "<UUID> 4508 …")
+        return _AFTER_UUID + "(?:(?:" + regex.replace(_CARD_FIRST_UPSTREAM, first) + r")|\b4\d{18}\b)"
     if rec_id == "ip" and regex.startswith(_IPV4_UPSTREAM):
         # name@[<v4>] is the e-mail rule's address, which runs after this rule; any other @[ keeps the IP rule
         return r"(?!(?<=[\w.+-]@\[)(?:\d{1,3}\.){3}\d{1,3}\])" + regex

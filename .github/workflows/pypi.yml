@@ -1,0 +1,93 @@
+# The detection core on TestPyPI and PyPI, published from the public mirror (docs/REPO-STANDARDS.md, "The detection
+# core on PyPI"). The deploy key of the GitLab mirror job (run from protected GitLab refs) and the org admins write
+# this repository. GitHub's environments `testpypi` and `pypi` (deployment rule: tags v*) and a tag ruleset are free for
+# a public repository; PyPI's GitHub publisher checks owner, repository, this workflow file and the environment.
+# The repository variable MAISECRETS_PYPI switches it: off (unset), testpypi, or pypi (TestPyPI, then PyPI).
+name: pypi
+on:
+  push:
+    tags: ["v*.*.*"]
+permissions:
+  contents: read
+concurrency:
+  group: pypi-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    if: ${{ vars.MAISECRETS_PYPI == 'testpypi' || vars.MAISECRETS_PYPI == 'pypi' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      # the tag of this push, with its history: wheel_smoke.py --release checks that HEAD is the tag of the version
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1   # v6
+        with:
+          python-version: "3.12"
+      # the checks of the GitLab job verify_release: the tag is on the release commit that the release job made
+      - run: python3 scripts/verify_release_commit.py "$GITHUB_REF_NAME" origin/main
+      # built once; the jobs below publish these files and nothing else
+      - run: |
+          pip install --quiet --no-cache-dir build==1.2.2
+          python -m build --sdist --wheel --outdir dist .
+          (cd dist && sha256sum *.whl *.tar.gz > SHA256SUMS && cat SHA256SUMS)
+          python scripts/wheel_smoke.py --wheel dist/*.whl --release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 90
+
+  testpypi:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/maisecrets/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1   # v6
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4
+        with:
+          name: dist
+          path: dist
+      - run: |
+          pip install --quiet --no-cache-dir twine==6.1.0
+          python scripts/pypi_publish.py --index testpypi dist
+
+  pypi:
+    # the files that TestPyPI took and served back
+    needs: [build, testpypi]
+    if: ${{ vars.MAISECRETS_PYPI == 'pypi' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: pypi
+      url: https://pypi.org/project/maisecrets/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1   # v6
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4
+        with:
+          name: dist
+          path: dist
+      - run: |
+          pip install --quiet --no-cache-dir twine==6.1.0
+          python scripts/pypi_publish.py --index pypi dist
