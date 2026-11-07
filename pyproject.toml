@@ -1,7 +1,7 @@
 # The detection core as a library (docs/DETECTION.md). The wheel holds maisecrets/__init__.py and
 # maisecrets/detection/ with its rule data, nothing of the plugin: a Detector built from it reads no home folder,
-# config or placeholder form of this computer. Not published to PyPI; scripts/wheel_smoke.py builds it and installs
-# it into a fresh venv.
+# config or placeholder form of this computer. scripts/wheel_smoke.py builds it and installs it into a fresh venv; the
+# tag pipeline publishes it to TestPyPI and PyPI (docs/REPO-STANDARDS.md, "The detection core on PyPI").
 [build-system]
 requires = ["hatchling==1.27.0"]
 build-backend = "hatchling.build"

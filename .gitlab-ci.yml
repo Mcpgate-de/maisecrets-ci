@@ -44,6 +44,8 @@ workflow:
 # carries every change since to the directory.
 variables:
   MAISECRETS_DIRECTORY_HOLD: "0"
+  # the PyPI publish of the detection core (jobs pypi_*): a project CI variable of the same name overrides it
+  MAISECRETS_PYPI: "off"
 
 default:
   image: python:3.12-slim
@@ -518,6 +520,64 @@ notify_marketplace:
   needs: [verify_release, plugin_validate, mirror_tag]
   script:
     - python scripts/notify_marketplace.py
+
+# The detection core on PyPI (pyproject.toml, docs/DETECTION.md): built once from the release commit of a tag,
+# tested as built, published to TestPyPI and then PyPI with Trusted Publishing (GitLab OIDC, no stored token), and
+# installed back from the index (scripts/pypi_publish.py). MAISECRETS_PYPI switches it: "off" (the default, until
+# the maintainer has the pending publishers), "testpypi", or "pypi" (TestPyPI first, then PyPI). The jobs need
+# nothing of the plugin release, and the plugin release needs none of them: a failing publish stops no release.
+.pypi_rules_build: &pypi_rules_build
+  - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/ && ($MAISECRETS_PYPI == "testpypi" || $MAISECRETS_PYPI == "pypi")
+
+pypi_build:
+  stage: test
+  interruptible: false
+  rules: *pypi_rules_build
+  # the release gates of mirror_tag: nothing goes to an index that the public mirror would not get
+  needs: [verify_release, plugin_validate, no_secrets_in_tree, manifests, lint]
+  script:
+    # git: wheel_smoke.py --release checks that HEAD is the tag of the version
+    - apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends git >/dev/null
+    - pip install --quiet --no-cache-dir build==1.2.2
+    - python -m build --sdist --wheel --outdir dist .
+    - (cd dist && sha256sum *.whl *.tar.gz > SHA256SUMS && cat SHA256SUMS)
+    # the wheel to publish is the one tested: the smoke installs this file, at its tag (--release)
+    - python scripts/wheel_smoke.py --wheel dist/*.whl --release
+  artifacts:
+    paths: [dist/]
+    expire_in: 90 days
+
+pypi_testpypi:
+  stage: mirror
+  interruptible: false
+  rules: *pypi_rules_build
+  needs: [pypi_build]
+  environment:
+    name: testpypi
+    url: https://test.pypi.org/project/maisecrets/
+  id_tokens:
+    TESTPYPI_ID_TOKEN:
+      aud: testpypi
+  script:
+    - pip install --quiet --no-cache-dir twine==6.1.0
+    - python scripts/pypi_publish.py --index testpypi dist
+
+pypi_publish:
+  stage: release
+  interruptible: false
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/ && $MAISECRETS_PYPI == "pypi"
+  # the same files that TestPyPI took and served back
+  needs: [pypi_build, pypi_testpypi]
+  environment:
+    name: pypi
+    url: https://pypi.org/project/maisecrets/
+  id_tokens:
+    PYPI_ID_TOKEN:
+      aud: pypi
+  script:
+    - pip install --quiet --no-cache-dir twine==6.1.0
+    - python scripts/pypi_publish.py --index pypi dist
 
 .mirror_base: &mirror_base
   stage: mirror
