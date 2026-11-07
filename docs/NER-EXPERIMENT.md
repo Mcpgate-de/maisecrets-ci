@@ -506,6 +506,35 @@ as they are (`"mask": false` in the setting); any other host always gets the fil
 
 The 0.7.3 rows of B2 are not this table's baseline: the rules changed since, so "rules alone" is measured again.
 
+## The wait grows with the text (2026-11-06)
+
+A day of `ner.log` on a laptop (the maintainer's, under the load of parallel test runs) showed the cost of a fixed
+300 ms: of the tool results under 2,000 characters 11 % went to the rules alone, of 2,000 to 10,000 characters
+94 %, and above 10,000 characters all of them. The service time grows with the length of the text, so the wait does
+too (`maisecrets/remote_layer.py`, `wait_ms`).
+
+Measured on netcup RS 2000 G12 (AMD EPYC 9645, Zen 5), `mcpgate/ner:latest` (image
+`sha256:36a043c0a426…`) with the production limits `--cpus 4 --memory 1536m`, a quiet host (load 0.01 before),
+one request at a time, synthetic German and English prose with names, 15 requests per size after 5 to warm up:
+
+| Characters | Median ms | p95 ms | Max ms | ms per 1,000 characters (median) |
+|---:|---:|---:|---:|---:|
+| 500 | 31.8 | 33.1 | 34.3 | 63.7 |
+| 1,000 | 57.6 | 59.6 | 60.2 | 57.6 |
+| 2,000 | 114.5 | 117.5 | 119.1 | 57.2 |
+| 5,000 | 276.1 | 288.4 | 288.7 | 55.2 |
+| 10,000 | 565.2 | 580.5 | 592.4 | 56.5 |
+| 15,000 | 841.5 | 909.6 | 966.9 | 56.1 |
+| 20,000 | 1,089.2 | 1,145.2 | 1,146.1 | 54.5 |
+
+The time is linear in the length, about 57 ms per 1,000 characters; even on this host 300 ms covers only about
+5,000 characters. So a tool result waits `timeout_ms + 1.5 × rate × characters / 1000`, at most `max_timeout_ms`
+(3,000 ms by default). The rate is the one this computer showed: the 90th percentile of its last 40 samples of
+500 characters or more, where a timeout counts with the time it waited, so a rate that was too low grows. Until
+there are five samples, the rate is 60 (the reference host, rounded up). The production host of the gateway is Zen 4.
+
+`max_chars` (20,000) is a separate limit: a longer text is not sent, and `ner.log` names it `too_long`.
+
 ## Repeat
 
 ```bash

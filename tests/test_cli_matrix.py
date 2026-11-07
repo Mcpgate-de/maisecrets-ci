@@ -663,7 +663,7 @@ class PopulationTests(unittest.TestCase):
 
     def test_every_cli_command_is_reachable_and_every_dispatched_one_exists(self):
         # mod-prompt is the question of the mod (claude-mod/maisecrets-mod.mjs), not a command of the CLI
-        dispatched = commands_in_dispatch() - {"pending", "session-start", "mod-prompt"}
+        dispatched = commands_in_dispatch() - {"pending", "session-start", "session-end", "mod-prompt"}
         self.assertEqual(sorted(dispatched - cli_commands()), [], "dispatch.py sends these to cli.main")
         # resolve is reached through hooks/resolve.py, which the Bash hook writes into a command
         self.assertEqual(sorted(cli_commands() - dispatched), ["resolve"])
@@ -1159,6 +1159,10 @@ class HookEventTests(unittest.TestCase):
         self.assertEqual((r.returncode, out["maisecrets"], out["text"]), (0, "mod-prompt", "password: ⟦SECRET_c1⟧"))
         self.assertNotIn(value, r.stdout + r.stderr)
         self.assertNotIn(value, (self.sb.home / "events.log").read_text())
+
+    def test_session_end_answers_nothing_through_the_dispatcher(self):
+        r = self.sb.run("session-end", stdin=json.dumps({"session_id": "S1", "reason": "logout"}))
+        self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
 
     def test_pre_tool_and_post_tool_answer_through_the_dispatcher(self):
         r = self.sb.run("pre-tool", stdin=json.dumps({"tool_name": "Bash", "tool_input": {"command": "ls"},

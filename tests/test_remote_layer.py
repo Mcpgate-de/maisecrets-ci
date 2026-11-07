@@ -34,7 +34,7 @@ def tearDownModule():  # noqa: N802 - unittest hook
 
 def _reset(**user) -> None:
     CONFIG.write_text(json.dumps({"backend": "jsonfile", "allow_plaintext_store": True, **user}))
-    for f in ("index.json", "vault.json", "audit.log", "events.log"):
+    for f in ("index.json", "vault.json", "audit.log", "events.log", "ner-rate.json"):
         try:
             os.unlink(Path(HOME, f))
         except FileNotFoundError:
@@ -145,6 +145,53 @@ class RemoteLayerTests(unittest.TestCase):
         self.assertNotIn(stored, sent)
         self.assertIn("_" * len(stored), sent)
         self.assertNotIn(stored, json.dumps(out), "premise: the hook masks it afterwards")
+
+    def test_a_long_tool_result_waits_longer_and_gets_its_names(self):
+        # 300 ms let a service on a laptop answer for almost no result above 2,000 characters (ner.log, #1764)
+        slow = Service("hf", answer=self.names, delay=0.6)
+        self.addCleanup(slow.close)
+        response = {"stdout": f"please ask {NAME} today\n" + "plain words of a log line\n" * 320, "stderr": ""}
+        for scales, masked in ((False, False), (True, True)):
+            with self.subTest(timeout_scales=scales):
+                _reset(remote_detector={"url": slow.url, "format": "hf", "timeout_ms": 300,
+                                        "timeout_scales": scales})
+                out = _out(_post(response))     # None: the output went out as it was, the name in it
+                self.assertEqual(out is not None and NAME not in json.dumps(out), masked)
+
+    def test_the_wait_grows_with_the_text_up_to_its_cap_and_the_rate_learns_from_this_computer(self):
+        from maisecrets import remote_layer as R
+        _reset()
+        self.assertEqual(R.rate(), R.DEFAULT_RATE, "no answer yet: the rate of the reference host")
+        self.assertEqual(R.wait_ms({"timeout_ms": 300}, 0), 300)
+        self.assertAlmostEqual(R.wait_ms({"timeout_ms": 300}, 10000), 300 + R.SAFETY * R.DEFAULT_RATE * 10)
+        self.assertEqual(R.wait_ms({"timeout_ms": 300}, 10 ** 6), R.MAX_TIMEOUT_MS)
+        self.assertEqual(R.wait_ms({"timeout_ms": 300, "max_timeout_ms": 10 ** 6}, 10 ** 6), 5000)
+        ok = type("S", (), {"available": True, "reason": "", "ms": 100.0})
+        for _ in range(R.RATE_MIN):
+            R.note_rate(10000, ok)                   # 10 ms per 1,000 characters on this computer
+        self.assertEqual(R.rate(), 10.0)
+        late = type("S", (), {"available": False, "reason": "timeout", "ms": 2000.0})
+        for _ in range(R.RATE_SAMPLES):
+            R.note_rate(10000, late)                 # a timeout counts with its wait: the rate grows
+        self.assertEqual(R.rate(), 200.0)
+        Path(HOME, "ner-rate.json").write_text(json.dumps([[500, 10 ** 400]] * 10))
+        self.assertEqual(R.rate(), R.DEFAULT_RATE, "a damaged file keeps the default rate")
+        Path(HOME, "ner-rate.json").unlink()
+
+    def test_the_log_names_why_the_rules_ran_alone(self):
+        from maisecrets import ner_setup
+        slow = Service("hf", answer=self.names, delay=1.0)
+        self.addCleanup(slow.close)
+        Path(HOME, "ner.log").unlink(missing_ok=True)
+        self.addCleanup(Path(HOME, "ner.log").unlink, True)
+        _reset(remote_detector={"url": slow.url, "format": "hf", "timeout_ms": 100, "timeout_scales": False})
+        _post({"stdout": f"ask {NAME}\n", "stderr": ""})
+        _reset(remote_detector={"url": self.svc.url, "format": "hf", "max_chars": 10})
+        _post({"stdout": f"ask {NAME} about the long text\n", "stderr": ""})
+        lines = [json.loads(x) for x in Path(HOME, "ner.log").read_text().splitlines()]
+        self.assertEqual([(d["source"], d.get("why")) for d in lines], [("rules", "timeout"), ("rules", "too_long")])
+        self.assertGreaterEqual(lines[0]["ms"], 90)
+        self.assertIn("rules 2 (too_long 1, timeout 1)", ner_setup.counts_line())
 
     def test_the_wait_is_capped_at_five_seconds(self):
         from maisecrets import remote_layer

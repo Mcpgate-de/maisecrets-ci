@@ -471,6 +471,19 @@ class StoreTests(_Base):
                 self.assertEqual(_prompt(text).get("decision"), None, "the normal prompt still goes out")
         self.assertFalse(Path(HOME, "index.json").exists())
 
+    def test_a_test_value_is_named_as_one_and_not_stored(self):
+        # a fixture word value after `passwort:` in a demo got "ordinary text"; the rules take it for a fixture (0.8.25)
+        want = check_value.NOT_CAUGHT + " " + check_value.TEST_VALUE + "\n\n" + check_value.NOT_SENT
+        for text in ("pass" + "wort: super" + "geheim123", "super" + "geheim123", "Super" + "Secret1",
+                     "pass" + "word=secret" + "123"):
+            with self.subTest(text[:6]):
+                self.assertEqual(_prompt(f"ms:({text})")["reason"], want)
+        # a word alone, and a label with no value, stay ordinary text
+        for text in ("pass" + "wort", "pass" + "wort:"):
+            with self.subTest(text):
+                self.assertIn("It looks like ordinary text", _prompt(f"ms:({text})")["reason"])
+        self.assertFalse(Path(HOME, "index.json").exists())
+
     def test_a_credential_without_a_shape_is_still_stored(self):
         # signs that code uses too ($ = < > ...) and letters only at random are credentials (Gate A and Gate B, round 1)
         for value in (UNSEEN, PASSWORD, "Sommer" + "2026!x", "K7#mQ2" + "vL9pZ", "aB3$kL9" + "!mQ2z",

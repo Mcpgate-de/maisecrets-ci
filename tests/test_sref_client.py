@@ -13,6 +13,7 @@ import shutil
 import ssl
 import sys
 import tempfile
+import time
 import unittest
 import urllib.request
 from pathlib import Path
@@ -129,6 +130,31 @@ class SrefClientTests(unittest.TestCase):
         self.assertNotEqual(old, new, "a new refresh token is kept")
         self.assertNotIn(old, self.srv.refresh, "the old refresh token is spent")
         self.assertIn(new, self.srv.refresh)
+
+    def test_two_sessions_that_refresh_at_once_present_the_refresh_token_once(self):
+        # the refresh token rotates: without the lock both processes present it, the second gets invalid_grant and
+        # the login is gone for both sessions (#1743 H2). Two processes, as two sessions are: the lock of one
+        # process is re-entrant, so threads would not show it
+        import subprocess
+        self.login()
+        self.srv.access.clear()                      # the stored access token is dead on the server for both
+        self.srv.refresh_delay = 0.5                 # both are inside the refresh before either keeps its pair
+        ref = self.srv.mint("email", VALUE_MAIL)
+        child = ("import json, sys, time\nsys.path.insert(0, sys.argv[1])\n"
+                 "from maisecrets import sref_client as S\nfrom maisecrets.vault import JsonFileBackend\n"
+                 "time.sleep(max(0.0, float(sys.argv[4]) - time.time()))\n"
+                 "try:\n    got = S.resolve(json.loads(sys.argv[2]), JsonFileBackend(), json.loads(sys.argv[3]), "
+                 "[sys.argv[5]], 'process', 'mail')\n"
+                 "    print('ok' if got == {sys.argv[5]: sys.argv[6]} else 'wrong')\n"
+                 "except S.Refused as exc:\n    print('refused', exc)\n")
+        start = str(time.time() + 1.5)
+        procs = [subprocess.Popen([sys.executable, "-c", child, str(ROOT), json.dumps(self.cfg),
+                                   json.dumps(self.found), start, ref, VALUE_MAIL],
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for _ in range(2)]
+        outs = [p.communicate(timeout=30) for p in procs]
+        self.assertEqual([o.strip() for o, _e in outs], ["ok", "ok"], [e[-300:] for _o, e in outs])
+        self.assertEqual(len(self.srv.refreshes), 1, "one refresh: the second session took the new pair")
+        self.assertTrue(S.logged_in(self.backend, self.found["origin"]))
 
     def test_only_a_400_invalid_grant_ends_the_login(self):
         ref = self.srv.mint("email", VALUE_MAIL)

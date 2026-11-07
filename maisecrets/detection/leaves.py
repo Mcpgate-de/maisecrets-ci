@@ -175,7 +175,8 @@ def _label(path: tuple) -> str:
     role = _role_label(path)
     if role:
         return role
-    return _key_label(next((part for part in reversed(path) if isinstance(part, str)), ""))
+    from .fields import named_key
+    return _key_label(named_key([part for part in path if isinstance(part, str)]))
 
 
 # a response repeats its keys in each record: the label of a key is worked out once per process. 65,536 keys: a cache

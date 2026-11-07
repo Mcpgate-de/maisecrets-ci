@@ -50,6 +50,9 @@ A_PLACEHOLDER_LINE = ("maisecrets: this is a maisecrets placeholder, not a value
 # past tense: a value the check stores is masked after the check, and "would NOT have caught" said the opposite
 NOT_CAUGHT = "⚠ maisecrets did not catch this value."
 ORDINARY = "It looks like ordinary text, so it was not stored. If it is a secret, store it with /maisecrets:put."
+TEST_VALUE = ("It looks like a test value: only words such as super, secret, geheim or test, and digits. Code and "
+              "tests are full of such values, so maisecrets does not mask them, also after a label such as "
+              "password:. It was not stored. If it is a real secret, store it with /maisecrets:put.")
 
 
 def exact(prompt) -> bool:
@@ -254,6 +257,16 @@ def _credential_word(v: str) -> bool:
     if _PLACEHOLDER_WORD_RE.search(v):
         return False
     return detect.bare_value_is_a_credential(v)
+
+
+def names_a_test_value(value: str) -> bool:
+    """The value, or the value after its label (`passwort: SuperSecret1`), is made of fixture words and digits, as
+    testpass and secret123: the rules leave it alone on purpose, and "ordinary text" sent the person the wrong way
+    (field report, 0.8.25). A word alone (`passwort`) stays ordinary text."""
+    from . import detect
+    from .detection.value_checks import _names_itself
+    last = re.split(r"[\s:=]+", value.strip())[-1]
+    return bool(last) and not detect.reads_as_word(last) and _names_itself(last)
 
 
 def looks_like_a_credential(value: str) -> bool:

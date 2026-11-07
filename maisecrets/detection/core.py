@@ -532,8 +532,10 @@ VALIDATORS = {
     "public_ip": _public_ip,
     "not_placeholder": lambda v: v.lower() not in {"placeholder", "changeme", "redacted", "example"}
     and not v.startswith("<"),
-    "person_email": lambda v: (v.split("@", 1)[0].lower() not in _SYSTEM_USERS and not _reserved_domain(v)
-                               and not _ssh_algorithm_name(v) and not _mail_shaped_id(v)),
+    # an IP literal (name@[<ip>]) is masked when the IP is public, also for a system mailbox: the IP names the host
+    "person_email": lambda v: (_public_ip(re.sub(r"(?i)^ipv6:", "", v[v.index("@[") + 2:-1])) if "@[" in v
+                               else v.split("@", 1)[0].strip('"').lower() not in _SYSTEM_USERS
+                               and not _reserved_domain(v) and not _ssh_algorithm_name(v) and not _mail_shaped_id(v)),
     # name%40firma.de in a URL query, a form body or an access log: the same address, percent-encoded
     "person_email_encoded": lambda v: VALIDATORS["person_email"](v.replace("%40", "@")),
     "us_ssn": _us_ssn_ok,
@@ -960,6 +962,19 @@ _CARD_FIRST_UPSTREAM = r"((4\d{3})|(5[0-5]\d{2})|"
 PRESIDIO_CARD_FIRST = {"credit-card": r"((4\d{3})|(5[0-5]\d{2})|(2(?:22[1-9]|2[3-9]\d|[3-6]\d\d|7[01]\d|720))|(2131)|"}
 
 
+# Presidio's IPv6 pattern refuses a colon before the address and a digit after a dot behind it, so `peer :<v6>`,
+# `host=[x]:<v6>`, `<v6>.443` and `<v6>.53.1` (a port or a field after a dot, as tcpdump and some logs print it) left a
+# routable address in the clear (ai-gateway #1764, comment 112503). A colon still may not follow a word character or
+# another colon (`a:b::c` is no address after `a:`). Three dotted numbers behind it are an embedded IPv4, which the
+# pattern IPv4_embedded takes whole: its prefix alone is no address (`::ffff:127.0.0.1`, as Node logs a client, gave
+# the hit `::ffff:127` while the whole address is private; Opus review). The correction applies only to the upstream
+# text it expects
+_IPV6_LEFT_UPSTREAM, _IPV6_RIGHT_UPSTREAM = r"(?<![\w:])(?:(?:[0-9A-Fa-f]{1,4}:){7}", r"(?![\w:]|\.\d)"
+_IPV6_LEFT = r"(?:(?<![\w:])|(?<=[^\w:]:)|(?<=^:))(?:(?:[0-9A-Fa-f]{1,4}:){7}"
+_IPV4_UPSTREAM = r"\b(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]"
+_IPV6_RIGHT = r"(?![\w:])(?!(?:\.\d{1,3}){3}(?!\d))"
+
+
 def _label_consumed(regex: str) -> tuple[str, int]:
     """`(?<=LABEL)VALUE` as `(?i:LABEL)(VALUE)` and the number of the value group."""
     depth, i, in_class = 1, 4, False
@@ -990,6 +1005,11 @@ def _presidio_regex(rec_id: str, regex: str) -> str:
         # Mendeley's 2,081 such numbers (Luhn-valid, each after a card word) stayed in the clear (2026-10-20). It
         # keeps the rule's Luhn check and its card word: alone in a tool result the issuer check takes 16 digits only
         return "(?:" + regex.replace(_CARD_FIRST_UPSTREAM, first) + r")|\b4\d{18}\b"
+    if rec_id == "ip" and regex.startswith(_IPV4_UPSTREAM):
+        # name@[<v4>] is the e-mail rule's address, which runs after this rule; any other @[ keeps the IP rule
+        return r"(?!(?<=[\w.+-]@\[)(?:\d{1,3}\.){3}\d{1,3}\])" + regex
+    if rec_id == "ip" and regex.startswith(_IPV6_LEFT_UPSTREAM) and regex.endswith(_IPV6_RIGHT_UPSTREAM):
+        return _IPV6_LEFT + regex[len(_IPV6_LEFT_UPSTREAM):-len(_IPV6_RIGHT_UPSTREAM)] + _IPV6_RIGHT
     if rec_id in PRESIDIO_NOT_AFTER_PLUS:
         # a + after a letter or a digit is a field separator (EDIFACT: NAD+XX+<number>), not a phone number's
         return r"(?:(?<!\+)|(?<=[A-Za-z0-9]\+))(?:" + regex + ")"

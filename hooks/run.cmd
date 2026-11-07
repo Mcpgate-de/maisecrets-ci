@@ -6,7 +6,7 @@ rem child untouched; a PowerShell launcher lost it (the host consumed the stream
 rem in the Windows matrix job). Same job as run.sh: find a Python 3.9+, run dispatch.py.
 rem Fails closed: without Python each hook event gets the JSON refusal of its client and exit 0,
 rem as from run.sh (exit 2 blocked in Claude Code only; Codex runs the tool on a failed hook).
-rem Usage: run.cmd <user-prompt|pre-tool|post-tool|session-start>
+rem Usage: run.cmd <user-prompt|pre-tool|post-tool|session-start|session-end>
 set PYTHONUTF8=1
 set "HERE=%~dp0"
 rem One line per start, overwritten: when a hook does not act, this says whether the client started it and with
@@ -79,6 +79,7 @@ if "%~1"=="post-tool" goto :np_post_tool
 if "%~1"=="pre-tool" goto :np_pre_tool
 if "%~1"=="user-prompt" goto :np_user_prompt
 if "%~1"=="session-start" goto :np_session_start
+if "%~1"=="session-end" goto :np_session_end
 rem any other use of the launcher (a CLI command): fail closed with the reason on stderr
 echo maisecrets needs Python 3.9 or newer. Install it for all users, as an administrator: winget install --id Python.Python.3.12 --exact --scope machine - a Python for one user only cannot run in the Codex sandbox. Then restart the client. Until then every prompt and command is blocked; the command did not run. 1>&2
 call :mark
@@ -110,6 +111,10 @@ call :mark
 exit /b 0
 :np_session_start
 echo {"systemMessage":"maisecrets needs Python 3.9 or newer. Install it for all users, as an administrator: winget install --id Python.Python.3.12 --exact --scope machine - a Python for one user only cannot run in the Codex sandbox. Then restart the client. Until then every prompt and every tool call is blocked."}
+call :mark
+exit /b 0
+:np_session_end
+rem the session is over: nothing to block, and its values go at their expiry or at the next session start
 call :mark
 exit /b 0
 :done

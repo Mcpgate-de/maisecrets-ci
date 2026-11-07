@@ -20,6 +20,15 @@ import time
 from .detection import remote
 
 SEPARATOR = "\n\n"       # between the strings of one tool result: a line break ends a name for the model
+# The wait for a tool result grows with its length (#1764): a fixed 300 ms let the service answer for almost no tool
+# result above 2,000 characters on a laptop (ner.log of one day: 94 % of 2k to 10k went to the rules alone).
+# wait = timeout_ms + SAFETY * rate * characters / 1000, at most max_timeout_ms. The rate (ms per 1,000 characters) is
+# the one this computer showed in its last answers; until it has RATE_MIN of them, DEFAULT_RATE, measured on the
+# reference host (docs/NER-EXPERIMENT.md, "The wait grows with the text").
+DEFAULT_RATE = 60.0      # netcup RS 2000 G12 (AMD EPYC 9645, Zen 5), --cpus 4 --memory 1536m: 54 to 64, median 57
+SAFETY = 1.5
+MAX_TIMEOUT_MS = 3000    # the default cap; the setting may raise it to 5,000 (the hook's watchdog is 16 s)
+RATE_SAMPLES, RATE_MIN, RATE_MIN_CHARS = 40, 5, 500
 
 
 def from_config(cfg: dict, fallback: bool = False) -> tuple:
@@ -89,6 +98,63 @@ class Layer:
         return scan(text) if got is None else got
 
 
+def conf_of(cfg: dict) -> dict:
+    conf = cfg.get("remote_detector")
+    return conf if isinstance(conf, dict) else {}
+
+
+def _number(v, default: float) -> float:
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) else default
+
+
+def _rate_path():
+    from .vault import HOME
+    return HOME / "ner-rate.json"
+
+
+def _samples() -> list:
+    import json
+    try:
+        data = json.loads(_rate_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [s for s in data if isinstance(s, list) and len(s) == 2 and all(isinstance(x, (int, float)) for x in s)
+            and s[0] >= RATE_MIN_CHARS and s[1] >= 0] if isinstance(data, list) else []
+
+
+def rate() -> float:
+    """ms per 1,000 characters on this computer: the 90th percentile of the last answers (a timeout counts with the
+    time it waited, so a rate that was too low grows), or DEFAULT_RATE until there are RATE_MIN of them."""
+    try:
+        got = sorted(float(ms) * 1000 / float(chars) for chars, ms in _samples())
+    except (ArithmeticError, ValueError):
+        return DEFAULT_RATE      # a damaged file must not take the name service away (Fable review)
+    if len(got) < RATE_MIN:
+        return DEFAULT_RATE
+    return got[min(len(got) - 1, int(len(got) * 0.9))]
+
+
+def wait_ms(conf: dict, chars: int) -> float:
+    """How long a tool result of `chars` characters waits for the service: timeout_ms plus its share, at most the
+    cap (max_timeout_ms, 3,000 by default, never above 5,000), never below timeout_ms."""
+    base = min(max(_number(conf.get("timeout_ms"), 300.0), 0.0), 5000.0)
+    cap = min(max(_number(conf.get("max_timeout_ms"), MAX_TIMEOUT_MS), base), 5000.0)
+    return min(cap, base + SAFETY * rate() * chars / 1000)
+
+
+def note_rate(chars: int, status) -> None:
+    """One sample of this computer's rate: an answer with its time, or a timeout with the time it waited."""
+    if chars < RATE_MIN_CHARS or not (status.available or status.reason == "timeout") or status.ms <= 0:
+        return
+    import json
+    from .vault import atomic_write
+    try:
+        samples = (_samples() + [[chars, round(status.ms, 1)]])[-RATE_SAMPLES:]
+        atomic_write(_rate_path(), json.dumps(samples))
+    except OSError:
+        pass                 # the default rate and the old samples still give a wait
+
+
 def prepare(cfg: dict, strings: list, scan, protect=None, use_fallback: bool = True,
             kind: str = "tool") -> Layer | None:
     """One request for all strings of a tool result. `scan(text)` gives the rules' findings of a string; `protect(text)`
@@ -116,7 +182,12 @@ def prepare(cfg: dict, strings: list, scan, protect=None, use_fallback: bool = T
     occupied = [(off + m.start, off + m.end) for s, off in pieces for m in found[s]]
     if protect is not None:
         occupied += [(off + a, off + b) for s, off in pieces for a, b in protect(s)]
+    scaled = kind == "tool" and conf_of(cfg).get("timeout_scales", True) is not False
+    if scaled:
+        ner.timeout = wait_ms(conf_of(cfg), len(joined)) / 1000
     spans, status = ner.ask(joined, occupied, time.monotonic() + ner.timeout)
+    if scaled:
+        note_rate(len(joined), status)
     source = "local" if remote.is_local(ner.url) else "url"
     asked = ner
     # only a local service that nothing answers for (refused: not running) hands over: never a network primary, a
@@ -127,7 +198,8 @@ def prepare(cfg: dict, strings: list, scan, protect=None, use_fallback: bool = T
             spans, status = fb.ask(joined, occupied, time.monotonic() + fb.timeout)
             source, asked = "fallback", fb
     from . import ner_setup
-    ner_setup.log(source if status.available else "rules", kind, len(joined), len(spans))
+    ner_setup.log(source if status.available else "rules", kind, len(joined), len(spans),
+                  why="" if status.available else (status.reason or status.state), ms=status.ms)
     starts = [off for _s, off in pieces]
     added: dict = {}
     for a, b, type_, score in spans:

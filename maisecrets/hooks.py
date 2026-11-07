@@ -59,6 +59,7 @@ from .guarded_paths import (  # noqa: F401
     _is_ssh_config_path, _names_a_guarded_file, _holds_a_guarded_folder, _a_guarded_path, _identity, _abs,
     _touches_store, _hardlinked_into, _in_the_home,
 )
+from .json_lines import _mask_digits_in_strings
 from .server_values import _all_refs, _elsewhere_reason, _server_fetch, _server_limit_keys, \
     _server_release
 from .sref_hooks import canonical as _sref_canonical, note as _sref_note, precheck as _sref_precheck, \
@@ -285,48 +286,6 @@ def _scrub_forms(values: list[str]) -> list[bytes]:
                 forms.append(b)
     forms.sort(key=len, reverse=True)
     return forms
-
-
-def _json_string_spans(line: bytes) -> list[tuple[int, int]]:
-    """The byte spans of the string contents in one JSON line, escapes skipped."""
-    spans, i, n = [], 0, len(line)
-    while i < n:
-        if line[i] == 0x22:                       # a quote opens a string
-            j = i + 1
-            while j < n and line[j] != 0x22:
-                j += 2 if line[j] == 0x5C else 1  # a backslash escapes the next byte
-            spans.append((i + 1, min(j, n)))
-            i = j + 1
-        else:
-            i += 1
-    return spans
-
-
-def _mask_digits_in_strings(data: bytes, digits: list[bytes]) -> tuple[bytes, int]:
-    """Mask a value that is only digits where it sits inside a JSON string and no other digit stands next
-    to it. A JSON number, a longer digit run and the four hex digits of a \\u escape stay untouched.
-    Plain replacement skipped every all-digit value, so a detected tax ID stayed in the transcript
-    (external review, 2026-09-28)."""
-    buf, hits = bytearray(data), 0
-    start = 0
-    while start < len(buf):
-        end = buf.find(b"\n", start)
-        end = len(buf) if end < 0 else end
-        line = bytes(buf[start:end])
-        if any(d in line for d in digits):
-            for a, b in _json_string_spans(line):
-                for d in digits:
-                    k = line.find(d, a, b)
-                    while k >= 0:
-                        before = line[k - 1:k]
-                        after = line[k + len(d):k + len(d) + 1]
-                        esc = line.rfind(b"\\u", max(a, k - 5), k)
-                        if not before.isdigit() and not after.isdigit() and not (esc >= 0 and k - esc <= 5):
-                            buf[start + k:start + k + len(d)] = b"*" * len(d)
-                            hits += 1
-                        k = line.find(d, k + len(d), b)
-        start = end + 1
-    return bytes(buf), hits
 
 
 def _scrub_digits_by_line(fd: int, digits: list[bytes]) -> int:
@@ -769,7 +728,8 @@ def _store_unseen(payload: dict, cfg: dict, value: str, session: str | None, exa
     if not check_value.looks_like_a_credential(value):
         # a check of ordinary words stored them for good, and every later prompt with them was blocked (field report,
         # 0.6.32): only a value that the credential checks of the detector take is stored here
-        return check_value.not_caught(check_value.ORDINARY)
+        return check_value.not_caught(check_value.TEST_VALUE if check_value.names_a_test_value(value)
+                                      else check_value.ORDINARY)
     try:
         e = Vault(cfg).put(value, "SECRET", "manual", session=session)
     except Exception as exc:  # noqa: BLE001 - the answer says it; the prompt stays blocked
@@ -1959,6 +1919,9 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
         shift = len(rewritten) - len(command)
         rewritten = rewritten[:at + shift] + _proxy_option() + rewritten[at + shift:]
         prelude.insert(0, _sandbox_guard())
+    if client_of(payload) != "codex" and any(k in srefs or k in fetched for k in plan):
+        from . import exit_wrap
+        prelude.append(exit_wrap.trap())     # after the reads: an undelivered value still ends with 97
     new_input = dict(tool_input)
     new_input["command"] = "; ".join(prelude) + "; " + rewritten
     if needs_yes:
@@ -3410,7 +3373,8 @@ def _quarantine_running_rule(elapsed: float) -> None:
 
 def main(argv: list[str]) -> int:
     if len(argv) != 2 or argv[1] not in HANDLERS:
-        sys.stderr.write("usage: dispatch.py user-prompt|pre-tool|post-tool|post-tool-failure|session-start\n")
+        sys.stderr.write("usage: dispatch.py user-prompt|pre-tool|post-tool|post-tool-failure|session-start|"
+                         "session-end\n")
         return 2
     event = argv[1]
     try:

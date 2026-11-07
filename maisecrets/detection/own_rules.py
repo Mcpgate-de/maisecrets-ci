@@ -68,11 +68,17 @@ OWN_RULES: list[dict] = [
     {"id": "email", "type": "EMAIL", "validator": "person_email",
      # the last label is alphabetic: `lodash@4.17.21`, `checkout@v4.1.1` and Homebrew's
      # `python@3.14/3.14.7` are version pins, not addresses (review, 2026-09-26)
-     # a look ahead for the @ first: a text without an address is passed at once. A CJK letter ends the address
+     # a look ahead for the @ first in the plain form: a text without an address is passed at once (the quoted and
+     # the IP-literal forms have their own start, which the @ prefilter still gates). A CJK letter ends the address
      # (_NOT_CJK_WORD) and scan() cuts CJK letters off its front (cjk-head): an address next to Japanese text
-     "regex": r"(?=[\w.+-]{0,64}@|(?<![\w.+-])[\w.+-]{65,}@)"
+     # also a quoted local part ("first last"@host) and an IP literal (name@[<public IPv4>], RFC 5321): the address
+     # rule took neither, and the IP rule masked only the literal (ai-gateway #1764)
+     "regex": r"(?:(?=[\w.+-]{0,64}@|(?<![\w.+-])[\w.+-]{65,}@)"
               r"(?:\b[\w.+-]{1,64}|(?<![\w.+-])[\w.+-]{64,}|[\w.+-]{64})"
-              r"@[\w-]{1,63}(?:\.[\w-]{1,63})*\.[A-Za-z]{2,63}(?!-|" + _NOT_CJK_WORD + r")"},
+              r"@[\w-]{1,63}(?:\.[\w-]{1,63})*\.[A-Za-z]{2,63}(?!-|" + _NOT_CJK_WORD + r")"
+              r"|(?<![\w\"\\])\"(?![\s:,])(?=[^\"\\\n]{0,63}[^\w.+\"\\\n-])[^\"\\\n]{1,64}(?<!\s)\"@[\w-]{1,63}(?:\.[\w-]{1,63})*\.[A-Za-z]{2,63}"
+              r"(?![\w-])"
+              r"|(?<![\w.+-])[\w.+-]{1,64}@\[(?:(?i:ipv6):[0-9A-Fa-f:.]{2,45}|\d{1,3}(?:\.\d{1,3}){3})\])"},
     # an IBAN in lower case, plain or in groups of four; its validator also wants the country's length
     {"id": "iban-lowercase", "type": "IBAN", "validator": "iban",
      # also after an MT940 subfield code (?31), as PRESIDIO_LEFT_SUBFIELD

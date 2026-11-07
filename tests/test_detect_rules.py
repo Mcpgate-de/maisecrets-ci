@@ -253,6 +253,40 @@ class ValidatorTests(unittest.TestCase):
             with self.subTest(ip=ip):
                 self.assertEqual(detect._public_ip(ip), ok)
 
+    def test_an_ipv4_inside_a_teredo_or_nat64_address_decides(self):
+        # ai-gateway #1764: Teredo (2001::/32 is no global range) carried a public IPv4 past the mask, and a private
+        # IPv4 inside the NAT64 prefix 64:ff9b::/96 was flagged although no route leads there
+        import ipaddress
+        public, private = ipaddress.IPv4Address("93.184." + "216.34"), ipaddress.IPv4Address("192.168.1.1")
+
+        def teredo(v4):     # RFC 4380: the client address is stored with each bit flipped
+            return str(ipaddress.IPv6Address((0x20010000 << 96) | (int(v4) ^ 0xFFFFFFFF)))
+
+        def nat64(v4):
+            return str(ipaddress.IPv6Address((int(ipaddress.IPv6Address("64:ff9b::")) | int(v4))))
+        for ip, ok in [(teredo(public), True), (teredo(private), False),
+                       ("2001:0:4136:e378:8000:63bf:3fff:fdd2", False),   # RFC 4380's example carries 192.0.2.45
+                       (nat64(public), True), (nat64(private), False)]:
+            with self.subTest(ip=ip):
+                self.assertEqual(detect._public_ip(ip), ok)
+
+    def test_an_ipv6_address_after_a_colon_or_before_a_dotted_port_is_found(self):
+        addr = "2a01:4f8:" + "c17:1a2b::7"          # a routable range, a made-up host
+        for text in (f"peer :{addr} refused", f"host=[x]:{addr} down", f"{addr}.443", f"peer {addr}.53 closed",
+                     f"{addr}.53.1", f"[{addr}]:443"):
+            with self.subTest(text=text):
+                hits = [(m.type, text[m.start:m.end]) for m in detect.scan(text, channel="tool")]
+                self.assertIn(("IP", addr), hits)
+        # still text: an address glued to a word before its colon, and code
+        for text in (f"x:{addr}", "std::vector<int> v;", "ns::Foo::bar()", "at 12:30:45",
+                     "remoteAddress: '::ffff:127.0.0.1'", "client ::ffff:10.1.2.3 connected",
+                     "[::ffff:10.0.0.5]:8080", "from ::FFFF:172.17.0.1 port 5000"):
+            with self.subTest(text=text):
+                self.assertEqual([m for m in detect.scan(text, channel="tool") if m.type == "IP"], [])
+        # three dotted numbers behind it are an embedded IPv4: the whole address is one hit, not its first part
+        embedded = "64:ff9b::" + "93.184.216.34"
+        self.assertEqual([embedded[m.start:m.end] for m in detect.scan(embedded, channel="tool")], [embedded])
+
     def test_german_tax_id(self):
         self.assertTrue(detect._de_tax_id_ok("86095742719"))
         for bad in ("86095742710", "06095742719", "8609574271", "8609574271x", "11112345671"):

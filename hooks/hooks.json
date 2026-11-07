@@ -90,6 +90,19 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "set -- `# <#`\nif [ -f \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" ]; then bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" session-end; fi; exit\n: <<'#PS_END'\n#>\nif (Test-Path -LiteralPath \"${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd\") { try { & \"${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd\" session-end } catch {} }; exit 0\n#PS_END",
+            "timeout": 10,
+            "commandWindows": "if exist \"${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd\" (\"${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd\" session-end)",
+            "statusMessage": "maisecrets clears the values a server gave this session"
+          }
+        ]
+      }
     ]
   }
 }

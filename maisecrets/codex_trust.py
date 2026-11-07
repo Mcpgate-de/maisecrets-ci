@@ -21,6 +21,7 @@ from pathlib import Path
 
 EVENTS = {"SessionStart": "session_start", "UserPromptSubmit": "user_prompt_submit",
           "PreToolUse": "pre_tool_use", "PostToolUse": "post_tool_use"}
+# the protecting events only: SessionEnd deletes the values a server gave, and an untrusted one protects nothing less
 _SKIPPED = ("__pycache__", ".venv")
 
 

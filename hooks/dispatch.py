@@ -7,7 +7,7 @@ if len(sys.argv) == 2 and sys.argv[1] == "mod-prompt" and sys.version_info < (3,
     sys.exit(3)   # the mod then tries its next Python (claude-mod/maisecrets-mod.mjs); run.sh checks 3.9 for the hooks
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-HOOK_EVENTS = ("user-prompt", "pre-tool", "post-tool", "post-tool-failure", "session-start")
+HOOK_EVENTS = ("user-prompt", "pre-tool", "post-tool", "post-tool-failure", "session-start", "session-end")
 
 
 def _marker(code: str) -> None:
@@ -54,6 +54,9 @@ def _refuse_without_the_code(why: str) -> None:
         print(json.dumps({"decision": "block", "reason": text} if codex else
                          {"hookSpecificOutput": {"hookEventName": "PostToolUse", "updatedToolOutput": text}}))
         _marker("launcher.import")
+        sys.exit(0)
+    if event == "session-end":
+        _marker("launcher.import")        # the session is over: nothing to block
         sys.exit(0)
     if event == "session-start":
         import json
@@ -121,6 +124,20 @@ if len(sys.argv) >= 2 and sys.argv[1] in ("report", "put", "status", "list", "au
                                           "sref"):
     from maisecrets.cli import main as cli_main  # noqa: E402
     sys.exit(cli_main(sys.argv[1:]))
+
+if len(sys.argv) == 2 and sys.argv[1] == "session-end":
+    # the values a server gave this session leave the store now (a crashed session sends no SessionEnd: then they go
+    # at their expiry, at the latest at the next session start). Never an answer: the session is over
+    import json
+    try:
+        payload = json.load(sys.stdin)
+        from maisecrets import vault_refs  # noqa: E402
+        from maisecrets.vault import Vault, load_config  # noqa: E402
+        if isinstance(payload, dict) and isinstance(payload.get("session_id"), str):
+            vault_refs.end_session(Vault(load_config()).backend, payload["session_id"])
+    except Exception:  # noqa: BLE001 - the expiry and the next session start are the backstop
+        _marker("hook.session-end")
+    sys.exit(0)
 
 if len(sys.argv) == 2 and sys.argv[1] == "session-start":
     import json

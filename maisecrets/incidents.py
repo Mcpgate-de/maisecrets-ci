@@ -23,7 +23,7 @@ CODES = frozenset({
     "store.timeout-keychain", "store.timeout-openssl", "store.timeout-locker",
     "store.decrypt", "store.mark-weak", "store.expire",
     "config.policy-invalid", "config.user-ignored",
-    "hook.run-dir", "hook.sealed-dir", "hook.payload", "hook.session-start",
+    "hook.run-dir", "hook.sealed-dir", "hook.payload", "hook.session-start", "hook.session-end",
     "destinations.pend", "destinations.commit", "destinations.protect",
     "scrub.start", "scrub.write", "prompt.pending", "prompt.clipboard", "prompt.tip", "prompt.check-store",
     "launcher.no-python", "launcher.import", "guard.fired",
@@ -34,7 +34,7 @@ LAUNCHER_DIR = "maisecrets-launcher"
 # the codes a marker can carry: written by a place that cannot write the record (a launcher, the guard, a child,
 # the watchdog in its last 0.3 s)
 MARKER_CODES = frozenset({"launcher.no-python", "launcher.import", "guard.fired", "scrub.write", "hook.payload",
-                          "hook.session-start"} | {f"hook.{e}.watchdog" for e in HOOK_EVENTS})
+                          "hook.session-start", "hook.session-end"} | {f"hook.{e}.watchdog" for e in HOOK_EVENTS})
 
 CAUSES = ("permission", "timeout", "lock", "parse", "io", "missing", "rc", "shape", "other")
 NUMBER_RANGES = {"errno": (0, 4095), "winerror": (0, 65535), "exit": (-255, 255)}
@@ -376,8 +376,9 @@ def _set_aside(path: Path) -> None:
 
 def _marker_item(code: str) -> dict:
     event = "launcher" if code.startswith("launcher.") else "guard" if code == "guard.fired" else (
-        "SessionStart" if code == "hook.session-start" else _EVENT_OF.get(code.split(".")[1], "UserPromptSubmit"))
-    cls = "best-effort" if code in ("scrub.write", "hook.session-start") else "fail-closed"
+        "SessionStart" if code == "hook.session-start" else "SessionEnd" if code == "hook.session-end"
+        else _EVENT_OF.get(code.split(".")[1], "UserPromptSubmit"))
+    cls = "best-effort" if code in ("scrub.write", "hook.session-start", "hook.session-end") else "fail-closed"
     cause = {"launcher.no-python": "missing", "launcher.import": "missing", "guard.fired": "missing",
              "hook.payload": "shape"}.get(code, "timeout" if code.endswith(".watchdog") else "io")
     return {"code": code, "cause": cause, "class": cls, "event": event}

@@ -51,6 +51,8 @@ class SrefServer:
         self.access_ttl = 3600
         self.evil = False                # True: the error answers carry a reference id in their strings
         self.token_answer = None         # (status, body): the token endpoint answers this to a refresh
+        self.refresh_delay = 0.0         # seconds the token endpoint waits before it spends a refresh token
+        self.refreshes: list = []        # every refresh token presented, in order (a reuse shows twice)
         server = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -132,6 +134,8 @@ class SrefServer:
                     if form.get("grant_type") == "refresh_token" and server.token_answer is not None:
                         return self._send(*server.token_answer)
                     if form.get("grant_type") == "refresh_token":
+                        server.refreshes.append(form.get("refresh_token", ""))
+                        time.sleep(server.refresh_delay)
                         cid = server.refresh.pop(form.get("refresh_token", ""), None)   # it rotates: used once
                         if not cid or not server.consent or cid != form.get("client_id"):
                             return self._send(400, {"error": "invalid_grant"})

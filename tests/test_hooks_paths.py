@@ -926,6 +926,19 @@ class PayloadMatrixTests(unittest.TestCase):
                     dict(client, tool_name="Bash", tool_response=resp, session_id="SM")), home=self.broken))
                 self.assertIn("withheld", json.dumps(out))
 
+    def test_session_end_deletes_the_values_a_server_gave_that_session_and_answers_nothing(self):
+        from maisecrets import vault_refs
+        backend = Vault().backend
+        vault_refs.remember_released(backend, "SE1", {"NAME_1": ("session-end-" + "value1", "https://gw.example")})
+        vault_refs.remember_released(backend, "SE2", {"NAME_2": ("session-end-" + "value2", "https://gw.example")})
+        self.addCleanup(vault_refs.end_session, backend, "SE2")
+        for stdin in ('{"session_id": "SE1", "reason": "logout"}', "{not json", "", "null", "[1]"):
+            with self.subTest(stdin):
+                r = _dispatch("session" + "-end", stdin)
+                self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
+        self.assertEqual(vault_refs.released(backend, "SE1"), [])
+        self.assertEqual(len(vault_refs.released(backend, "SE2")), 1, "another session keeps its values")
+
     def test_session_start_matrix(self):
         codex_home = Path(_TMP, "codex-home")
         claude = self._one(_dispatch("session-start", json.dumps(

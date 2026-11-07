@@ -86,7 +86,8 @@ def codex_hashes(platform: str) -> dict:
     hooks = json.loads((ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
     out = {}
     for event, groups in hooks.items():
-        if event in NOT_IN_CODEX:
+        # SessionEnd only cleans up: /maisecrets:status does not count its trust (codex_trust.EVENTS)
+        if event in NOT_IN_CODEX or event not in codex_trust.EVENTS:
             continue
         for g in groups:
             if (event, g.get("matcher")) in ADDED_GROUPS:

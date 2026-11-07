@@ -19,10 +19,10 @@ sys.path.insert(0, str(ROOT / "harness"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
 
-from maisecrets import hooks, sref_client as S  # noqa: E402
+from maisecrets import exit_wrap, hooks, sref_client as S  # noqa: E402
 from maisecrets.vault import HOME, JsonFileBackend  # noqa: E402
 import _hygiene  # noqa: E402
-from _hygiene import CLAUDE  # noqa: E402
+from _hygiene import CLAUDE, CODEX  # noqa: E402
 import test_sref_client as T  # noqa: E402
 
 BASH = shutil.which("bash")
@@ -94,6 +94,36 @@ class SrefBashTests(unittest.TestCase):
         self.assertEqual(run.stdout, "got:" + VALUE)
         self.assertEqual([(r["sink_type"], r["destination"], r["count"]) for r in self.srv.resolved],
                          [("process", "printf", 1)])
+
+    def test_a_command_that_prints_the_value_and_fails_ends_with_0_so_its_output_is_masked(self):
+        # Claude Code answers a non-zero exit with PostToolUseFailure, which cannot replace the output
+        # (anthropics/claude-code#97278): the value reached the model. Now the shell ends with 0 and names the code
+        self.login()
+        self.result()
+        run = self.run_command(f"printf 'got:%s' {self.shown}; exit 4")
+        self.assertEqual(run.returncode, 0)
+        self.assertEqual(run.stdout, "got:" + VALUE)
+        self.assertIn("the command ended with exit code 4", run.stderr)
+        hooks._live_cache.clear()
+        out = hooks._post_tool_guarded({"tool_name": "Bash", "session_id": "s1", **CLAUDE,
+                                        "tool_input": {"command": "x"},
+                                        "tool_response": {"stdout": run.stdout, "stderr": run.stderr}})
+        self.assertNotIn(VALUE, json.dumps(out, ensure_ascii=False))
+        ok = self.run_command(f"printf 'got:%s' {self.shown}")
+        self.assertEqual((ok.returncode, ok.stderr), (0, ""), "a command that succeeds prints nothing more")
+
+    def test_only_a_claude_code_command_with_a_server_value_gets_the_exit_trap(self):
+        self.login()
+        self.result()
+        trap = exit_wrap.trap()
+        self.assertIn("; " + trap + "; printf ",
+                      self.bash(f"printf %s {self.shown}")["hookSpecificOutput"]["updatedInput"]["command"])
+        hooks._live_cache.clear()
+        codex = hooks.pre_tool({"tool_name": "Bash", "session_id": "s1", **CODEX,
+                                "tool_input": {"command": f"printf %s {self.shown}"}})
+        command = codex["hookSpecificOutput"]["updatedInput"]["command"]     # an allow with a rewrite, no deny
+        self.assertIn("__ms_1", command)
+        self.assertNotIn(trap, command, "Codex sends PostToolUse for a failed command")
 
     def test_an_echo_of_the_value_comes_back_as_the_reference(self):
         self.login()

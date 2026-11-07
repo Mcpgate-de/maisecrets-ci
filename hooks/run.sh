@@ -4,7 +4,7 @@
 #                  a newer one in /opt/homebrew/bin, /usr/local/bin or /Library/Frameworks)
 #   Windows: Claude Code requires Git Bash, so this script runs there too; Python
 #            installs as python.exe or the py launcher (winget install Python.Python.3.12)
-# Usage: run.sh <user-prompt|pre-tool|post-tool|post-tool-failure|session-start> | run.sh <cli command…>
+# Usage: run.sh <user-prompt|pre-tool|post-tool|post-tool-failure|session-start|session-end> | run.sh <cli command…>
 set -u
 # the payload is UTF-8 JSON; on Windows python.exe would otherwise decode a pipe with the
 # console code page and a prompt with umlauts fails the hook (fail closed, but for no reason)
@@ -114,6 +114,10 @@ case "${1:-}" in
     exit 0 ;;
   session-start)
     printf '{"systemMessage":"%s Until then every prompt and every tool call is blocked."}' "$MSG"
+    mark
+    exit 0 ;;
+  session-end)
+    # the session is over: nothing to block, and its values go at their expiry or at the next session start
     mark
     exit 0 ;;
 esac

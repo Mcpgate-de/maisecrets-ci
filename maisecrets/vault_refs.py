@@ -55,7 +55,9 @@ NOTES = DIR / "notes.json"            # profile -> origin -> key -> {"type", "se
 SENT = DIR / "sent.json"              # profile -> origin -> key -> time: server keys the model sent in a call
 RELEASED = DIR / "released.json"      # session -> [{"name", "t"}]: the values a server gave, kept in the store 1 h
 NOTE_TTL = 24 * 3600                  # a token seen longer ago than this stays text
-RELEASE_WINDOW = 3600                 # a value a server gave is hunted in tool output this long, as a stored one
+RELEASE_WINDOW = 3600                 # a value a server gave is hunted in tool output this long after the session's
+#                                       last tool output, as a stored one
+RELEASE_CAP = 86400                   # and never longer than this after it was given, as the note of a reference
 MAX_SESSIONS_PER_NOTE = 20
 KEYS = DIR / "keys.json"              # profile -> origin -> {"kid", "created", "entries": [[name, url]]}; never K
 DISCOVERY_BUDGET = 4.0                # the one metadata request of the post-tool hook (watchdog 16 s, lock wait 5 s)
@@ -1313,7 +1315,7 @@ def remember_released(backend, session: str | None, values: dict[str, tuple[str,
                                                               "not a placeholder value.")
         with _lock_for(DIR / ".lock"):
             data = _prune(backend, _read_json(RELEASED) or {}, now)
-            data.setdefault(session, []).append({"name": name, "t": now})
+            data.setdefault(session, []).append({"name": name, "t": now, "u": now})
             atomic_write(RELEASED, json.dumps(data, indent=1))
     except BaseException:
         # not in the list, the entry would never leave the store: it goes now (Gate A review)
@@ -1325,9 +1327,12 @@ def remember_released(backend, session: str | None, values: dict[str, tuple[str,
 
 
 def _expired(item: object, now: float) -> bool:
+    """Past RELEASE_WINDOW since the session's last tool output ("u"), or past RELEASE_CAP since the value was given."""
     try:
-        return not isinstance(item, dict) or not 0 <= now - float(item.get("t")) < RELEASE_WINDOW
-    except (TypeError, ValueError):
+        given = float(item.get("t"))
+        used = float(item.get("u", given))
+        return not (0 <= now - used < RELEASE_WINDOW and 0 <= now - given < RELEASE_CAP)
+    except (TypeError, ValueError, AttributeError):
         return True
 
 
@@ -1368,13 +1373,36 @@ def prune_released(backend) -> None:
                 pass
 
 
+TOUCH_EVERY = 60                      # seconds: a tool output of the session renews its values at most this often
+
+
+def _touch(session: str, now: float) -> None:
+    """The session is still at work: its values stay for RELEASE_WINDOW from now (never past RELEASE_CAP)."""
+    try:
+        with _lock_for(DIR / ".lock"):
+            data = _read_json(RELEASED) or {}
+            items = data.get(session)
+            if not isinstance(items, list):
+                return
+            for i in items:
+                if isinstance(i, dict) and not _expired(i, now):
+                    i["u"] = now
+            atomic_write(RELEASED, json.dumps(data, indent=1))
+    except (OSError, LockTimeout):
+        pass               # the values keep their hour; a missed renewal never stops a tool result
+
+
 def released(backend, session: str | None) -> list[tuple[str, str]]:
-    """(value, token) for every value a server gave this session in the last RELEASE_WINDOW."""
+    """(value, token) for every value a server gave this session that is not expired; each call is a tool output of
+    the session, so it renews them (RELEASE_WINDOW from now, at most RELEASE_CAP after they were given)."""
     items = (_read_json(RELEASED) or {}).get(session or "") if session else None
     out: list[tuple[str, str]] = []
     now = time.time()
     if any(_expired(i, now) for i in (items if isinstance(items, list) else [])):
         prune_released(backend)
+    if any(isinstance(i, dict) and not _expired(i, now) and now - float(i.get("u", i.get("t")) or 0) >= TOUCH_EVERY
+           for i in (items if isinstance(items, list) else [])):
+        _touch(str(session), now)
     for item in items if isinstance(items, list) else []:
         if _expired(item, now):
             continue
@@ -1385,6 +1413,52 @@ def released(backend, session: str | None) -> list[tuple[str, str]]:
             pairs = []
         out.extend((v, t) for v, t in pairs if isinstance(v, str) and isinstance(t, str))
     return out
+
+
+def end_session(backend, session: str | None) -> int:
+    """SessionEnd: the values a server gave this session leave the store now. Returns how many entries went. A crashed
+    session sends no SessionEnd; then its values go at their expiry, at the latest at the next session start.
+    The entries are first marked expired and stay in the index, so a hook that the client stops in the middle leaves
+    them to the next prune; only the names whose delete went leave the index (Opus review). The deletes run outside
+    the lock: a keychain delete is a process each, and another session's tool output waits for this lock. A delete
+    of a name that is gone already succeeds in every backend."""
+    if not session:
+        return 0
+    with _lock_for(DIR / ".lock"):
+        data = _read_json(RELEASED) or {}
+        items = data.get(session)
+        if not isinstance(items, list):
+            return 0
+        data[session] = [{**i, "t": 0} for i in items if isinstance(i, dict) and isinstance(i.get("name"), str)]
+        _write_released(data)
+        names = [i["name"] for i in data[session]]
+    gone = set()
+    for name in names:
+        try:
+            backend.delete(name)
+            gone.add(name)
+        except (RuntimeError, OSError):
+            pass                                  # expired and indexed: the next prune tries the delete again
+    with _lock_for(DIR / ".lock"):
+        data = _read_json(RELEASED) or {}
+        keep = [i for i in data.get(session) or [] if not (isinstance(i, dict) and i.get("name") in gone)]
+        if keep:
+            data[session] = keep
+        else:
+            data.pop(session, None)
+        _write_released(data)
+    return len(gone)
+
+
+def _write_released(data: dict) -> None:
+    """The released index, or no file when it is empty. Under DIR/.lock."""
+    if data:
+        atomic_write(RELEASED, json.dumps(data, indent=1))
+        return
+    try:
+        RELEASED.unlink()
+    except OSError:
+        pass
 
 
 def has_released() -> bool:

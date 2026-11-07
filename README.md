@@ -460,8 +460,9 @@ run".
   value), `incidents.json` and `incident-marker.*` folders (maisecrets' own
   failures as closed codes), `vault-refs/` (the server tokens seen, the key ids
   and the endpoint of each server; never a value or a key; the values a server
-  gave stay in the store for one hour, so their echo in a tool result is
-  redacted); one
+  gave stay in the store while the session works, so their echo in a tool
+  result is redacted: one hour after the session's last tool result, at most
+  24 hours, and they go when the session ends); one
   `Client-Vault` header per user-scope MCP server in the config file the
   client uses (`~/.claude/.config.json` when it is not empty, else
   `~/.claude.json`), with a backup beside it ("Vault references"); in Codex one `http_headers_helper` line per such server in
@@ -808,6 +809,9 @@ This prompt was not sent. The value did not reach the AI.
   characters or has more than one line (maisecrets could not find it again),
   when it looks like ordinary text (words, a sentence, a hash, an id, a
   command: the answer says so; store such a password with `/maisecrets:put`),
+  when it looks like a test value (only words such as super, secret, geheim
+  or test, and digits, also after a label: `passwort: supergeheim123`; the
+  rules leave such a value alone on purpose, and the answer says so),
   when it holds a placeholder, or when the prompt did not come from you (a
   scheduled prompt, a subagent, `claude -p`). The client's own list of earlier
   prompts (the up arrow) may keep the prompt as typed; that is not measured.
@@ -1336,7 +1340,9 @@ does not need to look like a real secret, and these forms are never a hit:
   `.test`, `.example`, `.invalid`, `.localhost`, a system mailbox such as `alerts@` or `noreply@`
   at `.local` or `.internal` (a person's mailbox there is found); IP addresses in
   the documentation ranges `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24` and
-  `2001:db8::/32`, private and loopback addresses.
+  `2001:db8::/32`, private and loopback addresses, the public resolvers (`8.8.8.8`,
+  `1.1.1.1` and their IPv6 forms). An IPv6 address that wraps an IPv4 (6to4, Teredo, NAT64
+  `64:ff9b::/96`) is judged by the IPv4 it carries.
 - **A test value that vendor documentation publishes,** for its own type only: the payment
   test cards (Stripe, Braintree), the Stripe API reference keys, the jwt.io example token and
   the Twilio test numbers (`maisecrets/detection/rules/public_test_values.txt`, as sha256 digests). The
@@ -2423,7 +2429,12 @@ and keeps its other keys. Written by hand, the setting looks like this:
   name in a prompt becomes a placeholder and never blocks it. `/maisecrets:ner prompts off` turns the prompt part off (the setting `"prompts": false`). A
   service on the network never gets a prompt, and Codex prompts keep the rules alone (Codex cannot rewrite a
   prompt). One request per tool call or prompt. A tool result waits `timeout_ms`
-  (300 by default, at most 5000; the name lookup and a slow answer count too). A prompt waits
+  (300 by default, at most 5000; the name lookup and a slow answer count too), plus a share
+  that grows with its length: 1.5 times the rate of this computer (ms per 1,000 characters,
+  from its last answers; 60 until it has five, the rate of the reference setup) per 1,000
+  characters, at most `max_timeout_ms` (3000 by default, at most 5000). `"timeout_scales": false`
+  keeps the fixed `timeout_ms`. `ner.log` names the reason of each result that the rules took
+  alone (timeout, too_long, refused …), and `/maisecrets:ner` counts the reasons. A prompt waits
   `prompt_timeout_ms` (1000 by default, at most 5000, never less than `timeout_ms`): you wait for
   your prompt anyway. If the service gives no answer in time, the prompt goes on with the rules alone,
   and maisecrets says once per session that its names were not checked, and why. On the reference setup

@@ -9,8 +9,8 @@ Codex: `maisecrets: ner local` (or url URL, off) alone as the prompt. The change
 person typed makes it (settings.py), with the limits of C22 (docs/THREAT-MODEL.md); a tool call that carries the
 sentence is refused. Exactly one source: a
 fallback to another one would send the text somewhere the person did not choose. A source that does not answer
-leaves the rules alone, as before. The tuning keys of the setting (timeout_ms, classes, min_score, max_chars,
-language) stay when the source changes.
+leaves the rules alone, as before. The tuning keys of the setting (timeout_ms, max_timeout_ms, timeout_scales,
+classes, min_score, max_chars, language) stay when the source changes.
 
 A service that is not on this computer gets every finding of the rules as filler (remote.py), and the text of the
 tool result goes there: a team decides that, not a default.
@@ -440,10 +440,14 @@ def _log_path():
     return HOME / "ner.log"
 
 
-def log(source: str, kind: str, chars: int, names: int) -> None:
+def log(source: str, kind: str, chars: int, names: int, why: str = "", ms: float = 0.0) -> None:
+    """`why`: the reason no service answered (timeout, too_long, refused …), for a line of the rules alone."""
     LAST["source"] = source
     path = _log_path()
-    line = json.dumps({"t": int(time.time()), "source": source, "kind": kind, "chars": chars, "names": names})
+    entry = {"t": int(time.time()), "source": source, "kind": kind, "chars": chars, "names": names, "ms": int(ms)}
+    if why:
+        entry["why"] = why
+    line = json.dumps(entry)
     try:
         with open(path, "a", encoding="utf-8") as f:
             f.write(line + "\n")
@@ -475,6 +479,9 @@ def today_counts(now: float | None = None) -> dict:
         if not isinstance(d, dict) or not isinstance(d.get("t"), int) or d["t"] < start:
             continue
         counts[d.get("source", "?")] = counts.get(d.get("source", "?"), 0) + 1
+        if d.get("source") == "rules":
+            key = "why:" + str(d.get("why") or "unknown")
+            counts[key] = counts.get(key, 0) + 1
         if d.get("kind") == "prompt":
             key = "prompt:" + str(d.get("source", "?"))
             counts[key] = counts.get(key, 0) + 1
@@ -486,6 +493,9 @@ def counts_line(now: float | None = None) -> str:
     if not c:
         return "today, your sessions on this computer (ner.log): no request yet"
     parts = [f"{k} {c[k]}" for k in ("local", "url", "fallback", "rules") if c.get(k)]
+    whys = sorted(((v, k[4:]) for k, v in c.items() if k.startswith("why:")), reverse=True)
+    if whys and c.get("rules"):
+        parts[-1] += " (" + ", ".join(f"{w} {v}" for v, w in whys) + ")"
     prompts = sum(v for k, v in c.items() if k.startswith("prompt:"))
     return (f"today, your sessions on this computer (ner.log): {', '.join(parts)} (rules = no service answered); "
             f"prompts {prompts}, of them to a fallback {c.get('prompt:fallback', 0)}")

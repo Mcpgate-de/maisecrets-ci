@@ -35,6 +35,8 @@ BASH = shutil.which("bash")
 RUN_SH = ROOT / "hooks" / "run.sh"
 RUN_CMD = ROOT / "hooks" / "run.cmd"
 EVENTS = ("user-prompt", "pre-tool", "post-tool-failure", "post-tool", "session-start")
+# SessionEnd only cleans up: it blocks nothing, so the fail-closed tests of EVENTS leave it out
+CLEANUP_EVENTS = ("session-end",)
 # the absolute places run.sh tries after the PATH; the test points them into the sandbox, so a
 # Python installed on this machine cannot answer for the missing one
 ABSOLUTE_PYTHONS = ("/opt/homebrew/bin/python3", "/usr/local/bin/python3",
@@ -306,9 +308,10 @@ class MovedPluginFolderFailsClosedTests(unittest.TestCase):
         for groups in data["hooks"].values():
             for group in groups:
                 for hook in group["hooks"]:
-                    event = next(e for e in EVENTS if f" {e};" in hook["command"] or hook["command"].endswith(f" {e}"))
+                    event = next(e for e in EVENTS + CLEANUP_EVENTS
+                                 if f" {e};" in hook["command"] or hook["command"].endswith(f" {e}"))
                     out.append((event, hook["command"]))
-        self.assertEqual(sorted({e for e, _c in out}), sorted(EVENTS), "every event has a command")
+        self.assertEqual(sorted({e for e, _c in out}), sorted(EVENTS + CLEANUP_EVENTS), "every event has a command")
         return out
 
     def run_command(self, command: str, root: Path) -> subprocess.CompletedProcess:
@@ -322,6 +325,10 @@ class MovedPluginFolderFailsClosedTests(unittest.TestCase):
         for event, command in self.commands():
             with self.subTest(event):
                 r = self.run_command(command, gone)
+                if event == "session-end":
+                    # the session is over: nothing to block, and its values go at their expiry
+                    self.assertEqual((r.returncode, r.stdout), (0, ""))
+                    continue
                 self.assertIn(self.HINT, r.stdout + r.stderr)
                 if event == "post-tool":
                     # exit 2 is ignored after a tool ran: the JSON itself must withhold the output
@@ -376,6 +383,9 @@ class PowerShellPartFailsClosedTests(MovedPluginFolderFailsClosedTests):
         for event, command in self.commands():
             with self.subTest(event):
                 r = self.run_command(command, root)
+                if event in CLEANUP_EVENTS:
+                    self.assertEqual(r.returncode, 0)      # the session is over: nothing to block
+                    continue
                 self.assertIn("could not start hooks/run.cmd", r.stdout)
                 if event == "session-start":
                     self.assertEqual(r.returncode, 0)
@@ -406,8 +416,9 @@ class CmdExeFailsClosedTests(MovedPluginFolderFailsClosedTests):
 
     def commands(self) -> list:
         data = json.loads((ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+        # the cleanup event blocks nothing, so the fail-closed tests of this class leave it out
         found = [hook["commandWindows"] for groups in data["hooks"].values() for group in groups
-                 for hook in group["hooks"]]
+                 for hook in group["hooks"] if not any(f" {e})" in hook["commandWindows"] for e in CLEANUP_EVENTS)]
         out = [(next(e for e in EVENTS if f" {e})" in c), c) for c in found]
         self.assertEqual(sorted({e for e, _c in out}), sorted(EVENTS), "every event has a Windows command")
         return out
@@ -698,7 +709,8 @@ class RunCmdFailsClosedTests(unittest.TestCase):
         self.assertIn('findstr /l /c:"\\"turn_id\\"" >nul 2>&1', self.lines)
         # only a CLI use of the launcher still ends in exit 2, after its reason on stderr
         main = self.lines[:self.lines.index(":mark")]
-        cli = main[main.index('if "%~1"=="session-start" goto :np_session_start') + 1:]
+        cli = main[main.index('if "%~1"=="session-end" goto :np_session_end') + 1:]
+        self.assertEqual(self.branch(":np_session_end")[-2:], ["call :mark", "exit /b 0"])
         cli = [ln for ln in cli if not ln.startswith("rem")]
         self.assertTrue(cli[0].startswith("echo maisecrets needs Python 3.9") and cli[0].endswith("1>&2"), cli[0])
         self.assertEqual(cli[1:3], ["call :mark", "exit /b 2"])
@@ -708,7 +720,7 @@ class RunCmdFailsClosedTests(unittest.TestCase):
         # the marker subroutine (docs/DIAGNOSTICS.md, section 3) runs after each answer and only returns
         mark = self.lines[self.lines.index(":mark"):]
         self.assertTrue(all(ln == "exit /b 0" for ln in mark if ln.startswith("exit ")), mark)
-        self.assertEqual(sum(1 for ln in main if ln == "call :mark"), 7, "every branch leaves the marker")
+        self.assertEqual(sum(1 for ln in main if ln == "call :mark"), 8, "every branch leaves the marker")
 
 
 def _forms(value: str) -> list[str]:

@@ -168,6 +168,9 @@ _RESOLVER_IPS = frozenset({"8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1", "9.9.9.9"
                            "2606:4700:4700::1111", "2606:4700:4700::1001"})
 
 
+_NAT64_WKP = int(ipaddress.IPv6Address("64:ff9b::")) >> 32     # the well-known NAT64 prefix, /96
+
+
 def _public_ip(ip: str) -> bool:
     """An address that can name a person: global unicast. Private, loopback, link-local, shared (100.64/10), the
     documentation ranges (192.0.2.0/24, 2001:db8::/32 …), reserved, broadcast and multicast are not; the
@@ -186,6 +189,12 @@ def _public_ip(ip: str) -> bool:
     inner = getattr(addr, "sixtofour", None)
     if inner is not None:
         addr = inner    # 2002:55d6:8405::1 carries 85.214.132.5
+    teredo = getattr(addr, "teredo", None)
+    if teredo is not None:
+        addr = teredo[1]    # 2001::/32 is no global range, but it carries the client's public IPv4 (RFC 4380)
+    elif addr.version == 6 and int(addr) >> 32 == _NAT64_WKP:
+        # 64:ff9b::/96 wraps an IPv4 (RFC 6052): the IPv4 decides; a private one inside is no routable address
+        addr = ipaddress.IPv4Address(int(addr) & 0xFFFFFFFF)
     return addr.is_global and not addr.is_multicast and str(addr) not in _RESOLVER_IPS
 
 

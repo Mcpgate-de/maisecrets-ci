@@ -757,13 +757,19 @@ def run_scenario(name: str, sc: dict, update_golden: bool) -> list[str]:
                      "(MAISECRETS_HARNESS_SHELL_TOOL), or the inventory check read nothing")
     for tool in unclassified("claude-code", [Path(b) for b in bodies]):
         fails.append(f"UNCLASSIFIED TOOL {tool}: add it to tests/client_tools.json with its class")
+    leaked = False
     for marker in (MARK, MAIL, MARK2, MARK[-8:]):
         if marker in joined:
+            leaked = True
             if sc.get("upstream_leak_is_a_known_gap"):
                 # the client gives the hook no way to replace this output; the scenario checks what is left to do
                 print(f"[GAP] {name}: …{marker[-6:]} reached the upstream ({sc['upstream_leak_is_a_known_gap']})")
             else:
                 fails.append(f"LEAK: …{marker[-6:]} reached the upstream")
+    if sc.get("upstream_leak_is_a_known_gap") and bodies and not leaked:
+        # the client masks a failed output now: the workaround for this gap is dead weight (maisecrets/exit_wrap.py)
+        fails.append(f"gap closed ({sc['upstream_leak_is_a_known_gap']}): the client replaces a failed output now; "
+                     "drop the exit-0 wrap (maisecrets/exit_wrap.py) and update CLAUDE.md, the watch list")
     for ph in sc.get("expect_placeholders", []):
         if ph not in joined:
             fails.append(f"placeholder {ph} missing in requests")

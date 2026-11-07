@@ -428,13 +428,15 @@ def _reads_as_words(v: str, every: bool = False) -> bool:
     from .core import _word_set
     words = _word_set()
     hits = []
-    for i, w in enumerate(v.replace("’", "'").split()):
+    parts = v.replace("’", "'").split()
+    for i, w in enumerate(parts):
         lw = w.lower().strip(".")
         if "'" in lw and not lw.startswith(("o'", "d'", "l'")):
             return True          # won't, don't: a contraction is prose
         if len(lw) >= 2 and not re.search(r"[aeiouyäöüéèàáíóú]", lw):
             return True          # Mgmt, Vpc: no vowel, an abbreviation
-        if len(lw) <= 1 or (i == 0 and lw in _GIVEN_NAME_WORDS):
+        # a given name that is a word counts as a name before the last word: Maria, Lena Maria Koch (ai-gateway #1764)
+        if len(lw) <= 1 or ((i < len(parts) - 1 or len(parts) == 1) and lw in _GIVEN_NAME_WORDS):
             hits.append(False)
             continue
         stem = lw[:-1] if lw.endswith("s") and len(lw) > 4 else lw
@@ -594,6 +596,13 @@ _PERSON_CUE_RES = (
     _LazyRx(r"(?<![A-Za-z])(?:Mr|Mrs|Ms|Mx|Miss)\.? " + _CUE_NAME + r"(?![\w'’-])"),
     # a salutation before a full name and its comma or line end (Dear Dana Okafor,)
     _LazyRx(r"(?<![A-Za-z])(?:Dear|Hi|Hello|Hey) " + _CUE_NAME + r"(?=[ \t]*[,:!\n])"))
+# the title before a one-word surname (the end of the text before the surname), and the words after it that are no
+# surname: a title, a form's placeholder, a role
+_TITLE_ONE_WORD_RE = _LazyRx(r"(?<![A-Za-z])(?:Mr|Mrs|Ms)\.? $")
+_TITLE_NOT_A_SURNAME = frozenset({"mr", "mrs", "ms", "mx", "miss", "mister", "madam", "sir", "ok", "lastname",
+                                  "surname", "nachname", "vorname", "name", "title", "undefined", "null", "president",
+                                  "speaker", "chairman", "chairwoman", "mayor", "secretary", "minister",
+                                  "ambassador", "senator", "governor", "director"})
 # the roles a salutation names instead of a person, which the word list lacks (Dear Valued Policyholder): read on the
 # dev split of Gretel and Nemotron-PII, 2026-10-20, with their common relatives
 _ROLE_WORDS = frozenset({
@@ -2201,6 +2210,44 @@ _EMAIL_SHAPE_RE = _lazy(r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}")
 _PW_REFERENCE_VALUE_RE = _lazy(r"#?[A-Z][A-Z0-9]{0,9}-\d{1,7}|#\d{1,7}")
 
 
+_SERIES_RE = _lazy(r"\+?\d{1,15}(?:[ .\-/]{1,2}\d{1,8}){1,12}")
+_SERIES_GROUP_RE = _lazy(r"\+?\d+")
+_SPACED_DATE_RE = _lazy(r"\d{1,2}[ .\-/]\d{1,2}[ .\-/]\d{2,4}")
+
+
+def _numbers_in_series(text: str, start: int) -> list:
+    """The national numbers at the start of a run of digit groups after a phone word, when the run as a whole is no
+    number: Tel 0170 4829173 0000 0001 … (a number, then a table), Tel 0170 482 91 73 030 4829176 … (two numbers).
+    A number starts with its trunk 0 and an area code (0 and a digit that is no 0), or with +, and it ends before the
+    first next group that starts with 0: the next number or the series behind it (ai-gateway #1764)."""
+    out: list = []
+    pos = start
+    for _ in range(16):
+        m = _SERIES_RE.match(text, pos)
+        if not m:
+            break
+        groups = list(_SERIES_GROUP_RE.finditer(m.group()))
+        first = groups[0].group()
+        if not (first.startswith("+") or (first.startswith("0") and len(first) >= 3 and first[1] != "0")):
+            break   # an area code has 2 digits after its 0 at least and never starts with 00: 01 11 2026, 0000 0001
+        if groups[1].group().startswith("0"):
+            break   # a subscriber number starts with no 0: 01067 01069 is a list of postcodes
+        end = None
+        last = next((k for k in range(2, len(groups)) if groups[k].group().startswith("0")), len(groups))
+        # only the first group with a trunk 0 ends the number, or the end of the run: a later end would take a group
+        # of the series behind it
+        cand = m.group()[:groups[last - 1].end()]
+        if _national_phone_ok(cand) and not _SPACED_DATE_RE.fullmatch(cand):
+            end = pos + groups[last - 1].end()
+        if end is None:
+            break
+        out.append((pos, end))
+        pos = end
+        while pos < len(text) and text[pos] in " .-/":
+            pos += 1
+    return out
+
+
 def _phone_word_hits(text: str, low: str, regions: tuple, want, prompt: bool = False) -> list:
     """phone-after-phone-word: a number after a phone word (Tel., Telefon, phone, mobile …) or a call cue; in both
     channels, as its FORMS entry says. A typed prompt takes only a number after a phone label: a call cue there
@@ -2235,6 +2282,8 @@ def _phone_word_hits(text: str, low: str, regions: tuple, want, prompt: bool = F
                     continue
             if (_national_phone_ok(v) if rx is _PHONE_TIGHT_RE else _nanp_ok(v)):
                 out.append((m.start(1), m.start(1) + len(v), "phone-after-phone-word", PHONE))
+            elif rx is _PHONE_TIGHT_RE and len(_SERIES_GROUP_RE.findall(v)) >= 3:
+                out.extend((a, b, "phone-after-phone-word", PHONE) for a, b in _numbers_in_series(text, m.start(1)))
     return out
 
 
@@ -2748,6 +2797,18 @@ def hits(text: str, channel: str, regions: tuple, company: list | None = None) -
                 while len(words) > 1 and _reads_as_words(words[0]) and words[0].lower() not in _GIVEN_NAME_WORDS:
                     start += len(words.pop(0)) + 1
                 v = " ".join(words)
+                # after Mr, Mrs or Ms one capital word is the surname (Dear Mr. <Surname>, ai-gateway #1764), when it
+                # reads as no English word: Mr. Smith stays text, as before, and Cache Miss Ratio, Ms Word, Mr.
+                # Lastname and Mr. President never were a person (Opus review). Not after Miss or Mx
+                low1 = words[0].lower().strip(".")
+                if rx is _PERSON_CUE_RES[-2] and len(words) == 1 and len(low1) >= 2 \
+                        and _TITLE_ONE_WORD_RE.search(text, max(0, start - 6), start) \
+                        and not _reads_as_words(v) and low1 not in _TITLE_NOT_A_SURNAME \
+                        and low1 not in _ROLE_WORDS and low1 not in _PLACEHOLDER_NAME_WORDS \
+                        and low1 not in _NOT_A_NAME_WORD and low1 not in _NOT_A_NAME_START \
+                        and v.lower() not in PLACEHOLDER_NAMES:
+                    out.append((start, start + len(v), "name-next-to-a-person-cue", NAME))
+                    continue
                 # two name words at least: one word next to the cue is as often a role or a place (The Applicant,
                 # Texas, born on) as a name
                 if not _name_ok(v) or _reads_as_words(v) or words[0].lower() in _PLACEHOLDER_NAME_WORDS:

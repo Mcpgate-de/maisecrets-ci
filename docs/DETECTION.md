@@ -84,7 +84,11 @@ d.findings("0171 4829173", channel="tool")                                      
 - **What a name does:** it is evidence as the same label before the value in text is, and only that. The last part of
   the path that is no list index is put before a copy of the value (`telefon: <value>`) and that line is scanned with
   the rules of the call. A hit inside the value is added when the bare value has none there and the scan of the whole
-  text has none there either (`maisecrets/detection/fields.py`).
+  text has none there either (`maisecrets/detection/fields.py`). Two parts of a name are read for what they name
+  (since 0.8.26, ai-gateway #1764): a last part that only wraps the value (`value`, `number`, `nummer`, `wert`)
+  takes the name above it (`("phone", 0, "value")`, `("contact", "phone", "number")`, `("steuer_id", "value")`), and a
+  phone word with qualifiers only (`phone_home`, `telefon_privat`, `mobileBusiness`, `phone_cell`, `phoneNumbers`) is
+  the phone word. A name with another word (`phone_type`, `phone_country_code`, `mobile_app_version`) stays as it is.
 - **What it never does:** take a hit away (the hits of the text stay as they are), add a hit outside its span, bring
   back a hit that the text around the value took away, or parse anything: the core reads JSON and the other formats of
   the text itself, as without fields. A field that names what the core read itself adds no second hit.

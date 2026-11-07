@@ -126,7 +126,10 @@ def check_json(root: Path = ROOT) -> list[str]:
 # the events hooks/hooks.json may name: a client rejects or skips an event it does not know, and a rejected manifest
 # loads no hook at all (Claude Code 2.1.223 and userConfig). This check ran only in the CI job `manifests` before,
 # and a new event first failed there (2026-10-07)
-HOOK_EVENTS = {"UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "SessionStart", "Setup"}
+# SessionEnd: Claude Code has it; Codex since openai/codex#33895 (2026-07-17), older than each Codex maisecrets
+# supports
+HOOK_EVENTS = {"UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "SessionStart", "SessionEnd",
+               "Setup"}
 
 
 def check_hook_paths(root: Path = ROOT) -> list[str]:

@@ -207,24 +207,43 @@ _FORBIDDEN = {"insufficient_scope": "the login lacks the resolve scope", "not_en
               "resolve references", "ineligible_sink": "this sink is not allowed"}
 
 
-def _access(cfg: dict, backend, found: dict, deadline: float, renew: bool = False) -> str:
-    rec = _load(backend, found["origin"])
-    if not rec.get("refresh"):
-        raise Refused(f"maisecrets is not logged in at {urlsplit(found['origin']).hostname}; "
-                      "the person runs /maisecrets:sref login")
-    if not renew and rec.get("access") and float(rec.get("expires") or 0) - time.time() > 60:
+def _fresh(rec: dict, stale: str | None) -> str | None:
+    """The access token of the record while it holds a minute, and is not the one the gateway just refused."""
+    if rec.get("access") and rec["access"] != stale and float(rec.get("expires") or 0) - time.time() > 60:
         return rec["access"]
-    # the refresh token rotates on each use: the new pair replaces the old one at once; a refused one is forgotten,
-    # so the next call asks for a login instead of trying it again
+    return None
+
+
+def _access(cfg: dict, backend, found: dict, deadline: float, stale: str | None = None) -> str:
+    """An access token for the resolve. `stale` is a token the gateway answered 401 to. The refresh token rotates on
+    each use, so the refresh runs under a file lock, and the record is read again under it: a session that waited
+    takes the pair another session just got, and two sessions never present the same refresh token (#1743 H2)."""
+    from .vault import LockTimeout, _lock_for
+    from .vault_refs import DIR, _bounded
+    host = urlsplit(found["origin"]).hostname
+    got = _fresh(_load(backend, found["origin"]), stale)
+    if got:
+        return got
     try:
-        data = _token(cfg, found, {"grant_type": "refresh_token", "refresh_token": rec["refresh"],
-                                   "client_id": rec.get("client_id", "")}, deadline)
-    except _Revoked:
-        forget(backend, found["origin"])
-        raise
-    _keep(backend, found["origin"], {**rec, "access": data["access_token"], "refresh": data["refresh_token"],
-                                     "expires": time.time() + float(data.get("expires_in") or 3600)})
-    return data["access_token"]
+        with _bounded(_lock_for(DIR / ".sref-refresh.lock"), deadline):
+            rec = _load(backend, found["origin"])
+            if not rec.get("refresh"):
+                raise Refused(f"maisecrets is not logged in at {host}; the person runs /maisecrets:sref login")
+            got = _fresh(rec, stale)
+            if got:
+                return got
+            # a refused refresh token is forgotten, so the next call asks for a login instead of trying it again
+            try:
+                data = _token(cfg, found, {"grant_type": "refresh_token", "refresh_token": rec["refresh"],
+                                           "client_id": rec.get("client_id", "")}, deadline)
+            except _Revoked:
+                forget(backend, found["origin"])
+                raise
+            _keep(backend, found["origin"], {**rec, "access": data["access_token"], "refresh": data["refresh_token"],
+                                             "expires": time.time() + float(data.get("expires_in") or 3600)})
+            return data["access_token"]
+    except LockTimeout:
+        raise Refused(f"another session renews the login at {host} right now; try again") from None
 
 
 # ---------------------------------------------------------------- resolve --
@@ -257,8 +276,9 @@ def resolve(cfg: dict, backend, found: dict, refs: list, sink_type: str, destina
     body = json.dumps({"references": canon, "sink_type": sink_type, "destination": destination}).encode()
     if len(body) > MAX_REQUEST_BYTES:
         raise Refused(f"the request to {host} is larger than 64 KB")
+    token = None
     for attempt in (0, 1):
-        token = _access(cfg, backend, found, deadline, renew=attempt == 1)
+        token = _access(cfg, backend, found, deadline, stale=token if attempt == 1 else None)
         try:
             status, headers, raw = _request(cfg, "POST", found["resolve"],
                                             {"Authorization": f"Bearer {token}", "Content-Type": "application/json",
