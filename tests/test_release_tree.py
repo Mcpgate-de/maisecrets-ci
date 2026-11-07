@@ -147,7 +147,7 @@ class ReleaseTreeTests(unittest.TestCase):
                       "docs/DIRECTORY-README.md",
                       # design documents, read on GitHub; nothing at run time opens them (0.7.19)
                       "docs/CLIENTS.md", "docs/PROTOCOL.md", "docs/THREAT-MODEL.md", "docs/label-sources.md",
-                      "docs/DETECTION.md",
+                      "docs/DETECTION.md", "docs/PYPI.md",
                       # the rule source of betterleaks.json; the detector reads only the JSON
                       "maisecrets/detection/rules/betterleaks.toml"}
 

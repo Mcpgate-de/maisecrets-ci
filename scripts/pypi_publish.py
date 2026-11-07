@@ -12,7 +12,9 @@ DIST holds the files the job `pypi_build` built once from the release commit, wi
 3. exchanges the CI's OIDC token for a short-lived upload token at the index's mint endpoint; no PyPI token is
    stored anywhere. GitLab: TESTPYPI_ID_TOKEN or PYPI_ID_TOKEN (`id_tokens` of the job). GitHub Actions (a job with
    `permissions: id-token: write`): the token is requested with the audience of the index;
-4. uploads with twine (pinned in the job);
+4. uploads with twine (pinned in the job). On GitHub Actions it first signs each file with pypi-attestations
+   (Sigstore, the job's own OIDC identity) and uploads the attestations with it, so the index shows the provenance
+   of each file: the repository and the workflow that built it (PEP 740);
 5. waits until the index lists the version, compares the sha256 of each published file with the built one, installs
    `maisecrets==<version>` from the index into a fresh venv with --no-deps, and runs a detection there.
 
@@ -198,8 +200,15 @@ def main(argv: list) -> int:
         env = dict(os.environ, TWINE_USERNAME="__token__", TWINE_PASSWORD=token, TWINE_NON_INTERACTIVE="1")
         on_index = published(idx["host"], version) or {}
         files = [str(dist / n) for n in sorted(built) if n not in on_index]   # never a file name the index has
-        r = subprocess.run([sys.executable, "-m", "twine", "upload", "--repository-url", idx["upload"], *files],
-                           env=env)
+        attest = []
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            if subprocess.run([sys.executable, "-m", "pypi_attestations", "sign", *files]).returncode:
+                raise SystemExit("pypi-attestations could not sign the files: nothing uploaded")
+            # twine takes an attestation only from its own arguments: <file>.publish.attestation, which sign wrote
+            attest = ["--attestations"]
+            files += [f + ".publish.attestation" for f in files]
+        r = subprocess.run([sys.executable, "-m", "twine", "upload", *attest, "--repository-url", idx["upload"],
+                            *files], env=env)
         if r.returncode:
             return 1
         print(f"uploaded {', '.join(sorted(built))} to {argv[1]}")

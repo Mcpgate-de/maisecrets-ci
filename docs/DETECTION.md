@@ -6,7 +6,8 @@ folder and no reference form of its own. The plugin gives those to it; a library
 ## Use it as a library
 
 `pyproject.toml` builds the core as a wheel. It holds `maisecrets/__init__.py` and `maisecrets/detection/` with its
-rule data, and no module of the plugin. It needs no other package and runs on Python 3.9 and later. It is not on PyPI:
+rule data, and no module of the plugin. It needs no other package and runs on Python 3.9 and later. It is on PyPI
+since 0.8.28 (`pip install maisecrets`); to build it from the checkout:
 
 ```bash
 python3 -m pip wheel --no-deps -w dist .        # dist/maisecrets-<version>-py3-none-any.whl

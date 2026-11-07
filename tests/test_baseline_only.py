@@ -31,7 +31,8 @@ class BaselineOnlyTests(unittest.TestCase):
     def test_the_ci_job_and_the_skips_name_the_same_branch(self):
         ci = (ROOT / ".gitlab-ci.yml").read_text(encoding="utf-8")
         rule = '$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^chore\\/baseline-/'
-        self.assertEqual(ci.count(rule), 3)     # the skip of the test jobs, the skip of the matrix, baseline_only
+        # the skips of the two test templates, the skip of the matrix, baseline_only
+        self.assertEqual(ci.count(rule), 4)
         self.assertIn("python scripts/baseline_only.py", ci)
 
 

@@ -10,13 +10,30 @@ build-backend = "hatchling.build"
 name = "maisecrets"
 dynamic = ["version"]
 description = "Find secrets and personal data in text: the detection core of the maisecrets plugin"
-readme = "docs/DETECTION.md"
+readme = "docs/PYPI.md"
 requires-python = ">=3.9"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE", "maisecrets/detection/rules/LICENSE-*"]
 dependencies = []
+keywords = ["secrets", "pii", "personal data", "detection", "redaction", "ai agents", "dlp"]
+# the Python versions CI tests (python:3.9-slim and python:3.12-slim) and the platforms of the GitHub matrix
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Text Processing",
+    "Typing :: Typed",
+]
 
 [project.urls]
+Homepage = "https://mcpgate.de/maisecrets/"
+Documentation = "https://github.com/Mcpgate-de/maisecrets/blob/main/docs/DETECTION.md"
+Changelog = "https://github.com/Mcpgate-de/maisecrets/blob/main/CHANGELOG.md"
+Issues = "https://github.com/Mcpgate-de/maisecrets/issues"
 Source = "https://github.com/Mcpgate-de/maisecrets"
 
 # the version is the plugin's: scripts/release.py writes it into the manifests, and the wheel reads it from there
@@ -30,6 +47,7 @@ exclude = ["__pycache__", "*.pyc"]
 
 [tool.hatch.build.targets.sdist]
 only-include = ["maisecrets/__init__.py", "maisecrets/py.typed", "maisecrets/detection", ".claude-plugin/plugin.json",
-                "docs/DETECTION.md",
+                "docs/PYPI.md",
                 "LICENSE", "NOTICE", "pyproject.toml"]
+# .claude-plugin/plugin.json stays: the version comes from it ([tool.hatch.version]), also in a build from the sdist
 exclude = ["__pycache__", "*.pyc"]

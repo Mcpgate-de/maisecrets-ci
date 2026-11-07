@@ -67,6 +67,16 @@ _LABEL_MAX = 64
 _NOT_IN_LABEL = _LazyRx(r"[\x00-\x1f\x7f\x85\u2028\u2029:=\"']")
 _CAMEL = _LazyRx(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")   # APIKeyCreatedAt: API, Key, Created, At
 _WORD_SPLIT = _LazyRx(r"[\s._\-]+")
+# the checksum of a file after its name: the sha256 of ('maisecrets-0.8.27.tar.gz', '<sha256>') is no secret (#28).
+# Only a value of a digest's length: the password of an archive (password for backup.zip: <value>) stays a hit
+_FILE_LABEL_RE = _LazyRx(r"(?i)[\w.-]\.(?:tar\.(?:gz|bz2|xz|zst)|tgz|tar|zip|7z|whl|gz|xz|zst|jar|deb|rpm|dmg|msi|exe"
+                         r"|apk|nupkg|gem)[\"']?\s*[,:=]\s*[\"'`]?$")
+_DIGEST_RE = _LazyRx(r"[0-9a-fA-F]{32}|[0-9a-fA-F]{40}|[0-9a-fA-F]{64}|[0-9a-fA-F]{128}")
+
+
+def file_digest(text: str, pos: int, end: int, value: str) -> bool:
+    """A hex digest (MD5, SHA-1, SHA-256, SHA-512) right after a file name with an archive or package extension."""
+    return bool(_DIGEST_RE.fullmatch(value.strip("\"'` ")) and _FILE_LABEL_RE.search(text, pos, end))
 
 
 def checked(text: str, fields) -> tuple:

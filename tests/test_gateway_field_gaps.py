@@ -7,6 +7,7 @@ Run: python3 -m unittest tests.test_gateway_field_gaps -v
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 import unittest
@@ -224,6 +225,29 @@ class MailFormTests(unittest.TestCase):
             with self.subTest(addr=addr):
                 self.assertEqual(hits(addr), [])
         self.assertEqual(hits("ip " + "93.184." + "216.34 up")[0][0], "IP", "a bare IP is the IP rule's")
+
+
+
+class FileNameLabelTests(unittest.TestCase):
+    """#28: the sha256 after a file name that holds the word secret is no secret; a credential label still is."""
+
+    DIGEST = hashlib.sha256(b"synthetic-test-file").hexdigest()
+
+    def test_a_digest_after_an_archive_name_is_no_secret(self):
+        for text in (f"('maisecrets-0.8.27.tar.gz', '{self.DIGEST}')", f"('secrets.tar.gz', '{self.DIGEST}')",
+                     f"secrets.zip: {self.DIGEST}"):
+            with self.subTest(text=text[:20]):
+                self.assertEqual(hits(text), [])
+
+    def test_a_digest_after_a_credential_label_stays_a_secret(self):
+        self.assertEqual([t for t, _v in hits(f"('client_secret', '{self.DIGEST}')")], ["SECRET"])
+
+    def test_the_password_of_an_archive_stays_a_secret(self):
+        # only a digest is dropped: a password after the archive's name is the value people write there
+        value = "Kq7" + "mZt4wPx9Lc2Rv"
+        for text in (f"The password for backup.zip: {value}", f"secret_key backup.tar.gz = {value}"):
+            with self.subTest(text=text[:24]):
+                self.assertEqual([t for t, _v in hits(text)], ["SECRET"])
 
 
 if __name__ == "__main__":

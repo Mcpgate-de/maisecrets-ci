@@ -202,9 +202,11 @@ class ListingManifestTests(unittest.TestCase):
                     jobs[name] = ""
             elif name:
                 jobs[name] += line + "\n"
-        for name in ("unit", "beliefs_can_fail_replay", "harness_claude", "harness_codex"):
-            self.assertIn("extends: .tested_before_the_tag", jobs[name], name)
-        self.assertIn("if: $CI_COMMIT_TAG\n      when: never", jobs[".tested_before_the_tag"])
+        self.assertIn("extends: .tested_before_the_tag", jobs["unit"])
+        for name in ("beliefs_can_fail_replay", "harness_claude", "harness_codex"):
+            self.assertIn("extends: .tested_when_changed", jobs[name], name)
+        for template in (".tested_before_the_tag", ".tested_when_changed"):
+            self.assertIn("if: $CI_COMMIT_TAG\n      when: never", jobs[template], template)
         for name in ("mirror_tag", "notify_marketplace"):
             needs = next(line for line in jobs[name].splitlines() if line.strip().startswith("needs:"))
             for skipped in ("unit", "harness_claude", "harness_codex", "beliefs_can_fail_replay"):

@@ -154,6 +154,40 @@ lint:
       when: never
     - when: on_success
 
+# The replay and the two harnesses in a merge request into next: only when a path they read changed. A change of
+# docs/, .github/, bench/ or the other scripts alone ran them for nothing (maintainer, 2026-11-07). A merge request
+# into main and the pipeline on main run them always: the release needs them
+.tested_when_changed:
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^chore\/baseline-/
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - maisecrets/**/*
+        - hooks/**/*
+        - claude-mod/**/*
+        - commands/**/*
+        - skills/**/*
+        - .claude-plugin/**/*
+        - .codex-plugin/**/*
+        - harness/**/*
+        - beliefs/**/*
+        - tests/**/*
+        - scripts/replay_can_fail.py
+        - scripts/_run_tests_json.py
+        - scripts/lint_plugin.py
+        - scripts/build_release_tree.py
+        - bench/bank/**/*
+        - .gitlab-ci.yml
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: never
+    - when: on_success
+
 # The baseline merge request of a release (chore/baseline-X): it adds bench/results/<run>/, a line of
 # bench/HOLDOUT-LOG.md and docs/coverage.json, nothing else. It ran the whole suite (11 to 19 minutes,
 # about 54 CPU minutes on the runner) for files only three test modules read. This job refuses any other
@@ -205,7 +239,7 @@ unit_python39:
 
 beliefs_can_fail_replay:
   stage: test
-  extends: .tested_before_the_tag
+  extends: .tested_when_changed
   # starts at once, beside the validate stage: the tests do not need its jobs (release needs every job, mirror its
   # own list, as before)
   needs: []
@@ -223,7 +257,7 @@ beliefs_can_fail_replay:
 # needs no login (measured 2026-09-26). Versions pinned to the ones proven locally.
 harness_claude:
   stage: test
-  extends: .tested_before_the_tag
+  extends: .tested_when_changed
   # starts at once, beside the validate stage: the tests do not need its jobs (release needs every job, mirror its
   # own list, as before)
   needs: []
@@ -241,7 +275,7 @@ harness_claude:
 
 harness_codex:
   stage: test
-  extends: .tested_before_the_tag
+  extends: .tested_when_changed
   # starts at once, beside the validate stage: the tests do not need its jobs (release needs every job, mirror its
   # own list, as before)
   needs: []

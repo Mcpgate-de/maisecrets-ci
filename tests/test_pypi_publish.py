@@ -8,6 +8,7 @@ import hashlib
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -51,7 +52,6 @@ class PublishTests(unittest.TestCase):
 
 class TokenSourceTests(unittest.TestCase):
     def test_a_ci_run_that_is_no_tag_pipeline_publishes_nothing(self):
-        from unittest import mock
         cases = [({"CI_COMMIT_TAG": "v1.2.3"}, "v1.2.3"),
                  ({"GITHUB_ACTIONS": "true", "GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": "v1.2.3"}, "v1.2.3"),
                  ({}, "")]
@@ -67,7 +67,6 @@ class TokenSourceTests(unittest.TestCase):
     def test_the_github_token_is_asked_with_the_audience_of_the_index(self):
         import io
         import json as _json
-        from unittest import mock
         seen = {}
 
         def fake_open(req, timeout):
@@ -81,6 +80,44 @@ class TokenSourceTests(unittest.TestCase):
                                 "auth": "bearer bearer-of-the-test"})
         with mock.patch.dict("os.environ", {}, clear=True):
             self.assertEqual(P.github_id_token("pypi"), "", "outside a GitHub job")
+
+
+
+class AttestationTests(unittest.TestCase):
+    """On GitHub Actions each file is signed and uploaded with its attestation (PEP 740 provenance)."""
+
+    def run_main(self, env: dict) -> list:
+        calls = []
+
+        def fake_run(cmd, **kw):
+            calls.append(cmd)
+            return mock.Mock(returncode=0)
+        with mock.patch.dict("os.environ", env, clear=True), \
+                mock.patch.object(P.subprocess, "run", fake_run), \
+                mock.patch.object(P, "published", lambda *a: None), \
+                mock.patch.object(P, "mint_token", lambda *a: "upload-token"), \
+                mock.patch.object(P, "github_id_token", lambda *a: "id-token"), \
+                mock.patch.object(P, "wait_listed", lambda *a: None), \
+                mock.patch.object(P, "install_and_probe", lambda *a: None):
+            self.assertEqual(P.main(["--index", "testpypi", str(dist(FILES))]), 0)
+        return calls
+
+    def test_github_signs_the_files_and_uploads_the_attestations(self):
+        calls = self.run_main({"GITHUB_ACTIONS": "true", "GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": "v0.8.26"})
+        sign = [c for c in calls if "pypi_attestations" in c]
+        upload = [c for c in calls if "twine" in c]
+        self.assertEqual(len(sign), 1)
+        self.assertEqual(sorted(Path(f).name for f in sign[0][4:]), sorted(FILES))
+        self.assertIn("--attestations", upload[0])
+        # twine takes an attestation only from its arguments, next to its file
+        self.assertEqual(sorted(Path(f).name for f in upload[0] if f.endswith(".publish.attestation")),
+                         sorted(n + ".publish.attestation" for n in FILES))
+        self.assertLess(calls.index(sign[0]), calls.index(upload[0]), "signed before the upload")
+
+    def test_gitlab_uploads_without_attestations(self):
+        calls = self.run_main({"GITLAB_CI": "true", "CI_COMMIT_TAG": "v0.8.26", "TESTPYPI_ID_TOKEN": "id-token"})
+        self.assertFalse([c for c in calls if "pypi_attestations" in c])
+        self.assertNotIn("--attestations", [c for c in calls if "twine" in c][0])
 
 
 if __name__ == "__main__":
