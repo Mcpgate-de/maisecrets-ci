@@ -14,7 +14,7 @@ workflow:
   variables:
     ANTHROPIC_API_KEY: "sk-ant-dummy-for-the-fake-upstream-000000000000"
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
-    CLAUDE_CODE_VERSION: "2.1.284"
+    CLAUDE_CODE_VERSION: "2.1.316"   # the version of the Linux harness job: the goldens are recorded with it
     # npx fetches the MCP server of mcp_rehydrate on a cold runner: more than the 30 s default (measured)
     MCP_TIMEOUT: "120000"
     PYTHONUTF8: "1"
