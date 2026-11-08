@@ -11,7 +11,8 @@
 // A value lives only in this module's memory (at most CACHE_MAX, gone with the session): never in $.state, $.store,
 // a log or a file. dispatch.py mod-values gives it, for this session's keys only (maisecrets/show_values.py).
 
-const PH = /`[^`\n]*`|⟦([A-Z][A-Z0-9_]{0,40}_c\d{1,9})(?::[^⟧\n]{0,80})?⟧/g
+const PH = /`[^`\n]*`|⟦([A-Z][A-Z0-9_]{0,40}_c\d{1,9})(?::[^⟧\n]{0,80})?⟧|⟦(sref:[A-Za-z0-9_-]{1,32}:[A-Za-z0-9_-]{20,128})(?::[^⟧\n]{1,256})?⟧/g
+const SREF_RE = /⟦(sref:[A-Za-z0-9_-]{1,32}:[A-Za-z0-9_-]{20,128})(?::[^⟧\n]{1,256})?⟧/g
 const KEY_RE = /⟦([A-Z][A-Z0-9_]{0,40}_c\d{1,9})(?::[^⟧\n]{0,80})?⟧/g
 // the link of a value carries a random part of this process, which only the drawing holds: the model cannot write a
 // link that the mod answers (a link with the bare prefix and a key in a reply copied that value, Opus review of #30)
@@ -27,6 +28,10 @@ const ASK_MS = 4000
 const CLICK_MS = 10000
 const SHOWN_CHARS = 80
 const HINT_SESSIONS = 3
+// a gateway's reference: only a click resolves it, once per session, at most REVEAL_MAX per session (#30); a click
+// on the value it shows then copies it, as for a value of the store
+const REVEAL_MAX = 20
+const REVEAL_MS = 8000
 
 let mode = 'off'          // until the first answer: nothing is drawn
 let links = true
@@ -37,6 +42,9 @@ const wanted = new Set()
 let asking = false
 const open = new Map()    // click: the text's address -> keys shown until CLICK_MS
 let hinted = false
+const revealed = new Map()  // a gateway reference -> its value, for this session
+let revealing = false
+let reveals = 0
 
 async function runValues($, stdin) {
   // the same Pythons as the prompt path, fixed command lines (claude-mod/maisecrets-mod.mjs)
@@ -56,7 +64,7 @@ async function runValues($, stdin) {
 async function ask($, keys) {
   // the id of each question: /clear and a resume start another session without session.start
   const id = await $.session.id()
-  if (id !== session) { session = id; cache.clear(); absent.clear(); open.clear() }
+  if (id !== session) { session = id; cache.clear(); absent.clear(); open.clear(); revealed.clear(); reveals = 0 }
   const r = await runValues($, JSON.stringify({ keys, session_id: session }))
   if (!r) return false
   let a
@@ -65,7 +73,7 @@ async function ask($, keys) {
   const was = mode
   mode = ['always', 'click', 'off'].includes(a.mode) ? a.mode : 'off'
   links = a.links !== false
-  if (mode === 'off') { cache.clear(); absent.clear(); open.clear() }
+  if (mode === 'off') { cache.clear(); absent.clear(); open.clear(); revealed.clear() }
   const values = a.values && typeof a.values === 'object' ? a.values : {}
   for (const k of keys) {
     if (typeof values[k] === 'string') {
@@ -104,7 +112,7 @@ function code(v) {
 
 // a line with a link, a URL or HTML keeps its placeholders: a value there could become part of a link target
 // that the model wrote (`[x](https://host/?q=` + placeholder), and a click would send it away (Opus review)
-const LINKY = /:\/\/|\]\(|\]\[|^\s*\[[^\]]*\]:|<[a-z!/]|www\./i
+const LINKY = /:\/\/|\]\(|\]\[|^\s*\[[^\]]*\]:|<[a-z!/]|www\.|\b(?:mailto|data|file|tel|sms|javascript|ftp):|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\/|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\?/i
 
 function rewrite(text, address) {
   const shown = open.get(address)?.keys
@@ -112,7 +120,11 @@ function rewrite(text, address) {
 }
 
 function rewriteLine(text, shown) {
-  return text.replace(PH, (all, k) => {
+  return text.replace(PH, (all, k, ref) => {
+    if (ref) {
+      // a gateway's reference: a link that a click resolves; then the value in its place, a click copies it
+      return revealed.has(ref) ? `[${code(revealed.get(ref))}](${LINK}copy/${ref})` : `[${all}](${LINK}${ref})`
+    }
     if (!k) return all
     const v = cache.get(k)
     if (mode === 'always' && v !== undefined) return links ? `[${code(v)}](${LINK}${k})` : code(v)
@@ -141,19 +153,109 @@ function hint($) {
   })
 }
 
+// one click, one reference: the gateway resolves it for the screen (sink display) through dispatch.py mod-reveal,
+// which checks that this session got the reference from a user-scope gateway; never from a drawing (Opus review)
+async function reveal($, ref) {
+  if (revealed.has(ref) || revealing) return
+  if (reveals >= REVEAL_MAX) {
+    $.ui.toast(`maisecrets shows at most ${REVEAL_MAX} gateway values per session.`)
+    return
+  }
+  revealing = true
+  reveals += 1
+  try {
+    const id = await $.session.id()
+    if (id !== session) { session = id; cache.clear(); absent.clear(); open.clear(); revealed.clear(); reveals = 0 }
+    const init = { cwd: $.plugin.root, stdin: JSON.stringify({ ref, session_id: id }), timeoutMs: REVEAL_MS,
+      env: { PYTHONUTF8: '1' } }
+    let r = null
+    for (const argv of [['python3', 'hooks/dispatch.py', 'mod-reveal'], ['py', '-3', 'hooks/dispatch.py', 'mod-reveal'],
+      ['python', 'hooks/dispatch.py', 'mod-reveal']]) {
+      try {
+        r = await $.process.run(argv, init)
+        if (r.exitCode === 0) break
+      } catch { r = null }
+    }
+    let a = null
+    try { a = r && r.exitCode === 0 ? JSON.parse(r.stdout) : null } catch { a = null }
+    if (a?.maisecrets === 'mod-reveal' && typeof a.value === 'string') {
+      revealed.set(ref, a.value)
+      $.ui.invalidate('ui.render')
+    } else {
+      $.ui.toast(typeof a?.reason === 'string' ? a.reason.slice(0, 300) : 'maisecrets could not get the value.')
+    }
+  } finally {
+    revealing = false
+  }
+}
+
+// any other tool's call row and result (an MCP tool, Write, Edit …): the client draws them itself, with the values
+// put into its input and output for the drawing (always only; a line with a link, a URL or HTML keeps its
+// placeholders). Bash keeps its own drawing above, where a click copies
+const DEEP_MAX = 8
+function collect(v, out, depth = 0) {
+  if (depth > DEEP_MAX) return
+  if (typeof v === 'string') { if (v.includes('\u27e6')) for (const k of keysIn(v)) out.add(k); return }
+  if (Array.isArray(v)) { for (const x of v) collect(x, out, depth + 1); return }
+  if (v && typeof v === 'object') for (const x of Object.values(v)) collect(x, out, depth + 1)
+}
+function shown(v, depth = 0) {
+  if (depth > DEEP_MAX) return v
+  if (typeof v === 'string') {
+    if (!v.includes('\u27e6')) return v
+    return v.split('\n').map(line => LINKY.test(line) ? line : line.replace(KEY_RE, (all, k) =>
+      cache.has(k) ? `${cache.get(k)} \u{1F512}` : all)).join('\n')
+  }
+  if (Array.isArray(v)) return v.map(x => shown(x, depth + 1))
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, shown(x, depth + 1)]))
+  return v
+}
+function rewriteProps($, e, fields) {
+  const keys = new Set()
+  for (const f of fields) collect(e.props?.[f], keys)
+  if (!keys.size) return null
+  if (e.props?.onScreen !== null) {
+    for (const k of keys) if (!cache.has(k) && !absent.has(k)) wanted.add(k)
+    fetchLater($)
+  }
+  if (mode !== 'always' || ![...keys].some(k => cache.has(k))) return null
+  const props = { ...e.props }
+  for (const f of fields) if (f in props) props[f] = shown(props[f])
+  return { ...e, props }
+}
+
+// the origins of a person's own prompt (maisecrets-mod.mjs PERSON)
+const OWN_PROMPT = new Set(['composer', 'bridge', 'sdk'])
+
+const srefsIn = (t) => [...new Set([...t.matchAll(SREF_RE)].map(m => m[1]))]
+
 function draw($, e, text, address, wrap) {
   const keys = keysIn(text)
+  const refs = srefsIn(text)
   // a message drawn outside the viewport (onScreen null) asks for nothing: it asks when a scroll brings it in
   if (e.props?.onScreen !== null) {
     for (const k of keys) if (!cache.has(k) && !absent.has(k)) wanted.add(k)
     fetchLater($)
   }
-  if (mode === 'off' || !keys.some(k => cache.has(k))) return null
+  if (mode === 'off' || (!keys.some(k => cache.has(k)) && !refs.length)) return null
   if (mode === 'always') hint($)
   const { Markdown, Box, Text } = $.ui.resolve(e)
   const press = async (link, p) => {
     if (typeof link?.href !== 'string' || !link.href.startsWith(LINK)) return
     const k = link.href.slice(LINK.length)
+    if (k.startsWith('sref:')) {
+      if (refs.includes(k)) await reveal($, k)
+      return
+    }
+    if (k.startsWith('copy/sref:')) {
+      const ref = k.slice(5)
+      if (!refs.includes(ref) || !revealed.has(ref)) return
+      try {
+        const r = await $.ui.copy({ text: revealed.get(ref), surface: p?.surface ?? e.surface })
+        $.ui.toast(r?.isCopied ? 'Copied.' : 'Not copied.')
+      } catch { /* nothing copied */ }
+      return
+    }
     if (!cache.has(k)) return
     if (mode === 'always') {
       try {
@@ -170,10 +272,10 @@ function draw($, e, text, address, wrap) {
       if (open.get(address) === view) { open.delete(address); $.ui.invalidate('ui.render') }
     })
   }
-  const pressable = links || mode === 'click'
+  const pressable = links || mode === 'click' || refs.length > 0
   const md = pressable
     ? h(Markdown, { key: `ms-${address}`, text: rewrite(text, address),
-      pressableLinks: keys.map(k => LINK + k), onLinkPress: press })
+      pressableLinks: [...keys, ...refs, ...refs.map(r => 'copy/' + r)].map(k => LINK + k), onLinkPress: press })
     : h(Markdown, { key: `ms-${address}`, text: rewrite(text, address) })
   return wrap(md, Box, Text)
 }
@@ -215,7 +317,32 @@ export function registerShowValues(on) {
     return tree ?? next(e)
   })
 
+  // the person's own prompt, as the mod sent it: the values the person typed come back on the screen (a message of
+  // another session, a notification or a channel keeps its row: it is not the person's text)
+  on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
+    const text = e.props?.text
+    // only the row of the normal view (isExpanded false): ctrl+o, --verbose and an export draw it in full, and those
+    // stay the engine's
+    if (typeof text !== 'string' || !text.includes('\u27e6') || !drawsHere(e) || e.props.isExpanded !== false
+        || !OWN_PROMPT.has(e.props.origin?.kind)) {
+      return next(e)
+    }
+    const md = text.split('\n').map(lineAsMarkdown).join('  \n')
+    const tree = draw($, e, md, `u-${e.requestId}`, (m, Box, Text) => h(Box, { flexDirection: 'row' },
+      h(Text, null, '\u276f '), h(Box, { flexDirection: 'column', flexGrow: 1, flexShrink: 1 }, m)))
+    return tree ?? next(e)
+  })
+
+  on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
+    if (e.props?.tool === 'Bash' || !drawsHere(e)) return next(e)
+    return next(rewriteProps($, e, ['input', 'output']) ?? e)
+  })
+
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
+    if (e.props?.tool !== 'Bash') {
+      if (!drawsHere(e) || e.props?.isErrored) return next(e)
+      return next(rewriteProps($, e, ['output']) ?? e)
+    }
     const out = e.props?.output
     const text = typeof out?.stdout === 'string' ? out.stdout : ''
     // an error, an output with stderr and a collapsed row stay the engine's: this drawing has stdout alone

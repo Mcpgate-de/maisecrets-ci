@@ -345,7 +345,16 @@ class SrefBashTests(unittest.TestCase):
         self.assertEqual(code, 0, text)
         self.assertIn("logged in to 127.0.0.1", text)
         self.assertNotIn("srefr_", text)
-        self.assertIn("logged in", run("status")[1].split(": ", 1)[1])
+        state = run("status")[1].split(": ", 1)[1]
+        self.assertIn("logged in", state)
+        if os.name != "nt":
+            self.assertIn("values go into files, commands, the screen", state)
+            self.assertNotIn("log in again", state)
+        # a login from before 0.9.0 kept no scope: files only, and the status says how to allow more
+        rec = S._load(self.backend, self.found["origin"])
+        S._keep(self.backend, self.found["origin"], {k: v for k, v in rec.items() if k != "scope"})
+        state = run("status")[1].split(": ", 1)[1]
+        self.assertIn("values go into files (log in again to allow", state)
         self.assertEqual(run("logout")[0], 0)
         self.assertFalse(S.logged_in(self.backend, self.found["origin"]))
         self.assertEqual(run("login", "other")[0], 1, "an unknown server name")
@@ -444,6 +453,48 @@ class SrefBashTests(unittest.TestCase):
         run = self.run_command(f"printf 'got:%s' {ref}")
         self.assertEqual(run.returncode, 97)
         self.assertNotIn("PlantedValue", run.stdout + run.stderr)
+
+    def test_a_click_on_the_screen_shows_a_noted_reference_once_through_the_display_sink(self):
+        # #30: the gateway resolves it for the screen (sink display); the value is released, so a paste or an echo
+        # of it in a tool output comes back as the reference
+        from maisecrets import show_values
+        self.login()
+        self.result()
+        key = self.ref[1:-1]
+        cfg = {**hooks.load_config(), "show_values": "always"}
+        got = show_values.reveal({"ref": key, "session_id": "s1"}, cfg)
+        self.assertEqual(got, {"value": VALUE})
+        self.assertEqual([(r["sink_type"], r["destination"]) for r in self.srv.resolved], [("display", "screen")])
+        hooks._live_cache.clear()
+        out = hooks._post_tool_guarded({"tool_name": "Bash", "session_id": "s1", **CLAUDE,
+                                        "tool_input": {"command": "cat note.txt"},
+                                        "tool_response": {"stdout": "pasted: " + VALUE, "stderr": ""}})
+        upd = json.dumps(out["hookSpecificOutput"]["updatedToolOutput"], ensure_ascii=False)
+        self.assertNotIn(VALUE, upd)
+        self.assertIn(self.ref, upd, "the released value comes back as its reference")
+
+    def test_a_reference_this_session_did_not_get_or_show_values_off_resolves_nothing(self):
+        from maisecrets import show_values
+        self.login()
+        self.result(session="other")
+        key = self.ref[1:-1]
+        cfg = {**hooks.load_config(), "show_values": "always"}
+        got = show_values.reveal({"ref": key, "session_id": "s1"}, cfg)
+        self.assertIn("reason", got)
+        self.assertNotIn(VALUE, json.dumps(got))
+        self.result()
+        self.assertIn("reason", show_values.reveal({"ref": key, "session_id": "s1"}, {**cfg, "show_values": "off"}))
+        self.assertEqual(self.srv.resolved, [], "no resolve without a note of this session, and none under off")
+
+    def test_a_login_without_the_display_scope_names_the_reason(self):
+        from maisecrets import show_values
+        self.found = {**self.found, "scope": S.SCOPE}
+        self.login()
+        self.result()
+        cfg = {**hooks.load_config(), "show_values": "always"}
+        got = show_values.reveal({"ref": self.ref[1:-1], "session_id": "s1"}, cfg)
+        self.assertIn("does not allow showing values on the screen", got.get("reason", ""))
+        self.assertEqual(self.srv.resolved, [])
 
     def test_the_audit_names_the_reference_without_its_id(self):
         self.login()

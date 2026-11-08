@@ -83,7 +83,7 @@ class SrefClientTests(unittest.TestCase):
     def test_discovery_names_the_resolver_and_its_sinks(self):
         self.assertIsNotNone(self.found)
         self.assertEqual(self.found["resolve"], self.srv.url + "/sensitive-references/resolve")
-        self.assertEqual(sorted(self.found["sinks"]), ["local-file-1", "mcpgate-process-1"])
+        self.assertEqual(sorted(self.found["sinks"]), ["display-1", "local-file-1", "mcpgate-process-1"])
 
     def test_the_login_keeps_the_tokens_in_the_store(self):
         self.assertFalse(S.logged_in(self.backend, self.found["origin"]))

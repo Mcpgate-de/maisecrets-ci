@@ -13,7 +13,7 @@ const LINK = 'https://mcpgate.de/maisecrets/v#'
 const real = (md: any, key: string) => (md.props.pressableLinks as string[]).find(l => l.endsWith('/' + key))!
 
 function world(on, opts: { mode?: string, links?: boolean, asked?: string[][], sessions?: string[],
-  ids?: { id: string }, copied?: string[] } = {}) {
+  ids?: { id: string }, copied?: string[], seen?: any[] } = {}) {
   const clock = mock.clock(on, { now: 1_000_000 })
   mock.store(on)
   on('session.id', () => ({ value: opts.ids?.id ?? 'sess-1' }))
@@ -33,6 +33,7 @@ function world(on, opts: { mode?: string, links?: boolean, asked?: string[][], s
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   // the engine's own drawing of a reply: its text as it came
   on('ui.render', ($, e) => {
+    ;(opts as any).seen?.push(e.props)
     const { Markdown } = $.ui.resolve(e)
     return (globalThis as any).h(Markdown, { key: 'engine', text: e.props.text ?? e.props.output?.stdout ?? '' })
   })
@@ -184,5 +185,156 @@ test('a link the model wrote with the bare prefix copies nothing; the drawn link
   expect(copied).toEqual([])
   await ui.press({ key: md!.key!, link: { href: real(md, 'NAME_c1') } as any })
   expect(copied).toEqual(['Max Mustermann'])
+  await ui.unmount()
+})
+
+const SREF = 'sref:email:' + 'A'.repeat(24)
+
+function gateway(on, revealAnswer: object, runs: string[][]) {
+  on('process.run', ($, e) => {
+    runs.push(e.argv)
+    if (e.argv[2] === 'mod-reveal') {
+      return { value: { exitCode: 0, stderr: '', stdout: JSON.stringify({ maisecrets: 'mod-reveal', ...revealAnswer }) } }
+    }
+    return { value: { exitCode: 0, stderr: '', stdout: JSON.stringify({ maisecrets: 'mod-values', mode: 'always',
+      links: true, values: {} }) } }
+  })
+}
+
+test('a gateway reference: drawing asks the gateway nothing; one click shows its value, a click on that copies it',
+  async ($, on) => {
+    const runs: string[][] = []
+    const clock = mock.clock(on, { now: 1_000_000 })
+    mock.store(on)
+    on('session.id', () => ({ value: 'sess-1' }))
+    on('ui.toast', () => ({ value: undefined }))
+    const copied: string[] = []
+    on('ui.copy', ($, e) => { copied.push(e.text); return { value: { isCopied: true } } })
+    gateway(on, { value: 'gw@example.com' }, runs)
+    on('session.start', (_, e) => ({ cwd: e.cwd }))
+    on('ui.render', ($, e) => (globalThis as any).h($.ui.resolve(e).Markdown, { key: 'engine', text: e.props.text }))
+    await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+    const ui = await $.ui.mount({ plugin: 'maisecrets', surface: 'terminal', component: 'AssistantMessage',
+      props: { text: `Mail ${P(SREF + ':gw\u2022\u2022\u2022@example.com')}`, isFirstOfReply: true } as any,
+      viewport: FULL })
+    await clock.advance(10)
+    expect(runs.filter(a => a[2] === 'mod-reveal')).toEqual([])
+    const md = await ui.find({ type: 'Markdown' })
+    await ui.press({ key: md!.key!, link: { href: real(md, SREF) } as any })
+    const after = await ui.find({ type: 'Markdown' })
+    expect(after?.props.text).toContain('`gw@example.com \u{1F512}`')
+    expect(runs.filter(a => a[2] === 'mod-reveal').length).toBe(1)
+    await ui.press({ key: md!.key!, link: { href: real(md, SREF) } as any })
+    expect(runs.filter(a => a[2] === 'mod-reveal').length).toBe(1)
+    expect(copied).toEqual([])
+    await ui.press({ key: md!.key!, link: { href: real(after, 'copy/' + SREF) } as any })
+    expect(copied).toEqual(['gw@example.com'])
+    expect(runs.filter(a => a[2] === 'mod-reveal').length).toBe(1)
+    await ui.unmount()
+  })
+
+for (const [kind, shows] of [['composer', true], ['peer', false], ['task-notification', false]] as const) {
+  test(`a prompt of origin ${kind} ${shows ? 'shows' : 'keeps'} the values the person typed`, async ($, on) => {
+    const clock = world(on)
+    await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+    const ui = await $.ui.mount({ plugin: 'maisecrets', surface: 'terminal', component: 'UserMessage',
+      props: { text: `Kunde ${P('NAME_c1')} anrufen`, origin: { kind }, isExpanded: false } as any, viewport: FULL })
+    await clock.advance(10)
+    const md = await ui.find({ type: 'Markdown' })
+    if (shows) expect(md?.props.text).toContain('`Max Mustermann \u{1F512}`')
+    else expect(md?.props.text ?? '').not.toContain('Max Mustermann')
+    await ui.unmount()
+  })
+}
+
+test('the full view and an export of a prompt (isExpanded) keep the placeholders', async ($, on) => {
+  const clock = world(on)
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'maisecrets', surface: 'terminal', component: 'UserMessage',
+    props: { text: `Kunde ${P('NAME_c1')} anrufen`, origin: { kind: 'composer' }, isExpanded: true } as any,
+    viewport: FULL })
+  await clock.advance(10)
+  expect((await ui.find({ type: 'Markdown' }))?.key).toBe('engine')
+  await ui.unmount()
+})
+
+test('an MCP call row and its result show the values (always), a line with a URL keeps its placeholder', async ($, on) => {
+  const seen: any[] = []
+  const clock = world(on, { seen })
+
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  const props = { tool_use_id: 't1', tool: 'mcp__crm__get', input: { id: 7, note: `for ${P('NAME_c1')}` },
+    isRunning: false, isErrored: false, isInterrupted: false, isExpanded: true,
+    output: { content: [{ type: 'text', text: `name: ${P('NAME_c1')}\nsee https://crm.example/?q=${P('EMAIL_c2')}` }] } }
+  const ui = await $.ui.mount({ plugin: 'maisecrets', surface: 'terminal', component: 'ToolUse', props: props as any,
+    viewport: FULL, requestId: 't1' })
+  await clock.advance(10)
+  await ui.redraw(props as any)
+  const drawn = seen[seen.length - 1]
+  expect(drawn.input.note).toBe('for Max Mustermann \u{1F512}')
+  expect(drawn.output.content[0].text).toContain('name: Max Mustermann \u{1F512}')
+  expect(drawn.output.content[0].text).toContain(P('EMAIL_c2'))
+  expect(drawn.output.content[0].text).not.toContain('max@example.com')
+  await ui.unmount()
+})
+
+const TOOL = { tool_use_id: 't2', tool: 'mcp__crm__get', input: { note: `for ${P('NAME_c1')}` }, isRunning: false,
+  isErrored: false, isInterrupted: false, isExpanded: true, output: { content: [{ type: 'text', text: `n ${P('NAME_c1')}` }] } }
+
+for (const [what, surface, viewport, mode] of [
+  ['the main screen', 'terminal', { ...FULL, isFullscreen: false }, 'always'],
+  ['the phone', 'mobile', { ...FULL, isFullscreen: false }, 'always'],
+  ['mode click', 'terminal', FULL, 'click'],
+  ['mode off', 'terminal', FULL, 'off'],
+] as const) {
+  test(`a tool row keeps its placeholders on ${what}`, async ($, on) => {
+    const seen: any[] = []
+    const clock = world(on, { seen, mode })
+    await $.session.start({ cwd: '/work', surface, isInteractive: true })
+    const ui = await $.ui.mount({ plugin: 'maisecrets', surface, component: 'ToolUse', props: TOOL as any, viewport,
+      requestId: 't2' })
+    await clock.advance(10)
+    await ui.redraw(TOOL as any)
+    const last = seen[seen.length - 1]
+    expect(JSON.stringify(last)).not.toContain('Max Mustermann')
+    await ui.unmount()
+  })
+}
+
+test('a non-Bash tool result shows the values; an errored one keeps its placeholders', async ($, on) => {
+  const seen: any[] = []
+  const clock = world(on, { seen })
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  const res = { tool_use_id: 't3', tool: 'mcp__crm__get', isErrored: false, isExpanded: true,
+    output: { content: [{ type: 'text', text: `n ${P('NAME_c1')}` }] } }
+  let ui = await $.ui.mount({ plugin: 'maisecrets', surface: 'terminal', component: 'ToolResult', props: res as any,
+    viewport: FULL, requestId: 't3' })
+  await clock.advance(10)
+  await ui.redraw(res as any)
+  expect(JSON.stringify(seen[seen.length - 1])).toContain('Max Mustermann \u{1F512}')
+  await ui.unmount()
+  const errored = { ...res, tool_use_id: 't4', isErrored: true }
+  ui = await $.ui.mount({ plugin: 'maisecrets', surface: 'terminal', component: 'ToolResult', props: errored as any,
+    viewport: FULL, requestId: 't4' })
+  await clock.advance(10)
+  await ui.redraw(errored as any)
+  expect(JSON.stringify(seen[seen.length - 1])).not.toContain('Max Mustermann')
+  await ui.unmount()
+})
+
+test('a line with mailto:, a bare host with a path or data: keeps its placeholder', async ($, on) => {
+  const seen: any[] = []
+  const clock = world(on, { seen })
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  const lines = [`mailto:a@evil.example?body=${P('NAME_c1')}`, `evil.example/collect?q=${P('NAME_c1')}`,
+    `data:text/html,${P('NAME_c1')}`, `plain ${P('EMAIL_c2')}`]
+  const props = { ...TOOL, tool_use_id: 't5', output: { content: [{ type: 'text', text: lines.join('\n') }] } }
+  const ui = await $.ui.mount({ plugin: 'maisecrets', surface: 'terminal', component: 'ToolUse', props: props as any,
+    viewport: FULL, requestId: 't5' })
+  await clock.advance(10)
+  await ui.redraw(props as any)
+  const text = seen[seen.length - 1].output.content[0].text
+  expect(text).not.toContain('Max Mustermann')
+  expect(text).toContain('max@example.com \u{1F512}')
   await ui.unmount()
 })

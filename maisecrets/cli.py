@@ -972,8 +972,14 @@ def cmd_sref(args: list[str]) -> int:
         return 1
     if action == "status":
         for server, f in found.items():
-            state = "logged in" if sref_client.logged_in(backend, f["origin"]) else "not logged in (/maisecrets:sref " \
-                                                                                    f"login {server})"
+            if not sref_client.logged_in(backend, f["origin"]):
+                state = f"not logged in (/maisecrets:sref login {server})"
+            else:
+                now, then = sref_client.allows(backend, f), sref_client.could_allow(f)
+                state = "logged in; values go into " + ", ".join(now)
+                more = [w for w in then if w not in now]
+                if more:
+                    state += f" (log in again to allow {' and '.join(more)}: /maisecrets:sref login {server})"
             print(f"{server} ({urlsplit(f['origin']).hostname}): {state}")
         return 0
     if len(found) > 1:

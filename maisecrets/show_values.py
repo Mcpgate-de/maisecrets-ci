@@ -35,6 +35,34 @@ def links(environ=None) -> bool:
     return environ.get("TERM_PROGRAM") != "Apple_Terminal"
 
 
+def reveal(payload: dict, cfg: dict | None = None) -> dict:
+    """{"value": ...} for one Sensitive Reference that a click on the screen asks for, or {"reason": ...}: the gateway
+    resolves it for the screen (sink display, its own scope), only when this session got the reference from a
+    user-scope gateway in the last 24 hours (sref_notes), with the limiter and the audit of every server value and its
+    release, so a paste of it into a prompt or a tool output is masked again (#30)."""
+    from . import sref_client, sref_hooks
+    from .server_values import _server_release
+    from .vault import Vault, load_config
+    cfg = load_config() if cfg is None else cfg
+    ref = payload.get("ref") if isinstance(payload.get("ref"), str) else ""
+    session = payload.get("session_id") if isinstance(payload.get("session_id"), str) else None
+    if mode(cfg) == "off" or not session or not ref.startswith("sref:") or len(ref) > 200:
+        return {"reason": "maisecrets shows no value here."}
+    if not sref_client.find(f"\u27e6{ref}\u27e7"):
+        return {"reason": "maisecrets shows no value here."}
+    vault = Vault(cfg)
+    try:
+        got = sref_hooks.fetch(cfg, vault.backend, [ref], session, ("display", "screen"))
+    except sref_client.Refused as exc:
+        return {"reason": f"maisecrets: {exc}"}
+    if ref not in got:
+        return {"reason": "maisecrets: this reference did not come from a gateway result of this session."}
+    released, why = _server_release(vault, got, session, "Display", "screen")
+    if why:
+        return {"reason": why}
+    return {"value": released[ref]}
+
+
 def answer(payload: dict, cfg: dict | None = None, vault=None) -> dict:
     """{"mode": ..., "links": ..., "values": {key: value}} for the keys of the payload that this session may use; the
     others are left out. With the mode off no value is read."""
