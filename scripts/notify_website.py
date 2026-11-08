@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Open the merge request on the website repository that shows a new release (mcpgate/mcpgate.de).
 
-The website keeps the current release in one data file (src/data/maisecretsRelease.ts): its version, date and the
-points of its notes. Without this job the start page stayed at 0.8.20 for eight releases. The tag pipeline runs this
-after the tag is verified and mirrored:
+The website keeps the current release in one data file (src/data/maisecretsRelease.ts): its version and date.
+Without this job the start page stayed at 0.8.20 for eight releases. The tag pipeline runs this after the tag is
+verified and mirrored:
 
     python3 scripts/notify_website.py
 
-It reads the version from CI_COMMIT_TAG and the date and the notes from this release's section of CHANGELOG.md, writes
+It reads the version from CI_COMMIT_TAG and the date from this release's section of CHANGELOG.md, writes
 the data file in a clone of the website, and pushes the branch chore/maisecrets-<version> with the push options that
 open a merge request into main, merged when its pipeline succeeds. The push uses the write deploy key of the website
 (MAISECRETS_WEBSITE_DEPLOY_KEY, a protected file variable); main there is protected, so a change reaches it only
@@ -55,17 +55,14 @@ def _q(text: str) -> str:
     return "'" + text.replace("\\", "\\\\").replace("'", "\\'") + "'"
 
 
-def rewrite(data: str, version: str, date: str, points: list[str]) -> str:
-    """The data file with msRelease and msReleaseNotes of this release; every other line as it was."""
+def rewrite(data: str, version: str, date: str) -> str:
+    """The data file with msRelease of this release; every other line as it was. The notes stay in the changelog: the
+    page under Install names the version and links the changelog (the maintainer, after 0.9.0 listed ten points
+    there)."""
     release = f"export const msRelease: MsVersion = {{ version: {_q(version)}, date: {_q(date)} }};"
     new, n = re.subn(r"^export const msRelease: MsVersion = \{[^}]*\};$", lambda _m: release, data, flags=re.M)
     if n != 1:
         raise SystemExit(f"{DATA}: msRelease not found once")
-    notes = ("export const msReleaseNotes = {\n  version: " + _q(version) + ",\n  points: [\n"
-             + "".join(f"    {_q(p)},\n" for p in points) + "  ],\n};")
-    new, n = re.subn(r"^export const msReleaseNotes = \{.*?^\};$", lambda _m: notes, new, flags=re.M | re.S)
-    if n != 1:
-        raise SystemExit(f"{DATA}: msReleaseNotes not found once")
     return new
 
 
@@ -87,7 +84,7 @@ def main() -> int:
     if not re.fullmatch(r"v\d+\.\d+\.\d+", tag):
         raise SystemExit(f"not a release tag: {tag!r}")
     version = tag[1:]
-    date, points = release_section((ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), version)
+    date, _points = release_section((ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), version)
     known = ROOT / ".ci-known-hosts-gitlab"
     env = dict(os.environ, GIT_SSH_COMMAND=f"ssh -i {key} -o IdentitiesOnly=yes -o UserKnownHostsFile={known} "
                                            "-o StrictHostKeyChecking=yes",
@@ -107,7 +104,7 @@ def main() -> int:
         if current_version(data) == version:
             print(f"the website shows {version} already: nothing pushed")
             return 0
-        path.write_text(rewrite(data, version, date, points), encoding="utf-8")
+        path.write_text(rewrite(data, version, date), encoding="utf-8")
         for args in (("checkout", "-q", "-b", branch), ("add", DATA),
                      ("commit", "-q", "-m", f"chore(maisecrets): the site shows release {version}",
                       "-m", f"Opened by the tag pipeline of maisecrets {tag}.")):

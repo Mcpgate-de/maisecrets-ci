@@ -97,7 +97,7 @@ class SettingTests(unittest.TestCase):
 class AgentTests(unittest.TestCase):
     def test_a_shell_command_that_asks_for_the_values_is_refused(self):
         for command in ('bash "/p/hooks/run.sh" mod-values', "python3 hooks/dispatch.py mod-values < q.json",
-                        'cmd /c "C:\\p\\hooks\\run.cmd" mod-values'):
+                        'cmd /c "C:\\p\\hooks\\run.cmd" mod-values', "python3 hooks/dispatch.py mod-reveal < q.json"):
             with self.subTest(command=command):
                 self.assertEqual(hooks._store_read_match(command), "the mod's values")
                 self.assertTrue(hooks._HOOK_ENTRY_TEXT_RE.search(command))

@@ -520,6 +520,8 @@ class ScannerEdgeTests(unittest.TestCase):
             ')" || { echo "maisecrets: the value for ' + self.e.key + ' was not delivered (served for 120 s, or '
             'read by another process); the command did not run. Run it again once; if it fails again, stop and '
             'tell the user" >&2; exit 97; }; ')
+        from maisecrets import exit_wrap        # Claude Code: the exit-0 trap after the reads (0.9.1)
+        prelude += re.escape(exit_wrap.trap() + "; ")
         self.assertRegex(got, "^" + prelude + re.escape("cat <<EOF\r\nk: ${__ms_1}\r\nEOF\r\n") + r"\Z")
         self.assertNotIn(NASTY, got)
         r = subprocess.run([BASH, "-c", got], capture_output=True)   # bytes: text mode would eat the \r
@@ -1025,7 +1027,8 @@ class ShortcutTests(unittest.TestCase):
         r = subprocess.run([sys.executable, str(ROOT / "hooks" / "dispatch.py"), "session-start"],
                            input="{}", capture_output=True, text=True, env=env)
         msg = json.loads(r.stdout)["systemMessage"]
-        self.assertIn("is on. It keeps passwords, keys and personal data out of the AI", msg)
+        self.assertRegex(msg, r"is on\.( Values with \U0001F512 are on your screen only; Claude sees "
+                              r"placeholders\.)? It keeps passwords, keys and personal data out of the AI")
         for jargon in ("config.json", "Metadata:", '{"backend"', "mcpgate.de"):
             self.assertNotIn(jargon, msg)
 

@@ -183,6 +183,14 @@ def _sums(d: Path) -> None:
     (d / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _prune() -> None:
+    """The old baselines leave the tree with the new one (scripts/prune_baselines.py): the organisation sync of
+    claude.ai refuses a repository above 200 MB, and 0.9.0 reached 202 MB."""
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import prune_baselines
+    prune_baselines.main([])
+
+
 def keep(out: Path, dest: Path, cand: Path, version: str, python: str = "") -> None:
     """The results of the run as the baseline of the release in the repository: JSON as gzip, the reports as text,
     Holdout V2 in holdout-v2/, measured.json, and SHA256SUMS. The local paths become <candidate>, <repo>, <python>,
@@ -393,6 +401,7 @@ def main(argv: list) -> int:
         if a.keep and not a.dry_run and prev is not None:
             dest = ROOT / "bench" / "results" / f"{datetime.date.today().isoformat()}-v3-{next_version(tag)}"
             keep_unchanged(prev, dest, cand, next_version(tag), tag)
+            _prune()
             print(f"kept the results of {tag} as the baseline of {next_version(tag)}: {dest.relative_to(ROOT)}")
         return 0
     baseline = a.baseline or default_baseline(tag)
@@ -431,6 +440,7 @@ def main(argv: list) -> int:
     if a.keep and not failed:
         dest = ROOT / "bench" / "results" / f"{datetime.date.today().isoformat()}-v3-{next_version(tag)}"
         keep(a.out, dest, cand, next_version(tag), env.get("BENCH_PYTHON", ""))
+        _prune()
         if (a.out / "coverage.json").exists():   # the coverage of this release is the next one's floor
             run = json.loads((a.out / "coverage.json").read_text(encoding="utf-8"))
             COVERAGE.write_text(json.dumps({"version": next_version(tag), "commits": run["commits"],

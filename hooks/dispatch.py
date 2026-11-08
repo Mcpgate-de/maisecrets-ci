@@ -84,6 +84,8 @@ except Exception as exc:  # noqa: BLE001 - a guard that fails open is no guard
         sys.exit(1)       # no traceback: the mod passes the prompt on and the hook decides (above: it blocks)
     if len(sys.argv) == 2 and sys.argv[1] == "mod-values":
         sys.exit(1)       # no traceback: the mod draws the placeholders as they are
+    if len(sys.argv) == 2 and sys.argv[1] == "mod-reveal":
+        sys.exit(1)       # no traceback: the mod says it could not get the value
     raise
 
 if len(sys.argv) == 2 and sys.argv[1] == "mod-prompt":
@@ -121,6 +123,18 @@ if len(sys.argv) == 2 and sys.argv[1] == "mod-values":
     except Exception:  # noqa: BLE001 - no traceback, no value in an error text
         sys.exit(1)
     print(json.dumps({"maisecrets": "mod-values", **answer}))
+    sys.exit(0)
+
+if len(sys.argv) == 2 and sys.argv[1] == "mod-reveal":
+    # a click on a gateway's reference (maisecrets/show_values.py reveal). Any failure answers nothing
+    import json
+    try:
+        from maisecrets.show_values import reveal as show_reveal  # noqa: E402
+        payload = json.load(sys.stdin)
+        answer = show_reveal(payload if isinstance(payload, dict) else {})
+    except Exception:  # noqa: BLE001 - no traceback, no value in an error text
+        sys.exit(1)
+    print(json.dumps({"maisecrets": "mod-reveal", **answer}))
     sys.exit(0)
 
 if len(sys.argv) >= 2 and sys.argv[1] == "pending":
@@ -249,11 +263,22 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
         own_rules, broken = "", None
     marker = HOME / ".announced"
     tried = False
+    # the values on the person's screen (show_values, C32): the lock says which text only the person sees. Claude
+    # Code only (Codex has no mods); a systemMessage reaches the person, not the model (measured 2026-11-07)
+    screen = ""
+    if not codex:
+        try:
+            from maisecrets.show_values import mode as show_mode  # noqa: E402
+            from maisecrets.vault import load_config  # noqa: E402
+            if show_mode(load_config()) != "off":
+                screen = " Values with \U0001F512 are on your screen only; Claude sees placeholders."
+        except Exception:  # noqa: BLE001 - a line for the person only
+            screen = ""
     if v.backend.test_mode or not marker.exists():
         tried = True        # the try-it line names ms:(…): the Codex tip below would say it twice
         from maisecrets.tips import try_it_line  # noqa: E402
         more = "" if codex else " /maisecrets:status shows the details, /maisecrets:list what is stored."
-        out["systemMessage"] = (f"maisecrets {version} is on{own_rules}. " + intro_line(v.backend) + more + " "
+        out["systemMessage"] = (f"maisecrets {version} is on{own_rules}.{screen} " + intro_line(v.backend) + more + " "
                                 + try_it_line())
         try:
             marker.write_text(type(v.backend).__name__ + "\n")
@@ -264,7 +289,7 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
         tip = tip_of_the_day(codex=codex)
         # one short line every session, so a lost hook registration is visible by its absence
         # (operator review, 2026-09-26); the tip rotates, the version does not
-        out["systemMessage"] = f"maisecrets {version} is on{own_rules}." + (f" {tip}" if tip else "")
+        out["systemMessage"] = f"maisecrets {version} is on{own_rules}.{screen}" + (f" {tip}" if tip else "")
     if quieted:
         out["systemMessage"] = (out.get("systemMessage", "") +
                                 f" {len(quieted)} stored word(s) are program code, not secrets "

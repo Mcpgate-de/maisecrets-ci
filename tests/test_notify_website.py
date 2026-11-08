@@ -71,20 +71,20 @@ class NotifyWebsiteTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             W.release_section(CHANGELOG, "0.9.0")
 
-    def test_the_data_file_gets_the_release_and_keeps_every_other_line(self):
-        date, points = W.release_section(CHANGELOG, "0.8.30")
-        new = W.rewrite(DATA, "0.8.30", date, points)
+    def test_the_data_file_gets_the_version_and_date_and_keeps_every_other_line(self):
+        date, _points = W.release_section(CHANGELOG, "0.8.30")
+        new = W.rewrite(DATA, "0.8.30", date)
         self.assertEqual(W.current_version(new), "0.8.30")
         self.assertIn("export const msRelease: MsVersion = { version: '0.8.30', date: '2026-11-08' };", new)
-        self.assertIn("  version: '0.8.30',\n  points: [\n    'A caller can ask", new)
-        self.assertIn("    'The user\\'s \\'own\\' rules load again.',\n", new)
-        self.assertNotIn("An older fix.", new)
+        # the notes stay in the changelog: the job leaves the notes block as it is
+        self.assertIn("    'An older fix.',\n", new)
+        self.assertNotIn("A caller can ask", new)
         self.assertIn("export const msDirectory = { version: '0.5.9', published: '2026-09-30' };", new)
         self.assertTrue(new.startswith("/** Release status. */\nexport interface MsVersion"))
 
     def test_a_data_file_without_the_blocks_is_refused(self):
         with self.assertRaises(SystemExit):
-            W.rewrite("export const other = 1;\n", "0.8.30", "2026-11-08", [])
+            W.rewrite("export const other = 1;\n", "0.8.30", "2026-11-08")
 
     def test_without_the_deploy_key_nothing_is_done(self):
         out = io.StringIO()

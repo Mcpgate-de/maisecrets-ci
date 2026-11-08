@@ -438,7 +438,9 @@ _PRIMER_HEAD = (
     # safeguard paused the session (field report on 0.5.8, 2026-09-28)
     "maisecrets: a placeholder like ⟦SECRET_c1⟧ or ⟦EMAIL_c2:ma•••@x.de⟧ stands for a value the user "
     "stored on this computer. Use the placeholder unchanged where the value belongs; maisecrets puts the "
-    "value in when the call runs. In an MCP tool argument and in the content of Write, Edit, MultiEdit or "
+    "value in when the call runs. When you show a value to the user, write its placeholder whole, with its "
+    "brackets: Claude Code shows the user the value there, on the user's screen only. In an MCP tool argument "
+    "and in the content of Write, Edit, MultiEdit or "
     "NotebookEdit it goes in at call time; WebFetch and a subagent prompt keep it as plain text. In Bash, "
     "give it as a plain argument, inside '…' or \"…\", or in an unquoted heredoc; the shell reads the value "
     "when the command runs. For awk, pass it as V=⟦KEY⟧ awk '… ENVIRON[\"V\"] …'. "
@@ -1431,7 +1433,7 @@ _SETTINGS_IN_A_COMMAND = ("maisecrets: this command carries a maisecrets setting
                           "user the prompt to send.")
 _HOOK_ENTRY_TEXT_RE = _LazyRx(r"(?:run\.sh|run\.cmd|dispatch\.py)[\"']?\s+[\"']?"
                                  r"(?:session-start|user-prompt|pre-tool|post-tool(?:-failure)?|mod-prompt|"
-                                 r"mod-values)\b", re.I)
+                                 r"mod-values|mod-reveal)\b", re.I)
 _GRANT_RE = _LazyRx(r"\A\s*maisecrets:\s*allow\s+ssh\s+([\w.@:\[\]-]+)(?:\s+(\d{6}))?\s*\Z")
 
 
@@ -1936,7 +1938,8 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
         shift = len(rewritten) - len(command)
         rewritten = rewritten[:at + shift] + _proxy_option() + rewritten[at + shift:]
         prelude.insert(0, _sandbox_guard())
-    if client_of(payload) != "codex" and any(k in srefs or k in fetched for k in plan):
+    # every command that gets a value, a stored one too: a failed one showed it through PostToolUseFailure (#97278)
+    if client_of(payload) != "codex" and plan:
         from . import exit_wrap
         prelude.append(exit_wrap.trap())     # after the reads: an undelivered value still ends with 97
     new_input = dict(tool_input)

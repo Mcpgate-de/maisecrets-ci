@@ -91,6 +91,9 @@ def fake_value(prefix: str = "Fk") -> str:
     return prefix + secrets.token_hex(10)
 
 
+# the lock sentence of the session start in Claude Code (show_values, C32)
+SCREEN = " Values with \U0001F512 are on your screen only; Claude sees placeholders."
+
 class Sandbox:
     """One temp world: vault home, user home, tmp, fake tools, optional policy file."""
 
@@ -663,7 +666,8 @@ class PopulationTests(unittest.TestCase):
 
     def test_every_cli_command_is_reachable_and_every_dispatched_one_exists(self):
         # mod-prompt and mod-values are the questions of the mod (claude-mod/), not commands of the CLI
-        dispatched = commands_in_dispatch() - {"pending", "session-start", "session-end", "mod-prompt", "mod-values"}
+        dispatched = commands_in_dispatch() - {"pending", "session-start", "session-end", "mod-prompt", "mod-values",
+                                               "mod-reveal"}
         self.assertEqual(sorted(dispatched - cli_commands()), [], "dispatch.py sends these to cli.main")
         # resolve is reached through hooks/resolve.py, which the Bash hook writes into a command
         self.assertEqual(sorted(cli_commands() - dispatched), ["resolve"])
@@ -975,7 +979,7 @@ class SessionStartTests(unittest.TestCase):
         sb = self.sandbox()
         out = _start(self, sb, CLAUDECODE="1")
         msg = out["systemMessage"]
-        self.assertTrue(msg.startswith(f"maisecrets {VERSION} is on. It keeps passwords"), msg)
+        self.assertTrue(msg.startswith(f"maisecrets {VERSION} is on.{SCREEN} It keeps passwords"), msg)
         self.assertIn("in an encrypted file", msg)
         self.assertIn("/maisecrets:status shows the details", msg)
         self.assertIn(" " + tips.try_it_line() + " ", msg, "the first start says how to see it work")
@@ -986,9 +990,9 @@ class SessionStartTests(unittest.TestCase):
         self.assertEqual((sb.home / ".shortcut").read_text().strip(), "offered")
         self.assertFalse((sb.user_home / ".claude" / "commands").exists(), "the offer installs nothing")
         second = _start(self, sb, CLAUDECODE="1")["systemMessage"]
-        self.assertEqual(second, f"maisecrets {VERSION} is on. {tips.TIPS[0]}")
+        self.assertEqual(second, f"maisecrets {VERSION} is on.{SCREEN} {tips.TIPS[0]}")
         third = _start(self, sb, CLAUDECODE="1")
-        self.assertEqual(third["systemMessage"], f"maisecrets {VERSION} is on.")
+        self.assertEqual(third["systemMessage"], f"maisecrets {VERSION} is on.{SCREEN}")
         self.assertEqual(third["hookSpecificOutput"]["additionalContext"], hooks.primer())
 
     def test_the_tip_comes_from_the_pool_of_the_client(self):
@@ -1003,7 +1007,8 @@ class SessionStartTests(unittest.TestCase):
                 # the ms:(…) hint of Codex is given already (tests/test_check_value.py has its own case)
                 (sb.home / "hints.json").write_text('{"check_value": {"revision": 99, "given": "2000-01-01"}}')
                 msg = _start(self, sb, **env)["systemMessage"]
-                self.assertEqual(msg, f"maisecrets {VERSION} is on. {pool[2]}")
+                screen = SCREEN if client == "claude" else ""     # Codex has no mods: no lock to explain
+                self.assertEqual(msg, f"maisecrets {VERSION} is on.{screen} {pool[2]}")
         self.assertNotEqual(tips.TIPS[2], tips.TIPS_CODEX[2], "the case above must tell the pools apart")
 
     def test_the_start_line_names_the_rules_of_your_own_and_warns_of_a_missing_rule_folder(self):
@@ -1020,7 +1025,7 @@ class SessionStartTests(unittest.TestCase):
             {"id": "two", "regex": r"tky_[A-Za-z0-9]{24}", "keywords": ["tky_"]}]}), encoding="utf-8")
         warning = f"Warning: the rule folder {gone} (setting) is missing, so its rules of your own do not run."
         first = _start(self, sb, CLAUDECODE="1")["systemMessage"]
-        line = f"maisecrets {VERSION} is on, with 2 rules of your own from 1 folder."
+        line = f"maisecrets {VERSION} is on, with 2 rules of your own from 1 folder.{SCREEN}"
         self.assertTrue(first.startswith(line + " "), first)
         self.assertTrue(first.endswith(" " + warning), first)
         again = _start(self, sb, CLAUDECODE="1")["systemMessage"]
@@ -1119,7 +1124,7 @@ class SessionStartTests(unittest.TestCase):
         for text in ("not json", "[1, 2]"):
             with self.subTest(text):
                 sb = self.sandbox()
-                self.assertIn("is on. It keeps", _start(self, sb, stdin=text, CLAUDECODE="1")["systemMessage"])
+                self.assertIn(f"is on.{SCREEN} It keeps", _start(self, sb, stdin=text, CLAUDECODE="1")["systemMessage"])
 
     def test_session_start_purges_every_expired_value(self):
         sb = self.sandbox()
@@ -1170,6 +1175,13 @@ class HookEventTests(unittest.TestCase):
         other = json.loads(self.sb.run("mod-values", stdin=json.dumps({"keys": ["SECRET_c1"],
                                                                         "session_id": "S2"})).stdout)
         self.assertEqual(other["values"], {})
+
+    def test_the_mod_reveal_answers_a_reason_and_no_value_for_a_reference_it_did_not_note(self):
+        r = self.sb.run("mod-reveal", stdin=json.dumps({"ref": "sref:email:" + "a" * 24, "session_id": "S1"}))
+        out = json.loads(r.stdout)
+        self.assertEqual((r.returncode, out["maisecrets"]), (0, "mod-reveal"))
+        self.assertIn("reason", out)
+        self.assertNotIn("value", out)
 
     def test_session_end_answers_nothing_through_the_dispatcher(self):
         r = self.sb.run("session-end", stdin=json.dumps({"session_id": "S1", "reason": "logout"}))

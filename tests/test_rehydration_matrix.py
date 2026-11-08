@@ -209,6 +209,21 @@ class RehydrationMatrixTests(unittest.TestCase):
             self.assertIn(VALUE, text, "the tool gets the real value")
             self.assertNotIn(ref, text, "and no placeholder is left")
 
+    @unittest.skipUnless(BASH and os.name != "nt", "bash on POSIX")
+    def test_a_failed_command_with_a_stored_value_ends_with_0_so_its_output_is_masked(self):
+        # ChatGPT review of 0.9.0: the trap was set only for a value from a server, so a failed command that printed a
+        # stored value went to the model through PostToolUseFailure (anthropics/claude-code#97278)
+        from maisecrets import exit_wrap
+        _reset()
+        ref = Vault().put(VALUE, "SECRET", "manual", session="S1").ref
+        new = self.pre("Bash", {"command": f"printf 'got:%s' {ref}; exit 3"}, "claude")["updatedInput"]["command"]
+        self.assertIn(exit_wrap.trap(), new)
+        run = subprocess.run([BASH, "-c", new], capture_output=True, text=True)
+        self.assertEqual((run.returncode, run.stdout), (0, "got:" + VALUE))
+        self.assertIn("ended with exit code 3", run.stderr)
+        codex = self.pre("Bash", {"command": f"printf %s {ref}; exit 3"}, "codex")["updatedInput"]["command"]
+        self.assertNotIn(exit_wrap.trap(), codex, "Codex sends PostToolUse for a failed command")
+
     def test_every_cell_of_the_matrix(self):
         for path, by_client in EXPECTED.items():
             for client, by_policy in by_client.items():

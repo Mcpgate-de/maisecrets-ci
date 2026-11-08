@@ -6,5 +6,5 @@ runner = ["tests/test_show_values.py::AgentTests::test_a_shell_command_that_asks
 
 [proof]
 file = "maisecrets/shell_commands.py"
-find = '''    ("the mod's values", r"(?<![\w-])(?:dispatch\.py|run\.sh|run\.cmd)[\"']?\s+[\"']?mod-values\b"),'''
+find = '''    ("the mod's values", r"(?<![\w-])(?:dispatch\.py|run\.sh|run\.cmd)[\"']?\s+[\"']?mod-(?:values|reveal)\b"),'''
 replace = ''''''

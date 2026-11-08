@@ -31,7 +31,8 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 from vault_server import _QuietServer, make_cert
 
 PROCESS_SCOPE = "sensitive-references.resolve.process"
-SINK_PROFILES = {"local_file": "local-file-1", "process": "mcpgate-process-1"}
+DISPLAY_SCOPE = "sensitive-references.resolve.display"
+SINK_PROFILES = {"local_file": "local-file-1", "process": "mcpgate-process-1", "display": "display-1"}
 
 
 class SrefServer:
@@ -55,6 +56,7 @@ class SrefServer:
         self.refresh_delay = 0.0         # seconds the token endpoint waits before it spends a refresh token
         self.refreshes: list = []        # every refresh token presented, in order (a reuse shows twice)
         self.process_scope = True        # mcpgate 2.0.3815: the process sink needs its own scope
+        self.display_scope = True        # ai-gateway #1804: the display sink needs its own scope
         self.scopes: dict = {}           # access or refresh token -> the scope it was granted
         server = self
 
@@ -81,6 +83,7 @@ class SrefServer:
                         "sensitive_references": {"resolve_endpoint": server.url + "/sensitive-references/resolve",
                                                  "resolve_scope": "sensitive-references.resolve",
                                                  **({"process_scope": PROCESS_SCOPE} if server.process_scope else {}),
+                                                 **({"display_scope": DISPLAY_SCOPE} if server.display_scope else {}),
                                                  "resolver_profiles": ["oauth-resolver-1"],
                                                  "sink_profiles": server.sinks, "status": "experimental"}})
                 if parts.path == "/.well-known/oauth-authorization-server":
@@ -174,6 +177,11 @@ class SrefServer:
                                        "reasons": {leak: 1, "unknown": True, "revoked": -1}})
                 if SINK_PROFILES.get(sink) not in server.sinks:
                     return self._send(403, {"error": "ineligible_sink"})
+                if sink == "display" and server.display_scope \
+                        and DISPLAY_SCOPE not in server.scopes.get(token, "").split():
+                    need = f"sensitive-references.resolve {DISPLAY_SCOPE}"
+                    return self._send(403, {"error": "insufficient_scope", "scope": need},
+                                      {"WWW-Authenticate": f'Bearer error="insufficient_scope", scope="{need}"'})
                 if sink == "process" and server.process_scope \
                         and PROCESS_SCOPE not in server.scopes.get(token, "").split():
                     need = f"sensitive-references.resolve {PROCESS_SCOPE}"
@@ -204,7 +212,13 @@ class SrefServer:
 
     def _login_scopes(self) -> tuple:
         base = "sensitive-references.resolve"
-        return (base, f"{base} {PROCESS_SCOPE}") if self.process_scope else (base,)
+        process = [PROCESS_SCOPE] if self.process_scope else []
+        display = [DISPLAY_SCOPE] if self.display_scope else []
+        out = []
+        for p in ([], process):
+            for d in ([], display):
+                out.append(" ".join([base, *p, *d]))
+        return tuple(dict.fromkeys(out))
 
     def _pair(self, client_id: str, scope: str = "sensitive-references.resolve") -> dict:
         access, refresh = "srefr_" + secrets.token_urlsafe(24), "srefr_refresh_" + secrets.token_urlsafe(24)

@@ -96,6 +96,10 @@ def undo_bash(original: str, rewritten: str, run_dir: str) -> list[str]:
         rest = rest[m.end():]
     if not keys:
         problems.append("a rewrite without a read of the value")
+    # Claude Code: the exit-0 trap after the reads (maisecrets/exit_wrap.py), once, so a failed output is masked
+    from maisecrets import exit_wrap
+    if rest.startswith(exit_wrap.trap() + "; "):
+        rest = rest[len(exit_wrap.trap()) + 2:]
     if ssh:
         rest, k = _SSH_OPTS.subn("ssh ", rest)
         if k != 1:

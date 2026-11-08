@@ -42,7 +42,7 @@ OPEN, CLOSE = "⟦", "⟧"
 SREF_RE = re.compile(rf"{OPEN}sref:(?P<kind>[A-Za-z0-9_-]{{1,32}}):(?P<id>[A-Za-z0-9_-]{{20,128}})"
                      rf"(?::(?P<display>[^{OPEN}{CLOSE}\r\n\u2028\u2029]{{1,256}}))?{CLOSE}")
 SCOPE = "sensitive-references.resolve"
-SINKS = {"local_file": "local-file-1", "process": "mcpgate-process-1"}
+SINKS = {"local_file": "local-file-1", "process": "mcpgate-process-1", "display": "display-1"}
 MAX_REFS = 100
 MAX_REQUEST_BYTES = 64 * 1024
 BUDGET = 8.0
@@ -72,15 +72,20 @@ def _get_json(cfg: dict, url: str, deadline: float) -> dict | None:
 _SCOPE_RE = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
 
 
-def login_scope(resolve_scope: str, process_scope: object, windows: bool | None = None) -> str:
+def login_scope(resolve_scope: str, process_scope: object, windows: bool | None = None,
+                display_scope: object = None) -> str:
     """The scopes a login asks for: the resolve scope, and the gateway's process scope on top where maisecrets masks
     command output (macOS and Linux: Bash on Windows gets no server value, C27). Without it the gateway refuses the
     process sink (mcpgate 2.0.3815: 403 insufficient_scope), and a file still gets its value."""
     windows = platform.system() == "Windows" if windows is None else windows   # the same test as the Bash refusal
+    scopes = [resolve_scope]
     if isinstance(process_scope, str) and _SCOPE_RE.fullmatch(process_scope) and process_scope != resolve_scope \
             and not windows:
-        return f"{resolve_scope} {process_scope}"
-    return resolve_scope
+        scopes.append(process_scope)
+    # the screen of Claude Code with mods (show_values, #30): a click shows one reference's value, never to the AI
+    if isinstance(display_scope, str) and _SCOPE_RE.fullmatch(display_scope) and display_scope not in scopes:
+        scopes.append(display_scope)
+    return " ".join(scopes)
 
 
 def discover(cfg: dict, mcp_url: str, deadline: float | None = None) -> dict | None:
@@ -102,7 +107,10 @@ def discover(cfg: dict, mcp_url: str, deadline: float | None = None) -> dict | N
         return None
     sinks = block.get("sink_profiles")
     return {"origin": origin, "resolve": block["resolve_endpoint"],
-            "scope": login_scope(block.get("resolve_scope") or SCOPE, block.get("process_scope")),
+            "scope": login_scope(block.get("resolve_scope") or SCOPE, block.get("process_scope"),
+                                 display_scope=block.get("display_scope")),
+            "process_scope": block.get("process_scope") if isinstance(block.get("process_scope"), str) else None,
+            "display_scope": block.get("display_scope") if isinstance(block.get("display_scope"), str) else None,
             "sinks": [s for s in sinks if isinstance(s, str)] if isinstance(sinks, list) else [],
             "authorize": ends["authorization"], "token": ends["token"], "register": ends["registration"]}
 
@@ -206,8 +214,33 @@ def finish_login(cfg: dict, backend, found: dict, client_id: str, redirect: str,
     data = _token(cfg, found, {"grant_type": "authorization_code", "code": code, "redirect_uri": redirect,
                                "client_id": client_id, "code_verifier": verifier}, deadline)
     _keep(backend, found["origin"], {"client_id": client_id, "access": data["access_token"],
-                                     "refresh": data["refresh_token"],
+                                     "refresh": data["refresh_token"], "scope": _granted(data, found["scope"]),
                                      "expires": time.time() + float(data.get("expires_in") or 3600)})
+
+
+def _granted(data: dict, asked: str) -> str:
+    """The scope a token response granted: its `scope`, or the one asked for when it names none (RFC 6749 5.1)."""
+    got = data.get("scope")
+    return got if isinstance(got, str) and got.strip() else asked
+
+
+def allows(backend, found: dict) -> list:
+    """What the login at this gateway allows, in words: files, commands, the screen. A login from before 0.9.0 kept
+    no scope and allows files only, as its refresh tokens do (mcpgate 2.0.3815)."""
+    scopes = str(_load(backend, found["origin"]).get("scope") or "").split()
+    out = ["files"]
+    if found.get("process_scope") and found["process_scope"] in scopes:
+        out.append("commands")
+    if found.get("display_scope") and found["display_scope"] in scopes:
+        out.append("the screen")
+    return out
+
+
+def could_allow(found: dict) -> list:
+    """What a new login at this gateway would allow on this computer."""
+    scopes = found["scope"].split()
+    return ["files"] + [w for w, k in (("commands", "process_scope"), ("the screen", "display_scope"))
+                        if found.get(k) and found[k] in scopes]
 
 
 class _Revoked(Refused):
@@ -256,6 +289,7 @@ def _access(cfg: dict, backend, found: dict, deadline: float, stale: str | None 
                 forget(backend, found["origin"])
                 raise
             _keep(backend, found["origin"], {**rec, "access": data["access_token"], "refresh": data["refresh_token"],
+                                             "scope": _granted(data, str(rec.get("scope") or SCOPE)),
                                              "expires": time.time() + float(data.get("expires_in") or 3600)})
             return data["access_token"]
     except LockTimeout:
@@ -284,7 +318,8 @@ def resolve(cfg: dict, backend, found: dict, refs: list, sink_type: str, destina
     if sink_type not in SINKS:
         raise Refused("unknown sink type")
     if SINKS[sink_type] not in found.get("sinks", []):
-        raise Refused(f"{host} does not resolve into a {'file' if sink_type == 'local_file' else 'command'}")
+        what = {"local_file": "a file", "process": "a command", "display": "the screen"}[sink_type]
+        raise Refused(f"{host} does not resolve into {what}")
     if not isinstance(destination, str) or not 1 <= len(destination) <= 4096:
         raise Refused("the destination must be 1 to 4096 characters")
     if len(canon) > MAX_REFS:
@@ -325,6 +360,9 @@ def resolve(cfg: dict, backend, found: dict, refs: list, sink_type: str, destina
         raise Refused(f"the login at {host} is no longer valid (consent withdrawn or expired); "
                       "the person runs /maisecrets:sref login")
     if status == 403:
+        if code == "insufficient_scope" and sink_type == "display":
+            raise Refused(f"the login at {host} does not allow showing values on the screen; the person runs "
+                          "/maisecrets:sref login again and allows it on the consent page")
         if code == "insufficient_scope" and sink_type == "process":
             # mcpgate 2.0.3815: a command needs a login whose consent allowed it; a file still works
             raise Refused(f"the login at {host} does not allow real values in commands; the person runs "
