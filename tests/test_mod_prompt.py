@@ -226,10 +226,12 @@ class ScrubBySessionTests(unittest.TestCase):
             record = json.dumps({"type": "queue-operation", "content": f"check {GLPAT}"}) + "\n"
             t.write_text(record)
             with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": cfg}):
-                child = hooks._scrub_transcript_later("", [GLPAT], [], seconds=12, session="sess-8")
+                child = hooks._scrub_transcript_later("", [GLPAT], [], seconds=40, session="sess-8")
+            self.addCleanup(child.wait, 15)
+            self.addCleanup(child.terminate)        # also when an assertion below fails: no child polls on
 
             def masked_soon() -> bool:
-                deadline = time.time() + 4
+                deadline = time.time() + 10
                 while GLPAT in t.read_text() and time.time() < deadline:
                     time.sleep(0.1)
                 return GLPAT not in t.read_text()
@@ -250,8 +252,9 @@ class ScrubBySessionTests(unittest.TestCase):
             else:
                 self.fail("the transcript stayed locked for five seconds")
             self.assertTrue(masked_soon(), "replaced file")
-            # the window is 12 s (a busy runner took most of 6 s for the first mask); all three reads are proven,
-            # so the child need not run out its window
+            # the window is 40 s and each read may take 10 s: a release pipeline under load missed the 4 s of the
+            # second read (2026-11-07). A fast run ends as early as before: all three reads are proven, so the child
+            # need not run out its window
             child.terminate()
             child.wait(timeout=15)
 

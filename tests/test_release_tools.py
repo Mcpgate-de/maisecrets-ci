@@ -207,6 +207,13 @@ class ListingManifestTests(unittest.TestCase):
             self.assertIn("extends: .tested_when_changed", jobs[name], name)
         for template in (".tested_before_the_tag", ".tested_when_changed"):
             self.assertIn("if: $CI_COMMIT_TAG\n      when: never", jobs[template], template)
+            # the release merge request (from next) skips them; the pipeline on main runs them before the release
+            self.assertIn('$CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"\n'
+                          '        && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME == "next"\n      when: never',
+                          jobs[template], template)
+        release = jobs["release"]
+        for name in ("unit", "unit_python39", "beliefs_can_fail_replay", "harness_claude", "harness_codex"):
+            self.assertRegex(next(x for x in release.splitlines() if x.strip().startswith("needs:")), rf"\b{name}\b")
         for name in ("mirror_tag", "notify_marketplace"):
             needs = next(line for line in jobs[name].splitlines() if line.strip().startswith("needs:"))
             for skipped in ("unit", "harness_claude", "harness_codex", "beliefs_can_fail_replay"):

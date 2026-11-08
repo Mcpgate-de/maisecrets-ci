@@ -176,7 +176,9 @@ def _label(path: tuple) -> str:
     if role:
         return role
     from .fields import named_key
-    return _key_label(named_key([part for part in path if isinstance(part, str)]))
+    # a list index the caller gave as a string (phones.0 split at the dots) is no key: the key above it names the value,
+    # as for an int index (Opus review of #1795)
+    return _key_label(named_key([part for part in path if isinstance(part, str) and not part.isdigit()]))
 
 
 # a response repeats its keys in each record: the label of a key is worked out once per process. 65,536 keys: a cache

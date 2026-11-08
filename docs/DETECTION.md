@@ -49,7 +49,7 @@ for m in d.findings(text, channel="tool", path="notes.txt"):
 
 | Name | What |
 |---|---|
-| `Detector` | A detector with its own configuration: `scan`, `findings`, `rules`, `allow_list`, `explain_allowed`, `regions`, `reset`, `slowest_user_rule`, `activate`. `scan` and `findings` take the text as a `str` (a subclass of `str` too) and raise `TypeError` for anything else, `bytes` and `None` included (since 0.8). They take an optional keyword argument `fields` (since 0.8, additive): the field names of values in the text, below |
+| `Detector` | A detector with its own configuration: `scan`, `findings`, `rules`, `allow_list`, `explain_allowed`, `regions`, `reset`, `slowest_user_rule`, `activate`, `label_names_a_number` (since 0.8.30, below). `scan` and `findings` take the text as a `str` (a subclass of `str` too) and raise `TypeError` for anything else, `bytes` and `None` included (since 0.8). They take an optional keyword argument `fields` (since 0.8, additive): the field names of values in the text, below |
 | `Match` | One hit: `kind` (the rule id), `type`, `value`, `start`, `end`. `start` and `end` count the Unicode code points of the `str` that was scanned, and `text[start:end] == value` |
 | `Sources`, `NO_SOURCES` | What a scan takes besides the built-in rules |
 | `References`, `NO_REFERENCES` | The reference form of the caller |
@@ -65,8 +65,53 @@ The rule tables and the helpers of `core.py` are no API: they change with the ru
 checks of a value), `own_rules.py` (`OWN_RULES`, `FALLBACK_RULES`), `text_index.py` (the index of a text and the
 test-code check), `encoded_mail.py` (an address with its @ as %40), `keyword_tail.py` (the vendored keyword
 rules in linear time) and `deadline.py` (the deadline of a scan and `ScanIncomplete`). `core.py` imports each of their names, so
-`core.<name>` is the same object. A patch of such a name on the core does not reach the functions of the part:
+`core.<name>` is the same object. `Detector` inherits `label_names_a_number` from `label_number.py`. A patch of such a name on the core does not reach the functions of the part:
 patch the module that defines the name.
+
+## A label that names a number: `label_names_a_number` (since 0.8.30)
+
+A caller that scans numbers only up to a cap (the gateway scans at most 2,000 numbers of a response) must still scan a
+number whose label can make it personal data. `Detector.label_names_a_number(label)` says which labels those are:
+
+```python
+from maisecrets.detection import leaves
+d.label_names_a_number(leaves.label(("customer", "steuer_id")))   # True with the region "de"
+d.label_names_a_number("order_id")                                 # False
+```
+
+- **`label`** is the string that `leaves.label(path)` returns for a leaf. A label that is not a `str` raises
+  `TypeError`; `""` (no label) is False.
+- **False** means: a digit-only value of 7 to 19 digits under this label gives no finding that the same digits give
+  without the label. **True** means: an active rule can read such a number because of the label (a tax id, a phone
+  number, a national id, a social security or health insurance number, a number after an id label, a rule of your
+  own with a label in its regex). A label that gives a finding only for some numbers is True.
+- **It follows the detector:** its regions, its label languages and its rules of your own. `steuer_id` is True with
+  the region `de` and False without it.
+- **How it answers:** the rules themselves are asked, not a copy of their words. `label_number.SAMPLES` holds one
+  recipe per rule that reads a digit-only value only after a label: a length, first digits and the check of the core
+  the value must pass (`de-tax-id` passes the tax id checksum, `phone-after-phone-word` is a national number). The
+  values are made at run time. A label is True when one sample under it gives a finding that the bare sample does not
+  give, in the field form (`fields=` with the path `(label,)`) or in the text form `label: <value>` of
+  `findings_by_leaf`, in the tool or the prompt channel. Measured over the 2,747 words of the test's word pool (regions
+  generic, de and us), the two forms differ for one word only (`cc `, text form alone); in the test's discovery the
+  prompt channel adds one finding the tool channel does not give (a 16-digit card number after a card word). A rule of
+  your own has no recipe: its samples are the digit runs its own regex can match, scanned with those rules.
+- **Cost:** the first call for a label scans the samples (about 1 to 160 ms on an M-series laptop, median about 36 ms
+  for a False label: a True label stops at the first sample that gives a finding); each later call is a dictionary
+  lookup. The answers live with the detector until `reset()`, at most `label_number.ANSWERS_MAX` (4,096) labels; the
+  oldest goes first. A caller whose keys change with every response (dates, ids) pays the first call for each new
+  key: bound the new labels per response. It never scans a value of the caller.
+- **A list index given as a string** (`phones.0` split at the dots into `("phones", "0")`) is no key since 0.8.30:
+  `leaves.label` gives the key above it, `phones`, as for an int index.
+- **What it cannot see:** a rule whose label-only finding needs a value that no recipe makes (a recipe gives one
+  value per rule; a rule whose own filters accept only some values of a shape can refuse it), a rule of your own whose
+  regex the sampler does not read (it takes the first 8 alternatives of an alternation and skips assertions and back
+  references), and a finding that needs more context than the label (a word in a neighbouring field).
+- `tests/test_label_number.py` holds the pinned labels, the regions, a rule of your own, the cache, and the
+  completeness check: it finds the rules that read a digit-only value only after a label from the rules' own data
+  (each rule's regex and check, its context and keywords, the label files and the word tables of `personal.py`), and
+  fails on a rule without a recipe, on a recipe its rule does not read, and on a rule of a number type that has
+  neither a recipe nor a reason in `NEVER_LABEL_ONLY`.
 
 ## Field names: `fields` (since 0.8)
 

@@ -139,6 +139,13 @@ class GermanCallCueTests(unittest.TestCase):
 
 
 class CardAfterUuidTests(unittest.TestCase):
+    def test_a_uuid_whose_first_groups_pass_as_a_card_stays_a_uuid(self):
+        # about 1 in 62,500 random v4 UUIDs has 16 digits there with a network prefix and a valid check digit (3 million
+        # measured, 2026-11-07). Masking them broke ids in every tool result for a card that is only ever dressed up
+        # as a UUID on purpose; the gateway's write gate counts that form itself (ai-gateway #1780)
+        uuid = "45320151-1283-" + "4004-8f2a-1c3b5d7e9a0b"
+        self.assertEqual(hits(f"https://app.example.com/orders/{uuid}/items"), [])
+
     def test_a_card_right_after_a_uuid_is_found_whole(self):
         # the card pattern started in the UUID's last group, Luhn refused that span, and the card stayed in the clear
         card = "4508 " + "7194 0132 6529"
@@ -241,6 +248,21 @@ class FileNameLabelTests(unittest.TestCase):
 
     def test_a_digest_after_a_credential_label_stays_a_secret(self):
         self.assertEqual([t for t, _v in hits(f"('client_secret', '{self.DIGEST}')")], ["SECRET"])
+
+    def test_a_content_digest_is_no_secret_after_any_label(self):
+        # a public image pinned by its digest after SECRET_IMAGE =, a bare sha256: digest after token: (2026-11-08)
+        digest = "sha256:" + self.DIGEST
+        for text in ("SECRET_IMAGE" + " = mcpgate/ner:v2.0.3798@" + digest, "token" + ": " + digest,
+                     "secret" + " = registry.example.com:5000/team/app@" + digest):
+            with self.subTest(text=text[:16]):
+                self.assertEqual(hits(text), [])
+        for text in ("api_key" + " = " + self.DIGEST, "token" + ": " + self.DIGEST):
+            with self.subTest(text=text[:10]):
+                self.assertEqual([t for t, _v in hits(text)], ["SECRET"], "bare hex after a credential label stays")
+        # a password's hash, and a password where an image tag would stand (no image path): both stay (Opus review)
+        for text in ("password" + ": " + digest, "secret" + " = admin:" + "pw-Xk29aLq@" + digest):
+            with self.subTest(text=text[:10]):
+                self.assertEqual([t for t, _v in hits(text)], ["SECRET"])
 
     def test_the_password_of_an_archive_stays_a_secret(self):
         # only a digest is dropped: a password after the archive's name is the value people write there

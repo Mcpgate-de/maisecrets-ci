@@ -140,7 +140,7 @@ class StoredSecretTests(unittest.TestCase):
             with mock.patch.object(ner_setup, "_info", return_value={"model": "m"}):
                 code, lines = ner_setup.report(conf)
             self.assertEqual(code, 1)
-            self.assertIn("older than " + ner_setup.SECRET_IMAGE, lines[-1])
+            self.assertIn("older than " + ner_setup.FIRST_SECRET_IMAGE, lines[-1])
             with mock.patch.object(ner_setup, "_info", return_value={"client_secret": True}):
                 with mock.patch.object(ner_setup, "_proves", return_value=True):
                     code, lines = ner_setup.report(conf)

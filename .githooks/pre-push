@@ -8,15 +8,23 @@
 # parallel worktrees, pushed the load past 30 (2026-10-15). To run all of it locally:
 # scripts/check_all.sh
 set -u
-ROOT="$(git rev-parse --show-toplevel)"
-cd "$ROOT" || exit 1
 
+new=0
 while read -r local_ref local_sha remote_ref remote_sha; do
   case "$remote_ref" in
     refs/tags/*) echo "pre-push: tag pushes are refused; CI tags releases from CHANGELOG.md"; exit 1 ;;
   esac
+  # a commit on origin's main or next came through a merge request whose pipeline ran these checks: a push of it to
+  # another remote (the bench host before a release gate) checks nothing new
+  case "$local_sha" in 0000000000000000000000000000000000000000) continue ;; esac
+  [ -n "$(git for-each-ref --contains "$local_sha" --count=1 refs/remotes/origin/main refs/remotes/origin/next)" ] \
+    || new=1
 done
 if echo "$*" | grep -q -- "--tags"; then echo "pre-push: --tags refused"; exit 1; fi
+if [ "$new" = 0 ]; then echo "pre-push: every pushed commit is on origin already; nothing new to check"; exit 0; fi
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT" || exit 1
 
 if command -v ruff >/dev/null 2>&1; then
   ruff check --select E,F,W --line-length 120 maisecrets hooks harness tests scripts skills || { echo "pre-push: lint failed"; exit 1; }

@@ -74,9 +74,24 @@ _FILE_LABEL_RE = _LazyRx(r"(?i)[\w.-]\.(?:tar\.(?:gz|bz2|xz|zst)|tgz|tar|zip|7z|
 _DIGEST_RE = _LazyRx(r"[0-9a-fA-F]{32}|[0-9a-fA-F]{40}|[0-9a-fA-F]{64}|[0-9a-fA-F]{128}")
 
 
+# a content digest names content, it opens nothing: `sha256:<hex>` alone or an image reference pinned by it
+# (SECRET_IMAGE = mcpgate/ner:v2.0.3798@sha256:<hex>, a public image, 2026-11-08)
+# An image reference has a path (`team/app`): `admin:<password>@sha256:…` is a password, not a tag (Opus review)
+_CONTENT_DIGEST_RE = _LazyRx(r"(?:(?:[a-z0-9][\w.-]*(?::\d+)?/)+[a-z0-9][\w.-]*(?::[\w.-]+)?@)?"
+                             r"sha(?:256:[0-9a-f]{64}|512:[0-9a-f]{128})")
+# after a password label a digest is the password's hash, which an unsalted guess finds offline
+_PASSWORD_LABEL_RE = _LazyRx(r"(?i)pass(?:w(?:or)?d)?|pwd|kennwort|passphrase")
+
+
+def content_digest(value: str, before: str = "") -> bool:
+    return bool(_CONTENT_DIGEST_RE.fullmatch(value.strip("\"'` ")) and not _PASSWORD_LABEL_RE.search(before))
+
+
 def file_digest(text: str, pos: int, end: int, value: str) -> bool:
-    """A hex digest (MD5, SHA-1, SHA-256, SHA-512) right after a file name with an archive or package extension."""
-    return bool(_DIGEST_RE.fullmatch(value.strip("\"'` ")) and _FILE_LABEL_RE.search(text, pos, end))
+    """A hex digest (MD5, SHA-1, SHA-256, SHA-512) right after a file name with an archive or package extension, or a
+    content digest after any label."""
+    return content_digest(value, text[pos:end]) or bool(_DIGEST_RE.fullmatch(value.strip("\"'` "))
+                                          and _FILE_LABEL_RE.search(text, pos, end))
 
 
 def checked(text: str, fields) -> tuple:

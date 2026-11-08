@@ -2383,9 +2383,12 @@ maisecrets does not verify that it is `mcpgate/ner`.
   refusal arrive in time.
 - **Which service read what**: `/maisecrets:ner` and `/maisecrets:status`
   count today's requests per service, from `ner.log` (time, service, tool
-  result or prompt, characters, names; never text). The counts are those of
-  all your sessions on this computer, not of one session, as far as the log
-  keeps them (above 1 MB its older half goes).
+  result or prompt, characters, names, plugin version; never text). The counts
+  are those of all your sessions on this computer, not of one session, as far
+  as the log keeps them (above 1 MB its older half goes). A session keeps the
+  plugin version it started with: the counts say how many requests came from
+  sessions of another version, and name a result of the rules alone from a
+  version before 0.8.29, which wrote no reason, `older version`.
 - **Names in lower case**: the model of `mcpgate/ner` is cased, and a capital
   letter is its main sign of a name. `Peter Pan` becomes a placeholder,
   `peter pan` mostly stays text. A name that must always be masked belongs in

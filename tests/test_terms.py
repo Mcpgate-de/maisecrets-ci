@@ -577,6 +577,18 @@ class ScanTreeTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("0 secret-shaped value(s)", r.stdout)
 
+    def test_the_tree_check_fails_on_a_secret_shape_and_names_its_file(self):
+        import subprocess
+        tree = Path(tempfile.mkdtemp(prefix="scan-tree-"))
+        self.addCleanup(shutil.rmtree, tree, True)
+        (tree / "a.txt").write_text("nothing here\n", encoding="utf-8")
+        (tree / "b.txt").write_text("x\ntoken = glpat-" + "HARNESSxxx1234567890abcd\n", encoding="utf-8")
+        r = subprocess.run([sys.executable, str(ROOT / "scripts" / "scan_tree.py"), str(tree)], capture_output=True,
+                           text=True, timeout=120, env=dict(os.environ))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("scanned 2 files: 1 secret-shaped value(s)", r.stdout)
+        self.assertRegex(r.stdout, r"(?m)^b\.txt:2: ")
+
 
 class MarkedFileTests(unittest.TestCase):
     """terms.marked.json: missing is empty, damaged fails closed and is never overwritten, expired names leave the

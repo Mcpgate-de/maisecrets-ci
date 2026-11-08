@@ -653,5 +653,43 @@ class FallbackTests(unittest.TestCase):
         self.assertTrue(ner_setup.counts_line().startswith("today, your sessions on this computer (ner.log): "))
 
 
+class LogVersionTests(unittest.TestCase):
+    """A line of ner.log names its plugin version, and the counts name the lines of another version (#25): before
+    0.8.29 a line of the rules alone had no reason, and the counts called it unknown, which read as a failure."""
+
+    def setUp(self):
+        self.log = Path(HOME, "ner.log")
+        self.log.unlink(missing_ok=True)
+        self.addCleanup(self.log.unlink, True)
+
+    def test_a_new_line_names_the_plugin_version(self):
+        ner_setup.log("rules", "tool", 10, 0, why="timeout", ms=5)
+        line = json.loads(self.log.read_text().splitlines()[-1])
+        self.assertEqual(line["v"], events.plugin_version())
+        self.assertNotEqual(line["v"], "?")
+
+    def test_the_counts_name_the_lines_of_older_and_other_versions(self):
+        now = int(time.time())
+        here = events.plugin_version()
+        lines = [{"t": now, "source": "rules", "kind": "tool", "chars": 9, "names": 0, "ms": 300}] * 3   # before 0.8.29
+        lines += [{"t": now, "source": "rules", "kind": "tool", "chars": 9, "names": 0, "ms": 9, "why": "timeout",
+                   "v": here},
+                  {"t": now, "source": "local", "kind": "tool", "chars": 9, "names": 1, "ms": 9, "v": here},
+                  {"t": now, "source": "local", "kind": "tool", "chars": 9, "names": 1, "ms": 9, "v": "0.0.1"}]
+        self.log.write_text("".join(json.dumps(x) + "\n" for x in lines))
+        text = ner_setup.counts_line()
+        self.assertIn("rules 4 (older version 3, timeout 1)", text)
+        self.assertNotIn("unknown", text)
+        self.assertIn(f"requests from sessions of another version 4 (a session keeps the version it started with; "
+                      f"a restart moves it to {here})", text)
+
+    def test_no_note_when_every_line_is_of_this_version(self):
+        ner_setup.log("local", "tool", 10, 1, ms=5)
+        ner_setup.log("rules", "tool", 10, 0, why="too_long")
+        text = ner_setup.counts_line()
+        self.assertIn("rules 1 (too_long 1)", text)
+        self.assertNotIn("another version", text)
+
+
 if __name__ == "__main__":
     unittest.main()

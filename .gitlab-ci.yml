@@ -149,14 +149,22 @@ lint:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
     # a baseline merge request holds measurement results only: baseline_only checks that and runs the tests that read
-    # them; the release merge request after it runs every job on the same code
+    # them; the pipeline on main after the release merge request runs every job on the same code
     - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^chore\/baseline-/
+      when: never
+    # the release merge request (next into main): next is protected (no push, merge only), so each of its commits came
+    # through a merge request that ran these jobs, and the pipeline on main runs them once more on the merged tree
+    # before the release job, which needs them. The merge request ran them a second time on nearly the same tree,
+    # about 13 min per release (maintainer, 2026-11-07); it keeps the matrix and the validate stage. Another branch
+    # into main (a hotfix) runs every job
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"
+        && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME == "next"
       when: never
     - when: on_success
 
 # The replay and the two harnesses in a merge request into next: only when a path they read changed. A change of
-# docs/, .github/, bench/ or the other scripts alone ran them for nothing (maintainer, 2026-11-07). A merge request
-# into main and the pipeline on main run them always: the release needs them
+# docs/, .github/, bench/ or the other scripts alone ran them for nothing (maintainer, 2026-11-07). The release merge
+# request into main skips them, and the pipeline on main runs them always: the release needs them
 .tested_when_changed:
   rules:
     - if: $CI_COMMIT_TAG
@@ -166,6 +174,8 @@ lint:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^chore\/baseline-/
       when: never
     - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"
+        && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME == "next"
+      when: never
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
         - maisecrets/**/*
