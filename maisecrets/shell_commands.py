@@ -33,6 +33,8 @@ _STORE_READ_PATTERNS: list[tuple[str, str]] = [
     ("the ssh approval store", r"ssh-approvals|ssh_approval|ssh-consent\.json"),
     # the mod's question stores values and scrubs a transcript by session id: for the mod, not the agent
     ("the mod's question", r"(?<![\w-])(?:dispatch\.py|run\.sh|run\.cmd)[\"']?\s+[\"']?mod-prompt\b"),
+    # the values for the person's screen (show_values.py): for the mod's drawing, never for the agent
+    ("the mod's values", r"(?<![\w-])(?:dispatch\.py|run\.sh|run\.cmd)[\"']?\s+[\"']?mod-values\b"),
     # the guard outside the plugin folder: `--off` in its refusal is for the person, not the agent
     ("the maisecrets guard", r"maisecrets-guard\.py"),     # guard.json sits in the home, covered above
     ("a value delivery path", r"maisecrets[/\\]run[/\\]|maisecrets-\d+[/\\]|maisecrets[/\\](?:v-|sealed)|__ms_\d+\b"
@@ -899,7 +901,8 @@ def _ssh_route(command: str, ctxs: list[str], refs: list[tuple[str, int, int]]) 
     return {"insert_at": seg["start"] + ssh_span[1], "dest": dest, "line": line, "remote": " ".join(remote)}
 
 
-_HOOK_ENTRIES = {"session-start", "user-prompt", "pre-tool", "post-tool", "post-tool-failure", "mod-prompt"}
+_HOOK_ENTRIES = {"session-start", "user-prompt", "pre-tool", "post-tool", "post-tool-failure", "mod-prompt",
+                 "mod-values"}
 
 
 def _calls_a_hook_entry(command: str, broad: bool = False) -> bool:
@@ -922,7 +925,8 @@ def _calls_a_hook_entry(command: str, broad: bool = False) -> bool:
     shells = {"bash", "sh", "zsh", "dash", "ksh", "fish", "eval", "su", "xargs", "parallel", "watch", "script"}
     printers = {"echo", "printf", "grep", "egrep", "rg", "cat", "head", "tail", "less", "git"}
     for m in re.finditer(r"(?:run\.sh|run\.cmd|dispatch\.py)[\"']?\s+[\"']?"
-                         r"(?:session-start|user-prompt|pre-tool|post-tool(?:-failure)?|mod-prompt)\b", command):
+                         r"(?:session-start|user-prompt|pre-tool|post-tool(?:-failure)?|mod-prompt|mod-values)\b",
+                         command):
         seg = next((sg for sg in segs if sg["start"] <= m.start() < sg["end"]), None)
         if seg and seg.get("cmd") in shells:
             return True

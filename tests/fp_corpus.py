@@ -1145,6 +1145,9 @@ NO_HIT = [
     ('gb16 matrix:json-token keyring', '{"api_t§oken": "k§eyring"}'),
     ('gb16 matrix:json-token cmd', '{"api_t§oken": "p§ass:show/db/prod"}'),
     ('gb16 matrix:json-token de-status', '{"api_t§oken": "zurückgesetzt"}'),
+    ('figma components answer', '{"meta": {"components": [{"k§ey": "5f2c8e1a9b3d4c7e6f0a1b2c3d4e5f6a7b8c9d0e", "file_k§ey": "Xq7aB3dE5fG7hJ9kL1mN2p", "node_id": "1:23", "name": "Button"}]}}'),
+    ('figma files list', '{"files": [{"k§ey": "Xq7aB3dE5fG7hJ9kL1mN2p", "name": "Design", "thumbnail_url": "https://s3-alpha.figma.com/thumbnails/x"}]}'),
+    ('figma node lines', 'editorType: figma\nid: 1:2\nk§ey: 5f2c8e1a9b3d4c7e6f0a1b2c3d4e5f6a7b8c9d0e\nname: Btn'),
 ]
 
 HIT = [

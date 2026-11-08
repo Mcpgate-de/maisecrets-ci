@@ -27,6 +27,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import platform
 import re
 import secrets
 import time
@@ -68,6 +69,20 @@ def _get_json(cfg: dict, url: str, deadline: float) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+_SCOPE_RE = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
+
+
+def login_scope(resolve_scope: str, process_scope: object, windows: bool | None = None) -> str:
+    """The scopes a login asks for: the resolve scope, and the gateway's process scope on top where maisecrets masks
+    command output (macOS and Linux: Bash on Windows gets no server value, C27). Without it the gateway refuses the
+    process sink (mcpgate 2.0.3815: 403 insufficient_scope), and a file still gets its value."""
+    windows = platform.system() == "Windows" if windows is None else windows   # the same test as the Bash refusal
+    if isinstance(process_scope, str) and _SCOPE_RE.fullmatch(process_scope) and process_scope != resolve_scope \
+            and not windows:
+        return f"{resolve_scope} {process_scope}"
+    return resolve_scope
+
+
 def discover(cfg: dict, mcp_url: str, deadline: float | None = None) -> dict | None:
     """The resolver of the gateway behind an MCP URL: {"origin", "resolve", "scope", "sinks", "authorize", "token",
     "register"}, or None when the gateway names none. Every endpoint must be https on the same origin."""
@@ -86,7 +101,8 @@ def discover(cfg: dict, mcp_url: str, deadline: float | None = None) -> dict | N
     if any(origin_of(v) != origin for v in ends.values()):
         return None
     sinks = block.get("sink_profiles")
-    return {"origin": origin, "resolve": block["resolve_endpoint"], "scope": block.get("resolve_scope") or SCOPE,
+    return {"origin": origin, "resolve": block["resolve_endpoint"],
+            "scope": login_scope(block.get("resolve_scope") or SCOPE, block.get("process_scope")),
             "sinks": [s for s in sinks if isinstance(s, str)] if isinstance(sinks, list) else [],
             "authorize": ends["authorization"], "token": ends["token"], "register": ends["registration"]}
 
@@ -309,6 +325,10 @@ def resolve(cfg: dict, backend, found: dict, refs: list, sink_type: str, destina
         raise Refused(f"the login at {host} is no longer valid (consent withdrawn or expired); "
                       "the person runs /maisecrets:sref login")
     if status == 403:
+        if code == "insufficient_scope" and sink_type == "process":
+            # mcpgate 2.0.3815: a command needs a login whose consent allowed it; a file still works
+            raise Refused(f"the login at {host} does not allow real values in commands; the person runs "
+                          "/maisecrets:sref login again and allows commands on the consent page")
         why = _FORBIDDEN.get(code, "forbidden") if isinstance(code, str) else "forbidden"
         raise Refused(f"{host} refused the resolve ({why})")
     raise Refused(f"{host} gave no usable answer (HTTP {status})")

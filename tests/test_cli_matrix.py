@@ -662,8 +662,8 @@ class PopulationTests(unittest.TestCase):
             self.assertEqual(sorted(cmds - known), [], f"commands/{name}")
 
     def test_every_cli_command_is_reachable_and_every_dispatched_one_exists(self):
-        # mod-prompt is the question of the mod (claude-mod/maisecrets-mod.mjs), not a command of the CLI
-        dispatched = commands_in_dispatch() - {"pending", "session-start", "session-end", "mod-prompt"}
+        # mod-prompt and mod-values are the questions of the mod (claude-mod/), not commands of the CLI
+        dispatched = commands_in_dispatch() - {"pending", "session-start", "session-end", "mod-prompt", "mod-values"}
         self.assertEqual(sorted(dispatched - cli_commands()), [], "dispatch.py sends these to cli.main")
         # resolve is reached through hooks/resolve.py, which the Bash hook writes into a command
         self.assertEqual(sorted(cli_commands() - dispatched), ["resolve"])
@@ -1159,6 +1159,17 @@ class HookEventTests(unittest.TestCase):
         self.assertEqual((r.returncode, out["maisecrets"], out["text"]), (0, "mod-prompt", "password: ⟦SECRET_c1⟧"))
         self.assertNotIn(value, r.stdout + r.stderr)
         self.assertNotIn(value, (self.sb.home / "events.log").read_text())
+
+    def test_the_mod_values_answer_only_this_sessions_value_through_the_dispatcher(self):
+        value = fake_value("Mv")
+        self.sb.run("mod-prompt", stdin=json.dumps({"prompt": f"password: {value}", "session_id": "S1"}))
+        r = self.sb.run("mod-values", stdin=json.dumps({"keys": ["SECRET_c1"], "session_id": "S1"}))
+        out = json.loads(r.stdout)
+        self.assertEqual((r.returncode, out["maisecrets"], out["mode"], out["values"]),
+                         (0, "mod-values", "always", {"SECRET_c1": value}))
+        other = json.loads(self.sb.run("mod-values", stdin=json.dumps({"keys": ["SECRET_c1"],
+                                                                        "session_id": "S2"})).stdout)
+        self.assertEqual(other["values"], {})
 
     def test_session_end_answers_nothing_through_the_dispatcher(self):
         r = self.sb.run("session-end", stdin=json.dumps({"session_id": "S1", "reason": "logout"}))

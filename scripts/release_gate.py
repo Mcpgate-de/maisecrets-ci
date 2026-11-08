@@ -105,9 +105,21 @@ def default_baseline(version: str) -> Path | None:
 
 
 def last_holdout_recall() -> float | None:
-    rows = [r for r in (ROOT / "bench" / "HOLDOUT-LOG.md").read_text(encoding="utf-8").splitlines()
-            if "holdout-v2" in r and r.startswith("|")]
+    """The last Holdout V2 row of the committed HOLDOUT-LOG.md. A row comes into a commit only with the baseline of a
+    gate that passed; a run that failed leaves its row in the working file, and a second run read it (Opus review)."""
+    try:
+        text = _git("show", "HEAD:bench/HOLDOUT-LOG.md", cwd=ROOT)   # ROOT now: the default was bound at import
+    except subprocess.CalledProcessError:
+        return None
+    rows = [r for r in text.splitlines() if "holdout-v2" in r and r.startswith("|")]
     return float(rows[-1].split("|")[5]) if rows else None
+
+
+def holdout_pair(run_holdout) -> tuple:
+    """(the last release's recall, the candidate's), read before the candidate runs: bench/run.py appends the
+    candidate's own row to HOLDOUT-LOG.md, and the gate compared a run with itself (#13)."""
+    before = last_holdout_recall()
+    return before, run_holdout()
 
 
 def report(kind: dict, results: dict, holdout: tuple | None) -> tuple:
@@ -394,11 +406,13 @@ def main(argv: list) -> int:
     holdout = None
     if a.holdout:
         out = a.out / "holdout-v2.json"
-        subprocess.run([env.get("BENCH_PYTHON", sys.executable), "bench/run.py", "--scanner", "maisecrets",
-                        "--maisecrets", str(cand), "--source", "holdout-v2", "--holdout", str(a.holdout),
-                        "--release-candidate", "--out", str(out)], cwd=ROOT, check=True)
-        m = json.loads(out.read_text(encoding="utf-8"))["metrics"].get("all", {})
-        holdout = (last_holdout_recall(), m.get("recall_strict"))
+
+        def run_holdout() -> float | None:
+            subprocess.run([env.get("BENCH_PYTHON", sys.executable), "bench/run.py", "--scanner", "maisecrets",
+                            "--maisecrets", str(cand), "--source", "holdout-v2", "--holdout", str(a.holdout),
+                            "--release-candidate", "--out", str(out)], cwd=ROOT, check=True)
+            return json.loads(out.read_text(encoding="utf-8"))["metrics"].get("all", {}).get("recall_strict")
+        holdout = holdout_pair(run_holdout)
     text, failed = report(kind, results, holdout)
     extra = []
     if a.catalogs:

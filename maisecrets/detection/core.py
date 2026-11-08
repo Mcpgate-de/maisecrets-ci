@@ -799,7 +799,9 @@ PRESIDIO_EXTRA_CONTEXT = {
                     "reisepassnummer", "passeport", "pasaporte", "passaporte", "passaporto", "paspoort", "paszport"),
     "us-itin": ("itinnumber", "taxpayerid", "taxid", "taxidnumber"),
     # 2026-10-19, Benchmark V1: a CSV or JSON key `steuer_id` over a valid tax id; the checksum still decides
-    "de-tax-id": ("steuer_id", "steuer_identifikationsnummer", "steuer-identifikationsnummer", "steuer_idnr"),
+    # and the display name of a column, with a space (Metabase: "Steuer ID", ai-gateway #1795, 2026-11-08)
+    "de-tax-id": ("steuer_id", "steuer_identifikationsnummer", "steuer-identifikationsnummer", "steuer_idnr",
+                  "steuer id", "steuer idnr"),
     "credit-card": ("karte", "kreditkarte", "kartennummer", "kartennr", "debitkarte", "bankkarte", "ec-karte",
                     "girocard", "carte", "cartes", "carta", "tarjeta", "creditcard", "kaart", "cart\u00e3o", "karta",
                     # 0.6.24, review: the PAN of a payment log, a camelCase key, and the Nordic and Polish words
@@ -2877,9 +2879,10 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
                     or (_ELISION_RE.search(secret) and len(secret.rstrip(".\u2026")) < 20)
                     or _names_no_secret(text, start, secret.strip("\"'` "))
                     or _DERIVED_LABEL_RE.search(text, max(_line_start(text, start), start - 60), start)
-                    or _fields.file_digest(text, max(_line_start(text, start), start - 60), start, secret)):
+                    or _fields.file_digest(text, max(_line_start(text, start), start - 60), start, secret)
+                    or _fields.figma_id(text, max(_line_start(text, start), start - 60), start, secret)):
                 continue   # a UUID, an elided value (sk-...), a label of a derived thing (secret_id, nextPageToken)
-                # or the digest of a file (secrets.tar.gz)
+                # or the digest of a file (secrets.tar.gz), or the key of a Figma file or component (#22)
             if "user-equals-password" in filters and _pass_equals_user(m.group(0), secret):
                 continue
             if ("sigv4-scope" in filters

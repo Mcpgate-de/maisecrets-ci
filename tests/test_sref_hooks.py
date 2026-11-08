@@ -418,6 +418,33 @@ class SrefBashTests(unittest.TestCase):
         self.assertEqual(run.returncode, 97)
         self.assertEqual(run.stdout, "", "printf never ran with an empty value")
 
+    def test_a_login_without_commands_names_the_reason_and_runs_nothing(self):
+        # mcpgate 2.0.3815: the process sink needs its own scope; a login without it (Windows, an old login) is
+        # refused, and the command says why instead of a delivery timeout
+        self.found = {**self.found, "scope": S.SCOPE}
+        self.login()
+        self.result()
+        run = self.run_command(f"printf 'got:%s' {self.shown}")
+        self.assertEqual(run.returncode, 97)
+        self.assertEqual(run.stdout, "", "printf never ran")
+        self.assertIn("does not allow real values in commands", run.stderr)
+        self.assertIn("/maisecrets:sref login", run.stderr)
+        self.assertNotIn("served for 120 s", run.stderr)
+        self.assertNotIn(VALUE, run.stderr)
+        self.assertEqual(self.srv.resolved, [], "the gateway gave no value")
+
+    def test_a_value_that_starts_with_the_refusal_marker_is_never_printed(self):
+        # Opus review: the prelude printed what follows the marker, before the exit trap, so the model saw it
+        self.login()
+        planted = "maisecrets-refused:" + "PlantedValue" + "7Kq2"
+        ref = self.srv.mint("secret", planted)
+        hooks._post_tool_guarded({"tool_name": "mcp__gw__gitlab_read_actions", "session_id": "s1", **CLAUDE,
+                                  "mcp_server": {"name": "gw", "source": "user"}, "tool_input": {"iid": 8},
+                                  "tool_response": {"content": [{"type": "text", "text": "token: " + ref}]}})
+        run = self.run_command(f"printf 'got:%s' {ref}")
+        self.assertEqual(run.returncode, 97)
+        self.assertNotIn("PlantedValue", run.stdout + run.stderr)
+
     def test_the_audit_names_the_reference_without_its_id(self):
         self.login()
         self.result()

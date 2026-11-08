@@ -1,0 +1,10 @@
+# c32-the-ai-cannot-ask-for-the-screen-values: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c32-the-ai-cannot-ask-for-the-screen-values"
+control = "C32"
+statement = "A shell command that names the mod's values entry (dispatch.py, run.sh or run.cmd with mod-values) is refused: the values for the person's screen never reach the AI through a command."
+runner = ["tests/test_show_values.py::AgentTests::test_a_shell_command_that_asks_for_the_values_is_refused"]
+
+[proof]
+file = "maisecrets/shell_commands.py"
+find = '''    ("the mod's values", r"(?<![\w-])(?:dispatch\.py|run\.sh|run\.cmd)[\"']?\s+[\"']?mod-values\b"),'''
+replace = ''''''

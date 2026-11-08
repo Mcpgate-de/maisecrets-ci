@@ -44,14 +44,14 @@ START = f"docker run -d --name ner --restart unless-stopped -p 127.0.0.1:8765:87
 SOURCE_KEYS = ("url", "format", "model", "allow_network", "mask", "ask_labels")
 
 _NER_RE = re.compile(r"\A\s*(?:/maisecrets:ner|maisecrets:\s*ner)\s+(?:(off|local|on)|url\s+(\S+)|"
-                     r"fallback\s+(?:(off)|url\s+(\S+))|prompts\s+(on|off))\s*\Z", re.I)
+                     r"fallback\s+(?:(off)|url\s+(\S+))|prompts\s+(on|off)|updates\s+(on|off))\s*\Z", re.I)
 # the same sentence anywhere in a tool call (settings.IN_A_COMMAND_RE)
-IN_A_COMMAND = r"(?:/maisecrets:ner|maisecrets:\s*ner)\s+(?:off|local|on|url|fallback|prompts)\b"
+IN_A_COMMAND = r"(?:/maisecrets:ner|maisecrets:\s*ner)\s+(?:off|local|on|url|fallback|prompts|updates)\b"
 
 
 def parse(prompt) -> str | None:
-    """`off`, `local`, `url:<URL>`, `fallback:off`, `fallback:url:<URL>`, `prompts:on` or `prompts:off` when the whole
-    prompt is a change of the setting, else None."""
+    """`off`, `local`, `url:<URL>`, `fallback:off`, `fallback:url:<URL>`, `prompts:on`, `prompts:off`, `updates:on` or
+    `updates:off` when the whole prompt is a change of the setting, else None."""
     m = _NER_RE.match(prompt) if isinstance(prompt, str) else None
     if not m:
         return None
@@ -61,6 +61,8 @@ def parse(prompt) -> str | None:
         return "url:" + m.group(2)
     if m.group(5):
         return "prompts:" + m.group(5).lower()
+    if m.group(6):
+        return "updates:" + m.group(6).lower()
     return "fallback:off" if m.group(3) else "fallback:url:" + m.group(4)
 
 
@@ -102,6 +104,13 @@ def updated(current, word: str) -> dict:
             current["prompts"] = False
         else:
             current.pop("prompts", None)
+        return current
+    if word.startswith("updates:"):
+        # not a source key either: the image of the local service follows the plugin unless this is false
+        if word == "updates:off":
+            current["auto_update"] = False
+        else:
+            current.pop("auto_update", None)
         return current
     if word == "fallback:off":
         current.pop("fallback", None)
@@ -152,6 +161,44 @@ def scope(conf) -> str:
                 "in Claude Code. In Codex it covers what the AI reads only. It may mask a few extra words.")
     return ("It masks person names in what the AI reads (files, command output, tool results). Your prompts keep the "
             "rules alone. It may mask a few extra words.")
+
+
+def updates_line(conf) -> str:
+    """One line: whether the image of the local service follows the plugin."""
+    if isinstance(conf, dict) and conf.get("auto_update") is False:
+        return ("The image of the local service stays as it is (updates off). /maisecrets:ner updates on lets it "
+                "follow the plugin again.")
+    return ("The image of the local service follows the plugin: a session start gives it the image this version "
+            "pins. /maisecrets:ner updates off keeps it as it is.")
+
+
+def _tag(image: str) -> str:
+    return image.split("@", 1)[0].rpartition(":")[2] if ":" in image.split("@", 1)[0] else "latest"
+
+
+def image_line(conf, tool: str) -> str:
+    """One line for /maisecrets:ner: the image of the container `ner` against the one this version pins."""
+    from . import ner_secret
+    cid, _running, image, image_id = _inspect(tool, "ner")
+    if not cid or not _ours_image(image):
+        return ""
+    pinned = _tag(SECRET_IMAGE)
+    if image == SECRET_IMAGE:
+        return f"image: {pinned}, the one this version pins"
+    if _tag(image) == pinned:
+        pinned += " by its digest"          # the same tag without the pin, or pushed again
+    if not _behind(tool, image, image_id):
+        return f"image: {_tag(image)}; this version pins {pinned}, an older one, so it stays"
+    if cid != ner_secret.container_of(ner_secret.endpoint(LOCAL_URL)):
+        return (f"image: {_tag(image)}; this version pins {pinned}, but the container was not set up by maisecrets, "
+                f"so it is not updated. To change that: {os.path.basename(tool)} rm -f ner, then /maisecrets:ner "
+                "again.")
+    if isinstance(conf, dict) and conf.get("auto_update") is False:
+        return f"image: {_tag(image)}; this version pins {pinned} (updates off: /maisecrets:ner updates on)"
+    if _failed_recently():
+        return (f"image: {_tag(image)}; a container of {pinned} did not start, so the old one runs on. maisecrets "
+                "tries again in a day.")
+    return f"image: {_tag(image)}; this version pins {pinned}, and the next session start updates it"
 
 
 def _get(url: str, path: str, timeout: float):
@@ -263,73 +310,267 @@ def container_tool() -> str:
     return ""
 
 
-# a container named ner whose image is mcpgate/ner (any tag), started again: the plugin's own Python, the container
-# tool by its absolute path, no shell and no value of the setting
-_RESTART = ("import subprocess, sys\n"
-            "t = sys.argv[1]\n"
-            "r = subprocess.run([t, 'container', 'inspect', '-f', '{{.Config.Image}}', 'ner'], capture_output=True,"
-            " text=True, timeout=30)\n"
-            "img = r.stdout.strip()\n"
-            "if r.returncode == 0 and (img == 'mcpgate/ner' or img.startswith('mcpgate/ner:')):\n"
-            "    subprocess.run([t, 'start', 'ner'], capture_output=True, timeout=120)\n")
+# the session start runs follow_pin in a process of its own: the plugin's Python, isolated (-I), the plugin folder as
+# the only import path, the container tool by its absolute path; no shell and no value of the setting on its command
+_KEEP = ("import sys\n"
+         "sys.path.insert(0, sys.argv[1])\n"
+         "from maisecrets import ner_setup\n"
+         "ner_setup.follow_pin(sys.argv[2])\n")
+PREV = "ner-prev"                 # the old container while a new image starts; renamed back if the new one fails
+PROOF_WAIT_S = 90.0               # a new container loads its model before it can prove the secret
+BACK_OFF_S = 86400.0              # a pin whose container did not start is tried again after a day, not at each start
+START_WAIT_S = 10.0               # run.sh ner start waits this long for an update that holds the lock
+
+
+def _quiet() -> dict:
+    """No console window for docker on Windows (a hook may have none, and each call would open one)."""
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)} if os.name == "nt" else {}
+
+
+def _docker(tool: str, *args: str, timeout: float = 120, env=None):
+    return subprocess.run([tool, *args], capture_output=True, text=True, timeout=timeout, env=env, **_quiet())
+
+
+def _norm(image: str) -> str:
+    """An image reference as maisecrets writes it: podman may add docker.io/ (and library/) in front."""
+    for prefix in ("docker.io/library/", "docker.io/"):
+        if image.startswith(prefix):
+            return image[len(prefix):]
+    return image
+
+
+def _ours_image(image: str) -> bool:
+    image = _norm(image)
+    return image == IMAGE or image.startswith((IMAGE + ":", IMAGE + "@"))
+
+
+def _release(image: str):
+    """The release in a tag of mcpgate/ner (v2.0.3798 → (2, 0, 3798)), or None (latest, a digest alone)."""
+    m = re.search(r":v(\d+)\.(\d+)\.(\d+)(?:@|\Z)", _norm(image))
+    return tuple(int(x) for x in m.groups()) if m else None
+
+
+def _update_path():
+    from .vault import HOME
+    return HOME / "ner-update.json"
+
+
+def _failed_recently(now: float | None = None) -> bool:
+    """Whether a container of this pin did not start within BACK_OFF_S."""
+    try:
+        d = json.loads(_update_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(d, dict) or d.get("failed") != SECRET_IMAGE or not isinstance(d.get("t"), (int, float)):
+        return False
+    return (now or time.time()) - d["t"] < BACK_OFF_S
+
+
+def _note_update(failed: bool) -> None:
+    from .home import atomic_write
+    try:
+        if failed:
+            atomic_write(_update_path(), json.dumps({"failed": SECRET_IMAGE, "t": int(time.time())}) + "\n")
+        else:
+            _update_path().unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def restart_local(conf) -> bool:
-    """At a session start: when the source is the local service and it does not answer, start the container `ner`
-    again, but only when its image is mcpgate/ner (another container of that name is someone else's). In the
-    background: the session start never waits for docker. True when a start was asked for."""
+    """At a session start, for the local source: in the background, start the container `ner` again after a reboot,
+    and give a container that maisecrets set up the image this plugin version pins (follow_pin). The session start
+    never waits for docker. Without a container that maisecrets set up, a service that answers needs nothing. True
+    when the background process was started."""
     url = str(conf.get("url") or "") if isinstance(conf, dict) else ""
     if url.rstrip("/") != LOCAL_URL.rstrip("/"):
         return False
     tool = container_tool()
     if not tool:
         return False
-    ok, _line = probe(conf, timeout=0.3)
-    if ok:
-        return False
-    subprocess.Popen([sys.executable, "-I", "-c", _RESTART, tool], stdin=subprocess.DEVNULL,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    from . import ner_secret
+    if not ner_secret.container_of(ner_secret.endpoint(LOCAL_URL)):
+        ok, _line = probe(conf, timeout=0.3)
+        if ok:
+            return False
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    flags = {}
+    if os.name == "nt":
+        # its own process group, no console: closing the client does not end an update halfway
+        flags = {"creationflags": getattr(subprocess, "DETACHED_PROCESS", 0)
+                 | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
+    else:
+        flags = {"start_new_session": True}
+    subprocess.Popen([sys.executable, "-I", "-c", _KEEP, root, tool], stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **flags)
     return True
+
+
+def _run_container(tool: str, secret: str, image: str) -> tuple[int, str, str]:
+    """(exit code, container id, last error line) of a new container `ner` from `image` with `secret`. The secret goes
+    to docker in the environment, never on the command line, where `ps` shows it."""
+    env = dict(os.environ, NER_CLIENT_SECRET=secret)
+    r = _docker(tool, "run", "-d", "--name", "ner", "--restart", "unless-stopped", "-e", "NER_CLIENT_SECRET",
+                "-p", "127.0.0.1:8765:8765", image, timeout=900, env=env)
+    cid = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
+    return r.returncode, cid, (r.stderr.strip().splitlines() or ["no reason given"])[-1][:200]
+
+
+def _inspect(tool: str, name: str) -> tuple[str, str, str, str]:
+    """(id, running, image reference, image id) of a container, or four empty strings."""
+    r = _docker(tool, "container", "inspect", "-f", "{{.Id}} {{.State.Running}} {{.Image}} {{.Config.Image}}", name,
+                timeout=30)
+    if r.returncode != 0:
+        return "", "", "", ""
+    parts = r.stdout.strip().split(" ", 3)
+    if len(parts) < 4:
+        return "", "", "", ""
+    cid, running, image_id, image = parts
+    return cid, running, _norm(image), image_id
+
+
+def _image_id(tool: str, image: str) -> str:
+    r = _docker(tool, "image", "inspect", "-f", "{{.Id}}", image, timeout=30)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def _behind(tool: str, image: str, image_id: str) -> bool:
+    """Whether the image of the container is older than the pin: only forward. An older plugin version in an open
+    session must not take a newer image back (Opus review)."""
+    have, want = _release(image), _release(SECRET_IMAGE)
+    if have is None or want is None:
+        return False                  # no release to compare: never replaced on a guess
+    if have != want:
+        return have < want
+    pinned = _image_id(tool, SECRET_IMAGE)
+    return image != SECRET_IMAGE and (not pinned or pinned != image_id)    # the same tag, not the pinned digest
+
+
+def _proved(conf, wait: float) -> bool:
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            if _proves(conf):
+                return True
+        except Exception:  # noqa: BLE001 - not yet: the model is still loading
+            pass
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(1)
+
+
+def follow_pin(tool: str, conf=None) -> str:
+    """The background work of a session start (restart_local), one session at a time (a lock; a second one does
+    nothing). A stopped container `ner` of mcpgate/ner is started first. A container that maisecrets set up (its id
+    is the one kept in ner-containers.json) whose image is older than SECRET_IMAGE gets the pinned image: pull while
+    the old one runs (a failed pull changes nothing), stop the old one and rename it to ner-prev, run a new one with
+    the same secret, and only when the new one proves the secret is the old one removed with its image. Otherwise the
+    new one goes, ner-prev is renamed back and started, and this pin waits BACK_OFF_S. The setting
+    `"auto_update": false` (/maisecrets:ner updates off) keeps the image. A container started by hand, or one with
+    another image, is never replaced. Gives what it did, for the tests and the probes."""
+    from . import ner_secret
+    from .home import LockTimeout, _Lock
+    from .vault import HOME, load_config
+    if conf is None:
+        conf = load_config().get("remote_detector")
+    conf = conf if isinstance(conf, dict) else {}
+    lock = _Lock(HOME / ".ner-update.lock")
+    lock.LOCK_DEADLINE = 0.2
+    ep = ner_secret.endpoint(LOCAL_URL)
+    try:
+        with lock:
+            cid, running, image, image_id = _inspect(tool, "ner")
+            if not cid:
+                # an update that ended halfway (a kill, a logout): the old container waits as ner-prev
+                prev = _inspect(tool, PREV)
+                if prev[0] and prev[0] == ner_secret.container_of(ep):
+                    _docker(tool, "rename", prev[0], "ner")
+                    _docker(tool, "start", prev[0])
+                    return "recovered"
+                return "none"
+            if not _ours_image(image):
+                return "foreign"             # another container of that name is someone else's
+            outcome = "running"
+            if running != "true":
+                _docker(tool, "start", "ner")    # after a reboot: the service first, a download later
+                outcome = "started"
+            if cid != ner_secret.container_of(ep) or conf.get("auto_update") is False:
+                return outcome
+            if not _behind(tool, image, image_id) or _failed_recently():
+                return outcome
+            secret = ner_secret.secret_of(make_backend_for(conf), ep)
+            if not secret or _docker(tool, "pull", SECRET_IMAGE, timeout=3600).returncode != 0:
+                return outcome
+            _docker(tool, "stop", cid, timeout=60)
+            _docker(tool, "rename", cid, PREV)
+            rc, new, _err = _run_container(tool, secret, SECRET_IMAGE)
+            if rc == 0 and new and _proved(conf, PROOF_WAIT_S):
+                ner_secret.move(ep, new)
+                _docker(tool, "rm", "-f", cid, timeout=60)
+                if image_id and image_id != _image_id(tool, SECRET_IMAGE):
+                    _docker(tool, "rmi", image_id)
+                _note_update(failed=False)
+                return "updated"
+            # the new image did not prove the secret: it goes (by id; under the lock, a container named ner that is
+            # not ner-prev can only be the one this run made), and the old one comes back as it was
+            made = new or _inspect(tool, "ner")[0]
+            if made and made != cid:
+                _docker(tool, "rm", "-f", made, timeout=60)
+            _docker(tool, "rename", cid, "ner")
+            _docker(tool, "start", cid)
+            _note_update(failed=True)
+            return "kept"
+    except (LockTimeout, OSError, subprocess.SubprocessError):
+        return "busy"
 
 
 def start_local(cfg: dict) -> tuple[int, list]:
     """`run.sh ner start` (#1699), run by the AI after the person said yes: the container `ner` on 127.0.0.1:8765 with
     a secret it must prove before each text. The secret goes to docker in the environment (never on the command line,
     where `ps` shows it) and into the store; the container id beside it. An existing container `ner` that maisecrets
-    did not start is left as it is: it runs unchecked, and the output says how to replace it."""
-    from . import ner_secret
-    from .vault import make_backend
+    did not start is left as it is: it runs unchecked, and the output says how to replace it. It takes the lock of
+    follow_pin: an update that runs is never crossed by a second container."""
+    from .home import LockTimeout, _Lock
+    from .vault import HOME
     tool = container_tool()
     if not tool:
         return 1, ["Neither docker nor podman is installed. Install one of them (Docker Desktop, OrbStack, Podman)."]
+    lock = _Lock(HOME / ".ner-update.lock")
+    lock.LOCK_DEADLINE = START_WAIT_S
+    try:
+        with lock:
+            return _start_local(cfg, tool)
+    except LockTimeout:
+        return 1, ["maisecrets is updating the image of the local service right now (a download can take a few "
+                   "minutes). Run /maisecrets:ner again in a minute."]
+
+
+def _start_local(cfg: dict, tool: str) -> tuple[int, list]:
+    from . import ner_secret
+    from .vault import make_backend
     ep = ner_secret.endpoint(LOCAL_URL)
     backend = make_backend(cfg)
-    r = subprocess.run([tool, "container", "inspect", "-f", "{{.Id}} {{.Config.Image}}", "ner"],
-                       capture_output=True, text=True, timeout=30)
+    r = _docker(tool, "container", "inspect", "-f", "{{.Id}} {{.Config.Image}}", "ner", timeout=30)
     if r.returncode == 0:
         cid, _, image = r.stdout.strip().partition(" ")
-        if not (image == IMAGE or image.startswith(IMAGE + ":")):
+        if not _ours_image(image):
             return 1, ["A container named ner exists with another image. maisecrets leaves it alone; remove or rename "
                        "it to let maisecrets start its own."]
-        subprocess.run([tool, "start", "ner"], capture_output=True, timeout=120)
+        _docker(tool, "start", "ner")
         if ner_secret.secret_of(backend, ep) and ner_secret.container_of(ep) == cid:
             return 0, ["started: the container ner that maisecrets set up; it proves its secret before each text."]
         return 0, ["started: the container ner, which was not set up by maisecrets, so it is not checked. To have it "
                    f"checked: {os.path.basename(tool)} rm -f ner, then /maisecrets:ner again."]
     secret = ner_secret.new_secret()
-    env = dict(os.environ, NER_CLIENT_SECRET=secret)
-    r = subprocess.run([tool, "run", "-d", "--name", "ner", "--restart", "unless-stopped", "-e", "NER_CLIENT_SECRET",
-                        "-p", "127.0.0.1:8765:8765", SECRET_IMAGE], capture_output=True, text=True, env=env,
-                       timeout=900)
-    if r.returncode != 0:
-        return 1, ["The container did not start: " + (r.stderr.strip().splitlines() or ["no reason given"])[-1][:200]]
-    cid = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
+    rc, cid, err = _run_container(tool, secret, SECRET_IMAGE)
+    if rc != 0:
+        return 1, ["The container did not start: " + err]
     try:
         ner_secret.keep(backend, ep, secret, cid)
     except Exception as exc:  # noqa: BLE001 - a container whose secret is not kept would be checked by nobody
         # by its id, never by the name: a container ner that replaced it meanwhile is not this one
         if cid:
-            subprocess.run([tool, "rm", "-f", cid], capture_output=True, timeout=60)
+            _docker(tool, "rm", "-f", cid, timeout=60)
         return 1, [f"The secret could not be stored ({type(exc).__name__}); the container was removed again."]
     return 0, ["started: the container ner with a secret of its own; it proves the secret before each text."]
 
@@ -372,6 +613,14 @@ def report(conf, wait: float = 0.0) -> tuple[int, list]:
             return 1, lines
         else:
             lines.append("checked: the container proved the secret maisecrets gave it, just now and before each text")
+        tool = container_tool()
+        try:
+            line = image_line(conf, tool) if tool else ""
+        except (OSError, subprocess.SubprocessError):
+            line = ""
+        if line:
+            lines.append(line)
+            lines.append(updates_line(conf))
     if ok:
         return 0, lines
     lines.append("Until it answers, the rules mask tool results alone, as without the service.")

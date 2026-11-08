@@ -44,8 +44,9 @@ def detector(regs=("generic", "de", "us"), langs=("en", "de"), sources=NO_SOURCE
 
 ALL = detector(("generic", *sorted(known_regions() - {"generic"})), tuple(regions.label_languages_available()))
 
-TRUE = ("steuer_id", "steuerid", "tax_id", "taxId", "phone", "phone_home", "telefon")
-FALSE = ("id", "customer_id", "order_id", "deal_id", "kundennummer", "nextPageToken")
+# "Steuer ID": a column's display name as Metabase gives it (ai-gateway #1795, live check 2026-11-08)
+TRUE = ("steuer_id", "steuerid", "tax_id", "taxId", "phone", "phone_home", "telefon", "Steuer ID")
+FALSE = ("id", "customer_id", "order_id", "deal_id", "kundennummer", "nextPageToken", "Kunden ID", "Order ID")
 
 # the types whose value can be a number: their classes in types.json
 NUMBER_CLASSES = frozenset({"pii.national_id", "pii.tax_id", "pii.phone", "pii.bank_account", "pii.card"})
@@ -238,6 +239,14 @@ class PinnedTests(unittest.TestCase):
     def test_a_label_that_is_no_str(self):
         with self.assertRaises(TypeError):
             detector().label_names_a_number(None)
+
+    def test_a_tax_id_after_the_spaced_label_in_prose(self):
+        # the context words of the tax id rule hold the spaced form too: "Die Steuer ID ist <id>" in a sentence
+        d = detector()
+        tax = next(f"57549385{a}{b}{c}" for a in range(10) for b in range(10) for c in range(10)
+                   if core.VALIDATORS["de_tax_id"](f"57549385{a}{b}{c}"))
+        self.assertIn("DE_TAX_ID", [m.type for m in d.findings("Die Steuer ID ist " + tax + " laut Bescheid.",
+                                                                 channel="tool")])
 
     def test_a_german_tax_label_needs_the_region(self):
         self.assertTrue(detector(("generic", "de")).label_names_a_number("steuer_id"))

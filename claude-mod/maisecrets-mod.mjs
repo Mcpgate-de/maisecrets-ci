@@ -7,6 +7,8 @@
 // answer has another shape, the hook times out), the prompt reaches that hook unchanged and the
 // hook blocks it as without the mod. So no path here may pass on a value.
 
+import { afterPrompt, registerShowValues } from './show-values.mjs'
+
 const MARK = 'mod-prompt'
 // a person's own prompt: typed or queued at the terminal, sent through Remote Control, or the turn of
 // claude -p. A subagent's report or a channel's message stays with the settings hook (C19)
@@ -72,8 +74,11 @@ async function ask($, prompt, session, cwd, origin) {
 }
 
 export function register(on) {
+  // the values on the person's screen (show-values.mjs): one hooks module per plugin, so it registers from here
+  registerShowValues(on)
   on('prompt.submit', async ($, e, next) => {
     if (!PERSON.has(e.origin?.kind)) return next(e)
+    afterPrompt($, e.text)
     if (CHECK.test(e.text)) {
       // a check of a value is never passed on: the verdict, or this sentence when Python gives none in time
       let verdict = null

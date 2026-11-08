@@ -75,6 +75,14 @@ class _Repo:
         self.git("update-ref", "refs/heads/main", self.head)
         return self.head
 
+    def merge(self, other: str, subject: str = "Merge branch 'x' into 'next'") -> str:
+        self.head = self.git("commit-tree", self.tree, "-m", subject, "-p", self.head, "-p", other).strip()
+        self.git("update-ref", "refs/heads/main", self.head)
+        return self.head
+
+    def side(self, base: str, subject: str) -> str:
+        return self.git("commit-tree", self.tree, "-m", subject, "-p", base).strip()
+
     def tag(self, name: str) -> None:
         self.git("tag", name, self.head)
 
@@ -200,6 +208,25 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn("- LazyRegex is deprecated until 0.8 (bbbbbbb)", notes)
         self.assertLess(notes.index("### API"), notes.index("### Features"))
         self.assertNotIn("### API", self.r.render_notes("0.9.0", commits[2:]))
+
+    def test_a_change_taken_back_before_its_release_is_no_line_of_the_notes(self):
+        repo = self.repo
+        old = repo.commit("fix: shipped before")
+        repo.tag("v0.4.1")
+        merged = repo.merge(repo.side(repo.head, "fix: masks a card in a UUID"))
+        repo.commit("fix: a digest is no secret")
+        plain = repo.commit("feat: a feature taken back")
+        repo.commit("chore(detect): take the card back", f"This reverts commit {merged}.")
+        repo.commit('Revert "feat: a feature taken back"', f"This reverts commit {plain}.")
+        repo.commit('Revert "fix: shipped before"', f"This reverts commit {old}.")
+        commits = self.r.without_reverted(self.r.commits_since("v0.4.1"))
+        notes = self.r.render_notes("0.4.2", commits)
+        self.assertIn("a digest is no secret", notes)
+        self.assertIn("revert: fix: shipped before", notes, "a revert of a released commit stays")
+        for gone in ("masks a card", "a feature taken back"):
+            with self.subTest(gone=gone):
+                self.assertNotIn(gone, notes)
+        self.assertEqual(self.r.bump_for(commits), "patch")
 
     def test_apply_writes_every_manifest_and_keeps_the_unreleased_block(self):
         cl = self.repo.dir / "CHANGELOG.md"

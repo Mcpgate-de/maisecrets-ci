@@ -52,6 +52,11 @@ if not os.environ.get(_MINE) or os.environ.get(_MINE) != os.environ.get("MAISECR
     home = tempfile.mkdtemp(prefix="maisecrets-test-home-")
     os.environ["MAISECRETS_HOME"] = home
     os.environ[_MINE] = home
+    # the file store from the start: a probe that imported only this module and then made a Vault() reached the
+    # keychain of the person running it (the default backend), 2026-11-02 and 2026-11-08. A test that needs another
+    # config writes its own config.json, as before
+    with open(os.path.join(home, "config.json"), "w", encoding="utf-8") as _f:
+        _f.write('{"backend": "jsonfile", "allow_plaintext_store": true}\n')
 
 # a runner that imported maisecrets.home before this module (detect.rules() loads the config through it) bound HOME
 # to the real home, and the resets of the suite deleted the real index, vault file and key (a fork's runner,

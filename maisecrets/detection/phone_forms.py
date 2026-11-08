@@ -4,18 +4,23 @@ from __future__ import annotations
 
 from .lazy_regex import LazyRx as _LazyRx
 
-# a German call cue before `unter <number>`: erreichbar ab Montag unter 030 …, rufen Sie uns an unter …, bitte
-# zurückrufen unter … (ai-gateway #1764: a phone field that holds a sentence). `unter` alone is no cue (Bestellung
-# unter 030 …). The value starts with its trunk 0 or + (no date or count) and ends before a space and the 0 or + of a
-# second number
+# a German call cue around `unter <number>`: erreichbar ab Montag unter 030 …, erreichbar Mo-Fr 9-17 Uhr unter …,
+# rufen Sie uns an unter …, Rückrufe unter …, and the verb at the end: Sie können uns unter 030 … erreichen (ai-gateway
+# #1764: a phone field that holds a sentence; #27). `unter` alone is no cue (Bestellung unter 030 …). `unter:` and
+# `unter der Nummer` come before the value. The value starts with its trunk 0 or + (no date or count) and ends before
+# a space and the 0 or + of a second number. The gap after a cue ends at the end of a sentence
 _DE_CALL_REGIONS = frozenset({"de", "at", "ch"})
-_PHONE_DE_CUE_RE = _LazyRx(r"(?i)(?<![\w-])(?:erreichbar|erreichen|anrufen|anzurufen|ruf(?:en)?\s+(?:sie|mich|uns|an)"
-                           r"|rückruf|zurückrufen|zurückzurufen|melden\s+sie\s+sich|meldet\s+euch|kontaktieren)\b"
-                           r"[^\n\d]{0,40}?(?<![\w-])unter[ \t]+((?:\+|0)\d(?:[\d\-/]|[ \t](?=[1-9/\-])){4,19}\d)"
-                           r"(?![\w]|[.,:]\d)")
+_DE_NUMBER = r"(?:\+|0)\d(?:[\d\-/]|[ \t](?=[1-9/\-])){4,19}\d"
+_DE_END = r"(?![\w]|[.,:]\d)"
+_DE_UNTER = r"(?<![\w-])unter(?:[ \t]*(?::|der[ \t]+(?:ruf|telefon|handy|mobil)?nummer))?[ \t]+"
+_PHONE_DE_CUE_RE = _LazyRx(
+    r"(?i)(?:(?<![\w-])(?:erreichbar|erreichen|anrufen|anzurufen|ruf(?:en)?\s+(?:sie|mich|uns|an)|rückruf\w*"
+    r"|zurückrufen|zurückzurufen|melden\s+sie\s+sich|meldet\s+euch|kontaktieren)\b"
+    r"(?:[^\n.;!?]|\.(?=\S)){0,40}?(?=" + _DE_UNTER + ")"
+    r"|(?=" + _DE_UNTER + _DE_NUMBER + _DE_END + r"[^\n\d]{0,30}?(?<![\w-])(?:erreichen|erreichbar|anrufen|anzurufen"
+    r"|zurückrufen|zurückzurufen|kontaktieren)\b))" + _DE_UNTER + "(" + _DE_NUMBER + ")" + _DE_END)
 # a second number right after the first (unter 030 … 0171 …, unter 030 … oder 0171 …)
-_PHONE_DE_NEXT_RE = _LazyRx(r"(?i)[ \t]*(?:,|;|oder|und)?[ \t]*((?:\+|0)\d(?:[\d\-/]|[ \t](?=[1-9/\-])){4,19}\d)"
-                            r"(?![\w]|[.,:]\d)")
+_PHONE_DE_NEXT_RE = _LazyRx(r"(?i)[ \t]*(?:,|;|oder|und)?[ \t]*(" + _DE_NUMBER + ")" + _DE_END)
 # the country calling codes of ITU-T E.164 in use, by their first digits: codes of 1 digit (1, 7), of 2 and of 3
 _CC1 = frozenset("17")
 _CC2 = frozenset({"20", "27", "30", "31", "32", "33", "34", "36", "39", "40", "41", "43", "44", "45", "46", "47", "48",

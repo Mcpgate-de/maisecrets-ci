@@ -8,6 +8,7 @@ Run: python3 -m unittest tests.test_gateway_field_gaps -v
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sys
 import unittest
@@ -19,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
 
 from maisecrets import detect  # noqa: E402
-from maisecrets.detection import NO_REFERENCES, NO_SOURCES, Active, Detector, Host, personal  # noqa: E402
+from maisecrets.detection import NO_REFERENCES, NO_SOURCES, Active, Detector, Host, leaves, personal  # noqa: E402
 
 D = Detector(regions=Active(regions=("generic", "de", "us"), languages=("en", "de"), source="gaps-test"),
              sources=NO_SOURCES, references=NO_REFERENCES, host=Host(user="", year=2026))
@@ -116,6 +117,23 @@ class GermanCallCueTests(unittest.TestCase):
         found = [(leaf.path, m.type) for leaf, m in findings_by_leaf(D, {"notiz": f"erreichbar unter {number}"})]
         self.assertEqual(found, [(("notiz",), "PHONE")], "a free-text field, not only a phone field")
 
+    def test_the_german_word_orders_around_a_call_cue_are_found(self):
+        # #27: office hours in the gap, the verb at the end, unter der Nummer, unter:, Rückrufe and Rückrufnummer
+        number = "030 " + "48291736"
+        for text in (f"erreichbar Mo-Fr 9-17 Uhr unter {number}", f"Sie können uns unter {number} erreichen.",
+                     f"Sie erreichen uns unter der Nummer {number}", f"erreichbar unter: {number}",
+                     f"Rückrufe unter {number}", f"Rückrufnummer unter {number}",
+                     f"Sie können mich unter der Rufnummer {number} jederzeit anrufen"):
+            with self.subTest(text=text):
+                self.assertEqual([h for h in hits(text) if h[0] == "PHONE"], [("PHONE", number)])
+
+    def test_a_long_run_of_spaces_after_unter_takes_linear_time(self):
+        # `unter[ \t]*(…)?[ \t]+` matched the same spaces twice: 14 s for 50,000 spaces (Opus review)
+        import time
+        t = time.perf_counter()
+        hits("erreichbar unter" + " " * 50000 + "x")
+        self.assertLess(time.perf_counter() - t, 1.0)
+
     def test_two_numbers_after_unter_are_two_hits(self):
         # one span over both numbers left the subscriber digits of the second in the clear
         second = "0171 " + "5829174"
@@ -124,7 +142,11 @@ class GermanCallCueTests(unittest.TestCase):
 
     def test_unter_alone_a_date_or_a_number_that_is_no_phone_is_no_cue(self):
         for text in ("Bestellung unter 030 " + "48291736 abholen", "erreichbar unter 2026 11 07",
-                     "erreichbar unter 0815-4711", "erreichbar unter 0 8080 8443"):
+                     "erreichbar unter 0815-4711", "erreichbar unter 0 8080 8443",
+                     "Bestellung unter der Nummer 030 " + "48291736 abholen", "Bestellung unter: 030 " + "48291736",
+                     "Rückruf am 07.11.2026 unter Vorbehalt", "erreichbar ab 2026-11-07 unter Last",
+                     # a cue in the sentence before (Opus review)
+                     "Bitte melden Sie sich bis 12 Uhr. Bestellung unter 030 " + "48291736"):
             with self.subTest(text=text):
                 self.assertEqual([h for h in hits(text) if h[0] == "PHONE"], [])
 
@@ -270,6 +292,54 @@ class FileNameLabelTests(unittest.TestCase):
         for text in (f"The password for backup.zip: {value}", f"secret_key backup.tar.gz = {value}"):
             with self.subTest(text=text[:24]):
                 self.assertEqual([t for t, _v in hits(text)], ["SECRET"])
+
+
+
+class FigmaKeyTests(unittest.TestCase):
+    """#22: the key of a Figma file, component or style in a Figma answer is a public id; a key elsewhere stays."""
+
+    COMPONENT = hashlib.sha1(b"synthetic-figma-component").hexdigest()
+    FILE = "Xq7aB3dE5fG7h" + "J9kL1mN2p"
+    THUMB = "https://s3-alpha.figma.com/thumbnails/synthetic"
+
+    def answers(self):
+        c, f, t = self.COMPONENT, self.FILE, self.THUMB
+        return {
+            "files": {"name": "Team", "files": [{"key": f, "name": "Design", "thumbnail_url": t,
+                                                 "last_modified": "2026-11-01T10:00:00Z"}]},
+            "nodes": {"name": "Design", "lastModified": "2026-11-01T10:00:00Z", "thumbnailUrl": t, "version": "1",
+                      "role": "owner", "editorType": "figma",
+                      "nodes": {"1:2": {"document": {"id": "1:2", "name": "Frame", "type": "FRAME", "children": []},
+                                        "components": {"1:3": {"key": c, "name": "Btn", "description": "",
+                                                               "remote": False, "documentationLinks": []}},
+                                        "styles": {"S:1": {"key": c, "name": "Primary", "styleType": "FILL"}}}}},
+            "components": {"error": False, "status": 200,
+                           "meta": {"components": [{"key": c, "file_key": f, "node_id": "1:23", "name": "Button",
+                                                    "containing_frame": {"name": "F", "nodeId": "1:22"}}]}},
+        }
+
+    def test_a_figma_answer_gives_no_finding_on_its_keys(self):
+        for name, answer in self.answers().items():
+            with self.subTest(name=name):
+                self.assertEqual(hits(json.dumps(answer)), [])
+                self.assertEqual(leaves.findings_by_leaf(Detector(), answer), [], "the lines of findings_by_leaf")
+
+    def test_a_key_in_another_answer_stays_a_secret(self):
+        for answer in ({"service": "acme", "key": self.COMPONENT, "name": "prod"},
+                       {"items": [{"id": "12", "key": self.FILE, "name": "prod"}]}):
+            with self.subTest(answer=list(answer)):
+                self.assertEqual([t for t, _v in hits(json.dumps(answer))], ["SECRET"])
+        # a Figma link, a time or an object keyed by time near the key is no Figma answer (Opus review)
+        c = self.COMPONENT
+        for text in (f"see {self.THUMB}\n" + "log line\n" * 10 + f"key: {c}",
+                     json.dumps({"id": "10:30", "service": "payments", "key": c}), f"id: 9:00\nkey: {c}",
+                     json.dumps({"slots": {"10:15": {"free": "yes"}}, "key": c}),
+                     f"frame-src https://www.figma.com/; var cfg = {{\"key\": \"{c}\"}}"):
+            with self.subTest(text=text[:16]):
+                self.assertEqual([t for t, _v in hits(text)], ["SECRET"])
+        # a figd_ token in a Figma answer has another shape and stays a hit
+        token = "figd_" + "Kq7mZt4wPx9Lc2Rv" + "Hs8nYb3Jd6Fg"
+        self.assertEqual([t for t, _v in hits(f'{{"editorType": "figma", "key": "{token}"}}')], ["SECRET"])
 
 
 if __name__ == "__main__":

@@ -84,6 +84,30 @@ def commits_since(ref: str | None) -> list[tuple[str, str, str]]:
     return out
 
 
+_REVERTS_RE = re.compile(r"^This reverts commit ([0-9a-f]{7,40})", re.M)
+
+
+def without_reverted(commits: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
+    """The commits less each one that a later commit of the same range reverts, and that revert: a change taken back
+    before its release is no line of the notes (0.8.30 listed `masks a card number written as the first three groups of
+    a UUID`, which next had taken back). `git revert -m 1 <merge>` names the merge: the commits it brought go with it.
+    A revert of a commit an earlier release shipped stays, under "Reverts"."""
+    shas = {sha for sha, _s, _b in commits}
+    gone: set = set()
+    for sha, _subject, body in commits:
+        for ref in _REVERTS_RE.findall(body):
+            try:
+                full = _git("rev-parse", "--verify", f"{ref}^{{commit}}").strip()
+                parents = _git("rev-list", "--parents", "-n", "1", full).split()[1:]
+                brought = set(_git("rev-list", f"{parents[0]}..{parents[1]}").split()) if len(parents) > 1 else set()
+            except subprocess.CalledProcessError:
+                continue
+            taken = ({full} | brought) & shas
+            if taken:
+                gone |= taken | {sha}
+    return [c for c in commits if c[0] not in gone]
+
+
 def classify(subject: str, body: str) -> tuple[str, str, bool]:
     """(type or "other", text, breaking). A `Revert "…"` of anything is a patch release under
     "Reverts": a rollback needs no hand-written subject and never bumps more than the last
@@ -155,7 +179,7 @@ def next_version(current: str, level: str, approved: str | None = None) -> str:
 def plan() -> tuple[str, str, list[tuple[str, str, str]]] | None:
     tag = last_tag()
     current = tag[1:] if tag else manifest_version()
-    commits = commits_since(tag)
+    commits = without_reverted(commits_since(tag))
     level = bump_for(commits)
     if level is None:
         return None

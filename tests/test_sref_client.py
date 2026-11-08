@@ -349,6 +349,33 @@ class SrefClientTests(unittest.TestCase):
         self.assertIn("not logged in", str(cm.exception))
 
 
+class LoginScopeTests(unittest.TestCase):
+    def test_the_process_scope_is_asked_for_on_top_where_command_output_is_masked(self):
+        r, ps = "sensitive-references.resolve", "sensitive-references.resolve.process"
+        self.assertEqual(S.login_scope(r, ps, windows=False), f"{r} {ps}")
+        self.assertEqual(S.login_scope(r, ps, windows=True), r, "Bash on Windows gets no server value")
+        for odd in (None, "", "a b", "x" * 200, 7, r):
+            with self.subTest(odd=odd):
+                self.assertEqual(S.login_scope(r, odd, windows=False), r)
+
+    def test_a_login_without_the_process_scope_still_fills_a_file(self):
+        if not HAS_OPENSSL or os.name == "nt":
+            self.skipTest("openssl on POSIX")
+        with SrefServer(cert=_cert()) as srv:
+            cfg = {"client_vault_cafile": srv.cert}
+            found = {**S.discover(cfg, srv.url + "/mcp"), "scope": S.SCOPE}
+            backend = JsonFileBackend()
+            self.addCleanup(S.forget, backend, found["origin"])
+            helper = SrefClientTests("test_discovery_names_the_resolver_and_its_sinks")
+            helper.srv = srv
+            S.login(cfg, backend, found, helper.browser, wait=10)
+            mail = srv.mint("email", VALUE_MAIL)
+            self.assertEqual(S.resolve(cfg, backend, found, [mail], "local_file", "/tmp/a.txt"), {mail: VALUE_MAIL})
+            with self.assertRaises(S.Refused) as cm:
+                S.resolve(cfg, backend, found, [mail], "process", "curl")
+            self.assertIn("does not allow real values in commands", str(cm.exception))
+
+
 class FindTests(unittest.TestCase):
     def test_a_reference_with_a_display_part_resolves_by_its_id(self):
         rid = "a" * 24

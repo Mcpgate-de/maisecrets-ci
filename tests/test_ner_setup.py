@@ -319,48 +319,64 @@ class ReportTests(unittest.TestCase):
 
 
 class RestartTests(unittest.TestCase):
-    """After a reboot the container may be stopped: the session start starts it again, in the background, only for the
-    local source and only a container whose image is mcpgate/ner (Andi and akruse-3b, 2026-10-31)."""
+    """After a reboot the container may be stopped, and after a plugin update its image may be older than the pin: the
+    session start hands both to a process of its own, only for the local source (Andi and akruse-3b, 2026-10-31;
+    the image, #25 follow-up)."""
 
-    def run_restart(self, conf, answers=False, tool="docker"):
-        with mock.patch.object(ner_setup, "probe", return_value=(answers, "")), \
-                mock.patch.object(ner_setup, "container_tool", return_value=tool), \
+    def run_restart(self, conf, tool="docker", answers=False):
+        with mock.patch.object(ner_setup, "container_tool", return_value=tool), \
+                mock.patch.object(ner_setup, "probe", return_value=(answers, "")), \
                 mock.patch.object(ner_setup.subprocess, "Popen") as popen:
             asked = ner_setup.restart_local(conf)
         return asked, popen
 
-    def test_a_stopped_local_service_is_started_in_the_background(self):
+    def test_the_local_service_is_kept_in_the_background(self):
         asked, popen = self.run_restart({"url": ner_setup.LOCAL_URL}, tool="/usr/local/bin/docker")
         self.assertTrue(asked)
         argv = popen.call_args.args[0]
-        # the plugin's Python and the tool by its absolute path: no shell, no name PATH resolves again
+        # the plugin's Python, isolated, the plugin folder and the tool by its absolute path: no shell
         self.assertEqual((argv[0], argv[1], argv[2], argv[-1]), (sys.executable, "-I", "-c", "/usr/local/bin/docker"))
-        self.assertTrue(popen.call_args.kwargs["start_new_session"])
+        self.assertEqual(argv[-2], str(ROOT))
+        if os.name != "nt":
+            self.assertTrue(popen.call_args.kwargs["start_new_session"])
 
-    def test_nothing_starts_for_a_running_service_another_source_or_no_docker(self):
-        for conf, answers, tool in (({"url": ner_setup.LOCAL_URL}, True, "docker"),
-                                    ({"url": "http://10.0.0.5:8765/", "allow_network": True}, False, "docker"),
-                                    ({}, False, "docker"), ({"url": ner_setup.LOCAL_URL}, False, "")):
-            with self.subTest(conf=conf, answers=answers, tool=tool):
-                asked, popen = self.run_restart(conf, answers, tool)
+    def test_a_service_that_answers_and_was_not_set_up_by_maisecrets_needs_nothing(self):
+        from maisecrets import ner_secret
+        asked, popen = self.run_restart({"url": ner_setup.LOCAL_URL}, answers=True)
+        self.assertFalse(asked)
+        popen.assert_not_called()
+        # a container that maisecrets set up is checked even when it answers: its image may be older than the pin
+        with mock.patch.object(ner_secret, "container_of", return_value="c0ffee"):
+            asked, popen = self.run_restart({"url": ner_setup.LOCAL_URL}, answers=True)
+        self.assertTrue(asked)
+
+    def test_nothing_starts_for_another_source_or_without_docker(self):
+        for conf, tool in (({"url": "http://10.0.0.5:8765/", "allow_network": True}, "docker"),
+                           ({}, "docker"), ({"url": ner_setup.LOCAL_URL}, "")):
+            with self.subTest(conf=conf, tool=tool):
+                asked, popen = self.run_restart(conf, tool)
                 self.assertFalse(asked)
                 popen.assert_not_called()
 
     @unittest.skipIf(os.name == "nt", "the fake docker is a shell script; the same code runs on macOS and Linux")
-    def test_the_start_command_checks_the_image_and_names_no_setting_value(self):
-        # run the helper with a fake tool that records its calls: an image that is not mcpgate/ner is never started
+    def test_the_background_process_checks_the_image_and_names_no_setting_value(self):
+        # run the helper as the session start does, with a fake tool that records its calls: an image that is not
+        # mcpgate/ner is never started, a stopped mcpgate/ner is
+        import subprocess
         import tempfile
         for image, starts in (("mcpgate/ner", True), ("mcpgate/ner:v2", True), ("evil/ner", False),
                               ("mcpgate/nerx", False)):
             with self.subTest(image=image), tempfile.TemporaryDirectory() as d:
                 tool, log = Path(d, "docker"), Path(d, "calls")
-                tool.write_text(f"#!/bin/sh\necho \"$@\" >> {log}\n[ \"$1\" = container ] && echo {image}\nexit 0\n")
+                tool.write_text(f"#!/bin/sh\necho \"$@\" >> {log}\n"
+                                f"[ \"$1\" = container ] && echo c0ffee false sha256:x {image}\nexit 0\n")
                 tool.chmod(0o755)
-                import subprocess
-                subprocess.run([sys.executable, "-I", "-c", ner_setup._RESTART, str(tool)], check=True, timeout=30)
+                subprocess.run([sys.executable, "-I", "-c", ner_setup._KEEP, str(ROOT), str(tool)], check=True,
+                               timeout=60)
                 calls = log.read_text().splitlines()
                 self.assertEqual("start ner" in calls, starts)
-        self.assertNotIn("8765", ner_setup._RESTART)
+                self.assertFalse(any(c.startswith(("pull", "rm", "run")) for c in calls), "not set up by maisecrets")
+        self.assertNotIn("8765", ner_setup._KEEP)
 
 
 class DownNoteTests(unittest.TestCase):

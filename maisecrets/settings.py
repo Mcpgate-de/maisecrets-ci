@@ -20,7 +20,7 @@ from .home import (CONFIG, DEFAULT_CONFIG, HOME, ConfigError, LockTimeout, _chec
 
 # Every key of the config is in exactly one class (a test holds it): a new key without one is a test failure.
 DISCOVERABLE = ("ssh_consent", "ssh_autonomous_hosts", "secret_destinations", "rehydration", "read_pdf",
-                "read_image")
+                "read_image", "show_values")
 ADVANCED = ("ssh_host_groups", "ssh_approval", "resolve_in_files", "ssh_via_sandbox", "block_at_mentions",
             "rewrite_prompts", "scrub_transcript", "strip_hidden_characters", "regions", "ttl_seconds",
             "renew_on_use", "tips", "shortcut", "guard", "pass_agent_reports", "gateway_servers", "client_header",
@@ -42,7 +42,7 @@ TITLE = {
     "gateway_servers": "Gateway servers", "client_header": "Values back from your MCP servers",
     "rule_dirs": "Rule folders",
     "read_pdf": "PDFs the AI reads", "read_image": "Images the AI reads", "clean_dirs": "Folders with clean files",
-    "value_files": "Value files", "remote_detector": "Names from a service",
+    "value_files": "Value files", "remote_detector": "Names from a service", "show_values": "Values on your screen",
     "max_keys_per_session": "Values per session and hour", "max_resolves_per_hour": "Uses per hour",
 }
 MEANING = {
@@ -63,6 +63,8 @@ MEANING = {
     "regions": "Countries for the personal-data rules.",
     "read_pdf": "maisecrets cannot look inside a PDF. What happens when the AI reads one.",
     "read_image": "maisecrets cannot look inside an image. What happens when the AI reads one.",
+    "show_values": "Claude Code with mods, in the fullscreen terminal and the desktop app: the value behind a "
+                   "placeholder on your screen, never for the AI.",
     "clean_dirs": "Folders of clean PDFs and images: a file that was there before the session is allowed.",
     "rule_dirs": "Folders with detection rules of your own or of your team, read with ~/.maisecrets/rules.d.",
     "value_files": "Files of values from your own tools (JSON lines), imported at session start when they change. "
@@ -94,10 +96,14 @@ CHOICE_TEXT = {
                  ("convert", "send only its text, with secrets and personal data masked (needs pdftotext)")),
     "read_image": (("allow", "the image goes to the AI as it is"), ("ask", "ask you before each image"),
                    ("block", "the Read tool does not open an image")),
+    "show_values": (("always", "each value stands in the text with a lock; a click copies it"),
+                    ("click", "a click on a placeholder shows the values of that reply for 10 seconds"),
+                    ("off", "placeholders only")),
 }
 GROUPS = (("Protection", ("ssh_consent", "ssh_autonomous_hosts", "secret_destinations")),
           ("Using stored values", ("rehydration",)),
-          ("PDFs and images", ("read_pdf", "read_image")))
+          ("PDFs and images", ("read_pdf", "read_image")),
+          ("Your screen", ("show_values",)))
 ADVANCED_GROUPS = (("Stored values", ("ttl_seconds", "renew_on_use", "resolve_in_files", "gateway_servers",
                                       "client_header",
                                       "max_keys_per_session", "max_resolves_per_hour")),
@@ -112,7 +118,7 @@ ADVANCED_GROUPS = (("Stored values", ("ttl_seconds", "renew_on_use", "resolve_in
 _BOOL_WORDS = {"on": True, "true": True, "off": False, "false": False}
 _CHOICES = {"rehydration": ("automatic", "confirm", "block"), "ssh_approval": ("per-command", "per-session"),
             "secret_destinations": ("observe", "protect", "off"), "read_pdf": ("allow", "ask", "block", "convert"),
-            "read_image": ("allow", "ask", "block")}
+            "read_image": ("allow", "ask", "block"), "show_values": ("always", "click", "off")}
 _BOOL_KEYS = tuple(k for k in DISCOVERABLE + ADVANCED if isinstance(DEFAULT_CONFIG.get(k), bool))
 # a whole number in this range: the limiter (C7). 0 would stop every use; a person who wants that sets rehydration block
 _INT_KEYS = {"max_keys_per_session": (1, 1_000_000), "max_resolves_per_hour": (1, 1_000_000)}
@@ -403,7 +409,9 @@ PROTECTIVE_BOOL = {"ssh_consent": True, "block_at_mentions": True, "scrub_transc
 STRICTER_LAST = {"rehydration": ("automatic", "confirm", "block"), "ssh_approval": ("per-session", "per-command"),
                  "secret_destinations": ("off", "observe", "protect"),
                  # convert sends masked text only; ask can send the whole file
-                 "read_pdf": ("allow", "ask", "convert", "block"), "read_image": ("allow", "ask", "block")}
+                 "read_pdf": ("allow", "ask", "convert", "block"), "read_image": ("allow", "ask", "block"),
+                 # always shows each value on the screen; click shows them for a moment
+                 "show_values": ("always", "click", "off")}
 NEUTRAL = ("tips", "shortcut", "rewrite_prompts")
 
 
@@ -428,7 +436,10 @@ def loosens(key: str, before, after) -> bool:
         new_fb = ((after or {}).get("fallback") or {}).get("url") if isinstance(after, dict) else None
         prompts_off = (isinstance(after, dict) and after.get("prompts") is False
                        and not (isinstance(before, dict) and before.get("prompts") is False))
-        return (prompts_off or bool(old and not new)
+        # an image that no longer follows the plugin keeps its old fixes and misses the new ones
+        updates_off = (isinstance(after, dict) and after.get("auto_update") is False
+                       and not (isinstance(before, dict) and before.get("auto_update") is False))
+        return (prompts_off or updates_off or bool(old and not new)
                 or bool(new and new != old and not ner_setup.remote.is_local(str(new)))
                 or bool(new_fb and new_fb != old_fb and not ner_setup.remote.is_local(str(new_fb))))
 
@@ -592,6 +603,8 @@ def apply_typed(key: str, word: str, route: str = "typed prompt", cwd: str = "")
         events.record_weakening("setting", key, route)      # the next session start names it to the person
     if ner_change and word.startswith("ner:prompts:"):
         return True, f"maisecrets: {ner_setup.scope(after.get(key) or {})}"
+    if ner_change and word.startswith("ner:updates:"):
+        return True, f"maisecrets: {ner_setup.updates_line(after.get(key) or {})}"
     if ner_change:
         return True, f"maisecrets: {ner_setup.describe(after.get(key))}.{note}"
     return True, f"maisecrets: {TITLE.get(key, key)} is {_shown(after.get(key), key)} ({state(key, after)}).{note}"

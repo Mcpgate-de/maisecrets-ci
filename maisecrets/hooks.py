@@ -1182,6 +1182,11 @@ def _resolver_call(key: str, nonce: str) -> str:
     return f'$("{py}" "{script}" {key} --grant {nonce})'
 
 
+# what the FIFO child writes in place of a value when a Sensitive Reference's resolve was refused, then the reason;
+# no value starts with it (a fixed word, not a value shape)
+SREF_REFUSED = "maisecrets-refused:"
+
+
 def _serve_value_later(fifo: str, value: str, seconds: float = 120.0, approve: str | None = None,
                        sref: dict | None = None) -> bool:
     """Deliver one value once through a FIFO from a detached child. The command runs later, and
@@ -1199,6 +1204,7 @@ def _serve_value_later(fifo: str, value: str, seconds: float = 120.0, approve: s
     gateway. A failed resolve writes nothing; the prelude refuses an empty value."""
     code = (
         "import json,os,sys,time\n"
+        f"SREF_REFUSED = {SREF_REFUSED!r}\n"
         "spec = json.load(sys.stdin)\n"
         "try:\n"
         "    os.mkfifo(spec['fifo'], 0o600)\n"
@@ -1220,8 +1226,11 @@ def _serve_value_later(fifo: str, value: str, seconds: float = 120.0, approve: s
         "            sys.path.insert(0, spec['root'])\n"
         "            from maisecrets import sref_hooks\n"
         "            spec['value'] = sref_hooks.serve(**spec['sref'])\n"
-        "        except Exception:\n"
-        "            spec['value'] = ''\n"
+        "            if spec['value'].startswith(SREF_REFUSED):\n"
+        "                spec['value'] = ''\n"
+        "        except Exception as e:\n"
+        "            why = ' '.join(str(e).split())[:400] if type(e).__name__ in ('Refused', '_Revoked') else ''\n"
+        "            spec['value'] = SREF_REFUSED + why if why else ''\n"
         "    try:\n"
         "        os.write(fd, spec['value'].encode())\n"
         "    finally:\n"
@@ -1421,7 +1430,8 @@ _SETTINGS_IN_A_COMMAND = ("maisecrets: this command carries a maisecrets setting
                           "as their own prompt (/maisecrets:settings KEY VALUE). The command did not run. Tell the "
                           "user the prompt to send.")
 _HOOK_ENTRY_TEXT_RE = _LazyRx(r"(?:run\.sh|run\.cmd|dispatch\.py)[\"']?\s+[\"']?"
-                                 r"(?:session-start|user-prompt|pre-tool|post-tool(?:-failure)?|mod-prompt)\b", re.I)
+                                 r"(?:session-start|user-prompt|pre-tool|post-tool(?:-failure)?|mod-prompt|"
+                                 r"mod-values)\b", re.I)
 _GRANT_RE = _LazyRx(r"\A\s*maisecrets:\s*allow\s+ssh\s+([\w.@:\[\]-]+)(?:\s+(\d{6}))?\s*\Z")
 
 
@@ -1899,6 +1909,13 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
             served.append(fifo)
             read = f"$(cat {shlex_quote(fifo)})"
         check = f' && [ -n "${{{var}}}" ]' if key in srefs else ""   # a failed resolve writes nothing
+        if key in srefs:
+            # a refused resolve writes its reason (fixed text and counts, never a value) after a marker: the person
+            # reads why, not a delivery timeout (mcpgate 2.0.3815: a login without the process scope)
+            # (a real value that starts with the marker is no value: the child serves nothing for it, Opus review)
+            check += (f' && case "${{{var}}}" in {SREF_REFUSED}*) printf \'%s\\n\' "maisecrets: the value for {key} '
+                      f'was not given: ${{{var}#{SREF_REFUSED}}}. The command did not run; do not retry, tell the '
+                      f'user." >&2; exit 97;; esac')
         prelude.append(f'{var}="{read}"{check} || {{ echo "maisecrets: the value for {key} was not delivered '
                        f'(served for 120 s, or read by another process); the command did not run. Run it again '
                        f'once; if it fails again, stop and tell the user" >&2; exit 97; }}')

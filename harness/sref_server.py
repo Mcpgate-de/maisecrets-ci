@@ -30,6 +30,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 from vault_server import _QuietServer, make_cert
 
+PROCESS_SCOPE = "sensitive-references.resolve.process"
 SINK_PROFILES = {"local_file": "local-file-1", "process": "mcpgate-process-1"}
 
 
@@ -53,6 +54,8 @@ class SrefServer:
         self.token_answer = None         # (status, body): the token endpoint answers this to a refresh
         self.refresh_delay = 0.0         # seconds the token endpoint waits before it spends a refresh token
         self.refreshes: list = []        # every refresh token presented, in order (a reuse shows twice)
+        self.process_scope = True        # mcpgate 2.0.3815: the process sink needs its own scope
+        self.scopes: dict = {}           # access or refresh token -> the scope it was granted
         server = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -77,6 +80,7 @@ class SrefServer:
                         "resource": server.url + "/mcp", "authorization_servers": [server.url],
                         "sensitive_references": {"resolve_endpoint": server.url + "/sensitive-references/resolve",
                                                  "resolve_scope": "sensitive-references.resolve",
+                                                 **({"process_scope": PROCESS_SCOPE} if server.process_scope else {}),
                                                  "resolver_profiles": ["oauth-resolver-1"],
                                                  "sink_profiles": server.sinks, "status": "experimental"}})
                 if parts.path == "/.well-known/oauth-authorization-server":
@@ -89,11 +93,11 @@ class SrefServer:
                     q = {k: v[0] for k, v in parse_qs(parts.query).items()}
                     redirect = q.get("redirect_uri", "")
                     if (server.clients.get(q.get("client_id")) != redirect or q.get("code_challenge_method") != "S256"
-                            or q.get("scope") != "sensitive-references.resolve" or not server.consent
+                            or q.get("scope") not in server._login_scopes() or not server.consent
                             or q.get("response_type") != "code" or q.get("resource") != server.url):
                         return self._send(400, {"error": "invalid_request"})
                     code = secrets.token_urlsafe(16)
-                    server.codes[code] = (q["client_id"], redirect, q.get("code_challenge", ""))
+                    server.codes[code] = (q["client_id"], redirect, q.get("code_challenge", ""), q["scope"])
                     self.send_response(302)
                     self.send_header("Location",
                                      redirect + "?" + urlencode({"code": code, "state": q.get("state", "")}))
@@ -115,7 +119,7 @@ class SrefServer:
                     if (body.get("grant_types") != ["authorization_code", "refresh_token"]
                             or body.get("response_types") != ["code"]
                             or body.get("token_endpoint_auth_method") != "none"
-                            or body.get("scope") != "sensitive-references.resolve"):
+                            or body.get("scope") not in server._login_scopes()):
                         return self._send(400, {"error": "invalid_client_metadata"})
                     cid = "c_" + secrets.token_hex(8)
                     server.clients[cid] = uris[0]
@@ -130,7 +134,7 @@ class SrefServer:
                         if not got or got[1] != form.get("redirect_uri") or got[2] != challenge \
                                 or got[0] != form.get("client_id"):
                             return self._send(400, {"error": "invalid_grant"})
-                        return self._send(200, server._pair(got[0]))
+                        return self._send(200, server._pair(got[0], got[3]))
                     if form.get("grant_type") == "refresh_token" and server.token_answer is not None:
                         return self._send(*server.token_answer)
                     if form.get("grant_type") == "refresh_token":
@@ -139,7 +143,8 @@ class SrefServer:
                         cid = server.refresh.pop(form.get("refresh_token", ""), None)   # it rotates: used once
                         if not cid or not server.consent or cid != form.get("client_id"):
                             return self._send(400, {"error": "invalid_grant"})
-                        return self._send(200, server._pair(cid))
+                        return self._send(200, server._pair(cid, server.scopes.get(form["refresh_token"],
+                                                                                   "sensitive-references.resolve")))
                     return self._send(400, {"error": "unsupported_grant_type"})
                 if self.path == "/sensitive-references/resolve":
                     return self._resolve(raw)
@@ -169,6 +174,13 @@ class SrefServer:
                                        "reasons": {leak: 1, "unknown": True, "revoked": -1}})
                 if SINK_PROFILES.get(sink) not in server.sinks:
                     return self._send(403, {"error": "ineligible_sink"})
+                if sink == "process" and server.process_scope \
+                        and PROCESS_SCOPE not in server.scopes.get(token, "").split():
+                    need = f"sensitive-references.resolve {PROCESS_SCOPE}"
+                    text = ("This sign-in does not allow real values in commands. Sign in again and allow commands "
+                            "on the consent page.")
+                    return self._send(403, {"error": "insufficient_scope", "error_description": text, "scope": need},
+                                      {"WWW-Authenticate": f'Bearer error="insufficient_scope", scope="{need}"'})
                 reasons: dict = {}
                 for r in refs:
                     if r in server.revoked:
@@ -190,12 +202,17 @@ class SrefServer:
         self.url = f"https://127.0.0.1:{self.httpd.server_address[1]}"
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
 
-    def _pair(self, client_id: str) -> dict:
+    def _login_scopes(self) -> tuple:
+        base = "sensitive-references.resolve"
+        return (base, f"{base} {PROCESS_SCOPE}") if self.process_scope else (base,)
+
+    def _pair(self, client_id: str, scope: str = "sensitive-references.resolve") -> dict:
         access, refresh = "srefr_" + secrets.token_urlsafe(24), "srefr_refresh_" + secrets.token_urlsafe(24)
         self.access[access] = time.time() + self.access_ttl
         self.refresh[refresh] = client_id
+        self.scopes[access] = self.scopes[refresh] = scope
         return {"access_token": access, "token_type": "Bearer", "expires_in": self.access_ttl,
-                "refresh_token": refresh, "scope": "sensitive-references.resolve"}
+                "refresh_token": refresh, "scope": scope}
 
     def __enter__(self) -> "SrefServer":
         self.thread.start()

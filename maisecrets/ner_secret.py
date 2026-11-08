@@ -61,6 +61,14 @@ def keep(backend, ep: str, secret: str, container: str) -> None:
     atomic_write(_containers_path(), json.dumps(data, indent=1) + "\n")
 
 
+def move(ep: str, container: str) -> None:
+    """The secret of `ep` now belongs to a new container (an update of its image): only the id changes."""
+    from .home import atomic_write
+    data = _containers()
+    data[ep] = {"container": str(container)}
+    atomic_write(_containers_path(), json.dumps(data, indent=1) + "\n")
+
+
 def secret_of(backend, ep: str) -> str:
     """The stored secret of `ep`, or ""."""
     try:

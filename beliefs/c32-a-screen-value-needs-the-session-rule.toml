@@ -1,0 +1,12 @@
+# c32-a-screen-value-needs-the-session-rule: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c32-a-screen-value-needs-the-session-rule"
+control = "C32"
+statement = "The mod gets a value for the screen only when this session may use it (Vault.status ok): another session's value stays a placeholder."
+runner = ["tests/test_show_values.py::AnswerTests::test_another_sessions_value_is_not_given"]
+
+[proof]
+file = "maisecrets/show_values.py"
+find = '''        if v.status(key, session) != "ok":
+            continue
+'''
+replace = ''''''

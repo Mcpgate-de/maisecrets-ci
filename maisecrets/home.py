@@ -78,6 +78,7 @@ DEFAULT_CONFIG = {
     "rule_dirs": [],                 # folders of detection rules of your own (user_rules.py); a typed prompt adds one
     "read_pdf": "allow",             # allow | ask | block | convert: a PDF that the AI reads (file_reads.py, C28)
     "read_image": "allow",           # allow | ask | block: an image that the AI reads
+    "show_values": "always",         # always | click | off: values on the person's screen (show_values.py)
     "clean_dirs": [],                # folders whose PDFs and images pass as allow; a typed prompt adds one
     "value_files": [],               # files of values from your own tools (values.py); a typed prompt adds one
     "remote_detector": {},           # a named-entity service for names in tool results (remote_layer.py); off: {}
@@ -115,7 +116,8 @@ _CONFIG_TYPES = {
     "ssh_consent": bool, "ssh_host_groups": dict, "ssh_autonomous_hosts": list, "secret_destinations": str,
     "ssh_approval": str, "rehydration": str, "guard": bool, "client_header": bool, "client_vault_cafile": str,
     "pass_agent_reports": bool, "rule_dirs": list,
-    "read_pdf": str, "read_image": str, "clean_dirs": list, "value_files": list, "remote_detector": dict,
+    "read_pdf": str, "read_image": str, "show_values": str, "clean_dirs": list, "value_files": list,
+    "remote_detector": dict,
 }
 
 
@@ -349,6 +351,8 @@ def _keep_the_stricter(cfg: dict, parsed: dict) -> None:
     for key in ("read_pdf", "read_image"):
         if parsed.get(key) in ("ask", "block", "convert"):
             cfg[key] = parsed[key]                 # each stops more than the default allow; clean_dirs only loosens
+    if parsed.get("show_values") in ("click", "off"):
+        cfg["show_values"] = parsed["show_values"]  # each shows less than the default always
 
 
 def _read_fallback(cfg: dict) -> None:

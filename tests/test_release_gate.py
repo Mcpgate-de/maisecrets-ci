@@ -85,6 +85,28 @@ def git(cwd: Path, *args: str) -> str:
     return subprocess.run(["git", *args], cwd=cwd, env=env, capture_output=True, text=True, check=True).stdout.strip()
 
 
+class HoldoutPairTests(unittest.TestCase):
+    def test_the_last_release_is_read_before_the_candidate_writes_its_row(self):
+        # bench/run.py appends the candidate's row to HOLDOUT-LOG.md: read after it, the gate compared a run with
+        # itself (#13)
+        root = Path(tempfile.mkdtemp(prefix="gate-holdout-"))
+        (root / "bench").mkdir()
+        log = root / "bench" / "HOLDOUT-LOG.md"
+        log.write_text("| 2026-11-07 | v0.8.29 | holdout-v2 | x | 0.6473 |\n", encoding="utf-8")
+        git(root, "init", "-q")
+        git(root, "add", "-A")
+        git(root, "commit", "-q", "-m", "baseline")
+
+        def run_candidate():
+            with open(log, "a", encoding="utf-8") as f:
+                f.write("| 2026-11-08 | cand | holdout-v2 | x | 0.6100 |\n")
+            return 0.61
+        with mock.patch.object(gate, "ROOT", root):
+            self.assertEqual(gate.holdout_pair(run_candidate), (0.6473, 0.61))
+            # a second run of the gate: the failed row of the first stays in the working file, not in the baseline
+            self.assertEqual(gate.holdout_pair(run_candidate), (0.6473, 0.61))
+
+
 class MeasuredBaselineTests(unittest.TestCase):
     """The measurement of the gate is the next baseline: the release commit changes only the version, so the tag
     holds the measured code, and --verify-tag shows it by the git trees."""
