@@ -80,6 +80,7 @@ def answer(payload: dict, cfg: dict | None = None, vault=None) -> dict:
         if v.status(key, session) != "ok":
             continue
         value = v.backend.get(key)
-        if isinstance(value, str) and value:
+        # a term entry stores its id, never the term (term_files.STORE_PREFIX): its placeholder stays
+        if isinstance(value, str) and value and not value.startswith("maisecrets-term:"):
             values[key] = value
     return {"mode": m, "links": links(), "values": values}

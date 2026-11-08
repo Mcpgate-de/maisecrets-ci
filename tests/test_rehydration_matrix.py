@@ -248,6 +248,29 @@ class RehydrationMatrixTests(unittest.TestCase):
             for by_policy in by_client.values():
                 self.assertEqual(set(by_policy), set(rehydration.POLICIES))
 
+    def test_auto_mode_asks_for_an_mcp_call_and_leaves_bash_and_files_to_the_client(self):
+        # #31, measured 2026-11-08 on Claude Code 2.1.319: in auto mode the server reviews the call with the
+        # placeholder; an MCP call whose input a hook changed is denied, and the denial shows the model the changed
+        # input with the value. A command hook may change Bash, Write and Edit (hooks reference)
+        for path, want in (("mcp", "ask"), ("mcp_text", "ask"), ("bash", "defer"), ("file", "defer")):
+            with self.subTest(path=path):
+                _reset()
+                ref = Vault().put(VALUE, "SECRET", "manual", session="S1").ref
+                tool, tool_input = _input(path, ref)
+                payload = {"tool_name": tool, "tool_input": tool_input, "session_id": "S1", "transcript_path": "",
+                           "permission_mode": "auto", **CLAUDE}
+                hso = hooks.pre_tool(payload).get("hookSpecificOutput", {})
+                cmd = (hso.get("updatedInput") or {}).get("command", "")
+                if cmd:
+                    self.addCleanup(lambda c=cmd: hooks._unserve(_fifos(c)))
+                self.assertEqual(_decision(hso), want)
+                self.assertNotIn(VALUE, hso.get("permissionDecisionReason", ""))
+        _reset()
+        ref = Vault().put(VALUE, "SECRET", "manual", session="S1").ref
+        hso = hooks.pre_tool({"tool_name": "mcp__svc__lookup", "tool_input": {"id": ref}, "session_id": "S1",
+                              "transcript_path": "", "permission_mode": "default", **CLAUDE})["hookSpecificOutput"]
+        self.assertEqual(_decision(hso), "defer", "outside auto mode the client's rules decide, as before")
+
     def test_the_default_is_automatic_on_every_path(self):
         # no rehydration key at all: the config a new install has
         for path, by_client in EXPECTED.items():
@@ -413,7 +436,7 @@ class DecisionSitesTests(unittest.TestCase):
                             and node.func.id in ("_updated", "_ask"):
                         sites.setdefault(fn.name, []).append(node.func.id)
         self.assertEqual({k: sorted(v) for k, v in sites.items()}, {
-            "_rehydrated": ["_ask", "_updated"],
+            "_rehydrated": ["_ask", "_ask", "_updated"],
             # the ssh route under the policy: automatic or a session approval, the ask of confirm per
             # session, the ask of confirm per command; and the ssh consent (#8): the ask for a command with no
             # value (its input unchanged: a yes allows that one command), and one ask for consent and value together

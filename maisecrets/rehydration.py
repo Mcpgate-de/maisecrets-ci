@@ -47,6 +47,13 @@ def outcome(client: str, pol: str) -> str:
     return "deny"
 
 
+def auto_mode_asks(client: str, path: str, payload: dict) -> bool:
+    """Claude Code in auto mode: its server reviewed the call with the placeholder, and it denies an MCP call whose
+    input a hook changed, with a denial that shows the model the changed input, value included (2.1.319, #31). A
+    command hook may change Bash, Write and Edit. So an MCP call that gets a value asks the person instead."""
+    return client == "claude" and path == "mcp" and payload.get("permission_mode") == "auto"
+
+
 def refusal(cfg: dict, path: str, client: str, names: str, did_not: str) -> str | None:
     """The reason to refuse before anything is resolved, or None. `did_not` is the sentence that
     says what did not happen ("The command did not run.")."""

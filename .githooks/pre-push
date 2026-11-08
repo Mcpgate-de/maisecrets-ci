@@ -1,7 +1,7 @@
 #!/bin/bash
 # maisecrets pre-push: the checks of seconds. The minutes run in CI, before any merge.
 #   - refuses tag pushes (CI creates release tags from CHANGELOG.md)
-#   - runs lint, the repository scan, the plugin lint and the derived-counts check
+#   - runs lint, the repository scan, the plugin lint, the release file sizes and the derived-counts check
 # The unit tests (3.12 and 3.9), the belief replay and the hook harness run in the GitLab merge
 # request pipeline (jobs unit, unit_python39, beliefs_can_fail_replay, harness_claude), and a red
 # pipeline blocks the merge. Running them here too doubled every push to 10-15 minutes and, with
@@ -32,5 +32,6 @@ fi
 # GitLab's validate stage runs these too and skips every test job when one is red
 python3 scripts/scan_tree.py >/dev/null || { python3 scripts/scan_tree.py | tail -5; echo "pre-push: the repository scan found a secret shape"; exit 1; }
 python3 scripts/lint_plugin.py >/dev/null || { echo "pre-push: plugin lint failed"; exit 1; }
+python3 scripts/check_release_sizes.py || { echo "pre-push: a file is over the size limit of the release tree"; exit 1; }
 python3 scripts/derived_counts.py >/dev/null || { python3 scripts/derived_counts.py | grep BAD; echo "pre-push: a number in the docs is stale"; exit 1; }
 exit 0
