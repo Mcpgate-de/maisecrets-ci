@@ -88,11 +88,38 @@ class NotifyWebsiteTests(unittest.TestCase):
 
     def test_without_the_deploy_key_nothing_is_done(self):
         out = io.StringIO()
-        with mock.patch.dict(os.environ, {"MAISECRETS_WEBSITE_DEPLOY_KEY": "", "CI_COMMIT_TAG": "v0.8.30"}), \
+        with mock.patch.dict(os.environ, {"MAISECRETS_WEBSITE_DEPLOY_KEY": "", "CI_COMMIT_TAG": "v0.7.2"}), \
                 mock.patch.object(W.subprocess, "run", side_effect=AssertionError("no git without a key")), \
                 redirect_stdout(out):
             self.assertEqual(W.main(), 0)
         self.assertIn("no website deploy key", out.getvalue())
+
+    def test_ssh_gets_a_copy_of_the_key_that_only_the_owner_reads(self):
+        # GitLab writes a file variable with mode 0644, and ssh refused the key (the 0.9.0 and 0.9.1 release jobs)
+        import stat
+        import subprocess
+        import tempfile
+        key = Path(tempfile.mkdtemp()) / "key"
+        key.write_text("not a real key\n")
+        key.chmod(0o644)
+        seen = []
+
+        def run(args, **kw):
+            path = kw["env"]["GIT_SSH_COMMAND"].split()[2]
+            seen.append((path, stat.S_IMODE(os.stat(path).st_mode), Path(path).read_text()))
+            return subprocess.CompletedProcess(args, 1, "", "stopped by the test")
+        with mock.patch.dict(os.environ, {"MAISECRETS_WEBSITE_DEPLOY_KEY": str(key), "CI_COMMIT_TAG": "v0.7.2"}), \
+                mock.patch.object(W.subprocess, "run", side_effect=run), redirect_stdout(io.StringIO()):
+            try:
+                W.main()
+            except SystemExit:
+                pass
+        self.assertTrue(seen, "git ran")
+        path, mode, text = seen[0]
+        self.assertNotEqual(path, str(key))
+        if os.name != "nt":                   # Windows has no owner-only mode; the job runs on Linux
+            self.assertEqual(mode, 0o600)
+        self.assertEqual(text, "not a real key\n")
 
 
 if __name__ == "__main__":

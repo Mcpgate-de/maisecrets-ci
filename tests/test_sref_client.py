@@ -83,7 +83,8 @@ class SrefClientTests(unittest.TestCase):
     def test_discovery_names_the_resolver_and_its_sinks(self):
         self.assertIsNotNone(self.found)
         self.assertEqual(self.found["resolve"], self.srv.url + "/sensitive-references/resolve")
-        self.assertEqual(sorted(self.found["sinks"]), ["display-1", "local-file-1", "mcpgate-process-1"])
+        self.assertEqual(sorted(self.found["sinks"]), ["display-1", "local-file-1", "process-1"])
+        self.assertEqual(self.found["sink_types"], ["display", "local_file", "process"])
 
     def test_the_login_keeps_the_tokens_in_the_store(self):
         self.assertFalse(S.logged_in(self.backend, self.found["origin"]))
@@ -400,3 +401,68 @@ class FindTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReferenceIsNoFindingTests(unittest.TestCase):
+    """Field case 2026-11-08: a token in a mail came through the gateway as a reference of kind secret; the detector
+    took the reference's id for a token after the label "token:", and the mask broke the reference."""
+
+    IDS = ("Xq7mR2vKd9TfLw4HbN8cPz3sT6yUa1eQo5iWj0lN8Bh", "kQ2-vB9_xR7mT4nW8cZ1pL6sY3hJ5fD0gA")
+
+    def test_the_id_of_a_gateway_reference_is_no_secret(self):
+        from maisecrets import detect
+        for rid in self.IDS:
+            for ref in (f"⟦sref:secret:{rid}⟧", f"⟦sref:email:{rid}:le•••@•••.de⟧"):
+                text = f"Your access token: {ref} Please coordinate the integration."
+                self.assertEqual([text[h.start:h.end] for h in detect.scan(text)], [], ref)
+
+    def test_a_secret_next_to_a_reference_is_still_found(self):
+        from maisecrets import detect
+        value = "Nordlicht-2026" + "!Kq"          # joined here, so the tree scan sees no password
+        text = f"token: \u27e6sref:secret:{self.IDS[0]}\u27e7 and password: {value}"
+        self.assertIn(value, [text[h.start:h.end] for h in detect.scan(text)])
+
+    def test_the_detector_knows_the_reference_form_of_the_client(self):
+        from maisecrets import placeholder
+        rx = placeholder._rx("sref")
+        for text in (f"⟦sref:secret:{self.IDS[0]}⟧", f"⟦sref:name:{self.IDS[1]}:Jo…⟧",
+                     f"⟦sref:x:{'a' * 19}⟧", f"⟦sref:x:{self.IDS[0]}:⟧"):
+            self.assertEqual(bool(rx.fullmatch(text)), bool(S.SREF_RE.fullmatch(text)), text)
+
+
+class ProfileNameTests(unittest.TestCase):
+    """Concept 0.7 renames the command sink's profile to "process-1"; a server may list the old name, the new one,
+    or a name of its own whose sinks map says the type. A server that lists none of them gets no command value."""
+
+    ORIGIN = "https://gw.example.com"
+
+    def found(self, block: dict) -> dict:
+        meta = {"sensitive_references": {"resolve_endpoint": self.ORIGIN + "/sensitive-references/resolve", **block}}
+        auth = {f"{k}_endpoint": f"{self.ORIGIN}/auth/{k}" for k in ("authorization", "token", "registration")}
+        with mock.patch.object(S, "_get_json", side_effect=[meta, auth]):
+            return S.discover({}, self.ORIGIN + "/mcp")
+
+    def refusal(self, found: dict) -> str:
+        try:
+            S.resolve({}, JsonFileBackend(), found, ["\u27e6sref:secret:" + "a" * 24 + "\u27e7"], "process", "psql")
+        except S.Refused as exc:
+            return str(exc)
+        return ""
+
+    def test_the_old_name_the_new_name_and_a_typed_name_all_offer_commands(self):
+        for block in ({"sink_profiles": ["mcpgate-process-1"]}, {"sink_profiles": ["process-1"]},
+                      {"sink_profiles": ["acme-exec-2"], "sinks": {"acme-exec-2": {"sink_type": "process"}}}):
+            with self.subTest(block=block):
+                found = self.found(block)
+                self.assertEqual(found["sink_types"], ["process"])
+                self.assertNotIn("does not resolve into a command", self.refusal(found))
+
+    def test_a_server_without_a_command_profile_gets_no_command_value(self):
+        for block in ({"sink_profiles": ["local-file-1"]}, {"sink_profiles": ["acme-exec-2"]},
+                      {"sink_profiles": [], "sinks": {"process-1": {"sink_type": "process"}}}):
+            with self.subTest(block=block):
+                self.assertIn("does not resolve into a command", self.refusal(self.found(block)))
+
+    def test_a_found_record_without_sink_types_reads_the_profile_names(self):
+        self.assertNotIn("does not resolve into a command",
+                         self.refusal({"origin": self.ORIGIN, "sinks": ["mcpgate-process-1"]}))

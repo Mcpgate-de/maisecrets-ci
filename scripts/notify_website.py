@@ -16,8 +16,10 @@ version already, or a branch of it that is open, is no error: nothing is pushed.
 """
 from __future__ import annotations
 
+import atexit
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -86,6 +88,13 @@ def main() -> int:
     version = tag[1:]
     date, _points = release_section((ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), version)
     known = ROOT / ".ci-known-hosts-gitlab"
+    # GitLab writes a file variable with mode 0644, and ssh ignores a private key that others can read
+    keydir = tempfile.mkdtemp()
+    atexit.register(shutil.rmtree, keydir, True)
+    private = Path(keydir) / "deploy_key"
+    private.write_bytes(Path(key).read_bytes())
+    private.chmod(0o600)
+    key = str(private)
     env = dict(os.environ, GIT_SSH_COMMAND=f"ssh -i {key} -o IdentitiesOnly=yes -o UserKnownHostsFile={known} "
                                            "-o StrictHostKeyChecking=yes",
                GIT_AUTHOR_NAME="maisecrets release", GIT_AUTHOR_EMAIL="release@maisecrets.invalid",

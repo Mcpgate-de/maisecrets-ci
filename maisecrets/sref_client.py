@@ -1,5 +1,5 @@
 """Sensitive References: the resolver client of maisecrets (ai-gateway docs/security/sensitive-references-1576/
-16-resolver-client-contract.md, profiles oauth-resolver-1, local-file-1 and mcpgate-process-1).
+16-resolver-client-contract.md, profiles oauth-resolver-1, local-file-1, process-1 and display-1).
 
 A gateway that writes canonical references (`⟦sref:<kind>:<id>⟧`, optionally with a display part) into tool results
 resolves them for a client of its own: maisecrets logs in once (OAuth 2.1, PKCE S256, a loopback redirect, the
@@ -42,7 +42,10 @@ OPEN, CLOSE = "⟦", "⟧"
 SREF_RE = re.compile(rf"{OPEN}sref:(?P<kind>[A-Za-z0-9_-]{{1,32}}):(?P<id>[A-Za-z0-9_-]{{20,128}})"
                      rf"(?::(?P<display>[^{OPEN}{CLOSE}\r\n\u2028\u2029]{{1,256}}))?{CLOSE}")
 SCOPE = "sensitive-references.resolve"
-SINKS = {"local_file": "local-file-1", "process": "mcpgate-process-1", "display": "display-1"}
+SINKS = {"local_file": "local-file-1", "process": "process-1", "display": "display-1"}
+# the sink type of each profile name a server may list; "mcpgate-process-1" is the name before Concept 0.7
+_PROFILE_TYPES = {"local-file-1": "local_file", "process-1": "process", "mcpgate-process-1": "process",
+                  "display-1": "display"}
 MAX_REFS = 100
 MAX_REQUEST_BYTES = 64 * 1024
 BUDGET = 8.0
@@ -106,12 +109,17 @@ def discover(cfg: dict, mcp_url: str, deadline: float | None = None) -> dict | N
     if any(origin_of(v) != origin for v in ends.values()):
         return None
     sinks = block.get("sink_profiles")
+    sinks = [x for x in sinks if isinstance(x, str)] if isinstance(sinks, list) else []
+    # the sink type of each listed profile: from the sinks map (Concept 0.7), else from the names this client knows
+    table = block.get("sinks") if isinstance(block.get("sinks"), dict) else {}
+    types = sorted({(table[x].get("sink_type") if isinstance(table.get(x), dict) else None) or _PROFILE_TYPES.get(x)
+                    for x in sinks} - {None})
     return {"origin": origin, "resolve": block["resolve_endpoint"],
             "scope": login_scope(block.get("resolve_scope") or SCOPE, block.get("process_scope"),
                                  display_scope=block.get("display_scope")),
             "process_scope": block.get("process_scope") if isinstance(block.get("process_scope"), str) else None,
             "display_scope": block.get("display_scope") if isinstance(block.get("display_scope"), str) else None,
-            "sinks": [s for s in sinks if isinstance(s, str)] if isinstance(sinks, list) else [],
+            "sinks": sinks, "sink_types": types,
             "authorize": ends["authorization"], "token": ends["token"], "register": ends["registration"]}
 
 
@@ -317,7 +325,10 @@ def resolve(cfg: dict, backend, found: dict, refs: list, sink_type: str, destina
     host = urlsplit(found["origin"]).hostname
     if sink_type not in SINKS:
         raise Refused("unknown sink type")
-    if SINKS[sink_type] not in found.get("sinks", []):
+    offered = found.get("sink_types")
+    if offered is None:   # a found record of an older client: the profile names it knows
+        offered = [_PROFILE_TYPES.get(x) for x in found.get("sinks", [])]
+    if sink_type not in offered:
         what = {"local_file": "a file", "process": "a command", "display": "the screen"}[sink_type]
         raise Refused(f"{host} does not resolve into {what}")
     if not isinstance(destination, str) or not 1 <= len(destination) <= 4096:

@@ -2,7 +2,7 @@
 16-resolver-client-contract.md): the resolver side, so that maisecrets/sref_client.py can be tested without a gateway.
 
 - `GET /.well-known/oauth-protected-resource/mcp`: the `sensitive_references` block (resolve endpoint, scope, sink
-  profiles local-file-1 and mcpgate-process-1).
+  profiles local-file-1 and process-1).
 - `GET /.well-known/oauth-authorization-server`: the authorize, token and registration endpoints.
 - `POST /register` (RFC 7591): a client id for a loopback redirect only.
 - `GET /auth/authorize`: PKCE S256 required, scope `sensitive-references.resolve`; the person's consent is given at
@@ -32,7 +32,7 @@ from vault_server import _QuietServer, make_cert
 
 PROCESS_SCOPE = "sensitive-references.resolve.process"
 DISPLAY_SCOPE = "sensitive-references.resolve.display"
-SINK_PROFILES = {"local_file": "local-file-1", "process": "mcpgate-process-1", "display": "display-1"}
+SINK_PROFILES = {"local_file": "local-file-1", "process": "process-1", "display": "display-1"}
 
 
 class SrefServer:
@@ -85,7 +85,10 @@ class SrefServer:
                                                  **({"process_scope": PROCESS_SCOPE} if server.process_scope else {}),
                                                  **({"display_scope": DISPLAY_SCOPE} if server.display_scope else {}),
                                                  "resolver_profiles": ["oauth-resolver-1"],
-                                                 "sink_profiles": server.sinks, "status": "experimental"}})
+                                                 "sink_profiles": server.sinks,
+                                                 "sinks": {p: {"sink_type": t} for t, p in SINK_PROFILES.items()
+                                                           if p in server.sinks},
+                                                 "status": "experimental"}})
                 if parts.path == "/.well-known/oauth-authorization-server":
                     return self._send(200, {"issuer": server.url,
                                             "authorization_endpoint": server.url + "/auth/authorize",
