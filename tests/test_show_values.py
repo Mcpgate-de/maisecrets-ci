@@ -56,6 +56,12 @@ class AnswerTests(unittest.TestCase):
         self.assertEqual(a["mode"], "always")
         self.assertEqual(a["values"], {self.key: NAME})
 
+    def test_a_term_entry_keeps_its_placeholder(self):
+        # field case 2026-11-08: the screen showed the store value of a term, its id, with the lock
+        from maisecrets import term_files
+        key = self.vault.put(term_files.STORE_PREFIX + "63a89f7ec93d", "NAME", "term", session="s1").key
+        self.assertEqual(self.ask([key, self.key])["values"], {self.key: NAME})
+
     def test_another_sessions_value_is_not_given(self):
         self.assertEqual(self.ask([self.key], session="s2")["values"], {})
         self.assertEqual(self.ask([self.key], session=None)["values"], {})

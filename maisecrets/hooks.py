@@ -1372,6 +1372,8 @@ def _rehydrated(payload: dict, cfg: dict, path: str, new_input: dict, reason: st
         return _protect_refusal(fresh, "Nothing ran.")       # Codex takes no ask with a rewritten input
     if decision == "ask" or (fresh and decision in ("defer", "allow")):
         return _ask(new_input, _protect_text(fresh) + reason)
+    if decision in ("defer", "allow") and rehydration.auto_mode_asks(client_of(payload), path, payload):
+        return _ask(new_input, reason)
     if decision in ("defer", "allow"):
         return _updated(payload, new_input)
     return _deny("maisecrets: the setting rehydration does not let a stored value into this call. Nothing ran.")

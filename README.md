@@ -1326,7 +1326,7 @@ value is put into a call. `~/.maisecrets/config.json`, or the machine policy:
 
 | `rehydration` | Claude Code | Codex |
 |---|---|---|
-| `"automatic"` (default) | no ask of ours; your permission rules decide | `allow` with the rewritten input |
+| `"automatic"` (default) | no ask of ours; your permission rules decide. In auto mode an MCP call that gets a value asks you: auto mode checks the call before maisecrets puts the value in, then refuses it and shows the model the changed input | `allow` with the rewritten input |
 | `"confirm"` | every call that gets a value asks, also in auto and bypass mode; the prompt names the fields and warns for a published-text field | refused before anything is resolved: Codex cannot ask with a rewritten input |
 | `"block"` | refused before anything is resolved | refused |
 
