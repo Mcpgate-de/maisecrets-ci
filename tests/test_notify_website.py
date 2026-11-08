@@ -94,6 +94,22 @@ class NotifyWebsiteTests(unittest.TestCase):
             self.assertEqual(W.main(), 0)
         self.assertIn("no website deploy key", out.getvalue())
 
+    def test_a_key_file_readable_by_others_is_used_from_a_private_copy(self):
+        # GitLab writes a file variable with mode 0644, and ssh refused it (the tag pipeline of 0.9.0)
+        import stat
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            key = Path(d, "key")
+            key.write_text("synthetic-key-text\n")
+            key.chmod(0o644)
+            work = Path(d, "work")
+            work.mkdir()
+            env = W._ssh_env(str(key), Path("/known"), str(work))
+            used = env["GIT_SSH_COMMAND"].split("-i ", 1)[1].split(" ", 1)[0]
+            self.assertNotEqual(used, str(key))
+            self.assertEqual(stat.S_IMODE(os.stat(used).st_mode), 0o600)
+            self.assertEqual(Path(used).read_text(), "synthetic-key-text\n")
+
 
 if __name__ == "__main__":
     unittest.main()

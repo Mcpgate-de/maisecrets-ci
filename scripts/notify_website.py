@@ -78,6 +78,19 @@ def _git(cwd, *args, env=None) -> subprocess.CompletedProcess:
     return subprocess.run(["git", *args], cwd=cwd, env=env, capture_output=True, text=True)
 
 
+def _ssh_env(key: str, known: Path, tmp: str) -> dict:
+    """The environment for git over ssh with the deploy key. GitLab writes a file variable readable by others, and ssh
+    refuses such a key ("bad permissions": the tag pipeline of 0.9.0), so the key goes to a copy with mode 0600."""
+    private = Path(tmp) / "deploy-key"
+    fd = os.open(private, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(Path(key).read_bytes())
+    return dict(os.environ, GIT_SSH_COMMAND=f"ssh -i {private} -o IdentitiesOnly=yes -o UserKnownHostsFile={known} "
+                                            "-o StrictHostKeyChecking=yes",
+                GIT_AUTHOR_NAME="maisecrets release", GIT_AUTHOR_EMAIL="release@maisecrets.invalid",
+                GIT_COMMITTER_NAME="maisecrets release", GIT_COMMITTER_EMAIL="release@maisecrets.invalid")
+
+
 def main() -> int:
     key = os.environ.get("MAISECRETS_WEBSITE_DEPLOY_KEY", "")
     tag = os.environ.get("CI_COMMIT_TAG", "")
@@ -89,12 +102,9 @@ def main() -> int:
     version = tag[1:]
     date, points = release_section((ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), version)
     known = ROOT / ".ci-known-hosts-gitlab"
-    env = dict(os.environ, GIT_SSH_COMMAND=f"ssh -i {key} -o IdentitiesOnly=yes -o UserKnownHostsFile={known} "
-                                           "-o StrictHostKeyChecking=yes",
-               GIT_AUTHOR_NAME="maisecrets release", GIT_AUTHOR_EMAIL="release@maisecrets.invalid",
-               GIT_COMMITTER_NAME="maisecrets release", GIT_COMMITTER_EMAIL="release@maisecrets.invalid")
     branch = f"chore/maisecrets-{version}"
     with tempfile.TemporaryDirectory() as tmp:
+        env = _ssh_env(key, known, tmp)
         r = _git(tmp, "clone", "--quiet", "--depth", "1", REPO, "site", env=env)
         if r.returncode:
             raise SystemExit(f"clone of the website failed: {r.stderr.strip()[-300:]}")
