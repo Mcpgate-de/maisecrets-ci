@@ -397,13 +397,13 @@ class DownNoteTests(unittest.TestCase):
         return json.dumps(out)
 
     def test_the_first_unanswered_result_of_a_session_tells_the_model_once(self):
-        self.assertIn("did not answer", self.post("A"))
-        self.assertNotIn("did not answer", self.post("A"))
-        self.assertIn("did not answer", self.post("B"))
+        self.assertIn("gave no result", self.post("A"))
+        self.assertNotIn("gave no result", self.post("A"))
+        self.assertIn("gave no result", self.post("B"))
 
     def test_a_service_that_is_off_gives_no_note(self):
         _reset()
-        self.assertNotIn("did not answer", self.post("A"))
+        self.assertNotIn("gave no result", self.post("A"))
 
 
 class PromptNameTests(unittest.TestCase):

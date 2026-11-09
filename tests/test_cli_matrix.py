@@ -566,13 +566,13 @@ def transition_problems(state: str, command: str, args: list[str], r: subprocess
     if command == "forget":
         key = args[0]
         if key in (before.index or {}).get("entries", {}):
-            expect(r.stdout == f"{key}: deleted. A placeholder for it no longer works anywhere.\n", "forget")
+            expect(r.stdout == f"Deleted {key}. A placeholder for it no longer works anywhere.\n", "forget")
             expect(key not in after_entries and key not in (after.store or []), f"{key} is still there")
             expect(key not in (after.index or {}).get("by_fingerprint", {}).values(), "the fingerprint stays")
             others = sorted(k for k in ret if k != key)
             expect(sorted(after_entries) == others, f"forget left {sorted(after_entries)}, expected {others}")
         else:
-            expect(r.stdout == f"{key}: not found (see /maisecrets:list)\n", "forget of an unknown key")
+            expect(r.stdout == f"There is no {key} (see /maisecrets:list).\n", "forget of an unknown key")
             expect(after.store == before.store and after_entries == (before.index or {}).get("entries", {}),
                    "forget of an unknown key changed the store")
         return p
@@ -738,7 +738,8 @@ class StateMatrixTests(unittest.TestCase):
         self.assertFalse(any(v in r.stdout + r.stderr for v in sb.values))
         r = sb.run("forget", "SECRET_c1")
         self.assertEqual(r.returncode, 1)
-        self.assertIn("the store refused to delete it; nothing was changed", r.stdout)
+        self.assertIn("refused to delete", r.stdout)
+        self.assertIn("nothing was changed", r.stdout)
         self.assertIn("SECRET_c1", sb.index()["entries"], "nothing looks deleted that is not")
         r = sb.run("expire")
         self.assertEqual((r.returncode, r.stdout), (1, "purged 0 expired value(s)\n"), r.stderr)
@@ -838,7 +839,7 @@ class StateMatrixTests(unittest.TestCase):
     def test_forget_deletes_the_value_and_the_placeholder_stops_resolving(self):
         sb, r = self._run("live", "forget", "⟦SECRET_c1⟧", "EMAIL_c1:x")
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertEqual(r.stdout.count("deleted"), 2)
+        self.assertEqual(r.stdout.count("Deleted "), 2)
         self.assertEqual(sorted(sb.index()["entries"]), ["SECRET_c2"])
         self.assertIn("unknown", sb.run("get", "SECRET_c1").stderr)
 
@@ -1722,3 +1723,25 @@ class RefusingStoreTests(unittest.TestCase):
         for v in sb.values:
             self.assertNotIn(v, r.stdout + r.stderr)
 
+
+
+class OwnOutputIsNoFindingTests(unittest.TestCase):
+    """Field case 2026-11-08: the old line put a key, a colon and the word for the result in a row; it read as a
+    label and its value, so the masking of the tool output stored the word as a new secret. The output of forget is
+    a sentence now."""
+
+    def test_the_lines_of_forget_hold_no_finding(self):
+        import contextlib
+        from maisecrets import cli, detect
+        key = "SECRET_c3105"
+        old = key + ": " + "deleted" + ". A placeholder for it no longer works anywhere."   # joined: no scan hit
+        self.assertTrue(detect.scan(old), "the old form was a finding; else this test proves nothing")
+        out = io.StringIO()
+        with mock.patch.object(cli, "Vault") as vault, contextlib.redirect_stdout(out):
+            vault.return_value.forget.side_effect = ["ok", "unknown", "refused"]
+            vault.return_value.destinations_kept = False
+            cli.main(["forget", key, "SECRET_c3106", "SECRET_c3107"])
+        lines = out.getvalue().splitlines()
+        self.assertEqual(len(lines), 3)
+        for line in lines:
+            self.assertEqual(detect.scan(line), [], line)

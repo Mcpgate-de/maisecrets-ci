@@ -99,6 +99,11 @@ OWN_RULES: list[dict] = [
     # 8 x 6 digit run passes about once in 2.9 billion. ASCII digits only; a hyphen after it ends a sentence
     {"id": "bitlocker-recovery-key", "type": "SECRET", "validator": "bitlocker_key",
      "regex": r"(?<![0-9])(?<![0-9]-)[0-9]{6}(?:-[0-9]{6}){7}(?![0-9])(?!-[0-9])"},
+    # the passcode of a Microsoft Teams meeting in its join link: /meet/<meeting id>?p=<passcode>. The link alone lets
+    # anyone join; the meeting id is no secret (field case, 2026-11-08). Only on teams.microsoft.com/meet
+    {"id": "secret-teams-meeting-passcode", "type": "SECRET", "secret_group": 1,
+     "regex": r"(?<![\w.-])https?://(?i:teams\.microsoft\.com)/meet/\d{6,24}/?\?(?:[^\s#\"'<>&]{0,200}&){0,8}?"
+              r"p=([A-Za-z0-9_-]{6,64})(?![A-Za-z0-9_-])"},
     # bare token prefixes newer than the vendored rulesets live in rules/prefixes.txt (see _load_prefixes)
     {"id": "auth-scheme", "type": "SECRET", "secret_group": 3,
      "regex": r"(?<![\w-])(Bearer|Basic)([ \t]+)([A-Za-z0-9._~+/=-]{16,})"},

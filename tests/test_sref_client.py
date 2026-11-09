@@ -86,6 +86,13 @@ class SrefClientTests(unittest.TestCase):
         self.assertEqual(sorted(self.found["sinks"]), ["display-1", "local-file-1", "process-1"])
         self.assertEqual(self.found["sink_types"], ["display", "local_file", "process"])
 
+    def test_the_login_keeps_the_masked_account_and_a_refresh_keeps_it(self):
+        self.login()
+        self.assertEqual(S.account(self.backend, self.found["origin"]), "ope\u2026@example.com")
+        self.assertEqual(S._hint({"account_hint": "a\x07b@x.de"}), "", "a control character is not shown")
+        self.assertEqual(S._hint({"account_hint": "x" * 300 + "@x.de"}), "")
+        self.assertEqual(S._hint({}), "")
+
     def test_the_login_keeps_the_tokens_in_the_store(self):
         self.assertFalse(S.logged_in(self.backend, self.found["origin"]))
         self.login()
@@ -409,15 +416,34 @@ class ReferenceIsNoFindingTests(unittest.TestCase):
 
     IDS = ("Xq7mR2vKd9TfLw4HbN8cPz3sT6yUa1eQo5iWj0lN8Bh", "kQ2-vB9_xR7mT4nW8cZ1pL6sY3hJ5fD0gA")
 
+    def setUp(self):
+        from maisecrets import placeholder
+        self.addCleanup(placeholder.TRUSTED.clear)
+
+    def trust(self, *refs):
+        from maisecrets import placeholder
+        placeholder.TRUSTED.update(S.find(r)[0][1] for r in refs)
+
     def test_the_id_of_a_gateway_reference_is_no_secret(self):
         from maisecrets import detect
         for rid in self.IDS:
+            self.trust(f"\u27e6sref:secret:{rid}\u27e7", f"\u27e6sref:email:{rid}\u27e7")
             for ref in (f"⟦sref:secret:{rid}⟧", f"⟦sref:email:{rid}:le•••@•••.de⟧"):
                 text = f"Your access token: {ref} Please coordinate the integration."
                 self.assertEqual([text[h.start:h.end] for h in detect.scan(text)], [], ref)
 
+    def test_a_forged_reference_hides_no_secret(self):
+        # Opus review of 0.9.3: a command that prints "<open>sref:x:<token><close>" itself hid the token
+        from maisecrets import detect
+        token = "ghp_" + "Ab3dE6gH9jK2mN5pQ8sT1vW4yZ7bC0dF3gH6"
+        text = f"build: \u27e6sref:x:{token}\u27e7 done"
+        self.assertTrue([h for h in detect.scan(text) if token in text[h.start:h.end]], "found while not trusted")
+        self.trust(f"\u27e6sref:x:{token}\u27e7")
+        self.assertFalse([h for h in detect.scan(text) if token in text[h.start:h.end]], "a trusted id is skipped")
+
     def test_a_secret_next_to_a_reference_is_still_found(self):
         from maisecrets import detect
+        self.trust(f"\u27e6sref:secret:{self.IDS[0]}\u27e7")
         value = "Nordlicht-2026" + "!Kq"          # joined here, so the tree scan sees no password
         text = f"token: \u27e6sref:secret:{self.IDS[0]}\u27e7 and password: {value}"
         self.assertIn(value, [text[h.start:h.end] for h in detect.scan(text)])
@@ -457,6 +483,19 @@ class ProfileNameTests(unittest.TestCase):
                 self.assertEqual(found["sink_types"], ["process"])
                 self.assertNotIn("does not resolve into a command", self.refusal(found))
 
+    def test_the_scopes_come_from_the_sinks_map_when_the_named_fields_are_missing(self):
+        found = self.found({"sink_profiles": ["process-1", "display-1"], "sinks": {
+            "process-1": {"sink_type": "process", "scopes": ["sensitive-references.resolve", "x.process"]},
+            "display-1": {"sink_type": "display", "scopes": ["sensitive-references.resolve", "x.display"]}}})
+        self.assertEqual((found["process_scope"], found["display_scope"]), ("x.process", "x.display"))
+        self.assertIn("x.display", found["scope"].split())
+        if os.name != "nt":
+            self.assertIn("x.process", found["scope"].split())
+        named = self.found({"sink_profiles": ["process-1"], "process_scope": "y.process",
+                            "sinks": {"process-1": {"sink_type": "process", "scopes": ["sensitive-references.resolve",
+                                                                                        "x.process"]}}})
+        self.assertEqual(named["process_scope"], "y.process", "a named field still wins")
+
     def test_a_server_without_a_command_profile_gets_no_command_value(self):
         for block in ({"sink_profiles": ["local-file-1"]}, {"sink_profiles": ["acme-exec-2"]},
                       {"sink_profiles": [], "sinks": {"process-1": {"sink_type": "process"}}}):
@@ -466,3 +505,34 @@ class ProfileNameTests(unittest.TestCase):
     def test_a_found_record_without_sink_types_reads_the_profile_names(self):
         self.assertNotIn("does not resolve into a command",
                          self.refusal({"origin": self.ORIGIN, "sinks": ["mcpgate-process-1"]}))
+
+
+class StoredIdIsNotReplacedTests(unittest.TestCase):
+    """0.9.1 stored the id of a reference with its closing bracket as a secret; each later read of the same mail broke
+    the reference again through the exact replacement of stored values (field case 2026-11-08)."""
+
+    def test_a_stored_value_that_is_a_reference_id_leaves_the_reference_whole(self):
+        from _hygiene import CLAUDE
+        from maisecrets import hooks
+        from maisecrets.vault import Vault
+        rid = "reference-id-of-plain-words"   # no shape the detector finds: the exact replacement alone
+        Vault().put(rid + "⟧", "SECRET", "manual", session="s1")
+        ref = f"\u27e6sref:secret:{rid}\u27e7"
+        from maisecrets import sref_notes
+
+        def post():
+            hooks._live_cache.clear()
+            out = hooks._post_tool_guarded({"tool_name": "Bash", "session_id": "s1", **CLAUDE,
+                                            "tool_input": {"command": "cat mail.txt"},
+                                            "tool_response": {"stdout": f"see {ref}\nPlease and "
+                                                              f"{rid}\u27e7", "stderr": ""}})
+            return json.dumps(out.get("hookSpecificOutput", {}).get("updatedToolOutput", {}), ensure_ascii=False)
+        # a reference this session got from a gateway: its id stays whole
+        with mock.patch.object(sref_notes, "noted", side_effect=lambda refs, s: {r: ("o", "u") for r in refs}):
+            shown = post()
+        self.assertIn(ref, shown, "the reference stays whole")
+        self.assertIn("Please and \u27e6SECRET_c", shown, "the same text outside a reference is still replaced")
+        # the same reference that no gateway gave: text, and the stored value in it is replaced
+        with mock.patch.object(sref_notes, "noted", return_value={}):
+            shown = post()
+        self.assertNotIn(ref, shown, "an untrusted reference is no shield")

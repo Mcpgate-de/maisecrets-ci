@@ -121,6 +121,33 @@ class PasswordColumnTests(Base):
                 self.assertMasked(text, PASSWORD)
                 self.assertIn("secret-under-password-column", self.kinds(text))
 
+    def test_a_password_under_its_column_in_a_bar_or_tab_table_is_masked(self):
+        # field case, 2026-11-08: | Account | Passwort | with a password of eight characters on each row
+        pw, account = "Qw" + "ertzui7", "20.demo-anbieter-lehrer"
+        for text in (f"| Account | Passwort |\n|---|---|\n| {account} | {pw} |\n",
+                     f"| Account | Passwort |\n|-|-|\n| {account} | {pw} |\n",
+                     f"| Account | Passwort |\n| {account} | {pw} |\n",
+                     f"Account | Password\n{account} | {pw}\n",
+                     f"Schule\tKennwort\n{account}\t{pw}\n",
+                     f"| Name | Secret |\n|---|---|\n| {account} | {pw} |\n",
+                     f"Service\tAPI Token\n{account}\t{pw}\n"):
+            with self.subTest(text=text[:24]):
+                self.assertIn(("secret-under-password-column", pw),
+                              [(m.kind, m.value) for m in scan(text)])
+                self.assertFalse([m for m in scan(text) if account in m.value])
+        pin = "48" + "31"
+        self.assertIn(("secret-under-password-column", pin),
+                      [(m.kind, m.value) for m in scan(f"| Karte | PIN |\n|---|---|\n| {account} | {pin} |\n")])
+
+    def test_a_column_that_only_names_a_password_or_a_pin_stays_text(self):
+        for text in ("| Account | Password changed |\n|---|---|\n| demo | 2026-11-08 |\n",
+                     "| Karte | PIN |\n|---|---|\n| demo | 2024 |\n",
+                     "| Pin | Function |\n|---|---|\n| 13 | GPIO13 |\n",
+                     "| Variable | Secret |\n|---|---|\n| API_KEY_V2 | yes |\n| DB_PASS_2 | DB_PASS_2 |\n",
+                     "cat notes.txt | grep password\necho a1b2c3d4 | wc -c\n"):
+            with self.subTest(text=text[:24]):
+                self.assertNotIn("secret-under-password-column", self.kinds(text))
+
     def test_a_typed_prompt_is_not_blocked_by_the_column(self):
         text = f"| login | wachtwoord |\n|---|---|\n| {USER} | {PASSWORD} |\n"
         self.assertNotIn("secret-under-password-column", {m.kind for m in scan(text, "prompt")})

@@ -119,14 +119,23 @@ function rewrite(text, address) {
   return text.split('\n').map(line => LINKY.test(line) ? line : rewriteLine(line, shown)).join('\n')
 }
 
+const isSecretRef = (ref) => ref.startsWith('sref:secret:')
+// a secret of this computer's store is never drawn either, as a gateway's (consistent): its click copies it
+const isSecretKey = (k) => k.startsWith('SECRET_')
+const SECRET_TOAST = 'Copied. The secret stays hidden on the screen.'
+
 function rewriteLine(text, shown) {
   return text.replace(PH, (all, k, ref) => {
     if (ref) {
-      // a gateway's reference: a link that a click resolves; then the value in its place, a click copies it
+      // a gateway's reference: a link that a click resolves; then the value in its place, a click copies it. A secret
+      // is never drawn (a screenshot, a shared screen; the desktop app put its own masking control on a token, whose
+      // click opened the link in the browser): its click copies it at once
+      if (isSecretRef(ref)) return `[${all}](${LINK}${ref})`
       return revealed.has(ref) ? `[${code(revealed.get(ref))}](${LINK}copy/${ref})` : `[${all}](${LINK}${ref})`
     }
     if (!k) return all
     const v = cache.get(k)
+    if (isSecretKey(k)) return links && v !== undefined && mode !== 'off' ? `[${all} \u{1F512}](${LINK}${k})` : all
     if (mode === 'always' && v !== undefined) return links ? `[${code(v)}](${LINK}${k})` : code(v)
     if (mode === 'click') {
       const link = `[${all}](${LINK}${k})`
@@ -204,7 +213,7 @@ function shown(v, depth = 0) {
   if (typeof v === 'string') {
     if (!v.includes('\u27e6')) return v
     return v.split('\n').map(line => LINKY.test(line) ? line : line.replace(KEY_RE, (all, k) =>
-      cache.has(k) ? `${cache.get(k)} \u{1F512}` : all)).join('\n')
+      cache.has(k) && !isSecretKey(k) ? `${cache.get(k)} \u{1F512}` : all)).join('\n')
   }
   if (Array.isArray(v)) return v.map(x => shown(x, depth + 1))
   if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, shown(x, depth + 1)]))
@@ -244,7 +253,14 @@ function draw($, e, text, address, wrap) {
     if (typeof link?.href !== 'string' || !link.href.startsWith(LINK)) return
     const k = link.href.slice(LINK.length)
     if (k.startsWith('sref:')) {
-      if (refs.includes(k)) await reveal($, k)
+      if (!refs.includes(k)) return
+      await reveal($, k)
+      if (isSecretRef(k) && revealed.has(k)) {
+        try {
+          const r = await $.ui.copy({ text: revealed.get(k), surface: p?.surface ?? e.surface })
+          $.ui.toast(r?.isCopied ? SECRET_TOAST : 'Not copied.')
+        } catch { /* nothing copied */ }
+      }
       return
     }
     if (k.startsWith('copy/sref:')) {
@@ -257,10 +273,11 @@ function draw($, e, text, address, wrap) {
       return
     }
     if (!cache.has(k)) return
-    if (mode === 'always') {
+    if (mode === 'always' || isSecretKey(k)) {
       try {
         const r = await $.ui.copy({ text: cache.get(k), surface: p?.surface ?? e.surface })
-        $.ui.toast(r?.isCopied ? 'Copied. Claude knows only the placeholder.' : 'Not copied.')
+        $.ui.toast(r?.isCopied ? (isSecretKey(k) ? SECRET_TOAST : 'Copied. Claude knows only the placeholder.')
+          : 'Not copied.')
       } catch { /* nothing copied */ }
       return
     }
@@ -281,7 +298,7 @@ function draw($, e, text, address, wrap) {
 }
 
 // a prompt that names show_values may change the mode (the settings hook writes it): ask again after it
-// (called from the prompt.submit hook of maisecrets-mod.mjs: one hook per event and module)
+// (called from the prompt hook of maisecrets-mod.mjs: one hook per event and module)
 export function afterPrompt($, text) {
   absent.clear()      // a key the person typed into a prompt is this session's now
   if (typeof text !== 'string' || !text.includes('show_values')) return

@@ -99,7 +99,7 @@ class PowerShellFormRunTests(unittest.TestCase):
     def test_the_arguments_reach_the_plugin_as_they_are(self):
         # a single-quoted here-string: PowerShell expands neither $env: nor a backtick in the arguments
         r = self.run_block("forget.md", "no$env:PATH`x")
-        self.assertIn("no$env:", r.stdout + r.stderr)
+        self.assertIn("There is no no$env ", r.stdout + r.stderr)   # unexpanded: $env stays text
         self.assertNotIn(os.environ.get("PATH", "")[:20] or "\0", r.stdout + r.stderr)
 
 

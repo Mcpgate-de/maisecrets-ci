@@ -639,10 +639,10 @@ def report(conf, wait: float = 0.0) -> tuple[int, list]:
 
 
 # --------------------------------------------------------- the down note --
-DOWN_NOTE = ("maisecrets: the name service set with /maisecrets:ner did not answer, so the rules alone masked this "
-             "tool result; names that only the service finds were not masked. Mention this once, in one sentence, "
-             "after your answer, and tell the user that /maisecrets:ner shows the service and how to start it. Do not "
-             "start or change the service or the setting yourself.")
+DOWN_NOTE = ("maisecrets: the name service set with /maisecrets:ner gave no result ({why}), so the rules alone "
+             "masked this tool result; names that only the service finds were not masked. Mention this once, in one "
+             "sentence, with that reason, after your answer, and tell the user that /maisecrets:ner shows the "
+             "service. Do not start or change the service or the setting yourself.")
 NOT_OURS_NOTE = ("maisecrets: the service on 127.0.0.1:8765 is not the container that maisecrets started (it could not "
                  "prove the secret maisecrets gave that container), so no text went to it and the rules alone masked "
                  "this tool result. Mention this once, in one sentence, after your answer, and tell the user to run "

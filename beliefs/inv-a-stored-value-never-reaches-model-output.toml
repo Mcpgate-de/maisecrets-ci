@@ -30,8 +30,8 @@ replace = "*escaped]"
 [[proof]]
 path = "the fingerprint match of a live value"
 file = "maisecrets/tool_output.py"
-find = "            if key is None:\n                continue\n            found.append(key)"
-replace = "            if True:\n                continue\n            found.append(key)"
+find = "            if key is None:\n                continue\n            from .vault import Entry"
+replace = "            if True:\n                continue\n            from .vault import Entry"
 
 [[proof]]
 path = "the Codex block reason carries the redacted output"

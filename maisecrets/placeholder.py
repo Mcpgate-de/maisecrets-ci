@@ -84,10 +84,17 @@ _DETECTOR_PATTERNS = {   # compiled at first use: a hook imports this module on 
     "key after open": r"[A-Z][A-Z_]*_c\d+",
     "legacy in value": r"<[A-Z][A-Z_]*_c\d+>",
     # a gateway's Sensitive Reference (sref_client.SREF_RE, kept here so a hook does not import the client)
-    "sref": (f"{OPEN}sref:[A-Za-z0-9_-]{{1,32}}:(?P<id>[A-Za-z0-9_-]{{20,128}})"
+    "sref": (f"{OPEN}sref:(?P<kind>[A-Za-z0-9_-]{{1,32}}):(?P<id>[A-Za-z0-9_-]{{20,128}})"
              f"(?::[^{OPEN}{CLOSE}\r\n\u2028\u2029]{{1,256}})?{CLOSE}"),
 }
 _COMPILED: dict = {}
+# the canonical references a gateway gave this session (sref_hooks.trust sets them for one tool result): only these
+# are skipped. A reference that a command or a file printed itself is text, and a secret in its id is a finding
+TRUSTED: set = set()
+
+
+def trusted(m) -> bool:
+    return f"{OPEN}sref:{m.group('kind')}:{m.group('id')}{CLOSE}" in TRUSTED
 
 
 def _rx(name: str) -> re.Pattern:
@@ -124,7 +131,7 @@ class MaisecretsReferences:
         o = text.rfind(OPEN, 0, start + 1)
         if o >= 0 and text.startswith(OPEN + "sref:", o):
             m = _rx("sref").match(text, o)
-            if m and start < m.end("id"):
+            if m and start < m.end("id") and trusted(m):
                 return True
         # the key alone, and only where it ends as a key does: `⟦EMAIL_c1<address>⟧` starts like a key, and its
         # address went to the model unmasked (the gateway found the same gap in its scrubber, 2026-11-02)

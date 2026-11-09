@@ -153,15 +153,16 @@ def _drive(args, env, cwd, out, cfg, run_dir, layout) -> list[str]:
         asked = [line for line in screen().split("\n") if "Bitte pruefe den Token" in line]
         if not asked:
             failures.append(f"{layout}: the prompt row is not on the screen")
-        elif layout == "fullscreen" and TOKEN not in asked[0]:
-            failures.append(f"{layout}: the prompt row does not show the value typed: {asked[0].strip()[:80]}")
+        # a secret is never drawn (0.9.3): the fullscreen shows its placeholder with the lock, the drawing's mark
+        elif layout == "fullscreen" and (TOKEN in asked[0] or "\U0001F512" not in asked[0]):
+            failures.append(f"{layout}: the prompt row shows the secret or no lock: {asked[0].strip()[:80]}")
         elif layout == "main" and TOKEN in asked[0]:
             failures.append(f"{layout}: the main screen shows the value in the prompt row")
         (run_dir / "screen.txt").write_text(screen())
         if not reply:
             failures.append(f"{layout}: the reply is not on the screen ({run_dir / 'screen.txt'})")
-        elif layout == "fullscreen" and TOKEN not in reply[0]:
-            failures.append(f"{layout}: the reply on the screen does not show the value: {reply[0].strip()[:80]}")
+        elif layout == "fullscreen" and (TOKEN in reply[0] or "\U0001F512" not in reply[0]):
+            failures.append(f"{layout}: the reply does not keep the secret behind its lock: {reply[0].strip()[:80]}")
         elif layout == "main" and TOKEN in reply[0]:
             failures.append(f"{layout}: the main screen shows the value (scrollback and /export keep it)")
         # after the drawing: a tool result with the value, and one more request that carries all of it
@@ -208,8 +209,8 @@ def main() -> int:
     for f in failures:
         print("FAIL", f)
     if not failures:
-        print("OK  fullscreen shows the value; main screen keeps the placeholder; no request, transcript, debug log "
-              "or /export holds it")
+        print("OK  fullscreen keeps the secret behind its lock; main screen keeps the placeholder; no request, "
+              "transcript, debug log or /export holds it")
     return 1 if failures else 0
 
 

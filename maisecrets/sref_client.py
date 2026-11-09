@@ -114,11 +114,21 @@ def discover(cfg: dict, mcp_url: str, deadline: float | None = None) -> dict | N
     table = block.get("sinks") if isinstance(block.get("sinks"), dict) else {}
     types = sorted({(table[x].get("sink_type") if isinstance(table.get(x), dict) else None) or _PROFILE_TYPES.get(x)
                     for x in sinks} - {None})
+    # the scope a sink needs on top of the resolve scope: sinks.<profile>.scopes (Concept 0.7), else the named fields
+    resolve_scope = block.get("resolve_scope") or SCOPE
+    extra: dict = {}
+    for x in sinks:
+        entry = table.get(x)
+        if isinstance(entry, dict) and isinstance(entry.get("scopes"), list):
+            more = [c for c in entry["scopes"] if isinstance(c, str) and c != resolve_scope]
+            if len(more) == 1:
+                extra.setdefault(entry.get("sink_type"), more[0])
+    process_scope = block.get("process_scope") if isinstance(block.get("process_scope"), str) else extra.get("process")
+    display_scope = block.get("display_scope") if isinstance(block.get("display_scope"), str) else extra.get("display")
     return {"origin": origin, "resolve": block["resolve_endpoint"],
-            "scope": login_scope(block.get("resolve_scope") or SCOPE, block.get("process_scope"),
-                                 display_scope=block.get("display_scope")),
-            "process_scope": block.get("process_scope") if isinstance(block.get("process_scope"), str) else None,
-            "display_scope": block.get("display_scope") if isinstance(block.get("display_scope"), str) else None,
+            "scope": login_scope(resolve_scope, process_scope, display_scope=display_scope),
+            "process_scope": process_scope if isinstance(process_scope, str) else None,
+            "display_scope": display_scope if isinstance(display_scope, str) else None,
             "sinks": sinks, "sink_types": types,
             "authorize": ends["authorization"], "token": ends["token"], "register": ends["registration"]}
 
@@ -223,7 +233,23 @@ def finish_login(cfg: dict, backend, found: dict, client_id: str, redirect: str,
                                "client_id": client_id, "code_verifier": verifier}, deadline)
     _keep(backend, found["origin"], {"client_id": client_id, "access": data["access_token"],
                                      "refresh": data["refresh_token"], "scope": _granted(data, found["scope"]),
+                                     "account": _hint(data),
                                      "expires": time.time() + float(data.get("expires_in") or 3600)})
+
+
+def _hint(data: dict) -> str:
+    """The masked account a token belongs to (`account_hint`, Concept 0.7), when the answer has one of a sane form;
+    else "". Only shown: two accounts of one person resolve each other's references never (409 unknown)."""
+    hint = data.get("account_hint")
+    if not isinstance(hint, str) or not 1 <= len(hint) <= 256 or "@" not in hint and hint != "\u2026":
+        return ""
+    return "" if any(ord(c) < 32 or 0x7f <= ord(c) < 0xa0 for c in hint) else hint
+
+
+def account(backend, origin: str) -> str:
+    """The masked account of the stored login, or "" (an older login, or a gateway without the hint)."""
+    hint = _load(backend, origin).get("account")
+    return hint if isinstance(hint, str) else ""
 
 
 def _granted(data: dict, asked: str) -> str:
@@ -298,6 +324,7 @@ def _access(cfg: dict, backend, found: dict, deadline: float, stale: str | None 
                 raise
             _keep(backend, found["origin"], {**rec, "access": data["access_token"], "refresh": data["refresh_token"],
                                              "scope": _granted(data, str(rec.get("scope") or SCOPE)),
+                                             "account": _hint(data) or rec.get("account", ""),
                                              "expires": time.time() + float(data.get("expires_in") or 3600)})
             return data["access_token"]
     except LockTimeout:

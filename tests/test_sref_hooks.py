@@ -343,10 +343,11 @@ class SrefBashTests(unittest.TestCase):
         self.assertIn("gw (127.0.0.1): not logged in", text)
         code, text = run("login")
         self.assertEqual(code, 0, text)
-        self.assertIn("logged in to 127.0.0.1", text)
+        self.assertIn("logged in to 127.0.0.1 as ope\u2026@example.com", text)
         self.assertNotIn("srefr_", text)
         state = run("status")[1].split(": ", 1)[1]
         self.assertIn("logged in", state)
+        self.assertIn("; account ope\u2026@example.com", state)
         if os.name != "nt":
             self.assertIn("values go into files, commands, the screen", state)
             self.assertNotIn("log in again", state)

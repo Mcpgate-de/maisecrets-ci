@@ -8,6 +8,19 @@ import re
 
 
 def note(payload: dict) -> str | None:
+    """_note, and then the references of this result that a gateway gave this session become trusted (trust): after
+    the noting, so a fresh result's own references count."""
+    try:
+        return _note(payload)
+    finally:
+        try:
+            trust(payload)      # every tool: a gateway reference may come back in a command's output
+        except Exception:  # noqa: BLE001 - no trusted reference: detection and replacement treat all as text
+            from . import placeholder
+            placeholder.TRUSTED.clear()
+
+
+def _note(payload: dict) -> str | None:
     """PostToolUse of an MCP tool: note the references of its result for this session (sref_notes.py). Returns a
     notice for the person, once per session and gateway, when the gateway sends references and this computer has no
     login there: without it a command with a reference is refused. The login stays the person's own step."""
@@ -22,6 +35,22 @@ def note(payload: dict) -> str | None:
         payload = {**payload, "mcp_server": codex_vault.mcp_server_of(payload) or {}}
     sref_notes.note_result(payload)
     return _login_hint(payload)
+
+
+def trust(payload: dict) -> None:
+    """The references of this tool result that a gateway gave this session (noted before the redaction): detection
+    and the exact replacement leave their kind and id alone. Any other reference is text (a forged one around a
+    token hid the token, Opus review of 0.9.3)."""
+    import json
+    from . import placeholder
+    placeholder.TRUSTED.clear()
+    text = json.dumps(payload.get("tool_response"), ensure_ascii=False)
+    if "sref:" not in text:
+        return
+    from . import sref_client, sref_notes
+    found = sref_client.find(text)
+    here = sref_notes.noted([r for r, _c, _a, _b in found], payload.get("session_id"))
+    placeholder.TRUSTED.update(c for r, c, _a, _b in found if r in here)
 
 
 def _login_hint(payload: dict) -> str | None:

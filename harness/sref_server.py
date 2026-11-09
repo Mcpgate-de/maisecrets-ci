@@ -229,7 +229,7 @@ class SrefServer:
         self.refresh[refresh] = client_id
         self.scopes[access] = self.scopes[refresh] = scope
         return {"access_token": access, "token_type": "Bearer", "expires_in": self.access_ttl,
-                "refresh_token": refresh, "scope": scope}
+                "refresh_token": refresh, "scope": scope, "account_hint": "ope\u2026@example.com"}
 
     def __enter__(self) -> "SrefServer":
         self.thread.start()

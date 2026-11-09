@@ -288,6 +288,11 @@ def for_tool_result(cfg: dict, response, binary, strip, scan, protect_of):
     return prepare(cfg, leaves, scan, protect_of())
 
 
+_TOOL_WHY = {"timeout": "no answer in time", "too_long": "the text is longer than the service takes",
+             "refused": "the service is not running", "unauthorized": "the service wants another bearer",
+             "policy": "the address is not on this computer", "network": "the network failed",
+             "http": "the service answered with an error"}
+
 # the remote detector of the last tool result did not answer (set by hooks.post_tool, read by hint() of the same call)
 NER_DOWN = {"v": False}
 
@@ -295,6 +300,7 @@ NER_DOWN = {"v": False}
 def note_result(layer) -> None:
     NER_DOWN["v"] = layer is not None and layer.status.state == "unavailable"
     NER_DOWN["not_ours"] = layer is not None and layer.status.reason == "not_ours"
+    NER_DOWN["why"] = layer.status.reason if layer is not None else ""
     if layer is not None:
         from . import ner_setup
         NER_DOWN["fallback"] = ner_setup.LAST["source"] == "fallback"
@@ -312,5 +318,7 @@ def hint(payload: dict):
     if not NER_DOWN["v"] or payload.get("agent_id"):
         return None
     NER_DOWN["v"] = False
-    note = ner_setup.NOT_OURS_NOTE if NER_DOWN.pop("not_ours", False) else ner_setup.DOWN_NOTE
+    # the reason in the note: "did not answer" sent the person looking for a stopped service that ran (2026-11-08)
+    why = _TOOL_WHY.get(NER_DOWN.get("why") or "", "no usable answer")
+    note = ner_setup.NOT_OURS_NOTE if NER_DOWN.pop("not_ours", False) else ner_setup.DOWN_NOTE.format(why=why)
     return note if ner_setup.claim_down_note(HOME, payload.get("session_id")) else None

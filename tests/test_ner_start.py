@@ -171,7 +171,9 @@ class StoredSecretTests(unittest.TestCase):
         remote_layer.note_result(remote_layer.Layer({}, remote_layer.remote.RemoteStatus("hf", "", "unavailable",
                                                                                          "timeout")))
         with mock.patch.object(ner_setup, "claim_down_note", return_value=True):
-            self.assertEqual(remote_layer.hint({"session_id": "S1"}), ner_setup.DOWN_NOTE)
+            note = remote_layer.hint({"session_id": "S1"})
+        self.assertEqual(note, ner_setup.DOWN_NOTE.format(why="no answer in time"))
+        self.assertIn("(no answer in time)", note)
 
 
 OLD = "mcpgate/ner:v2.0.3584"

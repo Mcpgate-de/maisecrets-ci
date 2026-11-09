@@ -360,19 +360,41 @@ def _exact_redact(text: str, vault: Vault, session: str | None, hit: dict, entri
             key = live.get(vault.fingerprint(cand))
             if key is None:
                 continue
-            found.append(key)
             from .vault import Entry
             e = Entry.from_meta(vault._index["entries"][key])
             # a URL-decoded or JSON-unescaped candidate is not in the text; its encoded form is
             raw = cand if cand in out else _raw_form(token, cand)
-            n = out.count(raw)
-            out = out.replace(raw, e.ref)
+            out, n = _replace_outside_references(out, raw, e.ref)
+            if not n:
+                continue
+            found.append(key)
             hit["n"] += n
             entries.append(e)
             if values is not None and raw not in values:
                 values.append(raw)
     vault.admit_many(found, session)
     return out
+
+
+def _replace_outside_references(text: str, raw: str, ref: str) -> tuple[str, int]:
+    """text with each raw replaced by ref, except where raw starts in the kind or the id of a gateway's reference: a
+    value that a rule once took from such an id (0.9.1) broke the reference again at each later read (2026-11-08)."""
+    from .placeholder import _rx, trusted
+    guarded = [(m.start(), m.end("id")) for m in _rx("sref").finditer(text) if trusted(m)] if "\u27e6sref:" in text \
+        else []
+    parts, at, n = [], 0, 0
+    while True:
+        i = text.find(raw, at)
+        if i < 0:
+            break
+        if any(a <= i < b for a, b in guarded):
+            parts.append(text[at:i + 1])
+            at = i + 1
+            continue
+        parts.append(text[at:i] + ref)
+        at, n = i + len(raw), n + 1
+    parts.append(text[at:])
+    return "".join(parts), n
 
 
 def _raw_form(token: str, cand: str) -> str:

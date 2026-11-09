@@ -848,8 +848,9 @@ named by the manifest (`"hooks": "./claude-mod/maisecrets-mod.json"`). Nothing e
 the plugin points into that folder.
 
 - **The events it handles:** `prompt.submit`, which fires when a prompt is about
-  to be sent, and for the values on your screen (below) `ui.render` of a reply and
-  a tool result, `session.start` and `prompt.change`. The mod handles the event; it never calls `$.prompt.submit` itself,
+  to be sent, and for the values on your screen (below) `ui.render` of a reply
+  (`AssistantMessage`), of your own prompt (`UserMessage`), of a tool call and its
+  result (`ToolUse`, `ToolResult`), `session.start` and `prompt.change`. The mod handles the event; it never calls `$.prompt.submit` itself,
   so it submits no prompt and changes no prompt of other code. It acts on a
   person's own prompt only (typed or queued at the terminal, sent through Remote
   Control, or the turn of `claude -p`). A subagent's report, another session's or
@@ -865,6 +866,9 @@ the plugin points into that folder.
   `PYTHONUTF8=1` for that process (over the environment it inherits), so that
   Windows reads the pipe as UTF-8. When no Python answers, the mod passes the
   prompt on unchanged and the settings hook blocks it.
+  For the screen it runs the same way `hooks/dispatch.py mod-values` (the
+  values of the placeholders in view) and, on your click on a gateway
+  reference, `hooks/dispatch.py mod-reveal`.
 - **What it sends, and where:** the prompt, the session id and the working
   directory go to that local process on stdin. The process detects the values,
   stores them in the local store, and answers with the prompt with placeholders.
@@ -898,6 +902,11 @@ changes, and it reaches no model request, no transcript, no debug log and no
 | `click` | Placeholders. A click on one shows every value of that reply for 10 seconds; typing in the prompt hides them. |
 | `off` | Placeholders only, as before. |
 
+A secret (a password, a key, a token: `⟦SECRET_c1⟧`, `⟦sref:secret:…⟧`) never
+shows on the screen in any mode, so a screenshot or a shared screen does not
+carry it. Its placeholder stays, with a 🔒 where the value is at hand, and a
+click copies it.
+
 Change it with `/maisecrets:settings show_values click` as your own prompt. A
 policy can set `click` or `off` for everyone. A change towards `always` is
 logged as a loosened protection.
@@ -908,10 +917,12 @@ logged as a loosened protection.
   `/export`, so the mod draws nothing there. VS Code and the phone also keep
   the placeholders.
 - **Which values:** only values of this computer's store that this session may
-  use (the session rule of every resolve). A server's token and a Sensitive
-  Reference are never resolved for the screen: each resolve costs the
-  gateway's quota and writes its audit. A display is no use of a value: no
-  audit line, no limiter, no renewal.
+  use (the session rule of every resolve). A display of these is no use of a
+  value: no audit line, no limiter, no renewal.
+- **Sensitive References of a gateway** resolve for the screen only on your
+  click, through the gateway's display sink and its own scope: the first click
+  shows the value, a second click copies it. Each click costs the gateway's
+  quota and writes its audit. A secret is never drawn: one click copies it.
 - **How:** the mod asks `python3 hooks/dispatch.py mod-values` (the same
   fixed command lines as the prompt path) for the keys of the replies in view.
   A reply outside the view asks for nothing until you scroll to it. The values
