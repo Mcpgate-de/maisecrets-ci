@@ -116,8 +116,16 @@ IBAN_LENGTH = {
 }
 
 
+# the groups of an IBAN with a no-break space (U+00A0, U+202F) between them, as a word processor or a bank's web page
+# writes them: Presidio takes only a space or a hyphen, and the IBAN stayed in the clear (issue #39). core.py puts it
+# into Presidio's IBAN pattern
+_IBAN_GROUP_SEP_UPSTREAM = "[ -]"
+PRESIDIO_GROUP_SEP = {"iban": "[ \u00a0\u202f-]"}
+
+
 def _iban_ok(raw: str) -> bool:
-    s = raw.replace(" ", "").replace("-", "").upper()   # the vendored pattern takes a space or a hyphen between groups
+    # the vendored pattern takes a space or a hyphen between groups, and the core a no-break space (PRESIDIO_GROUP_SEP)
+    s = re.sub(r"[ \u00a0\u202f-]", "", raw).upper()
     if not 15 <= len(s) <= 34 or not s.isalnum():
         return False
     if raw != raw.upper() and IBAN_LENGTH.get(s[:2]) != len(s):

@@ -433,13 +433,12 @@ def take_pending(session: str | None = None) -> str | None:
 
 
 _PRIMER_HEAD = (
-    # Written as what to do, not as a list of what is refused: a primer of prohibitions next to an
-    # ordinary ops request (base64, sudo) read like an attempt to get around a control, and a model
-    # safeguard paused the session (field report on 0.5.8, 2026-09-28)
+    # what to do, not what is refused: a list of prohibitions read like evasion to a model safeguard (0.5.8)
     "maisecrets: a placeholder like ⟦SECRET_c1⟧ or ⟦EMAIL_c2:ma•••@x.de⟧ stands for a value the user "
     "stored on this computer. Use the placeholder unchanged where the value belongs; maisecrets puts the "
-    "value in when the call runs. When you show a value to the user, write its placeholder whole, with its "
-    "brackets: Claude Code shows the user the value there, on the user's screen only. In an MCP tool argument "
+    "value in when the call runs. When you show a value to the user, write its placeholder, or a gateway's "
+    "reference ⟦sref:…⟧, whole, with its brackets: Claude Code shows the user the value there, on the user's "
+    "screen only (a reference on the user's click). In an MCP tool argument "
     "and in the content of Write, Edit, MultiEdit or "
     "NotebookEdit it goes in at call time; WebFetch and a subagent prompt keep it as plain text. In Bash, "
     "give it as a plain argument, inside '…' or \"…\", or in an unquoted heredoc; the shell reads the value "

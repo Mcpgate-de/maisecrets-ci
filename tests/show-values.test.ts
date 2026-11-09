@@ -405,3 +405,33 @@ test('a tool row keeps the placeholder of a secret and shows the other values', 
   expect(note).toContain('\u{1F512}')
   await ui.unmount()
 })
+
+test('a reference is labelled with the display the gateway gave, never with the text the AI wrote (DS21)', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000_000 })
+  mock.store(on)
+  on('session.id', () => ({ value: 'sess-1' }))
+  on('session.cwd', () => ({ value: '/work' }))
+  on('ui.toast', () => ({ value: undefined }))
+  const A = 'sref:name:' + 'A'.repeat(24), B = 'sref:name:' + 'B'.repeat(24)
+  on('process.run', ($, e) => {
+    if (e.argv[2] !== 'mod-values') return { value: { exitCode: 1, stdout: '', stderr: '' } }
+    const q = JSON.parse(e.init.stdin)
+    const displays = Object.fromEntries((q.refs || []).filter(r => r === A).map(r => [r, 'Jo•••']))
+    return { value: { exitCode: 0, stderr: '', stdout: JSON.stringify({ maisecrets: 'mod-values', mode: 'always',
+      links: true, values: {}, displays }) } }
+  })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('ui.render', ($, e) => (globalThis as any).h($.ui.resolve(e).Markdown, { key: 'engine', text: e.props.text }))
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+  // the AI wrote a misleading display after both ids
+  const text = `A ${'⟦' + A + ':Chief Executive⟧'} and B ${'⟦' + B + ':Chief Executive⟧'}`
+  const ui = await $.ui.mount({ plugin: 'maisecrets', surface: 'terminal', component: 'AssistantMessage',
+    props: { text, isFirstOfReply: true } as any, viewport: FULL })
+  await clock.advance(10)
+  await ui.redraw({ text, isFirstOfReply: true } as any)
+  const md = await ui.find({ type: 'Markdown' })
+  expect(md?.props.text).not.toContain('Chief Executive')
+  expect(md?.props.text).toContain('⟦' + A + ':Jo•••⟧')
+  expect(md?.props.text).toContain('[⟦' + B + '⟧]')
+  await ui.unmount()
+})

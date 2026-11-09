@@ -113,7 +113,9 @@ class ResolveTests(unittest.TestCase):
 
     def test_codes_are_normalised_and_a_language_without_a_label_file_adds_nothing(self):
         a = self.resolve({"regions": [" GB ", "generic", "auto", "uk", "ar"]}, "hi_IN")
-        self.assertEqual(a.regions, ("generic", "uk", "in", "ar"))
+        # ar names no rules: left out since 0.9.4 (it loaded none before either), and `source` says so
+        self.assertEqual(a.regions, ("generic", "uk", "in"))
+        self.assertIn("ar has no rules", a.source)
         self.assertLanguages(a.languages, ("en", "cs"), "no hi.txt and no es for ar: English, then the files in order")
 
     def test_a_russian_chinese_or_japanese_system_turns_its_labels_on(self):

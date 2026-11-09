@@ -378,15 +378,21 @@ class RemoteDetector:
 
         def work() -> None:
             try:
-                sent = list(text)
-                for a, b in occupied if self.mask else ():
+                # the service reads the text with its JSON escapes turned into their characters (a guest list of
+                # `\r\nAlexander` was the word nAlexander to it, #39); each span comes back in the offsets of the text
+                plain, starts, ends = unescape_json(text)
+                occ = occupied if starts is None else [(bisect.bisect_right(ends, a), bisect.bisect_left(starts, b))
+                                                       for a, b in occupied]
+                sent = list(plain)
+                for a, b in occ if self.mask else ():
                     sent[a:b] = FILLER * (b - a)
                 if self.__secret:
                     self._prove(deadline, gate)    # no text goes to a listener that cannot prove the secret
                     if time.monotonic() > deadline:
                         raise TimeoutError     # a proof after the deadline: the caller was told "timeout"
                 raw = self._request(self._body("".join(sent)), deadline, gate)
-                box["kept"] = self._keep(text, self._parse(raw, len(text)), occupied, deadline)
+                kept = self._keep(plain, self._parse(raw, len(plain)), occ, deadline)
+                box["kept"] = kept if starts is None else [(starts[a], ends[b - 1], t, sc) for a, b, t, sc in kept]
             except BaseException as exc:  # noqa: BLE001 - handed to the caller as it is
                 box["error"] = exc
         t = threading.Thread(target=work, name="maisecrets-remote", daemon=True)
@@ -463,6 +469,63 @@ GREETING_WORDS = frozenset({"hallo", "hello", "hi", "hey", "moin", "servus", "gr
 PRODUCT_TAILS = frozenset({
     "actions", "agent", "api", "app", "cli", "cloud", "code", "compose", "desktop", "enterprise", "haiku", "hub",
     "opus", "pages", "registry", "runner", "server", "sonnet", "studio", "web", "workspace"})
+
+
+# a JSON escape, also escaped again (`\\n` in a JSON text inside a JSON string): the backslashes and what they stand for
+_ESCAPE_RE = re.compile(r"\\+(?:u([0-9A-Fa-f]{4})|([nrtbf\"/]))")
+_ESCAPED = {"n": "\n", "r": "\r", "t": "\t", "b": "\b", "f": "\f", '"': '"', "/": "/"}
+
+
+def unescape_json(text: str) -> tuple:
+    """(plain, starts, ends): the text with each JSON escape (\\n \\r \\t \\" \\uXXXX, also with more backslashes) as
+    the character it stands for, and for each character of `plain` the start and the end of the characters of `text`
+    it came from. (text, None, None) when the text holds no escape. A span of `plain` from a to b covers
+    text[starts[a]:ends[b - 1]]: whole escapes, never half of one."""
+    if "\\" not in text:
+        return text, None, None
+    plain: list = []
+    starts: list = []
+    ends: list = []
+    at = 0
+    found = list(_ESCAPE_RE.finditer(text))
+    skip = False
+    for n, m in enumerate(found):
+        if skip:
+            skip = False
+            continue
+        for i in range(at, m.start()):
+            plain.append(text[i])
+            starts.append(i)
+            ends.append(i + 1)
+        code = int(m.group(1), 16) if m.group(1) else -1
+        if 0xD800 <= code <= 0xDFFF:
+            # an emoji is two escapes, a high and a low surrogate: one character for both. A lone surrogate stays its
+            # raw text: as a character it cannot be sent as UTF-8, and one emoji failed the request of a whole result
+            nxt = found[n + 1] if n + 1 < len(found) else None
+            low = int(nxt.group(1), 16) if nxt is not None and nxt.start() == m.end() and nxt.group(1) else -1
+            if code <= 0xDBFF and 0xDC00 <= low <= 0xDFFF:
+                plain.append(chr(0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00)))
+                starts.append(m.start())
+                ends.append(nxt.end())
+                at, skip = nxt.end(), True
+                continue
+            for i in range(m.start(), m.end()):
+                plain.append(text[i])
+                starts.append(i)
+                ends.append(i + 1)
+            at = m.end()
+            continue
+        plain.append(chr(code) if code >= 0 else _ESCAPED[m.group(2)])
+        starts.append(m.start())
+        ends.append(m.end())
+        at = m.end()
+    if not plain:
+        return text, None, None
+    for i in range(at, len(text)):
+        plain.append(text[i])
+        starts.append(i)
+        ends.append(i + 1)
+    return "".join(plain), starts, ends
 
 
 def is_product_name(span: str) -> bool:

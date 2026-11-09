@@ -20,6 +20,7 @@ import re
 MODES = ("always", "click", "off")
 MAX_KEYS = 200
 _KEY_RE = re.compile(r"[A-Z][A-Z0-9_]{0,40}_c\d{1,9}")
+_REF_RE = re.compile(r"sref:[A-Za-z0-9_-]{1,32}:[A-Za-z0-9_-]{20,128}")
 
 
 def mode(cfg: dict) -> str:
@@ -54,7 +55,9 @@ def reveal(payload: dict, cfg: dict | None = None) -> dict:
     try:
         got = sref_hooks.fetch(cfg, vault.backend, [ref], session, ("display", "screen"))
     except sref_client.Refused as exc:
-        return {"reason": f"maisecrets: {exc}"}
+        # the client names the plugin before a toast itself: "maisecrets: maisecrets: …" otherwise
+        why = str(exc)
+        return {"reason": why[len("maisecrets: "):] if why.startswith("maisecrets: ") else why}
     if ref not in got:
         return {"reason": "maisecrets: this reference did not come from a gateway result of this session."}
     released, why = _server_release(vault, got, session, "Display", "screen")
@@ -72,8 +75,14 @@ def answer(payload: dict, cfg: dict | None = None, vault=None) -> dict:
     keys = payload.get("keys") if isinstance(payload.get("keys"), list) else []
     session = payload.get("session_id") if isinstance(payload.get("session_id"), str) else None
     keys = [k for k in dict.fromkeys(keys) if isinstance(k, str) and _KEY_RE.fullmatch(k)][:MAX_KEYS]
+    refs = payload.get("refs") if isinstance(payload.get("refs"), list) else []
+    refs = [r for r in dict.fromkeys(refs) if isinstance(r, str) and _REF_RE.fullmatch(r)][:MAX_KEYS]
+    shown = {}
+    if m != "off" and refs and session:
+        from . import sref_notes
+        shown = sref_notes.displays(refs, session)
     if m == "off" or not keys or not session:
-        return {"mode": m, "links": links(), "values": {}}
+        return {"mode": m, "links": links(), "values": {}, "displays": shown}
     v = vault if vault is not None else Vault(cfg)
     values = {}
     for key in keys:
@@ -83,4 +92,4 @@ def answer(payload: dict, cfg: dict | None = None, vault=None) -> dict:
         # a term entry stores its id, never the term (term_files.STORE_PREFIX): its placeholder stays
         if isinstance(value, str) and value and not value.startswith("maisecrets-term:"):
             values[key] = value
-    return {"mode": m, "links": links(), "values": values}
+    return {"mode": m, "links": links(), "values": values, "displays": shown}

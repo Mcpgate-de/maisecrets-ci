@@ -236,6 +236,12 @@ class _Form(str):
     """An encoded form of a value, already derived: _resolved_forms takes it as it is and does not encode it again."""
 
 
+def _a_full_name(value, ref: str) -> bool:
+    """A resolved NAME of two words or more: matched in any case. A single word stays exact (#32)."""
+    return (not isinstance(value, _Form) and re.search(r"(?<![A-Za-z])NAME_c\d", ref) is not None
+            and len(value.split()) >= 2)
+
+
 def _resolved_forms(value: str) -> list[str]:
     """The forms of a value this session resolved that the exact match replaces: the derived forms, and a value of
     4 to 7 characters as it is."""
@@ -261,6 +267,7 @@ def known_value_spans(text: str, vault: Vault, resolved: list[tuple[str, str]] |
             spans += [m.span() for m in pattern.finditer(text)]
         needles.update(f for f in forms if f)
     live = vault.live_fingerprints()
+    folds = vault.live_folds() if live else {}
     if live:
         tokens = list(_TOKEN_SPLIT_RE.split(text))
         for line in text.splitlines():
@@ -277,7 +284,8 @@ def known_value_spans(text: str, vault: Vault, resolved: list[tuple[str, str]] |
                 if len(cand) < _EXACT_MIN_LEN or cand in seen:
                     continue
                 seen.add(cand)
-                if live.get(vault.fingerprint(cand)) is not None:
+                if live.get(vault.fingerprint(cand)) is not None or (
+                        folds and " " in cand and folds.get(vault.fold_fingerprint(cand)) is not None):
                     needles.add(cand if cand in text else _raw_form(token, cand))
     for needle in needles:
         at = text.find(needle)
@@ -307,6 +315,11 @@ def _exact_redact(text: str, vault: Vault, session: str | None, hit: dict, entri
             while at >= 0:
                 spans.append((at, at + len(form), ref, form))
                 at = out.find(form, at + 1)
+        if _a_full_name(value, ref):
+            # a name of two words or more in any case, as whole words: `joachim demo` is the stored Joachim Demo (#39)
+            for m in re.finditer(r"(?<!\w)" + re.escape(value) + r"(?!\w)", out, re.IGNORECASE):
+                if m.group(0) != value:
+                    spans.append((m.start(), m.end(), ref, m.group(0)))
     # all places in the text as it came, joined where they overlap: one replaced first cut a value that overlaps it,
     # and its rest stayed in clear (Codex review, round 6). A joined place gets the references of its outer values
     groups: list = []
@@ -340,6 +353,7 @@ def _exact_redact(text: str, vault: Vault, session: str | None, hit: dict, entri
     live = vault.live_fingerprints(prompt)   # a typed prompt does not hunt a quiet entry (Entry.quiet)
     if not live:
         return out
+    folds = vault.live_folds(prompt)
     found: list[str] = []          # admitted together at the end: one index write, not one per hit
     seen: set[str] = set()
     tokens = list(_TOKEN_SPLIT_RE.split(out))
@@ -358,6 +372,8 @@ def _exact_redact(text: str, vault: Vault, session: str | None, hit: dict, entri
                 continue
             seen.add(cand)
             key = live.get(vault.fingerprint(cand))
+            if key is None and folds and " " in cand:
+                key = folds.get(vault.fold_fingerprint(cand))    # a stored name of two words, in another case
             if key is None:
                 continue
             from .vault import Entry

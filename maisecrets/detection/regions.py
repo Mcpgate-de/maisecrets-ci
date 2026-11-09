@@ -14,6 +14,7 @@ locale) gets the generic PII rules only.
 """
 from __future__ import annotations
 
+import functools
 import os
 import sys
 from dataclasses import dataclass
@@ -110,7 +111,37 @@ def parse_locale(loc: str | None) -> tuple[str | None, str | None]:
 
 
 def label_languages_available() -> list[str]:
-    return sorted(p.stem for p in LABELS_DIR.glob("*.txt"))
+    return list(_label_languages())
+
+
+def _label_languages() -> tuple[str, ...]:
+    return _languages_in(LABELS_DIR)
+
+
+@functools.lru_cache(maxsize=4)
+def _languages_in(folder: Path) -> tuple[str, ...]:
+    return tuple(sorted(p.stem for p in folder.glob("*.txt")))
+
+
+@functools.lru_cache(maxsize=1)
+def known_regions() -> frozenset:
+    """Every region a rule names: the regional rules, the Presidio recognizers and the regions with a language."""
+    import json
+    from . import core
+    presidio = json.loads((core.RULES_DIR / "presidio.json").read_text(encoding="utf-8"))["recognizers"]
+    return frozenset({"generic"} | set(REGION_LANGUAGE) | {d["region"] for d in core.REGIONAL_RULES}
+                     | {core.presidio_region(r["id"]) for r in presidio})
+
+
+def check(active: Active) -> None:
+    """ValueError for a region or a label language that no rule names, as the JSON entry point refuses them."""
+    for what, given, known in (("region", active.regions, known_regions()),
+                               ("label language", active.languages, frozenset(_label_languages()))):
+        if isinstance(given, str):
+            raise ValueError(f"the {what}s must be a tuple of codes, not a str")
+        for code in given:
+            if code not in known:
+                raise ValueError(f"unknown {what} {code!r}; the known ones: {', '.join(sorted(known))}")
 
 
 def resolve(cfg: dict, locale: str | None = None) -> Active:
@@ -121,18 +152,24 @@ def resolve(cfg: dict, locale: str | None = None) -> Active:
     if raw is None:
         raw, source = list(DEFAULT_REGIONS), "default"
     lang, country = parse_locale(system_locale() if locale is None else locale)
+    known = known_regions()
     regions: list[str] = []
     for r in raw:
         r = str(r).strip().lower()
         r = _COUNTRY_ALIAS.get(r, r)
         if r == "auto":
-            if country:
+            if country in known:
                 regions.append(country)
                 source += f", auto = {country} from the system setting"
+            elif country:
+                # a country without rules of its own (is_IS): the generic rules, as before 0.9.4; never an error
+                source += f", auto = {country} from the system setting, which has no rules of its own"
             else:
                 source += ", auto = none (no system setting)"
-        elif r and r != "generic":
+        elif r in known and r != "generic":
             regions.append(r)
+        elif r and r != "generic":
+            source += f", {r} has no rules and is left out"   # a typo or `eu` in a config: never an error
     regions = list(dict.fromkeys(regions))
     lang = _LANGUAGE_ALIAS.get(lang, lang) if lang else None
     # every label file is on (since 0.8.2): a label word of one language in a text of another is common
@@ -154,6 +191,8 @@ def load_labels(language: str) -> list[Label]:
     """rules/labels/<language>.txt: one label per line, three tab-separated fields: the prefilter
     literal, the regex (case-insensitive, matched where detect-secrets matches its own denylist),
     and example words separated by commas. The examples are documentation and test input."""
+    if language not in _label_languages():   # a code goes into a file path: only the shipped names
+        raise ValueError(f"unknown label language {language!r}; the known ones: {', '.join(_label_languages())}")
     out = []
     for n, line in enumerate((LABELS_DIR / f"{language}.txt").read_text(encoding="utf-8").splitlines(), 1):
         if not line.strip() or line.lstrip().startswith("#"):

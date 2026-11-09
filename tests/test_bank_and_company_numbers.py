@@ -97,6 +97,16 @@ class IbanFormTests(unittest.TestCase):
         self.assertEqual(both(f"IBAN {hyphened}"), [("IBAN", hyphened)])
         self.assertEqual(both(f"Konto: {hyphened}."), [("IBAN", hyphened)])
 
+    def test_an_iban_with_no_break_spaces_between_its_groups_is_found(self):
+        # issue #39: a word processor or a bank's web page writes U+00A0 or U+202F between the groups
+        for sep in ("\u00a0", "\u202f"):
+            spaced = sep.join(IBAN_GROUPS)
+            with self.subTest(sep=hex(ord(sep))):
+                self.assertEqual(both(f"IBAN {spaced}"), [("IBAN", spaced)])
+                self.assertEqual(both(f"Konto: {spaced}."), [("IBAN", spaced)])
+        broken = IBAN[:2] + f"{(int(IBAN[2:4]) + 1) % 100:02d}" + IBAN[4:]
+        self.assertEqual(both("IBAN " + "\u00a0".join(broken[i:i + 4] for i in range(0, len(broken), 4))), [])
+
     def test_a_hyphen_does_not_rescue_a_wrong_checksum(self):
         broken = IBAN[:2] + f"{(int(IBAN[2:4]) + 1) % 100:02d}" + IBAN[4:]
         groups = "-".join(broken[i:i + 4] for i in range(0, len(broken), 4))

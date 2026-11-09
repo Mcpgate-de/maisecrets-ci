@@ -33,11 +33,9 @@ class RequestError(Exception):
 
 
 def known_regions() -> frozenset:
-    """Every region a rule names: the regional rules, the Presidio recognizers and the regions with a language."""
-    from . import core, regions
-    presidio = json.loads((core.RULES_DIR / "presidio.json").read_text(encoding="utf-8"))["recognizers"]
-    return frozenset({"generic"} | set(regions.REGION_LANGUAGE) | {d["region"] for d in core.REGIONAL_RULES}
-                     | {core.presidio_region(r["id"]) for r in presidio})
+    """Every region a rule names (regions.known_regions: the library refuses the same codes)."""
+    from .regions import known_regions as known
+    return known()
 
 
 def _no_duplicate_keys(pairs: list) -> dict:

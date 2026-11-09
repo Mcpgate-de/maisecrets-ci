@@ -70,7 +70,7 @@ class AnswerTests(unittest.TestCase):
         from unittest import mock
         with mock.patch.object(self.vault, "status", side_effect=AssertionError("read under off")):
             self.assertEqual(self.ask([self.key], mode="off"), {"mode": "off", "links": show_values.links(),
-                                                                   "values": {}})
+                                                                   "values": {}, "displays": {}})
 
     def test_a_server_token_or_a_reference_is_never_resolved(self):
         # a key without `c` is a server's token; sref:… a gateway's reference: both cost the gateway a resolve
@@ -124,3 +124,45 @@ class DispatchTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DisplayLabelTests(unittest.TestCase):
+    """DS21: the screen labels a gateway reference with the display the gateway gave, from the notes of the session."""
+
+    def setUp(self):
+        from maisecrets import sref_notes
+        self.notes = sref_notes
+        sref_notes.DIR.mkdir(parents=True, exist_ok=True)
+        self.addCleanup(lambda: sref_notes.NOTES.unlink(missing_ok=True))
+
+    def test_a_display_is_kept_only_when_plain_and_given_only_to_its_session(self):
+        import json
+        import time
+        rid, rid2 = "A" * 24, "B" * 24
+        found = {}
+        self.notes._displays({"t": f"⟦sref:name:{rid}:Jo•••⟧ and "
+                                   f"⟦sref:name:{rid2}:x](https://evil.example/)⟧"}, found)
+        self.assertEqual(found, {f"name:{rid}": "Jo•••"}, "markup in a display is not kept")
+        self.notes.NOTES.write_text(json.dumps({self.notes.profile(): {"https://gw.example": {
+            f"name:{rid}": {"t": time.time(), "sessions": ["s1"], "url": "u", "display": "Jo•••"}}}}))
+        ref = f"sref:name:{rid}"
+        a = show_values.answer({"keys": [], "refs": [ref], "session_id": "s1"}, cfg())
+        self.assertEqual(a["displays"], {ref: "Jo•••"})
+        self.assertEqual(show_values.answer({"keys": [], "refs": [ref], "session_id": "s2"}, cfg())["displays"], {})
+        off = show_values.answer({"keys": [], "refs": [ref], "session_id": "s1"}, cfg("off"))
+        self.assertEqual(off["displays"], {})
+
+    def test_a_display_with_a_hidden_character_or_a_value_the_detector_finds_is_not_kept(self):
+        # review of the branch: a bidi override or a zero-width character reorders or hides what the screen draws, and a
+        # gateway that puts a clear address into a display must not get it drawn
+        rid = "C" * 24
+        mail = "jo.demo" + "@nordlicht-demo.de"
+        for display in ("Jo\u202e\u2022\u2022\u2022", "Jo\u200b\u2022\u2022\u2022", "Jo\ufeff\u2022",
+                        "Jo\u2028x", "Jo\u2029x", mail, "+49 171 " + "4829173", "DE89 3704 0044 " + "0532 0130 00"):
+            found = {}
+            self.notes._displays({"t": f"\u27e6sref:name:{rid}:{display}\u27e7"}, found)
+            with self.subTest(display=display):
+                self.assertEqual(found, {})
+        found, masked = {}, "jo\u2022\u2022\u2022@\u2022\u2022\u2022.de"
+        self.notes._displays({"t": f"\u27e6sref:email:{rid}:{masked}\u27e7"}, found)
+        self.assertEqual(found, {f"email:{rid}": masked}, "a masked display stays")

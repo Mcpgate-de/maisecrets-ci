@@ -102,6 +102,9 @@ class Entry:
     # a word that a label rule took in a tool result or a file: hunted in later tool results, never in a typed prompt,
     # where it would block every prompt that uses the word (field report on 0.6.16). Only a new entry gets it
     quiet: bool = False
+    # a name of two words or more: the fingerprint of its case-folded form, so `joachim demo` finds the stored
+    # `Joachim Demo` (#39). None for any other value; a name stored before 0.9.4 gets it when it is stored again
+    fold: str | None = None
     # no purged_at field: from_meta drops it, so the proof below can remove the filter and
     # the owning test sees the TypeError of the field report again
 
@@ -692,6 +695,19 @@ class Vault:
     def fingerprint(self, value: str) -> str:
         return fingerprint(value, self.fp_key())
 
+    def fold_fingerprint(self, value: str) -> str:
+        """The fingerprint of the case-folded form of a name (Entry.fold); a separate input, never an exact one."""
+        return fingerprint("\0casefold\0" + value.casefold(), self.fp_key())
+
+    def fold_of(self, value: str, type_: str) -> str | None:
+        """Entry.fold of a value: a NAME of two words or more only. A single word is matched exactly (#32)."""
+        return self.fold_fingerprint(value) if type_ == "NAME" and len(value.split()) >= 2 else None
+
+    def live_folds(self, prompt: bool = False) -> dict[str, str]:
+        """fold fingerprint -> key for the live names of two words or more, as live_fingerprints filters them."""
+        return {m["fold"]: k for k, m in self._index["entries"].items() if m.get("fold")
+                and not m.get("purged") and not m.get("weak") and not (prompt and m.get("quiet"))}
+
     def live_fingerprints(self, prompt: bool = False) -> dict[str, str]:
         """fingerprint -> key for every entry whose value is still stored and may be hunted in any text. A weak entry
         is not: `DB_PASSWORD=postgres` stored `postgres`, and every later text with the word was redacted and every
@@ -757,6 +773,7 @@ class Vault:
             if session and session not in e.sessions:
                 e.sessions.append(session)
             e.quiet = False             # a value given outside a tool result: hunted in prompts again
+            e.fold = e.fold or self.fold_of(value, e.type)
             e.weak = e.weak and is_weak(kind, value)   # and in every text, unless it is a default word
             self._touch(e)
             return e
@@ -778,7 +795,7 @@ class Vault:
                   created=now, last_used=now,
                   expires=now + ttl, max_expires=now + int(self.cfg.get("max_ttl_seconds", 30 * 86400)),
                   session=session, uses=0, sessions=[session] if session else [],
-                  weak=is_weak(kind, value, tool), quiet=is_quiet(kind, value, tool))
+                  weak=is_weak(kind, value, tool), quiet=is_quiet(kind, value, tool), fold=self.fold_of(value, type_))
         created = time.strftime("%Y-%m-%d %H:%M", time.localtime(now))
         self.backend.put(
             key, value,
@@ -808,6 +825,7 @@ class Vault:
             existing = self._index["by_fingerprint"].get(fp)
             if existing and not self._index["entries"][existing].get("purged"):
                 e = Entry.from_meta(self._index["entries"][existing])
+                e.fold = e.fold or self.fold_of(value, e.type)
                 if session and session not in e.sessions:
                     e.sessions.append(session)
                 if e.weak and e.kind.startswith("remote:") and not is_weak(kind, value, tool):

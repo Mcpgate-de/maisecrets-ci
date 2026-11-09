@@ -219,9 +219,10 @@ def _token(cfg: dict, found: dict, form: dict, deadline: float) -> dict:
             or not isinstance(data.get("refresh_token"), str):
         code = data.get("error") if isinstance(data, dict) else None
         if code == "invalid_grant" and status == 400:
-            raise _Revoked(f"the gateway no longer accepts the login (HTTP {status}); run the login again")
+            raise _Revoked(f"the gateway no longer accepts the login (HTTP {status}); send /maisecrets:sref login "
+                           "again (with the server's name when more than one offers references)")
         raise Refused(f"the gateway gave no token (HTTP {status}"
-                      f"{', ' + code if code in _TOKEN_ERRORS else ''}); run the login again")
+                      f"{', ' + code if code in _TOKEN_ERRORS else ''}); send /maisecrets:sref login again")
     return data
 
 

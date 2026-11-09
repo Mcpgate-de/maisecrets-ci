@@ -26,6 +26,19 @@ for m in d.findings(text, channel="tool"):
 
 A detector with these four arguments reads nothing of the computer it runs on: no home folder, no config.
 
+## From another language: one JSON request per process
+
+The package also runs as a command line program. It reads one JSON request on stdin and writes one JSON response
+on stdout. The response holds the offsets, the type and the rule of each finding, never the value.
+
+```bash
+echo '{"contract": "maisecrets.detect/1", "text": "token: ...", "channel": "tool",
+       "regions": ["generic", "de"], "languages": ["en", "de"]}' | python -m maisecrets.detection
+```
+
+The schema ships with the package (`maisecrets/detection/detect-1.schema.json`). An unknown key, region or label
+language gives an error response with exit status 2.
+
 ## What it finds
 
 - **Secrets** (type `SECRET`): API keys and tokens of many vendors, private keys, passwords and keys after a label,
@@ -39,7 +52,7 @@ and it misses what a rule does not describe. `maisecrets.detection.TYPES` lists 
 ## Links
 
 - [Library documentation](https://github.com/Mcpgate-de/maisecrets/blob/main/docs/DETECTION.md): the API, the
-  arguments, the fields of a hit
+  arguments, the fields of a hit, the JSON entry point and its errors
 - [Changelog](https://github.com/Mcpgate-de/maisecrets/blob/main/CHANGELOG.md)
 - [Issues](https://github.com/Mcpgate-de/maisecrets/issues)
 - License: Apache-2.0

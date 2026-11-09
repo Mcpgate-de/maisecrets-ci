@@ -108,5 +108,53 @@ class WeakEntryTests(unittest.TestCase):
         self.assertEqual(Vault().mark_weak_entries(), 0, "a marked entry is not read again")
 
 
+
+class StoredNameCaseTests(unittest.TestCase):
+    """A stored name of two words or more is found in any case where its exact spelling is found: a line of its own,
+    after a label, and as a value this session resolved (#39: `joachim demo` stayed in clear). One word stays exact,
+    so a word in the store does not spread (#32)."""
+    NAME = "Joachim " + "Demopfeil"
+    WORD = "Demopfeil"
+    tearDownClass = WeakEntryTests.__dict__["tearDownClass"]
+    setUp, bash, prompt = WeakEntryTests.setUp, WeakEntryTests.bash, WeakEntryTests.prompt
+
+    def store(self, value: str) -> None:
+        Vault().put(value, "NAME", "manual", session="s1")
+
+    def test_a_stored_full_name_in_another_case_is_replaced_in_a_tool_result_and_a_prompt(self):
+        self.store(self.NAME)
+        for variant in (self.NAME.lower(), self.NAME.upper(), "jOACHIM dEMOPFEIL"):
+            for text in (variant + "\n", "Name: " + variant + "\n", "contact=" + variant + "\n"):
+                with self.subTest(text=text, path="tool"):
+                    out = self.bash(text)
+                    self.assertTrue(out, "an empty answer passes the result on unchanged")
+                    self.assertNotIn(variant, json.dumps(out))
+                with self.subTest(text=text, path="prompt"):
+                    out = self.prompt(text)
+                    self.assertTrue(out, "an empty answer passes the prompt on unchanged")
+                    self.assertNotIn(variant, json.dumps(out))
+
+    def test_a_full_name_this_session_resolved_is_replaced_in_any_case_as_whole_words(self):
+        from maisecrets.tool_output import _exact_redact, _resolved_values
+        v = Vault()
+        e = v.put(self.NAME, "NAME", "manual", session="s1")
+        self.assertEqual(v.record_resolve(e.key, "s1", "Bash", "test"), "ok")
+        resolved = _resolved_values(v, "s1")
+        for text, want in (("frag " + self.NAME.lower() + " danach", "frag " + e.ref + " danach"),
+                           (self.NAME.upper() + "!", e.ref + "!"),
+                           ("x" + self.NAME.lower() + "y", "x" + self.NAME.lower() + "y"),     # glued: no whole word
+                           ("Joachim kam", "Joachim kam")):
+            with self.subTest(text=text):
+                self.assertEqual(_exact_redact(text, v, "s1", {"n": 0}, [], resolved, []), want)
+
+    def test_a_single_stored_word_stays_an_exact_match(self):
+        self.store(self.WORD)
+        self.assertTrue(self.bash(self.WORD + "\n"), "premise: the exact spelling alone on its line is replaced")
+        for text in (self.WORD.lower() + "\n", "Name: " + self.WORD.upper() + "\n"):
+            with self.subTest(text=text):
+                self.assertEqual(self.bash(text), {})
+        self.assertIsNone(json.loads(INDEX.read_text())["entries"]["NAME_c1"].get("fold"))
+
+
 if __name__ == "__main__":
     unittest.main()

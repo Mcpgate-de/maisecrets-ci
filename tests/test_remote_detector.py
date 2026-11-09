@@ -24,12 +24,14 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
 
-from maisecrets.detection import NO_REFERENCES, NO_SOURCES, Active, Detector, Host, contract  # noqa: E402
+from maisecrets.detection import (  # noqa: E402
+    NO_REFERENCES, NO_SOURCES, Active, Detector, Host, ScanIncomplete, contract)
 from maisecrets.detection import remote as rm  # noqa: E402
 from test_detection_entry_point import problems  # noqa: E402
 
 NAME = "Anna Kowalczyk"                       # a name no deterministic rule takes
 PHONE = "+49 171 " + "4829173"                # a finding of the rules (the number of docs/DETECTION.md)
+J = "".join
 TEXT = f"Please ask {NAME} about the build; call her at {PHONE} today."
 
 
@@ -545,11 +547,20 @@ class RemoteDetectorTests(unittest.TestCase):
         self.assertEqual((r.findings, r.remote.state, svc.received), (self.base, "too_long", []))
 
     def test_a_deadline_that_has_passed_sends_nothing(self):
+        # since 0.9.4 the deadline bounds the rules too: they raise ScanIncomplete, and the service is not asked
         svc = Service("hf")
         self.addCleanup(svc.close)
-        r = self.det.findings_with(TEXT, channel="tool", remote=rm.RemoteDetector(svc.url),
+        with self.assertRaises(ScanIncomplete):
+            self.det.findings_with(TEXT, channel="tool", remote=rm.RemoteDetector(svc.url),
                                    deadline=time.monotonic() - 1)
-        self.assertEqual((r.findings, r.remote.reason, svc.received), (self.base, "timeout", []))
+        self.assertEqual(svc.received, [])
+
+    def test_a_request_that_starts_past_the_deadline_sends_nothing(self):
+        # the rules ended in time and the deadline passed before the request: a timeout, nothing sent
+        svc = Service("hf")
+        self.addCleanup(svc.close)
+        spans, status = rm.RemoteDetector(svc.url).ask(TEXT, [], time.monotonic() - 1)
+        self.assertEqual((spans, status.reason, svc.received), ([], "timeout", []))
 
     def test_only_a_loopback_or_unix_address_without_allow_network(self):
         for url in ("http://127.0.0.1:1/", "http://localhost:1/", "http://[::1]:1/", "unix:/tmp/x.sock"):
@@ -619,6 +630,76 @@ class RemoteDetectorTests(unittest.TestCase):
             with self.subTest(reason=reason):
                 r = rm.Result(base.findings, rm.RemoteStatus("hf", "m", "unavailable", reason))
                 self.assertEqual(problems(contract.result_response(self.det, r), schema), [])
+
+
+
+class JsonEscapedTextTests(unittest.TestCase):
+    """The name service reads a JSON-escaped text with its escapes as the characters they stand for, and each span
+    comes back in the offsets of the original text, whole escapes included (#39: a calendar guest list arrived as
+    `\r\nAlexander`, which the service read as the word nAlexander)."""
+    FIRST = "Alexander " + "Demo"
+    SECOND = "Oleg " + "Beispiel"
+    THIRD = "Ren" + "\\u00e9 " + "Musterfrau"      # an escaped letter inside the name
+
+    @staticmethod
+    def tokenizer_names(*names):
+        def answer(text):
+            out = []
+            for name in names:
+                # a name glued to a letter is no word of its own, as a tokenizer reads `nAlexander`
+                for m in re.finditer(r"(?<![A-Za-z])" + re.escape(name) + r"(?![A-Za-z])", text):
+                    out.append({"entity_group": "PER", "start": m.start(), "end": m.end(), "score": 0.97})
+            return out
+        return answer
+
+    def found(self, text, svc):
+        self.addCleanup(svc.close)
+        r = detector().findings_with(text, channel="tool", remote=rm.RemoteDetector(svc.url))
+        return r, [text[m.start:m.end] for m in r.findings if m.kind.startswith("remote:")]
+
+    def test_a_name_after_an_escaped_line_break_is_found_at_its_place_in_the_text(self):
+        plain_third = "René Musterfrau"
+        for crlf in ("\\r\\n", "\\\\r\\\\n", "\\n"):
+            text = J(["Guests", crlf, "- organiser", crlf, self.FIRST, crlf, self.SECOND, crlf, self.THIRD, crlf,
+                      "end"])
+            svc = Service("hf", answer=self.tokenizer_names(self.FIRST, self.SECOND, plain_third))
+            with self.subTest(crlf=crlf):
+                r, names = self.found(text, svc)
+                self.assertEqual(names, [self.FIRST, self.SECOND, self.THIRD])
+                self.assertNotIn("\\", svc.received[-1]["inputs"])     # the service read the characters
+                self.assertEqual(r.remote.state, "ok")
+
+    def test_an_escaped_emoji_next_to_a_name_and_a_lone_surrogate_do_not_stop_the_request(self):
+        # review of the branch: an emoji arrives as two \uXXXX escapes (a surrogate pair); as two lone surrogates the
+        # body could not be encoded, and the whole result lost its name detection ("answer")
+        emoji = "\\ud83d" + "\\ude00"
+        for text, want in ((J(["Danke ", emoji, " ", self.FIRST, "\\n"]), [self.FIRST]),
+                           (J(["x \\ud83d y\\n", self.FIRST, "\\n"]), [self.FIRST]),      # a lone high surrogate
+                           (J(["\\ude00", "\\n", self.FIRST]), [self.FIRST])):         # a lone low surrogate
+            svc = Service("hf", answer=self.tokenizer_names(self.FIRST))
+            with self.subTest(text=text):
+                r, names = self.found(text, svc)
+                self.assertEqual((r.remote.state, names), ("ok", want))
+        plain, starts, ends = rm.unescape_json("a " + emoji + " b")
+        self.assertEqual(plain, "a \U0001F600 b")
+        self.assertEqual(J(["a ", emoji, " b"])[starts[2]:ends[2]], emoji)   # one character for both escapes
+
+    def test_a_finding_of_the_rules_inside_an_escaped_text_still_goes_out_as_filler(self):
+        text = J(["Call\\n", self.FIRST, "\\nat ", PHONE, "\\n"])
+        svc = Service("hf", answer=self.tokenizer_names(self.FIRST))
+        _r, names = self.found(text, svc)
+        self.assertEqual(names, [self.FIRST])
+        sent = svc.received[-1]["inputs"]
+        self.assertNotIn(PHONE, sent)
+        self.assertIn(rm.FILLER * len(PHONE), sent)
+
+    def test_the_map_covers_whole_escapes_and_a_text_without_one_is_sent_as_it_is(self):
+        text = "a\\u00e9b\\\\nc"
+        plain, starts, ends = rm.unescape_json(text)
+        self.assertEqual(plain, "aéb\nc")
+        self.assertEqual([text[a:b] for a, b in zip(starts, ends)], ["a", "\\u00e9", "b", "\\\\n", "c"])
+        self.assertEqual(rm.unescape_json("no escape here"), ("no escape here", None, None))
+        self.assertEqual(rm.unescape_json("a \\ b")[1], None)     # a backslash before no escape letter stays
 
 
 if __name__ == "__main__":

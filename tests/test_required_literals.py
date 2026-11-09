@@ -51,7 +51,7 @@ class RequiredLiteralTests(unittest.TestCase):
     def test_rules_without_another_gate_get_their_literals(self):
         self.assertGreater(len(self.gated), 30, "premise: most ungated rules get a gate")
         by_id = {r.id: r.need for r in self.gated}
-        self.assertEqual(by_id.get("email-percent-encoded"), ("%40",))
+        self.assertEqual(by_id.get("email-percent-encoded"), ("%40", "\\u0040"))   # the @ encoded, or its JSON escape
         for r in self.gated:
             self.assertFalse(r.keywords or r.prefix[0], f"{r.id} has another gate already")
 

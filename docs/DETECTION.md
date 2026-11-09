@@ -49,12 +49,12 @@ for m in d.findings(text, channel="tool", path="notes.txt"):
 
 | Name | What |
 |---|---|
-| `Detector` | A detector with its own configuration: `scan`, `findings`, `rules`, `allow_list`, `explain_allowed`, `regions`, `reset`, `slowest_user_rule`, `activate`, `label_names_a_number` (since 0.8.30, below). `scan` and `findings` take the text as a `str` (a subclass of `str` too) and raise `TypeError` for anything else, `bytes` and `None` included (since 0.8). They take an optional keyword argument `fields` (since 0.8, additive): the field names of values in the text, below |
-| `Match` | One hit: `kind` (the rule id), `type`, `value`, `start`, `end`. `start` and `end` count the Unicode code points of the `str` that was scanned, and `text[start:end] == value` |
+| `Detector` | A detector with its own configuration: `scan`, `findings`, `rules`, `allow_list`, `explain_allowed`, `regions`, `reset`, `slowest_user_rule`, `activate`, `label_names_a_number` (since 0.8.30, below). `scan` and `findings` take the text as a `str` (a subclass of `str` too) and raise `TypeError` for anything else, `bytes` and `None` included (since 0.8). A `channel` other than `prompt` or `tool` raises `ValueError` (since 0.9.4). They take an optional keyword argument `fields` (since 0.8, additive): the field names of values in the text, below |
+| `Match` | One hit: `kind` (the rule id), `type`, `value`, `start`, `end`. Its `repr()` and `str()` show the rule, the type, the offsets and the length, never the value (since 0.9.4). `start` and `end` count the Unicode code points of the `str` that was scanned, and `text[start:end] == value` |
 | `Sources`, `NO_SOURCES` | What a scan takes besides the built-in rules |
 | `References`, `NO_REFERENCES` | The reference form of the caller |
 | `Host`, `THIS_COMPUTER` | What a scan reads of its computer |
-| `Active`, `resolve_regions` | The regions and label languages, and their resolution from a config (`locale=` to give the locale) |
+| `Active`, `resolve_regions` | The regions and label languages, and their resolution from a config (`locale=` to give the locale). A `Detector` given an `Active` with a region or a label language that the JSON entry point does not know raises `ValueError`, which names the known codes (since 0.9.4; before, an unknown region was ignored and an unknown language raised `FileNotFoundError`) |
 | `user_rule` | A rule of your own, for `Sources.user_rules` (returns a `Rule`) |
 | `TYPES` | The type vocabulary: each type a `Match` can carry, with its `family` and `class` (`maisecrets/detection/types.json`) |
 | `ScanIncomplete` | Raised by a scan past its `deadline=` (since 0.8.24): `findings`, `reason`, `read`, below |
@@ -355,8 +355,10 @@ for leaf, m in findings_by_leaf(detector, response):     # layout "lines", the d
 
 ## A deadline: stop a scan in time (since 0.8.24)
 
-`Detector.findings(text, ..., deadline=)` and `leaves.findings_by_leaf(detector, obj, ..., deadline=)` take a
-`time.monotonic()` value, as `findings_with()` does for the remote step. Without it nothing changes.
+`Detector.findings(text, ..., deadline=)`, `Detector.findings_with(text, ..., deadline=)` and
+`leaves.findings_by_leaf(detector, obj, ..., deadline=)` take a `time.monotonic()` value. Without it nothing changes.
+`findings_with()` bounds both its steps by it: the rules as `findings()` does (since 0.9.4; before, only the remote
+step), and the remote request.
 
 Past the deadline the scan stops between rules, between the hits of a rule (since 0.8.25), between its steps (the
 personal data, the cleaned copy, the terms) and between record segments. It raises `maisecrets.detection.ScanIncomplete`:
@@ -420,7 +422,8 @@ response = contract.result_response(detector, result)    # the same as JSON (mai
 - **A failing service changes nothing.** Slow (over `timeout`, or past the `deadline` of `findings_with`, one budget
   for several texts), refused, an HTTP error, or an answer with any item it cannot read: the findings of the rules
   alone, and `result.remote` says `unavailable` and why. A text longer than `max_chars` is not sent (`too_long`).
-  Nothing raises.
+  Nothing of the service raises. A deadline that passes while the rules scan raises `ScanIncomplete`, as in
+  `findings()` (since 0.9.4), and the service is not asked.
 - **No network unless asked.** The URL must be a loopback address (127.0.0.0/8, `::1`, `localhost`) or a Unix socket
   (`unix:/path`), else `RemoteDetector` raises `ValueError`; `allow_network=True` allows any `http` or `https` host.
   A host name is looked up at each request: without `allow_network` every address must be loopback, and the

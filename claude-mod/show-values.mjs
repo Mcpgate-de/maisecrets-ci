@@ -43,6 +43,9 @@ let asking = false
 const open = new Map()    // click: the text's address -> keys shown until CLICK_MS
 let hinted = false
 const revealed = new Map()  // a gateway reference -> its value, for this session
+// a gateway reference -> the display the gateway gave with it ('' when none): the label of its link, never the text the
+// AI wrote after the id (DS21 of the specification: the AI could label one reference with another person's display)
+const labels = new Map()
 let revealing = false
 let reveals = 0
 
@@ -61,11 +64,16 @@ async function runValues($, stdin) {
   return null
 }
 
-async function ask($, keys) {
+async function ask($, asked) {
+  let keys = asked
   // the id of each question: /clear and a resume start another session without session.start
   const id = await $.session.id()
-  if (id !== session) { session = id; cache.clear(); absent.clear(); open.clear(); revealed.clear(); reveals = 0 }
-  const r = await runValues($, JSON.stringify({ keys, session_id: session }))
+  if (id !== session) {
+    session = id; cache.clear(); absent.clear(); open.clear(); revealed.clear(); labels.clear(); reveals = 0
+  }
+  const refs = keys.filter(k => k.startsWith('sref:'))
+  keys = keys.filter(k => !k.startsWith('sref:'))
+  const r = await runValues($, JSON.stringify({ keys, refs, session_id: session }))
   if (!r) return false
   let a
   try { a = JSON.parse(r.stdout) } catch { return false }
@@ -75,6 +83,8 @@ async function ask($, keys) {
   links = a.links !== false
   if (mode === 'off') { cache.clear(); absent.clear(); open.clear(); revealed.clear() }
   const values = a.values && typeof a.values === 'object' ? a.values : {}
+  const shown = a.displays && typeof a.displays === 'object' ? a.displays : {}
+  for (const ref of refs) labels.set(ref, typeof shown[ref] === 'string' ? shown[ref] : '')
   for (const k of keys) {
     if (typeof values[k] === 'string') {
       cache.delete(k)
@@ -82,7 +92,7 @@ async function ask($, keys) {
       if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value)
     } else absent.add(k)
   }
-  return was !== mode || Object.keys(values).length > 0
+  return was !== mode || Object.keys(values).length > 0 || refs.length > 0
 }
 
 // one question for every key the drawings of this moment miss, outside the drawing (a ui.render hook may not act)
@@ -120,6 +130,7 @@ function rewrite(text, address) {
 }
 
 const isSecretRef = (ref) => ref.startsWith('sref:secret:')
+const label = (ref) => labels.get(ref) ? `\u27e6${ref}:${labels.get(ref)}\u27e7` : `\u27e6${ref}\u27e7`
 // a secret of this computer's store is never drawn either, as a gateway's (consistent): its click copies it
 const isSecretKey = (k) => k.startsWith('SECRET_')
 const SECRET_TOAST = 'Copied. The secret stays hidden on the screen.'
@@ -130,8 +141,8 @@ function rewriteLine(text, shown) {
       // a gateway's reference: a link that a click resolves; then the value in its place, a click copies it. A secret
       // is never drawn (a screenshot, a shared screen; the desktop app put its own masking control on a token, whose
       // click opened the link in the browser): its click copies it at once
-      if (isSecretRef(ref)) return `[${all}](${LINK}${ref})`
-      return revealed.has(ref) ? `[${code(revealed.get(ref))}](${LINK}copy/${ref})` : `[${all}](${LINK}${ref})`
+      if (isSecretRef(ref)) return `[${label(ref)}](${LINK}${ref})`
+      return revealed.has(ref) ? `[${code(revealed.get(ref))}](${LINK}copy/${ref})` : `[${label(ref)}](${LINK}${ref})`
     }
     if (!k) return all
     const v = cache.get(k)
@@ -244,6 +255,7 @@ function draw($, e, text, address, wrap) {
   // a message drawn outside the viewport (onScreen null) asks for nothing: it asks when a scroll brings it in
   if (e.props?.onScreen !== null) {
     for (const k of keys) if (!cache.has(k) && !absent.has(k)) wanted.add(k)
+    for (const r of refs) if (!labels.has(r)) wanted.add(r)
     fetchLater($)
   }
   if (mode === 'off' || (!keys.some(k => cache.has(k)) && !refs.length)) return null

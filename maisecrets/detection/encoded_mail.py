@@ -24,12 +24,15 @@ _ENCODED_MAIL_TO_RE = _LazyRx(r"(?i)(?<![/\w])(?:sent|send|mailed|forwarded|repl
 
 def _encoded_mail_expected(text: str, start: int, end: int) -> bool:
     """Where an address with its @ as %40 is an address: after a mail word or `=` (_ENCODED_MAIL_CONTEXT_RE), after
-    `sent to` in prose, or as a whole cell of a CSV row (a column of a roster export, holdout 2026-10-15)."""
+    `sent to` in prose, or as a whole cell of a CSV row (a column of a roster export, holdout 2026-10-15). The JSON
+    escape \\u0040 is an @ wherever it stands, and a %40 address may be a whole segment of a URL path (#39)."""
+    value = text[start:end]
+    if "\\u0040" in value or _in_url_path(text, start, end):
+        return not _an_asset_or_version(value)
     line = _line_start(text, start)
     if _ENCODED_MAIL_CONTEXT_RE.search(text, max(line, start - 40), start) or _ENCODED_MAIL_TO_RE.search(
             text, max(line, start - 40), start):
         return True
-    value = text[start:end]
     # a cell may have spaces around it (`Dana, name%40host.de`) and quotes ("name%40host.de"), in that order
     while start > line and text[start - 1] == " ":
         start -= 1
@@ -49,9 +52,8 @@ def _encoded_mail_expected(text: str, start: int, end: int) -> bool:
     sep = before or (after if after in (",", ";", "\t") else ",")
     if not before and not after:
         return False   # a value alone on its line is no cell of a row
-    labels = value.rsplit("%40", 1)[-1].lower().split(".")
-    if labels[-1] in _FILE_EXTENSIONS or sum(x.isdigit() for x in labels) >= 2:
-        return False   # logo%402x.png is an asset at twice the size, pkg%401.0.0-beta.rc a version
+    if _an_asset_or_version(value):
+        return False
     import csv   # here: the hooks pay for every module at import
     col = len(next(csv.reader([text[line:start + 1]], delimiter=sep), [""])) - 1
     # the first five lines of the text, and up to 20 lines above the row within 4,000 characters: a header after a
@@ -65,6 +67,25 @@ def _encoded_mail_expected(text: str, start: int, end: int) -> bool:
                 and _names_a_mail_column(cells[col])):
             return True
     return False
+
+
+
+def _an_asset_or_version(value: str) -> bool:
+    """logo%402x.png is an asset at twice the size, pkg%401.0.0-beta.rc a version: no address."""
+    labels = value.replace("\\u0040", "%40").rsplit("%40", 1)[-1].lower().split(".")
+    return labels[-1] in _FILE_EXTENSIONS or sum(x.isdigit() for x in labels) >= 2
+
+
+# a URL before a path segment: scheme://host/ and any segments, up to the segment of the value
+_URL_PATH_BEFORE_RE = _LazyRx(r"[A-Za-z][A-Za-z0-9+.-]{1,15}://[^\s/?#]+/(?:[^\s/?#]*/)*$")
+
+
+def _in_url_path(text: str, start: int, end: int) -> bool:
+    """The value is a whole segment of a URL path: after a / of the path, before /, ?, # or the end of the URL
+    (https://click.host.example/ls/name%40host.example/abc, a link of a mail tracker)."""
+    if text[start - 1:start] != "/" or not (end == len(text) or text[end] in "/?#\"'<>) \t\r\n"):
+        return False
+    return bool(_URL_PATH_BEFORE_RE.search(text, max(0, start - 300), start))
 
 
 # a header cell of a column of addresses: a mail word in a few languages, or a word that names who an address
@@ -97,3 +118,32 @@ def _names_a_mail_column(cell: str) -> bool:
     if words and words[-1] in _OWNER_TAILS and len(words) >= 2 and words[-2] in _OWNER_WORDS:
         return True
     return bool(words) and (words[-1] in _OWNER_WORDS or words[-2:] in _OWNER_PAIRS)
+
+
+# the user and the password of a URL up to its @: scheme://user:<password>@ (the classes of url-password-signs)
+_URL_USERINFO_RE = _LazyRx(r"(?<![\w+.-])[A-Za-z][A-Za-z0-9+.-]{1,15}://([^\s:/?#\[\]@'\"`<>]{1,64}):"
+                           r"([^\s/@'\"`<>]{1,128})$")
+
+
+def _url_userinfo(text: str, at: int) -> tuple[int, int] | None:
+    """(start, end) of the password of a URL whose user information ends at the @ at `at`, else None: the local part
+    of an address there is the password (issue #39). A password equal to the user is a default (guest:guest), as
+    ds-basic-auth reads it: an empty span, so no hit at all."""
+    if at <= 0 or text[at] != "@" or "://" not in text[max(0, at - 220):at]:
+        return None
+    m = _URL_USERINFO_RE.search(text, max(0, at - 220), at)
+    if not m:
+        return None
+    return (m.start(2), m.end(2) if m.group(1).lower() != m.group(2).lower() else m.start(2))
+
+
+def _url_password(text: str, start: int, pw: str, enabled, allow: bool) -> str:
+    """What the address rule does with the password of a URL it took: "drop" a default (empty), a placeholder or a
+    reference; keep its EMAIL hit, as before 0.9.4, for one under 6 characters or with ds-basic-auth off; else
+    "secret"."""
+    from . import core as c   # at the call: the core is loaded by then
+    if not pw or c.looks_like_placeholder(pw) or c._references().hit_is_a_reference(text, start, pw):
+        return "drop"
+    off = (enabled is not None and not {"ds-basic-auth", "detect-secrets:ds-basic-auth"} & set(enabled)) or (
+        allow and c.switched_off("ds-basic-auth", c.allow_list()[1]))
+    return "email" if len(pw) < 6 or off else "secret"

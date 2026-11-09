@@ -138,6 +138,35 @@ class PercentEncodedEmailTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(found(text), [("EMAIL", address)])
 
+    def test_an_encoded_address_as_a_whole_segment_of_a_url_path_is_an_email(self):
+        # gateway shadow comparison (#39 follow-up): the link of a mail tracker carries the address as a path segment
+        address = J(["jo.demo", "%40", "nordlicht-demo", ".de"])
+        for text in (J(["https://click.demo-firma.de/ls/", address, "/abc"]),
+                     J(["https://click.demo-firma.de/ls/", address, "?u=1"]),
+                     J(["https://click.demo-firma.de/ls/", address, "#top"]),
+                     J(["Link: https://t.demo-firma.de/u/", address]), J(['"https://t.demo-firma.de/', address, '"'])):
+            with self.subTest(text=text):
+                self.assertEqual(found(text), [("EMAIL", address)])
+
+    def test_a_path_segment_that_is_an_asset_a_version_or_no_whole_segment_stays_text(self):
+        for text in (J(["https://cdn.demo-firma.de/img/logo", "%40", "2x.png"]),
+                     J(["https://reg.demo-firma.de/pkg/left-pad", "%40", "1.3.0/x"]),
+                     J(["https://cdn.demo-firma.de/npm/foo", "%40", "nordlicht-demo.de.js"]),
+                     J(["https://cdn.demo-firma.de/a/id:", "jo.demo", "%40", "nordlicht-demo.de/b"]),
+                     J(["a/", "jo.demo", "%40", "nordlicht-demo.de/b"])):
+            with self.subTest(text=text):
+                self.assertEqual(found(text), [])
+
+    def test_an_address_with_the_json_escape_of_its_at_is_an_email(self):
+        # a JSON text that escapes the @ as \u0040; an asset and a version stay text there too
+        address = J(["jo.demo", "\\u0040", "nordlicht-demo", ".de"])
+        for text in (J(['{"to": "', address, '"}']), J(['{"note": "write to ', address, ' today"}'])):
+            with self.subTest(text=text):
+                self.assertEqual(found(text), [("EMAIL", address)])
+        for text in (J(['{"img": "logo', "\\u0040", '2x.png"}']), J(['{"dep": "pkg', "\\u0040", '1.2.3"}'])):
+            with self.subTest(text=text):
+                self.assertEqual(found(text), [])
+
     def test_the_display_masks_an_encoded_address_like_a_plain_one(self):
         shown = pii_display.display(J(["jane.doe", "%40", "firma-xyz", ".de"]), "email")
         self.assertIn(pii_display.BULLET, shown)

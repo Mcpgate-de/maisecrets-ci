@@ -294,7 +294,7 @@ class SrefClientTests(unittest.TestCase):
         self.srv.withdraw()
         with self.assertRaises(S.Refused) as cm:
             S.resolve(self.cfg, self.backend, self.found, [ref], "local_file", "/tmp/a.txt")
-        self.assertIn("run the login again", str(cm.exception))
+        self.assertIn("send /maisecrets:sref login again", str(cm.exception))
         self.assertFalse(S.logged_in(self.backend, self.found["origin"]), "a refused refresh token is not kept")
 
     def test_a_string_of_the_gateway_never_reaches_an_error_message(self):

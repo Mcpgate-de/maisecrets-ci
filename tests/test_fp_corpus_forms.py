@@ -186,5 +186,34 @@ class FormsRegistryTests(unittest.TestCase):
                 self.assertTrue(spec.rule_class.startswith("form:" if typ == "SECRET" else "pii:"))
 
 
+
+class GermanSalutationFullNameTests(unittest.TestCase):
+    """After a salutation, Herr or Frau with a title and a first name and a surname greets one person: the whole name
+    is the hit, as after "Dear Mr." (issue #39: the surname stayed in the clear). Without a salutation, or with a
+    noun, a role or a template word as the second word, only the first word stays the name."""
+    FIRST, LAST = "Jonas", "Wei" + "gand"
+    FULL = FIRST + " " + LAST
+
+    def spans(self, text: str) -> list:
+        return [(m.start, m.end) for m in scan(text, "tool", ("de",)) if m.kind == "name-after-german-title"]
+
+    def test_a_full_name_after_a_salutation_and_a_title_is_masked_whole(self):
+        for text in ("Sehr geehrter Herr Dr. " + self.FULL + ", vielen Dank.", "Hallo Herr Dr. " + self.FULL + ",",
+                     "Sehr geehrte Frau Prof. Dr. " + self.FULL + ",\nanbei die Unterlagen.",
+                     "Sehr geehrter Herr " + self.FULL + ",", "Liebe Frau " + self.FULL + "!",
+                     "Guten Tag Herr Dr. " + self.FULL):
+            with self.subTest(text=text):
+                self.assertEqual(self.spans(text), [(text.index(self.FULL), text.index(self.FULL) + len(self.FULL))])
+
+    def test_without_a_salutation_or_with_a_second_word_that_is_no_name_only_the_first_word_is_the_name(self):
+        for text, want in (("Bitte gib Herrn " + self.LAST + " Bescheid.", self.LAST),
+                           ("Gestern rief Herr Dr. " + self.FULL + " an.", self.FIRST),
+                           ("Hallo Herr " + self.LAST + " Geschäftsführer,", self.LAST),
+                           ("Sehr geehrter Herr " + self.LAST + " Nachname,", self.LAST),
+                           ("Hallo Herr " + self.FULL + " und Frau Muster", self.FIRST)):
+            with self.subTest(text=text):
+                self.assertEqual(self.spans(text)[:1], [(text.index(want), text.index(want) + len(want))])
+
+
 if __name__ == "__main__":
     unittest.main()

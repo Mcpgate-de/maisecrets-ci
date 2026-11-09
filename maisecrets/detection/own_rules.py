@@ -60,6 +60,13 @@ _SENTENCE_VALUE = (r"(?:\*\*|[\"'`\u201e\u201c\u201a\u2018\u00ab\u00bb\u300c\u30
                    r"(?:\*\*|[\"'`\u201c\u201d\u2018\u2019\u00ab\u00bb\u300d\u300f])?"
                    r"(?=[.,;:?)\u3002\u2026]*(?:[\s\"'`\u201c\u201d\u2018\u2019\u00ab\u00bb" + _CJK + r"]|$))")
 
+# the end of the last label of an address. A letter or a label that goes on ends no address: `user@host.dev-box` and
+# `user@mail.server2` are logins at a host, not user@host.dev (the alphabetic last label of 2026-09-26 must not end
+# inside a label), and a Latin, Cyrillic or Greek letter glued to it ends nothing (0.6.24). Glued and outside the
+# address (#39): an underscore, hyphens that no label character follows (`<address>-----`), four digits or more
+# (`<address>0151 2345678`, a phone number without its space) and a CJK letter
+_MAIL_END = r"(?!(?!_|-+(?![A-Za-z0-9])|\d{4,}(?![\dA-Za-z.])|[" + _CJK + r"])[\w-])"
+
 
 OWN_RULES: list[dict] = [
     # ?token=… / &api_key=… in a URL
@@ -75,7 +82,7 @@ OWN_RULES: list[dict] = [
      # rule took neither, and the IP rule masked only the literal (ai-gateway #1764)
      "regex": r"(?:(?=[\w.+-]{0,64}@|(?<![\w.+-])[\w.+-]{65,}@)"
               r"(?:\b[\w.+-]{1,64}|(?<![\w.+-])[\w.+-]{64,}|[\w.+-]{64})"
-              r"@[\w-]{1,63}(?:\.[\w-]{1,63})*\.[A-Za-z]{2,63}(?!-|" + _NOT_CJK_WORD + r")"
+              r"@[\w-]{1,63}(?:\.[\w-]{1,63})*\.[A-Za-z]{2,63}" + _MAIL_END +
               r"|(?<![\w\"\\])\"(?![\s:,])(?=[^\"\\\n]{0,63}[^\w.+\"\\\n-])[^\"\\\n]{1,64}(?<!\s)\"@[\w-]{1,63}(?:\.[\w-]{1,63})*\.[A-Za-z]{2,63}"
               r"(?![\w-])"
               r"|(?<![\w.+-])[\w.+-]{1,64}@\[(?:(?i:ipv6):[0-9A-Fa-f:.]{2,45}|\d{1,3}(?:\.\d{1,3}){3})\])"},
@@ -87,8 +94,9 @@ OWN_RULES: list[dict] = [
               r"(?![A-Za-z0-9])"},
     {"id": "email-percent-encoded", "type": "EMAIL", "validator": "person_email_encoded",
      # the @ as %40 in a query string, a form body, an access log (public benchmark, 2026-10-11: 7 addresses
-     # passed); scan() keeps it only where an address is expected (_ENCODED_MAIL_CONTEXT_RE)
-     "regex": r"(?:(?<![\w.+%-])|(?<=(?i:mailto%3a))|(?<=%3[Dd]))[\w.+-]{1,64}%40"
+     # passed); scan() keeps it only where an address is expected (_ENCODED_MAIL_CONTEXT_RE). Also the JSON escape
+     # \u0040 of the @ (#39)
+     "regex": r"(?:(?<![\w.+%-])|(?<=(?i:mailto%3a))|(?<=%3[Dd]))[\w.+-]{1,64}(?:%40|\\u0040)"
               r"[\w-]{1,63}(?:\.[\w-]{1,63})*\.[A-Za-z]{2,63}(?![\w-])"},
     {"id": "phone", "type": "PHONE",
      # a CJK letter before or after the number is a boundary, as in the e-mail rule

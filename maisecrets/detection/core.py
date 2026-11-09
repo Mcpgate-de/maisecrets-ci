@@ -56,6 +56,7 @@ from . import deadline as _deadline
 from .deadline import ScanIncomplete  # noqa: F401  the library's name: maisecrets.detection.ScanIncomplete
 from . import registry as _registry
 from . import fields as _fields
+from . import regions as _regions
 from .label_number import LabelNumbers as _LabelNumbers
 from .prefilter import NONE as _NO_PREFIX, any_keyword as _any_keyword, lacks_prefix as _lacks_prefix  # noqa: F401
 from .prefilter import lacks_required as _lacks_required, response_rules as _response_rules
@@ -75,6 +76,7 @@ from .value_checks import (  # noqa: F401
     _a_version, _LABEL_WORDS_TAIL_RE, _bitlocker_key_ok,
     _re2_to_python, _POSIX_CLASSES, shannon_entropy, ENTROPY_BY_ALPHABET, ENTROPY_BY_ALPHABET_RULES, _B62, _ALPHABETS,
     alphabet_of, _base64_of_text, _entropy_ok, _luhn_ok, IBAN_LENGTH, _iban_ok, _RESOLVER_IPS, _public_ip,
+    _IBAN_GROUP_SEP_UPSTREAM, PRESIDIO_GROUP_SEP,
     _de_tax_id_ok, _de_social_security_ok, _de_health_insurance_ok, _de_lanr_ok, _de_vat_id_ok, _B64_PEM_PRIVATE_RE,
     _OPENSSH_MAGIC, _pem_body_ok, _B64_LINE_RE, _B64_PEM_STARTS, _b64_needles, _PRIVATE_KEY_NEEDLES, _PEM_END_RE,
     _pem_ended, _base64_wrapped_end, _base64_pem_ok, _us_ssn_ok, _DS_TEMPLATED, _DS_INDIRECT, _DS_REFERENCE,
@@ -99,11 +101,14 @@ from .value_checks import (  # noqa: F401
     _PARTS, _PLACEHOLDER_PART_RE, looks_like_placeholder, _ssh_algorithm_name, _mail_shaped_id,
 )
 from .encoded_mail import (  # noqa: F401
-    _ENCODED_MAIL_CONTEXT_RE, _ENCODED_MAIL_TO_RE, _encoded_mail_expected, _MAIL_COLUMN_RE, _OWNER_WORDS,
+    _ENCODED_MAIL_CONTEXT_RE, _ENCODED_MAIL_TO_RE, _encoded_mail_expected, _MAIL_COLUMN_RE, _OWNER_WORDS, _url_userinfo,
+    _url_password,
     _OWNER_PAIRS, _OWNER_TAILS, _FILE_EXTENSIONS, _names_a_mail_column,
 )
 
 RULES_DIR = Path(__file__).resolve().parent / "rules"
+
+CHANNELS = ("prompt", "tool")
 
 
 @dataclass(frozen=True)
@@ -115,6 +120,12 @@ class Match:
     end: int
     # the score of a model finding (a remote detector, Detector.findings_with); a deterministic finding has none
     score: float | None = field(default=None, compare=False, repr=False)
+
+    def __repr__(self) -> str:
+        # never the value: a caller that logs a hit must not write the secret (issue #39)
+        score = "" if self.score is None else f", score={self.score!r}"
+        return (f"Match(kind={self.kind!r}, type={self.type!r}, start={self.start!r}, end={self.end!r}, "
+                f"length={len(self.value)}, value=<hidden>{score})")
 
 
 class _Lazy:
@@ -539,7 +550,7 @@ VALIDATORS = {
                                else v.split("@", 1)[0].strip('"').lower() not in _SYSTEM_USERS
                                and not _reserved_domain(v) and not _ssh_algorithm_name(v) and not _mail_shaped_id(v)),
     # name%40firma.de in a URL query, a form body or an access log: the same address, percent-encoded
-    "person_email_encoded": lambda v: VALIDATORS["person_email"](v.replace("%40", "@")),
+    "person_email_encoded": lambda v: VALIDATORS["person_email"](v.replace("%40", "@").replace("\\u0040", "@")),
     "us_ssn": _us_ssn_ok,
     # checksums.py: ports of Presidio validators that were missing, the German document number, Switzerland, Austria
     # and the crypto wallet secrets
@@ -970,7 +981,9 @@ def _label_consumed(regex: str) -> tuple[str, int]:
 def _presidio_regex(rec_id: str, regex: str) -> str:
     left = PRESIDIO_LEFT_SUBFIELD.get(rec_id)
     if left and regex.startswith(_IBAN_LEFT):
-        return left + regex[len(_IBAN_LEFT):]
+        regex = left + regex[len(_IBAN_LEFT):]
+        sep = PRESIDIO_GROUP_SEP.get(rec_id)
+        return regex.replace(_IBAN_GROUP_SEP_UPSTREAM, sep) if sep else regex
     first = PRESIDIO_CARD_FIRST.get(rec_id)
     if first and regex.count(_CARD_FIRST_UPSTREAM) == 1:
         # a Visa number of 19 digits (ISO/IEC 7812 allows 13, 16 and 19): Presidio's groups end at 17 digits, and
@@ -1584,8 +1597,11 @@ def active_regions():
     gave,
     else the config of this computer."""
     given = _det()._given_regions
+    if callable(given):
+        given = given()
+        _regions.check(given)   # a function's result as an Active given at once: ValueError for an unknown code
     if given is not None:
-        return given() if callable(given) else given
+        return given
     try:
         from ..home import regions_from_config
     except Exception:  # noqa: BLE001 - no home.py (the standalone skill) or one that cannot load: no config, as before
@@ -1739,6 +1755,8 @@ class Detector(_LabelNumbers):
     use_references configure it)."""
 
     def __init__(self, regions=None, sources=None, references=None, host=None):
+        if isinstance(regions, _regions.Active):
+            _regions.check(regions)   # ValueError, as the entry point
         self.host = THIS_COMPUTER if host is None else host
         self._given_regions = regions
         self._given_sources = sources
@@ -1805,9 +1823,10 @@ class Detector(_LabelNumbers):
         """findings(), then a remote detector (remote.RemoteDetector) for what the rules left: a Result with the
         findings and the RemoteStatus of this call. The service only adds a span where no finding lies; it never
         removes, narrows or retypes one, and a service that fails leaves the findings as they are. `deadline`: a
-        time.monotonic() value that ends the request earlier than its own timeout (one budget for several texts)."""
+        time.monotonic() value that ends the request earlier than its own timeout (one budget for several texts), and
+        the rules (ScanIncomplete, as findings())."""
         from .remote import OFF, Result
-        found = self.findings(text, channel, path, fields=fields)
+        found = self.findings(text, channel, path, fields=fields, deadline=deadline)
         if remote is None:
             return Result(found, OFF)
         spans, status = remote.ask(text, [(m.start, m.end) for m in found], deadline)
@@ -2505,6 +2524,8 @@ def scan(text: str, enabled: set[str] | None = None, channel: str = "prompt", pa
     (maisecrets/detection/fields.py); without it the scan is the one of before."""
     if not isinstance(text, str):
         raise TypeError(f"text must be a str, not {type(text).__name__}")
+    if channel not in CHANNELS:
+        raise ValueError(f"unknown channel {channel!r}; the known ones: prompt, tool")
     spans = _fields.checked(text, fields)
     # the channel and the path travel as arguments: a nested scan (is_fixture) or a scan in another thread has its own
     hits = _scan(text, enabled, rule_list=rule_list, channel="tool" if channel == "tool" else "prompt", path=path or "")
@@ -2797,6 +2818,8 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
                 secret = text[start:end]
                 if not secret or secret[0] in "@.":
                     continue
+            # scheme://user:<password>@host.example: a SECRET, no address (#39)
+            userinfo = _url_userinfo(text, start + secret.find("@")) if "url-userinfo" in filters else None
             if "base64-wrapped-end" in filters:
                 end = _base64_wrapped_end(text, start, end)   # the further lines of a wrapped value
                 secret = text[start:end]
@@ -3019,6 +3042,14 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
                 if ext:
                     end = ext.end()
                     secret = text[start:end]
+            if userinfo is not None:
+                a, b = userinfo
+                how = _url_password(text, a, text[a:b], enabled, rule_list is None)
+                if how == "drop" or how == "secret" and overlaps(a, b):
+                    continue
+                if how == "secret":
+                    take(Match("ds-basic-auth", "SECRET", text[a:b], a, b), own)
+                    continue
             take(Match(rule.id, rule.type, secret, start, end), own)
     found.sort(key=lambda x: x.start)
     return found

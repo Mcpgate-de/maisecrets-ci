@@ -136,6 +136,8 @@ def presidio_patches(detect) -> dict:
             "a look-behind of variable width, which Python's re refuses; the hit is the value group")
     for rid in sorted(detect.PRESIDIO_LEFT_SUBFIELD):
         add(rid, "regex", "replace", "left boundary: also after ?NN", "an MT940 subfield code before the IBAN (0.6.24)")
+    for rid in sorted(detect.PRESIDIO_GROUP_SEP):
+        add(rid, "regex", "replace", "a no-break space between the groups", "a word processor writes it (0.9.4)")
     for rid in sorted(detect.PRESIDIO_PATTERN_CONTEXT):
         add(rid, "context_rule", "set", "required", "the same digits are also FIX tags and XML identifiers")
     for rid, words in sorted(detect.PRESIDIO_EXTRA_CONTEXT.items()):

@@ -337,7 +337,7 @@ _PERSON_LABELS = (r"full[ _-]?name|customer[ _-]?name|first[ _-]?name|last[ _-]?
                   r"|patient(?:[ _-]?name)?|employee(?:[ _-]?name)?|student(?:[ _-]?name)?|contact[ _-]?person"
                   r"|account[ _-]?holder|card[ _-]?holder|cardholder|passenger|tenant|landlord|signer|co-signer"
                   r"|guardian|beneficiary|billed to|oncall|on-call|requested by|reviewed by|approved by|salari[ée]"
-                  r"|vorname|nachname|mieter|vermieter|ansprechpartner(?:in)?|pr[ée]nom")
+                  r"|vorname|nachname|mieter|vermieter|ansprechpartner(?:in)?|kontaktperson|pr[ée]nom")
 # a key or label of a person's record before the company's name, in the same paragraph: the record is a person's,
 # whether or not the name rules find the name in its value (a lower-case or abbreviated name)
 _PERSON_KEY_RE = _LazyRx(r"(?i)(?<![a-z])(?:" + _PERSON_LABELS + r"|name|person|resident|bewohner(?:in)?"
@@ -569,8 +569,27 @@ def _de_title_names(text: str, regions: tuple) -> list:
         v = m.group(g).lower()
         if v in _PLACEHOLDER_NAME_WORDS or v in _DE_TITLE_NOT_A_NAME:
             continue
-        out.append((m.start(g), m.end(g), "name-after-german-title", NAME))
+        end = m.end(g)
+        if g == 1 and m.group(2) and _de_full_name_in_salutation(text, m):
+            end = m.end(2)
+        out.append((m.start(g), end, "name-after-german-title", NAME))
     return out
+
+
+# a salutation before the title, and the end of the salutation after the second word: "Sehr geehrter Herr Dr. <first
+# name> <surname>," greets one person by the full name, and the surname stayed in the clear (issue #39). Elsewhere the
+# second capital word may be a noun (Herrn <Name> Bescheid geben), so only the first word is the name there
+_DE_SALUTATION_BEFORE_RE = _LazyRx(r"(?i)(?:^|[^\w])(?:sehr geehrte[rn]?|hallo|liebe[rn]?|guten (?:tag|morgen|abend)"
+                                   r"|hi|hey|servus|moin|grüß gott|grüezi)[ \t]+$")
+_DE_SALUTATION_END_RE = _LazyRx(r"[ \t]*(?:[,!.;:]|\r?\n|$)")
+
+
+def _de_full_name_in_salutation(text: str, m) -> bool:
+    second = m.group(2).lower()
+    if _de_role(second) or second in _PLACEHOLDER_NAME_WORDS or second in _DE_TITLE_NOT_A_NAME:
+        return False
+    return bool(_DE_SALUTATION_BEFORE_RE.search(text, max(field_start(text, m.start()), m.start() - 24), m.start())
+                and _DE_SALUTATION_END_RE.match(text, m.end(2)))
 
 
 # ------------------------------------------------------------------------------- name before an e-mail address --

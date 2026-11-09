@@ -311,6 +311,23 @@ class DutchAndSwedishNameLabelTests(Base):
                 self.assertNotIn("name-after-label", {m.kind for m in scan(text)})
 
 
+
+class ContactPersonLabelTests(Base):
+    """A name after Kontaktperson: is masked as after its English form contact person: (issue #39). Kontakt: and
+    contact: alone stay out: a company or a system has a contact as often as a person
+    (tests/test_pii_structural_labels.py, RoleKeyTests)."""
+
+    def test_a_name_after_kontaktperson_is_masked_whole(self):
+        for text in ("Kontaktperson: " + NAME, "Kontaktperson: " + NAME + "\n", '{"kontaktperson": "' + NAME + '"}'):
+            with self.subTest(text=text):
+                self.assertEqual(text.replace(NAME, "•"), masked(text))
+
+    def test_words_after_kontaktperson_and_a_name_after_kontakt_alone_stay_text(self):
+        for text in ("Kontaktperson: Technischer Support", "Kontaktperson: Sales Team", "Kontakt: " + NAME):
+            with self.subTest(text=text):
+                self.assertNotIn("name-after-label", {m.kind for m in scan(text)})
+
+
 class AddressLabelsInMoreLanguagesTests(Base):
     def test_an_address_after_adres_adress_indirizzo_anschrift_or_street_address_is_masked_whole(self):
         for text, value in (("Adres: Kerkstraat 12, 1012 AB Amsterdam\n", "Kerkstraat 12, 1012 AB Amsterdam"),

@@ -16,14 +16,20 @@ license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE", "maisecrets/detection/rules/LICENSE-*"]
 dependencies = []
 keywords = ["secrets", "pii", "personal data", "detection", "redaction", "ai agents", "dlp"]
-# the Python versions CI tests (python:3.9-slim and python:3.12-slim) and the platforms of the GitHub matrix
+# the Python versions the wheel runs on: CI tests 3.9 and 3.12 (python:3.9-slim, python:3.12-slim), and
+# scripts/wheel_smoke.py passed on each of 3.9 to 3.15 (2026-11-09); the platforms of the GitHub matrix
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Topic :: Security",
     "Topic :: Text Processing",
     "Typing :: Typed",

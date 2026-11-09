@@ -98,7 +98,9 @@ FILTERS = {
     "hashicorp-tf-password": ("password-value", "derived-label"),               # detect-secrets' value check
     "email-percent-encoded": ("encoded-mail-context",),         # name%40host only where an address is expected
     "phone": ("phone-shape",),
-    "email": ("cjk-head",),                                     # an address glued to CJK text: the words are no part
+    # cjk-head: an address glued to CJK text, whose words are no part of it; url-userinfo: the local part is the
+    # password of a URL (scheme://user:<password>@host), a secret
+    "email": ("cjk-head", "url-userinfo"),
     "crypto-seed-phrase": ("seed-phrase",),                     # no placeholder check; compared as single-spaced words
 }
 # the filters of every rule whose id starts so: a value that ends in a backslash before its quote

@@ -6,5 +6,5 @@ runner = ["tests/test_bank_and_company_numbers.py::IbanFormTests::test_an_iban_w
 
 [proof]
 file = "maisecrets/detection/value_checks.py"
-find = '''    s = raw.replace(" ", "").replace("-", "").upper()'''
-replace = '''    s = raw.replace(" ", "").upper()'''
+find = '''    s = re.sub(r"[ \u00a0\u202f-]", "", raw).upper()'''
+replace = '''    s = re.sub(r"[ \u00a0\u202f]", "", raw).upper()'''

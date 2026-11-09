@@ -92,6 +92,48 @@ class DeadlineTests(unittest.TestCase):
         self.assertEqual(spans(D.findings(self.t, channel="tool")), self.full)   # no deadline left behind
 
 
+class FindingsWithDeadlineTests(unittest.TestCase):
+    """findings_with() bounds the scan of the rules by its deadline as findings() does, not only the remote request
+    (issue #39: 2 MB of text took 11.4 s with a deadline of 1 s)."""
+
+    class Remote:
+        format = "hf"
+
+        def __init__(self):
+            self.asked = 0
+
+        def ask(self, text, spans, deadline):
+            from maisecrets.detection.remote import RemoteStatus
+            self.asked += 1
+            return [], RemoteStatus(format="hf", state="ok")
+
+    def setUp(self):
+        self.t = text()
+
+    def test_a_passed_deadline_raises_at_once_with_and_without_a_remote_detector(self):
+        for remote in (None, self.Remote()):
+            with self.subTest(remote=remote is not None), self.assertRaises(ScanIncomplete) as cm:
+                D.findings_with(self.t, channel="tool", remote=remote, deadline=time.monotonic() - 1)
+            self.assertEqual(cm.exception.reason, "deadline")
+            self.assertEqual(cm.exception.findings, [])
+            if remote is not None:
+                self.assertEqual(remote.asked, 0)   # the service is not asked after the rules ran out of time
+
+    def test_a_deadline_in_the_middle_stops_the_rules(self):
+        clock = FakeClock()
+        with mock.patch.object(core.time, "monotonic", clock), self.assertRaises(ScanIncomplete) as cm:
+            D.findings_with(self.t, channel="tool", deadline=1000.0 + 20)
+        full = spans(D.findings(self.t, channel="tool"))
+        self.assertLess(len(cm.exception.findings), len(full))
+        self.assertLessEqual(set(spans(cm.exception.findings)), set(full))
+
+    def test_a_deadline_far_ahead_changes_nothing(self):
+        remote = self.Remote()
+        got = D.findings_with(self.t, channel="tool", remote=remote, deadline=time.monotonic() + 3600)
+        self.assertEqual(spans(got.findings), spans(D.findings(self.t, channel="tool")))
+        self.assertEqual(remote.asked, 1)
+
+
 class SlowCallbackTests(unittest.TestCase):
     """A References callback the caller gives runs once per hit. A slow one carried a scan far past its deadline,
     because the deadline was checked between rules only (a gateway callback: 185 s against a 10 s deadline)."""
