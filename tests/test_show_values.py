@@ -68,9 +68,17 @@ class AnswerTests(unittest.TestCase):
 
     def test_off_reads_nothing(self):
         from unittest import mock
+        from maisecrets import ner_setup
         with mock.patch.object(self.vault, "status", side_effect=AssertionError("read under off")):
             self.assertEqual(self.ask([self.key], mode="off"), {"mode": "off", "links": show_values.links(),
-                                                                   "values": {}, "displays": {}})
+                                                                   "values": {}, "displays": {}, "names": False,
+                                                                   "docker": bool(ner_setup.container_tool())})
+
+    def test_the_answer_says_whether_ner_finds_names(self):
+        # the mod's first hint names /maisecrets:ner only while NER is off
+        self.assertIs(self.ask([self.key], mode="off")["names"], False)
+        on = show_values.answer({"keys": []}, {"show_values": "always", "remote_detector": {"url": "http://127.0.0.1:1"}})
+        self.assertIs(on["names"], True)
 
     def test_a_server_token_or_a_reference_is_never_resolved(self):
         # a key without `c` is a server's token; sref:… a gateway's reference: both cost the gateway a resolve

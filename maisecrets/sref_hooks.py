@@ -6,18 +6,50 @@ from __future__ import annotations
 import os
 import re
 
+from .lazy_regex import LazyRx as _LazyRx
+
 
 def note(payload: dict) -> str | None:
     """_note, and then the references of this result that a gateway gave this session become trusted (trust): after
-    the noting, so a fresh result's own references count."""
+    the noting, so a fresh result's own references count. Also the account of each login, for the person only."""
     try:
-        return _note(payload)
+        out = _note(payload)
     finally:
         try:
             trust(payload)      # every tool: a gateway reference may come back in a command's output
         except Exception:  # noqa: BLE001 - no trusted reference: detection and replacement treat all as text
             from . import placeholder
             placeholder.TRUSTED.clear()
+    try:
+        extra = account_notice(payload)
+    except Exception:  # noqa: BLE001 - no account line; the status itself is unchanged
+        extra = None
+    return " ".join(x for x in (out, extra) if x) or None
+
+
+_SREF_COMMAND_RE = _LazyRx(r'/hooks/run\.(?:sh|cmd)" sref --args-stdin')
+
+
+def account_notice(payload: dict) -> str | None:
+    """After /maisecrets:sref (status or login): the masked account of each gateway login, as a message for the
+    person. The command prints no account, because the AI reads its output (the specification: the account hint
+    never goes to the model)."""
+    if payload.get("tool_name") not in ("Bash", "PowerShell"):
+        return None
+    command = (payload.get("tool_input") or {}).get("command")
+    if not isinstance(command, str) or not _SREF_COMMAND_RE.search(command):
+        return None
+    from . import sref_client
+    from .vault import Vault, load_config
+    from .vault_refs import origin_of, user_servers
+    backend = Vault(load_config()).backend
+    seen: dict = {}
+    for name, url in sorted(user_servers().items()):
+        origin = origin_of(url)
+        if origin and origin not in seen and sref_client.logged_in(backend, origin):
+            seen[origin] = (name, sref_client.account(backend, origin))
+    lines = [f"{name} as {who}" for name, who in seen.values() if who]
+    return "maisecrets, for you only (not the AI): logged in at " + "; ".join(lines) + "." if lines else None
 
 
 def _note(payload: dict) -> str | None:

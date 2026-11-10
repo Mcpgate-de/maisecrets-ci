@@ -343,11 +343,13 @@ class SrefBashTests(unittest.TestCase):
         self.assertIn("gw (127.0.0.1): not logged in", text)
         code, text = run("login")
         self.assertEqual(code, 0, text)
-        self.assertIn("logged in to 127.0.0.1 as ope\u2026@example.com", text)
+        self.assertIn("logged in to 127.0.0.1 (the account is shown to you only)", text)
+        self.assertNotIn("ope\u2026@example.com", text, "the AI reads this output: no account in it")
         self.assertNotIn("srefr_", text)
         state = run("status")[1].split(": ", 1)[1]
         self.assertIn("logged in", state)
-        self.assertIn("; account ope\u2026@example.com", state)
+        self.assertIn("; account shown to you only", state)
+        self.assertNotIn("@example.com", state)
         if os.name != "nt":
             self.assertIn("values go into files, commands, the screen", state)
             self.assertNotIn("log in again", state)
@@ -574,3 +576,21 @@ class PutServerTokensTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AccountNoticeTests(unittest.TestCase):
+    """The account of a gateway login goes to the person only: the AI reads the output of /maisecrets:sref."""
+
+    def test_after_the_sref_command_the_person_gets_the_account_and_other_commands_get_nothing(self):
+        from maisecrets import sref_client, sref_hooks, vault_refs
+        origin = "https://gw.example.com"
+        command = 'bash "/p/hooks/run.sh" sref --args-' + "stdin <<'X'\nstatus\nX"
+        with mock.patch.object(vault_refs, "user_servers", return_value={"gw": origin + "/mcp"}), \
+                mock.patch.object(sref_client, "logged_in", return_value=True), \
+                mock.patch.object(sref_client, "account", return_value="ope\u2026@example.com"):
+            run = {"tool_name": "Bash", "session_id": "s1", "tool_input": {"command": command}}
+            note = sref_hooks.account_notice(run)
+            self.assertIn("gw as ope\u2026@example.com", note)
+            self.assertIn("for you only", note)
+            other = {**run, "tool_input": {"command": "echo sref status"}}
+            self.assertIsNone(sref_hooks.account_notice(other))

@@ -456,3 +456,13 @@ class HookStatusMessageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VersionAttributeTests(unittest.TestCase):
+    def test_the_package_names_its_version_as_the_manifest_does(self):
+        import json
+        import maisecrets
+        want = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["version"]
+        self.assertEqual(maisecrets.__version__, want)
+        with self.assertRaises(AttributeError):
+            maisecrets.no_such_name   # noqa: B018

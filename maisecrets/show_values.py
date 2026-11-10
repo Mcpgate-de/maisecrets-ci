@@ -78,11 +78,17 @@ def answer(payload: dict, cfg: dict | None = None, vault=None) -> dict:
     refs = payload.get("refs") if isinstance(payload.get("refs"), list) else []
     refs = [r for r in dict.fromkeys(refs) if isinstance(r, str) and _REF_RE.fullmatch(r)][:MAX_KEYS]
     shown = {}
+    ner = cfg.get("remote_detector")
+    names = isinstance(ner, dict) and bool(ner.get("url"))    # the mod's first hint names NER only when it is off
+    if not names:
+        from .ner_setup import container_tool
+        docker = bool(container_tool())                         # NER needs docker or podman; else the term list
     if m != "off" and refs and session:
         from . import sref_notes
         shown = sref_notes.displays(refs, session)
     if m == "off" or not keys or not session:
-        return {"mode": m, "links": links(), "values": {}, "displays": shown}
+        return {"mode": m, "links": links(), "values": {}, "displays": shown, "names": names,
+                **({} if names else {"docker": docker})}
     v = vault if vault is not None else Vault(cfg)
     values = {}
     for key in keys:
@@ -92,4 +98,5 @@ def answer(payload: dict, cfg: dict | None = None, vault=None) -> dict:
         # a term entry stores its id, never the term (term_files.STORE_PREFIX): its placeholder stays
         if isinstance(value, str) and value and not value.startswith("maisecrets-term:"):
             values[key] = value
-    return {"mode": m, "links": links(), "values": values, "displays": shown}
+    return {"mode": m, "links": links(), "values": values, "displays": shown, "names": names,
+            **({} if names else {"docker": docker})}

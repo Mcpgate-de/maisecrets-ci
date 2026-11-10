@@ -1027,8 +1027,11 @@ class ShortcutTests(unittest.TestCase):
         r = subprocess.run([sys.executable, str(ROOT / "hooks" / "dispatch.py"), "session-start"],
                            input="{}", capture_output=True, text=True, env=env)
         msg = json.loads(r.stdout)["systemMessage"]
-        self.assertRegex(msg, r"is on\.( Values with \U0001F512 are on your screen only; Claude sees "
-                              r"placeholders\.)? It keeps passwords, keys and personal data out of the AI")
+        self.assertRegex(msg, r"is on\.( \U0001F512 marks a value Claude got only as a placeholder\.)? "
+                              r"It replaces the passwords, keys and personal data it finds")
+        self.assertIn("Text without a placeholder the AI reads as it is.", msg)
+        self.assertNotIn("stopped", msg, "the mod rewrites a prompt; it is not stopped there")
+        self.assertIn("/maisecrets:ner local", msg, "NER is off in a new home: the start line names how to turn it on")
         for jargon in ("config.json", "Metadata:", '{"backend"', "mcpgate.de"):
             self.assertNotIn(jargon, msg)
 

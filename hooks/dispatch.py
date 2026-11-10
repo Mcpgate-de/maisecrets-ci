@@ -262,6 +262,13 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
     except Exception:  # noqa: BLE001 - rules of your own never stop a session start
         own_rules, broken = "", None
     marker = HOME / ".announced"
+
+    def _names_on() -> bool:
+        try:
+            ner = load_config().get("remote_detector")
+            return isinstance(ner, dict) and bool(ner.get("url"))
+        except Exception:  # noqa: BLE001 - no NER tip rather than no start line
+            return True
     tried = False
     # the values on the person's screen (show_values, C32): the lock says which text only the person sees. Claude
     # Code only (Codex has no mods); a systemMessage reaches the person, not the model (measured 2026-11-07)
@@ -271,14 +278,15 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
             from maisecrets.show_values import mode as show_mode  # noqa: E402
             from maisecrets.vault import load_config  # noqa: E402
             if show_mode(load_config()) != "off":
-                screen = " Values with \U0001F512 are on your screen only; Claude sees placeholders."
+                screen = " \U0001F512 marks a value Claude got only as a placeholder."
         except Exception:  # noqa: BLE001 - a line for the person only
             screen = ""
     if v.backend.test_mode or not marker.exists():
         tried = True        # the try-it line names ms:(…): the Codex tip below would say it twice
         from maisecrets.tips import try_it_line  # noqa: E402
         more = "" if codex else " /maisecrets:status shows the details, /maisecrets:list what is stored."
-        out["systemMessage"] = (f"maisecrets {version} is on{own_rules}.{screen} " + intro_line(v.backend) + more + " "
+        out["systemMessage"] = (f"maisecrets {version} is on{own_rules}.{screen} "
+                                + intro_line(v.backend, _names_on(), codex) + more + " "
                                 + try_it_line())
         try:
             marker.write_text(type(v.backend).__name__ + "\n")

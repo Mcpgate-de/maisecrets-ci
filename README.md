@@ -2553,6 +2553,19 @@ a to-do.
   line about it. See the threat model, "What is knowingly not defended".
 - **No hook, no protection.** Claude Chat, ChatGPT Chat, the web and the
   mobile apps run no plugin hooks. Cowork does, Claude Code does, Codex does.
+- **Text without a placeholder is text the AI knows.** maisecrets masks what
+  reaches the AI through a prompt, a tool call or a tool result. It does not
+  see these channels: the AI's own reply, the instruction and memory files
+  that the client loads, an image you paste, and masks of other systems. A name in clear
+  text in a reply can come from any of them. One case: another system masked a
+  sign-off as `*******`, which keeps the length, and the AI derived the name
+  from that and the masked address: the AI can guess a value from context.
+  maisecrets never writes `***`. If maisecrets missed a name, add it with
+  `/maisecrets:term add NAME`. Without
+  NER (`/maisecrets:ner local`) maisecrets finds a name only after a label
+  (such as `Kontaktperson:` or a
+  salutation) or on your term list, and a stored name of one word only in
+  the same case.
 - **A client that rejects the manifest loads nothing and says nothing.**
   Claude Code 2.1.223 did so for a manifest key it did not know. Check with
   `/hooks` that maisecrets is listed; the harness checks the debug log.

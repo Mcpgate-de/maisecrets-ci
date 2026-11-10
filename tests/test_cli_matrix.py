@@ -92,7 +92,7 @@ def fake_value(prefix: str = "Fk") -> str:
 
 
 # the lock sentence of the session start in Claude Code (show_values, C32)
-SCREEN = " Values with \U0001F512 are on your screen only; Claude sees placeholders."
+SCREEN = " \U0001F512 marks a value Claude got only as a placeholder."
 
 class Sandbox:
     """One temp world: vault home, user home, tmp, fake tools, optional policy file."""
@@ -980,7 +980,7 @@ class SessionStartTests(unittest.TestCase):
         sb = self.sandbox()
         out = _start(self, sb, CLAUDECODE="1")
         msg = out["systemMessage"]
-        self.assertTrue(msg.startswith(f"maisecrets {VERSION} is on.{SCREEN} It keeps passwords"), msg)
+        self.assertTrue(msg.startswith(f"maisecrets {VERSION} is on.{SCREEN} It replaces the passwords"), msg)
         self.assertIn("in an encrypted file", msg)
         self.assertIn("/maisecrets:status shows the details", msg)
         self.assertIn(" " + tips.try_it_line() + " ", msg, "the first start says how to see it work")
@@ -1125,7 +1125,8 @@ class SessionStartTests(unittest.TestCase):
         for text in ("not json", "[1, 2]"):
             with self.subTest(text):
                 sb = self.sandbox()
-                self.assertIn(f"is on.{SCREEN} It keeps", _start(self, sb, stdin=text, CLAUDECODE="1")["systemMessage"])
+                self.assertIn(f"is on.{SCREEN} It replaces",
+                                _start(self, sb, stdin=text, CLAUDECODE="1")["systemMessage"])
 
     def test_session_start_purges_every_expired_value(self):
         sb = self.sandbox()

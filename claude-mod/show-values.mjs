@@ -42,6 +42,8 @@ const wanted = new Set()
 let asking = false
 const open = new Map()    // click: the text's address -> keys shown until CLICK_MS
 let hinted = false
+let docker = false       // docker or podman is there: the NER tip can start it
+let names = true        // NER is on (mod-values answer); off adds the NER tip to the first hint
 const revealed = new Map()  // a gateway reference -> its value, for this session
 // a gateway reference -> the display the gateway gave with it ('' when none): the label of its link, never the text the
 // AI wrote after the id (DS21 of the specification: the AI could label one reference with another person's display)
@@ -81,6 +83,8 @@ async function ask($, asked) {
   const was = mode
   mode = ['always', 'click', 'off'].includes(a.mode) ? a.mode : 'off'
   links = a.links !== false
+  names = a.names !== false
+  docker = a.docker === true
   if (mode === 'off') { cache.clear(); absent.clear(); open.clear(); revealed.clear() }
   const values = a.values && typeof a.values === 'object' ? a.values : {}
   const shown = a.displays && typeof a.displays === 'object' ? a.displays : {}
@@ -167,8 +171,10 @@ function hint($) {
       const n = Number(await $.store.get('show-values-hints')) || 0
       if (n >= HINT_SESSIONS) return
       await $.store.set('show-values-hints', n + 1)
-      $.ui.toast('Values with 🔒 are on your screen only; Claude sees placeholders. A click copies one. ' +
-        'Change it: /maisecrets:settings show_values')
+      // the lock says what Claude never saw; plain text next to it Claude knows (UX research 2026-11-09)
+      $.ui.toast('🔒 Claude got only a placeholder for this value. Text without 🔒 Claude knows. ' +
+        (names ? 'A click copies the value.' : docker ? '💡 To find names too: /maisecrets:ner local (a local model).'
+          : '💡 A name it missed? /maisecrets:term add NAME'), { timeoutMs: 15000 })
     } catch { /* a hint only */ }
   })
 }
@@ -259,7 +265,7 @@ function draw($, e, text, address, wrap) {
     fetchLater($)
   }
   if (mode === 'off' || (!keys.some(k => cache.has(k)) && !refs.length)) return null
-  if (mode === 'always') hint($)
+  if (mode !== 'off') hint($)
   const { Markdown, Box, Text } = $.ui.resolve(e)
   const press = async (link, p) => {
     if (typeof link?.href !== 'string' || !link.href.startsWith(LINK)) return

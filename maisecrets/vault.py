@@ -55,7 +55,7 @@ def describe_backend(backend) -> str:
             "Free and open source, by mcpgate.de.")
 
 
-def intro_line(backend) -> str:
+def intro_line(backend, names: bool = True, codex: bool = False) -> str:
     """The first session start, for a person: what maisecrets does and where values stay. The
     paths, the backend switch and the file names are in /maisecrets:status (UX review,
     2026-09-27: JSON and file paths at the first start told a non-developer to change a setting
@@ -66,8 +66,14 @@ def intro_line(backend) -> str:
         "EncryptedFileBackend": "in an encrypted file",
         "JsonFileBackend": "in a PLAIN TEXT test file (test mode, not for real secrets)",
     }.get(type(backend).__name__, "in the local store")
-    return (f"It keeps passwords, keys and personal data out of the AI: a prompt that holds one is "
-            f"stopped, and the value stays on this computer, {where}.")
+    # what it finds, what the AI then sees, and that plain text is known to the AI (UX research 2026-11-09: a name
+    # in clear text read as a miss of maisecrets); without NER a name needs a label or the term list
+    return (f"It replaces the passwords, keys and personal data it finds with a placeholder \u27e6\u2026\u27e7 "
+            f"before the AI reads them, and the value stays on this computer, {where}. "
+            "Text without a placeholder the AI reads as it is."
+            + ("" if names else " It finds a name only after a label or on your term list. \U0001F4A1 To find names "
+               "too, turn on NER" + (" (a local model, needs Docker; README, \"Names from a service\")." if codex else
+                                     ": /maisecrets:ner local (a local model, needs Docker).")))
 
 
 FP_KEY_ENTRY = "_maisecrets_fpkey"   # backend key that holds the fingerprint key (32 random bytes, hex)
