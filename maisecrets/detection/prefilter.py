@@ -280,6 +280,77 @@ class _Grams(dict):
         return hit
 
 
+DIGITS = frozenset("0123456789")
+
+
+def alphabet_of(text: str, low: str) -> frozenset:
+    """The characters of a text and of its lower case, with all ten digits when it holds one: the numbers of a series
+    share one alphabet."""
+    chars = set(text)
+    chars.update(low)
+    if not chars.isdisjoint(DIGITS):
+        chars.update(DIGITS)
+    return frozenset(chars)
+
+
+# the rules that fire without a context word in the tool channel (core.CARD_ALONE_IN_TOOL is this set)
+CARD_ALONE_IN_TOOL = frozenset({"credit-card"})
+
+
+def rules_for_alphabet(order: tuple, alphabet: frozenset, alone: frozenset = frozenset()) -> tuple:
+    """The rules of `order` that can fire in some text of this alphabet: the checks of the scan (core._scan) asked of
+    the characters instead of a text. A keyword, a literal, a required literal or a context word with a character
+    outside the alphabet is in no such text, so a rule that needs one cannot fire there; the scan still checks the
+    rest. A gateway scans each number of a metric series apart ("values: 1794412212320"): 2,680 points walked all
+    rules each (ai-gateway, 2026-11-11)."""
+    def can(word: str) -> bool:
+        return alphabet.issuperset(word)
+    out = []
+    for rule in order:
+        if not hasattr(rule, "keywords"):
+            out.append(rule)
+            continue
+        if rule.keywords and not any(can(k) for k in rule.keywords):
+            continue
+        need, icase = rule.prefix or NONE
+        if need and not can(need.lower() if icase else need):
+            continue
+        if rule.need and not any(can(x) for x in rule.need):
+            continue
+        # a rule that cannot fire without a context word (core._scan), unless it may fire alone in some channel
+        if (rule.context and (rule.require_context or rule.score < 0.5) and rule.id not in alone
+                and not any(can(c) for c in rule.context)):
+            continue
+        out.append(rule)
+    return tuple(out)
+
+
+# a short text walks only the rules its alphabet allows. The list of an alphabet is built the second time the alphabet
+# comes, so a response of short texts that all differ pays one set per text
+ALPHABET_TEXT_MAX = 512
+_ALPHABET_ORDERS_MAX = 256
+
+
+def alphabet_order(det, order: tuple, text: str, low: str) -> tuple:
+    """The rules of a scan order for this text: for a short one, rules_for_alphabet of its alphabet, kept on the
+    detector `det` per order and alphabet."""
+    if len(text) > ALPHABET_TEXT_MAX:
+        return order
+    if det._alphabet_orders[0] is not order:
+        det._alphabet_orders = (order, {})
+    known = det._alphabet_orders[1]
+    key = alphabet_of(text, low)
+    got = known.get(key)
+    if got is None:                     # the first time: note the alphabet, scan with every rule
+        if len(known) >= _ALPHABET_ORDERS_MAX:
+            known.clear()
+        known[key] = False
+        return order
+    if got is False:
+        got = known[key] = rules_for_alphabet(order, key, CARD_ALONE_IN_TOOL)
+    return got
+
+
 def rules_for(order: tuple, joined: str, low: str) -> tuple:
     """The rules of `order` that can fire somewhere in `joined` (its lower case is `low`); the steps that are no rule
     (the personal data, the terms, the imported values) stay in their place."""
@@ -298,3 +369,23 @@ def rules_for(order: tuple, joined: str, low: str) -> tuple:
             continue
         out.append(rule)
     return tuple(out)
+
+
+# ------------------------------------------------------------------------------- the lines of prefixes.txt --
+_PREFIX_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.:/-")
+
+
+def prefix_line(line: str) -> tuple[str, str] | None:
+    """(id, regex) of one line of rules/prefixes.txt, or None for a comment or an empty line. The short form
+    `id  PREFIX  REST` names the literal prefix apart (4 characters or more, no regex syntax): the token starts at
+    the prefix only when no token character stands before it (or an escaped \\n, \\r, \\t of a JSON string), and it
+    ends where no token character follows. The long form `id  regex` writes all of that itself."""
+    line = line.strip()
+    if not line or line.startswith("#"):
+        return None
+    parts = line.split(None, 2)
+    if len(parts) == 3 and len(parts[1]) >= 4 and _PREFIX_CHARS.issuperset(parts[1]):
+        p = re.escape(parts[1])
+        return parts[0], f"{p}(?:(?<![A-Za-z0-9_-]{p})|(?<=\\\\[nrt]{p})){parts[2]}(?![A-Za-z0-9_-])"
+    rule_id, regex = line.split(None, 1)
+    return rule_id, regex.strip()

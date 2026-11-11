@@ -103,6 +103,13 @@ class RuleFolders(Base):
         found = detect.scan(f"deploy with {token()} now")
         self.assertEqual([(m.kind, m.type, m.value) for m in found], [("user:team-token", "SECRET", token())])
         self.assertEqual(kinds("key bkx-" + "0123456789abcdef" * 2), ["user:build-key"])
+        # the short form `id  PREFIX  REST`: maisecrets adds the edges, so a longer word is no hit
+        (OWN / "more.prefixes").write_text("build-key  bkx-  [0-9a-f]{32}\n", encoding="utf-8")
+        detect.reset_rules()
+        self.assertEqual(kinds("key bkx-" + "0123456789abcdef" * 2), ["user:build-key"])
+        self.assertNotIn("user:build-key", kinds("key xbkx-" + "0123456789abcdef" * 2 + "0"))
+        write_rules(OWN, [{"id": "team-token", "regex": r"tkx_[A-Za-z0-9]{24}", "keywords": ["tkx_"]}])
+        detect.reset_rules()
         ids = [r.id for r in detect.rules()]
         active = detect.active_regions()
         own = detect._load_own()

@@ -1,5 +1,5 @@
 {
- "version": "0.9.4",
+ "version": "0.9.6",
  "commits": {
   "noseyparker": "2e6e7f36ce36619852532bbe698d8cb7a26d2da7",
   "kingfisher": "82d050530cdef9af070b8f9a75701c9c27a948c3",
@@ -12,13 +12,13 @@
   "noseyparker": {
    "rules": 189,
    "with_examples": 189,
-   "bare": 88,
+   "bare": 89,
    "label": 171
   },
   "kingfisher": {
    "rules": 1095,
    "with_examples": 1095,
-   "bare": 352,
+   "bare": 356,
    "label": 995
   },
   "gitleaks": {
@@ -30,7 +30,7 @@
   "betterleaks": {
    "rules": 467,
    "with_examples": 360,
-   "bare": 168,
+   "bare": 170,
    "label": 347
   },
   "trufflehog": {
@@ -42,7 +42,7 @@
   "gitlab": {
    "rules": 217,
    "with_examples": 172,
-   "bare": 119,
+   "bare": 122,
    "label": 162
   }
  }

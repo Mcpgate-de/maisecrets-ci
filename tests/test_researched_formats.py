@@ -495,10 +495,28 @@ SOURCES = dict([
      'hooks\\.zapier\\.com/hooks/catch/[0-9]+/[A-Za-z0-9]+/?'),
     ('zoho-oauth-token',
      '1000\\.[0-9a-f]{32}\\.[0-9a-f]{32}'),
+    ('bitbucket-oauth-consumer-secret',
+     'ATOA[A-Za-z0-9_\\-]{64}[0-9A-F]{8}'),
+    # 0.9.6: the long-form lines of the survey (a short-form line is tested by tests/test_prefix_lines.py)
+    ('k3s-join-token', 'K10[0-9a-f]{64}::server:[A-Za-z0-9]{24}'),
+    ('salesforce-session-id', '00D[A-Za-z0-9]{15}![A-Za-z0-9._]{96}'),
+    ('microsoft-account-refresh-token', 'M\\.C[0-9]{3}_[A-Z]{3}\\.[0-9A-Za-z!*$-]{300}'),
+    ('asana-personal-access-token', '2/[0-9]{16}/[0-9]{16}:[a-f0-9]{32}'),
+    ('harbor-robot-account-secret', 'robot\\$[a-z]{6}\\+[a-z]{5}:[A-Za-z0-9]{32}'),
+    ('make-webhook-url', 'https://hook\\.eu2\\.make\\.com/[a-z0-9]{32}'),
+    # 0.9.6, the second survey
+    ('infisical-service-token-hex', 'st\\.[a-f0-9]{24}\\.[a-f0-9]{32}\\.[a-f0-9]{32}'),
+    ('bitwarden-sm-access-token',
+     '0\\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.[A-Za-z0-9]{30}:[A-Za-z0-9+/]{22}=='),
+    ('convex-deploy-key', 'prod:[a-z0-9]{12}\\|eyJ2MiI6[A-Za-z0-9+/]{60}'),
+    ('deepseek-api-key-bare', 'sk-' '[a-f0-9]{32}'),
+    ('pkcs12-der-base64', 'MII[A-Za-z0-9+/]{3}IBAzCC[A-Za-z0-9+/]{300}'),
+    ('rsa-pkcs8-key-der-base64', 'MII[A-Za-z0-9+/]{3}IBADANBgkqhkiG9w0BAQEFAASC[A-Za-z0-9+/]{300}'),
+    ('rsa-pkcs1-key-der-base64', 'MII[A-Za-z0-9+/]{3}IBAAKC[A-Za-z0-9+/]{300}'),
 ])
 # formats whose body has no upper length and a short lower one: any cut of a token is again one
 OPEN_ENDED = {"aws-bedrock-short-term-api-key"}
-N_RULES = 235
+N_RULES = 249
 
 
 def token(rule_id: str) -> str:
@@ -535,6 +553,25 @@ class ResearchedFormatTests(unittest.TestCase):
             for end in ".,;:)!?":
                 with self.subTest(rule=rule_id, end=end):
                     self.assertIn((rule_id, tok), kinds(f"my key is {tok}{end} thanks", "prompt"))
+
+    def test_a_password_in_a_connection_string_or_a_wifi_code_is_found_alone(self):
+        pw = "Tq7" + "vRw9" + "xZk2"      # built from parts: the tree scan sees no value
+        at, pwd, ora = "@", "Pw" + "d={", "jdbc:oracle:" + "thin:"
+        cases = [("odbc-braced-password", f"Driver={{ODBC Driver 18}};Server=db.example.com;Uid=app;{pwd}{pw};x}};",
+                  pw + ";x"),
+                 ("go-mysql-dsn-password", f"app:{pw}{at}tcp(db.example.com:3306)/shop?parseTime=true", pw),
+                 ("oracle-jdbc-thin-password", f"{ora}scott/{pw}{at}db.example.com:1521/ORCL", pw),
+                 ("wifi-qr-password", f"WIFI:T:WPA;S:office-net;P:{pw};;", pw),
+                 ("wifi-qr-password", f"WIFI:S:office-net;T:WPA;P:{pw}\\;2;H:false;;", pw + "\\;2")]
+        for rule_id, text, value in cases:
+            for channel in ("tool", "prompt"):
+                with self.subTest(rule=rule_id, channel=channel, text=text[:20]):
+                    self.assertIn((rule_id, value), kinds(text, channel))
+        # the user, the host and the network name stay text
+        self.assertEqual([v for _k, v in kinds(f"{ora}scott/{pw}{at}db.example.com:1521/ORCL", "tool")], [pw])
+        # a query parameter is no ODBC string: `?pwd={password}` is a placeholder (fp_corpus, pw16)
+        query = "https://example.com/login?" + pwd + "x1y2z3w4}"
+        self.assertNotIn("odbc-braced-password", [k for k, _v in kinds(query, "tool")])
 
     def test_an_akamai_host_name_is_no_token(self):
         # an EdgeGrid host is the client token's shape followed by ".luna.akamaiapis.net"

@@ -458,14 +458,22 @@ def _placed(found: list, placed: list) -> list:
     return out
 
 
-def findings_by_leaf(detector, obj, channel: str = "tool", layout: str = "lines", **kwargs) -> list:
+def findings_by_leaf(detector, obj, channel: str = "tool", layout: str = "lines", *, numbers: bool = False,
+                     **kwargs) -> list:
     """The findings of the object's strings, as `(leaf, match)`: `match.start`, `match.end` and `match.value` are
     those of the string `leaf.value`. Further keyword arguments go to `detector.findings`.
+
+    `numbers=True` also reads each integer of 13 to 19 digits as a string of its digits (the length of a card
+    number): a card stored as a number is found in the same scans, and its leaf holds the digits. Without it a
+    number is never a leaf, and a caller that scanned each long number apart paid one scan per number (a metric
+    series of 2,680 epoch-ms timestamps passed a gateway's 10 s budget, 2026-11-11).
 
     layout "lines" (the default since 0.8.11): one scan per record (`records`), each string on a line of its own after
     its last key, as written (no JSON escape). layout "json": one scan of the JSON text; a string with a line break or
     a quote is read with its escapes there, so a value can run over a line end or lose its label (gateway check of
     0.8.10, 2026-11-02)."""
+    if numbers:
+        obj = _numbers_as_text(obj)
     if layout == "lines":
         return _lines(detector, obj, channel, **kwargs)
     if layout != "json":
@@ -476,6 +484,39 @@ def findings_by_leaf(detector, obj, channel: str = "tool", layout: str = "lines"
     except ScanIncomplete as e:
         raise ScanIncomplete(_json_placed(e.findings, leaves), e.reason, []) from None   # one scan: none read whole
     return _json_placed(found, leaves)
+
+
+def _long_int(x) -> bool:
+    return isinstance(x, int) and not isinstance(x, bool) and 10 ** 12 <= x < 10 ** 19
+
+
+def _numbers_as_text(obj):
+    """A copy of the object with each integer of 13 to 19 digits as the string of its digits; its dicts and lists are
+    new (a tuple becomes a list), the rest is the same object. A container that comes twice is copied once (a cycle
+    stays a cycle, and json_text refuses it as before). Its own stack, as json_text: no RecursionError."""
+    copies: dict = {}
+    todo: list = []
+
+    def conv(x):
+        if _long_int(x):
+            return str(int(x))
+        if not isinstance(x, (dict, list, tuple)):
+            return x
+        got = copies.get(id(x))
+        if got is None:
+            got = copies[id(x)] = {} if isinstance(x, dict) else []
+            todo.append((x, got))
+        return got
+
+    root = conv(obj)
+    while todo:
+        src, dst = todo.pop()
+        if isinstance(src, dict):
+            for k, v in src.items():
+                dst[k] = conv(v)
+        else:
+            dst.extend(conv(v) for v in src)
+    return root         # a tuple becomes a list: json_text and the records read both alike
 
 
 def _json_placed(found: list, leaves: list) -> list:

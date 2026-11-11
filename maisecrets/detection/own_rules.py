@@ -273,6 +273,53 @@ OWN_RULES: list[dict] = [
     {"id": "infisical-service-token", "type": "SECRET",
      "regex": r"(?<![A-Za-z0-9_.-])st\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[0-9a-f]{32}"
               r"(?:\.[0-9a-f]{32})?(?![A-Za-z0-9_.-])"},
+    # 0.9.6, a survey of the services an IT company commonly uses: four formats with no literal start of 4 characters
+    # that went through when no label stood beside them. A k3s or RKE2 join token: K10, the CA hash, ::, a user and
+    # a password. A Salesforce session id: the org id 00D…, ! and the session part. A Microsoft account refresh token:
+    # M.C, three digits, a region code and a long body. An Asana personal access token: 1/ or 2/, one or two ids and
+    # 32 hex digits. A full stop after a token stays out of it
+    {"id": "k3s-join-token", "type": "SECRET",
+     "regex": r"(?<![A-Za-z0-9_-])K10[0-9a-f]{64}::[A-Za-z0-9._-]{1,64}:[A-Za-z0-9._-]{7,}[A-Za-z0-9_-]"
+              r"(?![A-Za-z0-9_-])(?!\.[A-Za-z0-9])"},
+    {"id": "salesforce-session-id", "type": "SECRET",
+     "regex": r"(?<![A-Za-z0-9_-])00D[A-Za-z0-9]{12,15}![A-Za-z0-9._]{79,}[A-Za-z0-9_](?![A-Za-z0-9_-])"
+              r"(?!\.[A-Za-z0-9])"},
+    {"id": "microsoft-account-refresh-token", "type": "SECRET",
+     "regex": r"(?<![A-Za-z0-9_.-])M\.C[0-9]{3}_[A-Z]{2,4}\.[0-9A-Za-z!*$.-]{99,}[0-9A-Za-z*$-](?![0-9A-Za-z*$-])"
+              r"(?![.!][0-9A-Za-z*$-])"},
+    {"id": "asana-personal-access-token", "type": "SECRET",
+     "regex": r"(?<![A-Za-z0-9/])[12]/[0-9]{13,16}(?:/[0-9]{13,16})?:[a-f0-9]{32}(?![A-Za-z0-9])"},
+    # 0.9.6, a second survey: formats with no literal start of 4 characters. Infisical's service token of hex ids
+    # (its docs), a Bitwarden Secrets Manager access token (0., a UUID, the client secret and the key), a Convex
+    # deploy key (the deployment, | and its base64 JSON), a DeepSeek key (sk- and 32 hex digits), and an RSA key or a
+    # PKCS#12 file as one base64 line without a PEM header (their DER head)
+    {"id": "infisical-service-token-hex", "type": "SECRET",
+     "regex": r"(?<![\w.])st\.[a-f0-9]{24}\.[a-f0-9]{32}(?:\.[a-f0-9]{32})?(?!\w)(?!\.\w)"},
+    {"id": "bitwarden-sm-access-token", "type": "SECRET",
+     "regex": r"(?<![\w.])0\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[A-Za-z0-9]{30}:"
+              r"[A-Za-z0-9+/]{22}==(?![A-Za-z0-9+/=])"},
+    {"id": "convex-deploy-key", "type": "SECRET",
+     "regex": r"(?<![\w-])(?:prod|dev|preview|project):[a-z0-9-]{3,64}\|eyJ2MiI6[A-Za-z0-9+/]{40,}={0,2}"
+              r"(?![A-Za-z0-9+/=])"},
+    {"id": "deepseek-api-key-bare", "type": "SECRET", "regex": r"(?<![A-Za-z0-9_-])sk-[a-f0-9]{32}(?![A-Za-z0-9_-])"},
+    {"id": "pkcs12-der-base64", "type": "SECRET",
+     "regex": r"(?<![A-Za-z0-9+/])MII[A-Za-z0-9+/]{3}IBAzCC[A-Za-z0-9+/]{200,}={0,2}(?![A-Za-z0-9+/=])"},
+    {"id": "rsa-pkcs8-key-der-base64", "type": "SECRET",
+     "regex": r"(?<![A-Za-z0-9+/])MII[A-Za-z0-9+/]{3}IBADANBgkqhkiG9w0BAQEFAASC[A-Za-z0-9+/]{200,}={0,2}"
+              r"(?![A-Za-z0-9+/=])"},
+    {"id": "rsa-pkcs1-key-der-base64", "type": "SECRET",
+     "regex": r"(?<![A-Za-z0-9+/])MII[A-Za-z0-9+/]{3}IBAAKC[A-Za-z0-9+/]{200,}={0,2}(?![A-Za-z0-9+/=])"},
+    # a password in a connection string that no password label precedes: ODBC's Pwd={…} after a `;`, a Go MySQL DSN
+    # (a user, a colon, the password, then @tcp( or @unix( ), an Oracle thin URL (user/password@host); and the
+    # password of a Wi-Fi QR code (P: between WIFI: and ;)
+    {"id": "odbc-braced-password", "type": "SECRET", "secret_group": 1,
+     "regex": r"(?i)(?<=;)[ \t]?pwd=\{([^}\r\n]{4,128})\}"},
+    {"id": "go-mysql-dsn-password", "type": "SECRET", "secret_group": 1,
+     "regex": r"(?<![\w.-])[A-Za-z0-9_.-]{1,64}:([^@\s:/'\"]{3,128})@(?:tcp|unix)\("},
+    {"id": "oracle-jdbc-thin-password", "type": "SECRET", "secret_group": 1,
+     "regex": r"(?<=jdbc:oracle:thin:)[A-Za-z0-9_$#]{1,30}/([^@\s'\"]{3,128})(?=@)"},
+    {"id": "wifi-qr-password", "type": "SECRET", "secret_group": 1,
+     "regex": r"WIFI:(?:[^;\n]*;)*?P:((?:\\[\;,:\"]|[^;\\\n]){8,63});"},
     # a BIP39 seed phrase: 12 to 24 words of the English list whose checksum holds (checksums.bip39_spans; the regex is
     # never run). Twelve words carry a checksum of 4 bits, so one list of ordinary words in 16 passes ("client connect
     # system process input output error return result update file edit", Gate A of 0.6.19): a phrase of 12 needs a word

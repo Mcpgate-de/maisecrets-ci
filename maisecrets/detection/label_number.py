@@ -282,6 +282,7 @@ class _State:
 
     def __init__(self, generation: int) -> None:
         self.generation, self.answers, self.bare, self.own = generation, {}, {}, None
+        self.changes: dict = {}         # label -> label_changes_a_number
 
 
 def _state(detector) -> _State:
@@ -325,6 +326,55 @@ def _find(detector, text: str, channel: str, fields, rule_list):
     return detector.scan(text, channel=channel, rule_list=rule_list, fields=fields)
 
 
+def _changes(detector, st: _State, label: str, value: str, channel: str, rule_list) -> bool:
+    """Whether the value under the label gives other findings than the bare value: one more, one fewer or another."""
+    key = (value, channel, rule_list is not None)
+    if key not in st.bare:
+        st.bare[key] = _spans(_find(detector, value, channel, None, rule_list), 0, len(value))
+    bare = st.bare[key]
+    if _spans(_find(detector, value, channel, [(0, len(value), (label,))], rule_list), 0, len(value)) != bare:
+        return True
+    lead = f"{label}: "
+    return _spans(_find(detector, lead + value, channel, None, rule_list), len(lead), len(value)) != bare
+
+
+_BARE_LOCK = threading.Lock()
+_BARE: list = []
+
+
+def bare_samples() -> tuple:
+    """Digit runs that a rule finds without a label: a Luhn-valid number of each card length from 13 to 19 digits
+    under the first digits of the card networks, made at run time from a fixed seed. A label can take such a finding
+    away (an `id` field holds no card): label_changes_a_number asks them too."""
+    with _BARE_LOCK:
+        if not _BARE:
+            rng, out = random.Random("bare-samples"), []
+            for n in range(13, 20):
+                for first in ("4", "51", "37", "6011", "35"):
+                    for _ in range(200_000):
+                        v = first + "".join(rng.choice("0123456789") for _ in range(n - len(first)))
+                        if len(set(v)) >= 4 and _check("luhn", "credit-card")(v):
+                            out.append(v)
+                            break
+            _BARE.append(tuple(out))
+        return _BARE[0]
+
+
+def _decide_changes(detector, st: _State, label: str) -> bool:
+    if not label.strip():
+        return False
+    if st.own is None:
+        st.own = _own_samples(detector)
+    own_values, own_rules = st.own
+    values = tuple(dict.fromkeys(built_in_samples() + bare_samples()))
+    for channel in _CHANNELS:
+        if any(_changes(detector, st, label, v, channel, None) for v in values):
+            return True
+        if own_rules and any(_changes(detector, st, label, v, channel, own_rules) for v in own_values):
+            return True
+    return False
+
+
 def _decide(detector, st: _State, label: str) -> bool:
     if not label.strip():
         return False
@@ -341,6 +391,25 @@ def _decide(detector, st: _State, label: str) -> bool:
 
 class LabelNumbers:
     """The part of Detector that answers for a label (core.Detector inherits it; this module keeps core.py small)."""
+
+    def label_changes_a_number(self, label: str) -> bool:
+        """Whether a digit-only value of 7 to 19 digits under this label can give other findings than the same digits
+        without it: one more (label_names_a_number) or one fewer (a card under `id` is no card). False: the findings of
+        such a value are the same under the label and bare, so a caller may take the findings of one form for the
+        other. The forms are those of label_names_a_number, `label: <digits>` and `fields=`, in the tool and the prompt
+        channel; the values are its samples and a Luhn-valid number of each card length (bare_samples). An empty label
+        is False. Cached per label until reset() (since 0.9.6, ai-gateway #1822)."""
+        if not isinstance(label, str):
+            raise TypeError(f"label must be a str, not {type(label).__name__}")
+        st = _state(self)
+        hit = st.changes.get(label)
+        if hit is None:
+            hit = _decide_changes(self, st, label)
+            with _LOCK:
+                if len(st.changes) >= ANSWERS_MAX:
+                    st.changes.pop(next(iter(st.changes)))
+                st.changes[label] = hit
+        return hit
 
     def label_names_a_number(self, label: str) -> bool:
         """Whether a digit-only value of 7 to 19 digits under this label can give a finding that the same digits do

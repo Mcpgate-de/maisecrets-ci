@@ -60,6 +60,8 @@ from . import regions as _regions
 from .label_number import LabelNumbers as _LabelNumbers
 from .prefilter import NONE as _NO_PREFIX, any_keyword as _any_keyword, lacks_prefix as _lacks_prefix  # noqa: F401
 from .prefilter import lacks_required as _lacks_required, response_rules as _response_rules
+from . import prefilter as _prefilter
+from .prefilter import prefix_line  # noqa: F401  detect.prefix_line
 # The value checks, the own rules and the text index live in modules of their own, so that each file stays readable.
 # The core imports each of their names: `core.<name>` stays the same object. A patch must go to the module that
 # defines it.
@@ -775,7 +777,7 @@ PRESIDIO_ALWAYS_CONTEXT = {"de-tax-id", "de-tax-number", "de-bsnr", "de-lanr", "
 # in Gretel), CredData +2 false alarms; docs/BENCHMARKS.md. A typed prompt keeps the card word: a block there costs
 # more than a mask. A documented test card stays text (rules/public_test_values.txt). From a fork
 # (danszymkowiak/maisecrets 795b411, d5807ea, Apache-2.0)
-CARD_ALONE_IN_TOOL = frozenset({"credit-card"})
+CARD_ALONE_IN_TOOL = _prefilter.CARD_ALONE_IN_TOOL
 # a Presidio pattern with no boundary: PESEL's eleven digits matched inside a longer digit run
 PRESIDIO_DIGIT_BOUNDED = {"pl-pesel"}
 # the digits of a phone number after its +: a licence or passport pattern took them from the phone rule. A + right
@@ -1165,19 +1167,18 @@ class _LabelSubset:
 
 def _load_prefixes() -> list[Rule]:
     """Bare token prefixes newer than the vendored rulesets: maisecrets/detection/rules/prefixes.txt, one
-    per line `id  regex`, extended by pull request. The whole match is the secret. The release tree for the
-    directory ships the same rules as prefixes.json (scripts/build_release_tree.py), which is read when it is there."""
+    per line `id  PREFIX  REST` or `id  regex` (prefix_line), extended by pull request. The whole match is the
+    secret. The release tree for the directory ships the same rules as prefixes.json (scripts/build_release_tree.py),
+    which is read when it is there."""
     shipped = RULES_DIR / "prefixes.json"
     if shipped.is_file():
         return [Rule(id=d["id"], type="SECRET", regex=_Lazy(d["regex"]))
                 for d in json.loads(shipped.read_text(encoding="utf-8"))]
     out: list[Rule] = []
     for line in (RULES_DIR / "prefixes.txt").read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        rule_id, regex = line.split(None, 1)
-        out.append(Rule(id=rule_id, type="SECRET", regex=_Lazy(regex.strip())))
+        rule = prefix_line(line)
+        if rule:
+            out.append(Rule(id=rule[0], type="SECRET", regex=_Lazy(rule[1])))
     return out
 
 
@@ -1767,6 +1768,7 @@ class Detector(_LabelNumbers):
         self._allow = None                  # (exact values, rule ids) of the allow list
         self._shape_ids = None              # the ids of the shape rules of the list (is_fixture)
         self._order = (None, ())            # a rule list and its scan order (_in_scan_order)
+        self._alphabet_orders = (None, {})  # prefilter.alphabet_order
         self._label_class = {}              # the class of each label, under the label words of the languages
         self._pw_last_on = None             # the password label words of the languages (_pw_words)
         self._active = None                 # the regions and languages the rule list was loaded for
@@ -2754,7 +2756,9 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
             take(m)
     keywords_in: dict = {}      # keyword -> whether the text holds it: the 652 keywords of the rules are 519 texts
     until = _deadline.current()
-    for rule in (_response_rules(text) or _in_scan_order(rules()) if rule_list is None else rule_list):
+    order = rule_list if rule_list is not None else (
+        _response_rules(text) or _prefilter.alphabet_order(_det(), _in_scan_order(rules()), text, low))
+    for rule in order:
         if until is not None and time.monotonic() > until:
             raise ScanIncomplete(list(found))     # between rules: what the rules before found, in this text's offsets
         if rule is _PERSONAL:

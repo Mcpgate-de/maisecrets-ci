@@ -7,7 +7,8 @@ The sources, read once per process (detect.rules() keeps the result):
 - each folder of `rule_dirs` in the machine policy; the person cannot remove those.
 
 A folder holds `*.json` (the gitleaks form of rules/own_secret_rules.json) and `*.prefixes` (the line form of
-rules/prefixes.txt, `id  regex`). When it has a subfolder `rules/`, that subfolder is read instead (a team repository
+rules/prefixes.txt, `id  PREFIX  REST` or `id  regex`). When it has a subfolder `rules/`, that subfolder is read
+instead (a team repository
 keeps its rules there), and maisecrets/terms.py reads `*.terms` there (a team term list with a floor). Nothing else
 is read: no code, no allow list, no symbolic link, no git metadata.
 A folder is data that a hook reads in every call, so each rule passes checks at load; a rule that fails one is
@@ -754,8 +755,9 @@ def _json_rules(data, kept, refuse, dropped, cache: dict) -> None:
 
 
 def _prefix_rules(text: str, kept, refuse, cache: dict) -> None:
-    """The rules of one *.prefixes file: `id  regex` per line, `#` comments; the whole match is the secret. A refused
-    line is named by its number only: its text can be a pasted value."""
+    """The rules of one *.prefixes file: `id  PREFIX  REST` or `id  regex` per line (detect.prefix_line), `#`
+    comments; the whole match is the secret. A refused line is named by its number only: its text can be a pasted
+    value."""
     for n, line in enumerate(text.splitlines(), 1):
         place = f"line {n}"
         try:
@@ -770,7 +772,7 @@ def _prefix_rules(text: str, kept, refuse, cache: dict) -> None:
             if len(parts) < 2:
                 refuse(place, "a line without a regex")
                 continue
-            rx = parts[1].strip()
+            rx = detect.prefix_line(line)[1]       # the short form `id  PREFIX  REST` gets its edges here
             key = _hash("prefixes", rx)
             verdict = cache.get(key)
             if not isinstance(verdict, dict) or "kw" not in verdict:

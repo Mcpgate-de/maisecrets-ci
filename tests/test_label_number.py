@@ -345,3 +345,40 @@ class CompletenessTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LabelChangesTests(unittest.TestCase):
+    """label_changes_a_number: True when the label adds a finding to a digit run or takes one away (ai-gateway #1822:
+    a host took the findings of one label for another, and a card under `id` stayed in clear)."""
+
+    def test_an_id_label_takes_a_card_away_and_says_so(self):
+        d = detector()
+        for lab in ("id", "order_id", "uuid", "ref"):
+            with self.subTest(label=lab):
+                self.assertFalse(d.label_names_a_number(lab), "the label adds no finding")
+                self.assertTrue(d.label_changes_a_number(lab), "but it takes the card of a bare number away")
+        card = next(v for v in label_number.bare_samples() if d.findings(v, channel="tool"))
+        self.assertEqual([m.value for m in d.findings("id: " + card, channel="tool")], [], "the premise: id drops it")
+
+    def test_a_label_that_changes_nothing_is_false(self):
+        d = detector()
+        for lab in ("series", "values", "timestamp", "count", "", "   "):
+            with self.subTest(label=lab):
+                self.assertFalse(d.label_changes_a_number(lab))
+
+    def test_a_label_that_names_a_number_changes_one(self):
+        d = detector()
+        for lab in ("card", "steuer_id", "phone", "series", "id", "iban", "tel", "account"):
+            with self.subTest(label=lab):
+                if d.label_names_a_number(lab):
+                    self.assertTrue(d.label_changes_a_number(lab))
+        self.assertTrue(d.label_changes_a_number("card"))
+        with self.assertRaises(TypeError):
+            d.label_changes_a_number(None)
+
+    def test_the_bare_samples_are_card_numbers_found_without_a_label(self):
+        d = detector()
+        samples = label_number.bare_samples()
+        self.assertEqual(len(samples), 35)
+        self.assertEqual(samples, label_number.bare_samples(), "the same values in every call")
+        self.assertTrue(any(d.findings(v, channel="tool") for v in samples))

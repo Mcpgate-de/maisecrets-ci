@@ -438,3 +438,45 @@ class InlineNodeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _luhn_number(head: str, seed: int) -> int:
+    """A 16-digit number with a valid Luhn check digit, built at run time: the shape of a card, no documented one."""
+    rng = random.Random(seed)
+    body = head + "".join(rng.choice("0123456789") for _ in range(15 - len(head)))
+    total = sum((d * 2 - 9 if d * 2 > 9 else d * 2) if i % 2 == 0 else d
+                for i, d in enumerate(int(c) for c in reversed(body)))
+    return int(body + str((10 - total % 10) % 10))
+
+
+class NumbersTests(unittest.TestCase):
+    """findings_by_leaf(numbers=True): an integer of 13 to 19 digits is a leaf of its digits (a card stored as a
+    number), found in the same scans; a series of epoch-ms timestamps gives no finding (ai-gateway #1822)."""
+
+    def test_a_card_stored_as_a_number_is_found_with_its_path(self):
+        card = _luhn_number("4", 3)
+        obj = {"payment": {"card": card, "at": 1794412200000}, "n": [1, 2.5, True]}
+        for layout in ("lines", "json"):
+            with self.subTest(layout=layout):
+                got = L.findings_by_leaf(D, obj, layout=layout, numbers=True)
+                self.assertEqual([(leaf.path, m.value) for leaf, m in got], [(("payment", "card"), str(card))])
+                before = L.findings_by_leaf(D, obj, layout=layout)
+                self.assertEqual([leaf for leaf, _m in before if leaf], [], "without numbers no number is a leaf")
+
+    def test_a_series_of_timestamps_gives_no_finding(self):
+        points = [[1794412200000 + 15000 * i, i % 7] for i in range(500)]
+        obj = {"series": [{"labels": {"app": "shop"}, "values": points}]}
+        self.assertEqual(L.findings_by_leaf(D, obj, numbers=True), [])
+
+    def test_only_integers_of_13_to_19_digits_become_text(self):
+        shared = [10 ** 12, 10 ** 19, 10 ** 12 - 1, -(10 ** 15), True, 4.5e15, "x"]
+        obj = {"a": shared, "b": shared, "t": (10 ** 18,)}
+        copy = L._numbers_as_text(obj)
+        self.assertEqual(copy["a"], [str(10 ** 12), 10 ** 19, 10 ** 12 - 1, -(10 ** 15), True, 4.5e15, "x"])
+        self.assertIs(copy["a"], copy["b"], "a container that comes twice is copied once")
+        self.assertEqual(copy["t"], [str(10 ** 18)])
+        self.assertEqual(obj["a"][0], 10 ** 12, "the caller's object stays as it was")
+        loop: list = []
+        loop.append(loop)
+        with self.assertRaises(ValueError):
+            L.findings_by_leaf(D, {"loop": loop}, layout="json", numbers=True)

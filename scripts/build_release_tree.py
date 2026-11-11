@@ -123,13 +123,15 @@ def directory_hooks(text: str) -> str:
 
 
 def directory_prefixes(text: str) -> str:
-    """The rules of prefixes.txt (`id  regex` per line) as a JSON list of {"id", "regex"}, in the same order."""
+    """The rules of prefixes.txt (detect.prefix_line: `id  PREFIX  REST` or `id  regex` per line) as a JSON list of
+    {"id", "regex"}, in the same order: the directory flavor reads the whole regex."""
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from maisecrets.detection.core import prefix_line
     rules = []
     for line in text.splitlines():
-        line = line.strip()
-        if line and not line.startswith("#"):
-            rule_id, regex = line.split(None, 1)
-            rules.append({"id": rule_id, "regex": regex.strip()})
+        rule = prefix_line(line)
+        if rule:
+            rules.append({"id": rule[0], "regex": rule[1]})
     return json.dumps(rules, indent=1, ensure_ascii=False) + "\n"
 
 

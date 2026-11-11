@@ -85,7 +85,7 @@ betterleaks	datadog-application-key	0	1
 betterleaks	datagov-api-key	0	1
 betterleaks	datastax-astra-application-token	1	1
 betterleaks	deepgram-api-key	0	1
-betterleaks	deepseek-api-key	0	1
+betterleaks	deepseek-api-key	1	1
 betterleaks	defined-networking-api-token	0	1
 betterleaks	deno-account-token	1	1
 betterleaks	devcycle-client-sdk-key	1	1
@@ -282,7 +282,7 @@ betterleaks	retell-api-key.1	0	1
 betterleaks	rootly-api-key.1	1	1
 betterleaks	rubygems-api-token	1	1
 betterleaks	runpod-api-key.1	1	1
-betterleaks	salesforce-access-token.1	0	1
+betterleaks	salesforce-access-token.1	1	1
 betterleaks	salesforce-instance-url.1	0	1
 betterleaks	samsara-api-token.1	1	1
 betterleaks	scaleway-secret-key	0	1
@@ -364,7 +364,7 @@ gitlab	AWSBedrockKey	1	1
 gitlab	AWSBedrockShortLivedKey	1	1
 gitlab	AWSCognitoIdentityPoolID	0	1
 gitlab	AWSSecretAccessKey	0	1
-gitlab	AWSSessionToken	0	1
+gitlab	AWSSessionToken	1	1
 gitlab	AdafruitIOKey	1	1
 gitlab	Adobe Client Secret	0	1
 gitlab	AdobeIMSAccessToken	1	1
@@ -374,8 +374,8 @@ gitlab	Alibaba AccessKey ID	1	1
 gitlab	AmazonOAuthClientID	0	1
 gitlab	ArtifactoryApiKey	1	1
 gitlab	ArtifactoryIdentityToken	1	1
-gitlab	AsanaPersonalAccessTokenV1	0	1
-gitlab	AsanaPersonalAccessTokenV2	0	1
+gitlab	AsanaPersonalAccessTokenV1	1	1
+gitlab	AsanaPersonalAccessTokenV2	1	1
 gitlab	AtlassianApiKey	1	1
 gitlab	AtlassianUserApiToken	1	1
 gitlab	Auth0ApplicationClientSecret	0	1
@@ -751,8 +751,8 @@ kingfisher	kingfisher.asaas.1	1	1
 kingfisher	kingfisher.asana.1	0	1
 kingfisher	kingfisher.asana.2	0	1
 kingfisher	kingfisher.asana.3	0	1
-kingfisher	kingfisher.asana.4	0	1
-kingfisher	kingfisher.asana.5	0	1
+kingfisher	kingfisher.asana.4	1	1
+kingfisher	kingfisher.asana.5	1	1
 kingfisher	kingfisher.assemblyai.1	0	1
 kingfisher	kingfisher.atlassian.1	0	1
 kingfisher	kingfisher.atlassian.3	0	1
@@ -972,7 +972,7 @@ kingfisher	kingfisher.dbconn.ruby.1	0	0
 kingfisher	kingfisher.deepgram.1	0	1
 kingfisher	kingfisher.deepl.1	0	1
 kingfisher	kingfisher.deepl.2	0	1
-kingfisher	kingfisher.deepseek.1	0	1
+kingfisher	kingfisher.deepseek.1	1	1
 kingfisher	kingfisher.definednetworking.1	1	1
 kingfisher	kingfisher.delighted.1	0	1
 kingfisher	kingfisher.deno.1	1	1
@@ -1537,7 +1537,7 @@ kingfisher	kingfisher.runpod.1	1	1
 kingfisher	kingfisher.runway.1	0	1
 kingfisher	kingfisher.s3uri.1	0	1
 kingfisher	kingfisher.saladcloud.1	1	1
-kingfisher	kingfisher.salesforce.1	0	1
+kingfisher	kingfisher.salesforce.1	1	1
 kingfisher	kingfisher.salesforce.2	0	1
 kingfisher	kingfisher.salesforce.3	0	1
 kingfisher	kingfisher.salesforce.4	0	1
@@ -1937,7 +1937,7 @@ noseyparker	np.reactapp.2	0	1
 noseyparker	np.rubygems.1	1	1
 noseyparker	np.s3.1	0	1
 noseyparker	np.s3.2	0	0
-noseyparker	np.salesforce.1	0	1
+noseyparker	np.salesforce.1	1	1
 noseyparker	np.sauce.1	0	1
 noseyparker	np.segment.1	1	1
 noseyparker	np.sendgrid.1	1	1

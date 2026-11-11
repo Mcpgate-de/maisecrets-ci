@@ -534,7 +534,7 @@ class TokenFormatTests(unittest.TestCase):
         for line in (detect.RULES_DIR / "prefixes.txt").read_text().splitlines():
             if not line.strip() or line.startswith("#"):
                 continue
-            rule_id, rx = line.split(None, 1)
+            rule_id, rx = detect.prefix_line(line)
             run = best = 0
             for op, av in sre_parse.parse(rx):
                 if op is sre_parse.LITERAL:

@@ -255,9 +255,9 @@ class ReleaseTreeTests(unittest.TestCase):
                          (ROOT / "docs" / "DIRECTORY-README.md").read_text(encoding="utf-8"))
         self.assertNotIn(self.mod.PREFIXES_TXT, self.files)
         shipped = json.loads((self.tree / self.mod.PREFIXES_JSON).read_text(encoding="utf-8"))
-        lines = [ln.split(None, 1) for ln in (ROOT / self.mod.PREFIXES_TXT).read_text(encoding="utf-8").splitlines()
-                 if ln.strip() and not ln.startswith("#")]
-        self.assertEqual([(d["id"], d["regex"]) for d in shipped], [(i, r.strip()) for i, r in lines])
+        from maisecrets.detection.core import prefix_line
+        lines = [prefix_line(ln) for ln in (ROOT / self.mod.PREFIXES_TXT).read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([(d["id"], d["regex"]) for d in shipped], [r for r in lines if r])
         self.assertGreater(len(shipped), 40)
 
     def test_the_json_entry_point_of_the_tree_gives_the_ruleset_of_the_checkout(self):

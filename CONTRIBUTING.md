@@ -1,15 +1,35 @@
 # Contributing
 
-The quickest useful contribution is a token prefix that went through
+The quickest useful contribution is a token format that went through
 undetected. Add one line to `maisecrets/detection/rules/prefixes.txt`:
 
 ```
-<service>-<token-kind>    <prefix>[A-Za-z0-9_-]{<minimum length>,}
+<service>-<token-kind>    <PREFIX>  <REST>
 ```
 
-and one line to `tests/test_core.py` next to the existing prefix test, with a
-synthetic value of the right shape. Never a real value, not even a revoked
-one: the pre-commit hook scans the diff and refuses it.
+`PREFIX` is the literal start of every token, 4 characters or more, written
+as it is (`ATOA`, `xoxe-1-`, `1//0`). `REST` is the regex of the rest, with
+the service's minimum length, so a short look-alike is not a hit. maisecrets
+adds the edges itself: no token character before the prefix, none after the
+rest. An example:
+
+```
+bitbucket-oauth-consumer-secret             ATOA  [A-Za-z0-9_-]{60,68}[0-9A-F]{8}
+```
+
+That one line is the whole change. `tests/test_prefix_lines.py` makes a
+synthetic token from `PREFIX` and `REST` and checks that the rule finds it
+whole, alone, in a sentence and in a JSON string. Never put a real value in
+the repository, not even a revoked one: the pre-commit hook scans the diff
+and refuses it.
+
+A token without a literal prefix of 4 characters takes the long form
+`<id>  <regex>`, with the edges written out, and a line in `SOURCES` of
+`tests/test_researched_formats.py`. Look at the other long lines for the
+edges.
+
+If you cannot write the regex, open an issue with the template "Token format
+maisecrets did not catch" and name the service.
 
 For a larger change, open an issue first. A branch for it may exist already
 (epic #19 has four), and a short exchange can save you a fork.
