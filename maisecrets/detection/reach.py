@@ -6,8 +6,11 @@ so on a text of one long line (a JSON document dumped on one line) each read the
 helpers that let them read only the part that can change, on a long line or a long value. A short one is scanned as
 before.
 
-A rule reads at most core._WINDOW_BEFORE (2,048) characters before a value and _WINDOW_AFTER (512) after it, with
-these exceptions, measured in the code of 0.9.6 (each has its guard in core):
+A rule reads at most core._WINDOW_BEFORE (2,048) characters before a value and _WINDOW_AFTER (512) after it. How far
+one match of a built-in rule runs past a whitespace in it is worked out from its regex (regex_reach.py): a rule whose
+match can cross the cut of a window and still reach the change is a far rule (rescan.far_rules), and a window is read
+whole when a far rule matches in it. A rule of your own reads the whole text. The other exceptions, found in the code
+of 0.9.6 (each has its guard in rescan.py):
 
 - the gates of a rule (a keyword, a leading literal, a required literal, a context word) are searched in the whole
   text: a rescan of a part takes the gates of the whole text;
@@ -35,6 +38,9 @@ LABEL_REACH = 6_144
 # the characters before and after a changed run of the cleaned copy that its window holds: a hit that the change can
 # alter starts at most 4,000 characters after it or ends at most 512 before it, and needs its own context around it
 COPY_MARGIN = 6_144
+# the context a filter reads before a value and after it (core._WINDOW_BEFORE, core._WINDOW_AFTER)
+CONTEXT = 2_048
+AFTER = 512
 # how far a cut looks for whitespace, so that no value is cut in half
 SNAP = 1_024
 # a run of the cleaned copy is compared character by character below this length
@@ -106,3 +112,11 @@ def changed_runs(raw: str, copy: str, starts, ends, a: int, b: int) -> list:
         else:
             runs.append([x, y])
     return runs
+
+
+_LONG_RUN_RE = LazyRx(r"\s{65}|\S{1025}")    # longer than regex_reach.WS_RUN and regex_reach.TOKEN
+
+
+def long_run(text: str) -> bool:
+    """The text holds a run of whitespace or of non-whitespace longer than regex_reach counts with."""
+    return _LONG_RUN_RE.search(text) is not None

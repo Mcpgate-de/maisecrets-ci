@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import contextvars
 
-from . import checksums, core, reach
+from . import checksums, core, reach, regex_reach
 
 # the last long text that core._scan read in this context: (text, order, gates, channel, enabled, where its copy
 # started). A labelled scan of the same text (label_scan_near) takes its gates and the outcome of its copy from here
 LAST_SCAN: contextvars.ContextVar = contextvars.ContextVar("maisecrets_last_scan", default=None)
+# set by findings() and scan() with fields for the length of the call: only then does core._scan remember its text
+WANT = object()
 
 
 def is_marker(rule) -> bool:
@@ -76,6 +78,63 @@ def gates_for(order: tuple, text: str, enabled, channel: str, known: dict | None
 
 def matcher(rule) -> str:
     return rule.matcher or core._registry.matcher_of(rule.id, "literal" if rule.id in core._LITERAL_IDS else "")
+
+
+# matchers whose hits do not come from one match of the rule's regex: a list to its closing bracket, a curl part back
+# to its `curl`, a seed phrase back to its context word, a quoted literal to its closing quote
+_FAR_MATCHERS = frozenset({"list", "curl", "seed", "literal"})
+
+
+def far_rules(order: tuple) -> tuple:
+    """The built-in rules of a scan order whose one match can run further from a whitespace inside it than a window
+    reaches (regex_reach.spread against reach.COPY_MARGIN and reach.LABEL_REACH), or that a matcher reads further.
+    Kept per order on the detector."""
+    d = core._det()
+    got = getattr(d, "_far_rules", None)
+    if got is not None and got[0] is order:
+        return got[1]
+    before = min(reach.COPY_MARGIN, reach.LABEL_REACH) - reach.CONTEXT
+    after = reach.COPY_MARGIN - reach.AFTER
+    out = []
+    for rule in order:
+        if is_marker(rule):
+            continue
+        pattern = getattr(rule.regex, "pattern", None)
+        b, a = regex_reach.spread(pattern, rule.regex.flags or 0) if isinstance(pattern, str) else \
+            (regex_reach.FAR, regex_reach.FAR)
+        if b >= before or a >= after or matcher(rule) in _FAR_MATCHERS:
+            out.append(rule)
+    d._far_rules = (order, tuple(out))
+    return d._far_rules[1]
+
+
+def far_rule_matches(order: tuple, gates: dict, text: str, channel: str) -> bool:
+    """A far rule (far_rules) that may run on `text` (gates) matches somewhere in it: its hit may cross the edge of
+    a window, so the whole text is read. A far rule with no match in the text has no hit there to lose."""
+    for rule in far_rules(order):
+        if gates.get(id(rule), False) and next(iter(core._matches(rule, text, channel)), None) is not None:
+            return True
+    return False
+
+
+def unbounded(order: tuple, enabled, text: str) -> bool:
+    """The reach of a window holds no proof here: a rule of your own runs (its regex may read anything), or the text
+    holds a run of whitespace or of non-whitespace longer than regex_reach counts with."""
+    if any(not is_marker(r) and core._runs_after_personal(r)
+           and (enabled is None or r.id in enabled or r.key in enabled) for r in order):
+        return True
+    return reach.long_run(text)
+
+
+def long_personal_match(text: str) -> bool:
+    """A regex of personal.py that reads the whole text and whose one match has no bound (a row of title words before
+    a name, an XML element named by a back reference) matches CONTEXT characters or more somewhere in the text."""
+    try:
+        from . import personal as p
+    except ImportError:   # a copy of detect.py without its sibling modules
+        return False
+    return any(m.end() - m.start() >= reach.CONTEXT for rx in (p._DE_TITLE_RE, p._XML_NAME_ELEMENT_RE)
+               for m in rx.finditer(text))
 
 
 def far_reaching_match(order: tuple, gates: dict, text: str, lo: int = 0, hi: int | None = None) -> bool:
@@ -217,8 +276,9 @@ def bounded_copy_windows(text: str, norm, wa: int, wb: int, lines: list, enabled
     window = copy[wa:wb]
     order = core._in_scan_order(core.rules())
     gates = copy_window_gates(text, norm, wa, wb, runs_all, order, enabled, channel, raw_gates)
-    if gates is None or record_hits(window, channel) or next(iter(checksums.bip39_spans(window)), None) \
-            or far_reaching_match(order, gates, window):
+    if gates is None or unbounded(order, enabled, window) or record_hits(window, channel) \
+            or next(iter(checksums.bip39_spans(window)), None) or far_reaching_match(order, gates, window) \
+            or far_rule_matches(order, gates, window, channel) or long_personal_match(window):
         return None
     for s, e in merged:
         for m in core._scan(copy[s:e], enabled, _copy=True, channel=channel, path=path, _gate=gates):
@@ -280,7 +340,8 @@ def label_scan_near(labelled: str, lead: int, value: str, enabled, channel: str)
             return None
     # a seed phrase reads its context word back to the start of its line; a list runs on to its closing bracket
     if (core._SEED_CONTEXT_RE.search(labelled, 0, lead) and next(iter(checksums.bip39_spans(value)), None)) \
-            or far_reaching_match(order, gates, labelled, 0, lead + 512):
+            or far_reaching_match(order, gates, labelled, 0, lead + 512) or unbounded(order, enabled, labelled[:cut]) \
+            or far_rule_matches(order, gates, labelled, channel) or long_personal_match(labelled):
         return None
     if tool:
         # a record or a table: the label must not change a hit of its readers anywhere in the value

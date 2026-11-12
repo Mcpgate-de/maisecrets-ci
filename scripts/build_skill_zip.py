@@ -25,7 +25,7 @@ DETECTOR = ("maisecrets/__init__.py", "maisecrets/detection/__init__.py", "maise
             "maisecrets/detection/text_index.py", "maisecrets/detection/encoded_mail.py",
             "maisecrets/detection/fields.py", "maisecrets/detection/prefilter.py", "maisecrets/detection/lazy_regex.py",
             "maisecrets/detection/keyword_tail.py", "maisecrets/detection/deadline.py", "maisecrets/detection/reach.py",
-            "maisecrets/detection/rescan.py",
+            "maisecrets/detection/rescan.py", "maisecrets/detection/regex_reach.py",
             "maisecrets/detection/card_shape.py", "maisecrets/detection/label_number.py",
             "maisecrets/detection/vendored_patches.py",
             "maisecrets/detection/normalise.py",

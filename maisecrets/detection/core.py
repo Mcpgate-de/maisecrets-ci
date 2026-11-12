@@ -65,7 +65,7 @@ from .prefilter import prefix_line  # noqa: F401  detect.prefix_line
 from .vendored_patches import BETTERLEAKS_PATCHES, _VENDORED_END, _SENTENCE_END, _patched  # noqa: F401
 from . import reach as _reach
 from .rescan import changed_windows_scan as _changed_windows_scan, label_scan_near as _label_scan_near
-from .rescan import LAST_SCAN as _LAST_SCAN, gate_ok as _gate_ok
+from .rescan import LAST_SCAN as _LAST_SCAN, WANT as _WANT, gate_ok as _gate_ok
 # The value checks, the own rules and the text index live in modules of their own, so that each file stays readable.
 # The core imports each of their names: `core.<name>` stays the same object. A patch must go to the module that
 # defines it.
@@ -2471,6 +2471,7 @@ def scan(text: str, enabled: set[str] | None = None, channel: str = "prompt", pa
         raise ValueError(f"unknown channel {channel!r}; the known ones: prompt, tool")
     spans = _fields.checked(text, fields)
     # the channel and the path travel as arguments: a nested scan (is_fixture) or a scan in another thread has its own
+    mem = _LAST_SCAN.set(_WANT) if spans else None
     hits = _scan(text, enabled, rule_list=rule_list, channel="tool" if channel == "tool" else "prompt", path=path or "")
     try:
         near = None if rule_list is not None else \
@@ -2481,6 +2482,9 @@ def scan(text: str, enabled: set[str] | None = None, channel: str = "prompt", pa
             hits = _fields.md_key_value_hits(text, hits, lambda t: scan(t, enabled, channel, "", rule_list))
     except ScanIncomplete:
         raise ScanIncomplete(list(hits)) from None   # a nested scan of a field: its offsets are not this text's
+    finally:
+        if mem is not None:
+            _LAST_SCAN.reset(mem)
     return hits
 
 
@@ -3006,7 +3010,7 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
                     continue
             take(Match(rule.id, rule.type, secret, start, end), own)
     found.sort(key=lambda x: x.start)
-    if not _copy and _gate is None and rule_list is None and len(text) > _reach.LONG:
+    if not _copy and _gate is None and rule_list is None and len(text) > _reach.LONG and _LAST_SCAN.get() is _WANT:
         _LAST_SCAN.set((text, order, gates, channel, enabled, copy_quiet))
     return found
 
@@ -3326,6 +3330,7 @@ def findings(text: str, channel: str = "prompt", path: str = "", *, fields=None,
     hits so far (maisecrets/detection/deadline.py)."""
     spans = _fields.checked(text, fields)
     token = _deadline.set_for(deadline)
+    mem = _LAST_SCAN.set(_WANT if spans else None)   # the scan of the text is remembered for its fields only
     cut = None
     try:
         hits = scan(text, channel=channel, path=path)   # the call of before: a caller may wrap detect.scan
@@ -3336,6 +3341,7 @@ def findings(text: str, channel: str = "prompt", path: str = "", *, fields=None,
         hits, cut = e.findings, e
     finally:
         _deadline.reset(token)      # the fixture check of each hit runs whole
+        _LAST_SCAN.reset(mem)
     kept = [m for m in hits if not is_fixture(m, text, path)]
     if cut is not None:
         raise ScanIncomplete(kept, cut.reason)

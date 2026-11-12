@@ -158,7 +158,7 @@ def as_before():
 
 
 # a run of a few seconds; scratch runs of the same generator over many more seeds are named in the commit message
-SEEDS = range(3)
+SEEDS = range(5)
 
 
 class SameHitsAsTheWholeLineTests(unittest.TestCase):
@@ -241,6 +241,112 @@ class CopyReachTests(unittest.TestCase):
         self.assertEqual(spans(d.findings(text, channel="tool")), want)
 
 
+def _own(rule) -> Detector:
+    class Own(Sources):
+        def user_rules(self):
+            return [rule]
+    return Detector(regions=Active(regions=("generic",), languages=("en",), source="long-line-test"), sources=Own(),
+                    references=NO_REFERENCES, host=Host(user="", year=2026))
+
+
+class RulesOfYourOwnTests(unittest.TestCase):
+    """A rule of your own may read any distance: with one, both rescans read the whole text (codex Gate A, b0848c45:
+    both cases gave no hit where the scans of before gave one)."""
+
+    def test_a_label_a_rule_of_your_own_reads_9000_characters_back(self):
+        d = _own(user_rule("far-label", "SECRET", r"(?s)(?<=zebra: ).{9000}QX" + "123456"))
+        value = "a " * 4_500 + "QX" + "123456 " + "b " * 6_000
+        field = [(0, len(value), ("zebra",))]
+        with as_before():
+            want = spans(d.findings(value, channel="tool", fields=field))
+        self.assertEqual([t[0] for t in want], ["user:far-label"], "the premise")
+        self.assertEqual(spans(d.findings(value, channel="tool", fields=field)), want)
+
+    def test_a_change_a_rule_of_your_own_reads_9000_characters_on(self):
+        d = _own(user_rule("far-copy", "SECRET", r"(?s)[M]AGIC.{9000}QX" + "123456"))
+        text = "MA\u00adGIC" + "a " * 4_500 + "QX" + "123456 " + "b " * 6_000
+        with as_before():
+            want = spans(d.findings(text, channel="tool"))
+        self.assertEqual([t[0] for t in want], ["user:far-copy"], "the premise")
+        self.assertEqual(spans(d.findings(text, channel="tool")), want)
+
+
+class BuiltInReachTests(unittest.TestCase):
+    """The reach of the built-in rules, worked out from their regexes (maisecrets/detection/regex_reach.py)."""
+
+    def test_the_spread_of_known_shapes(self):
+        from maisecrets.detection import regex_reach as rr
+        self.assertLess(rr.spread(r"password\s*[:=]\s*(\S+)")[0], 200, "a label, a run of spaces, a token")
+        self.assertGreaterEqual(rr.spread(r"(?s)[M]AGIC.{9000}QX")[0], 9000)
+        self.assertGreaterEqual(rr.spread(r"(?<=zebra: ).{9000}QX")[1], 9000)
+        self.assertEqual(rr.spread(r"key=(.+)$"), (rr.FAR, rr.FAR), "a dot runs over spaces without end")
+        self.assertGreaterEqual(rr.spread(r"tok(?=.{0,6000}end)")[1], 6000, "a lookahead reads on")
+        self.assertEqual(rr.spread(r"<(\w+) [^>]*>.*</\1>"), (rr.FAR, rr.FAR), "a back reference has no bound")
+        self.assertLess(max(rr.spread(r"[A-Za-z0-9+/]{40,}")), 1, "no whitespace: it cannot cross a cut")
+
+    def test_every_built_in_rule_that_reads_far_is_held_by_a_guard(self):
+        from maisecrets.detection import regex_reach as rr, rescan
+        with D.activate():
+            order = core._in_scan_order(core.rules())
+            far = {id(r) for r in rescan.far_rules(order)}
+        limit = min(reach.COPY_MARGIN, reach.LABEL_REACH) - reach.CONTEXT
+        for rule in order:
+            if rescan.is_marker(rule) or id(rule) in far:
+                continue
+            with self.subTest(rule=rule.id):
+                before, after = rr.spread(rule.regex.pattern, rule.regex.flags or 0)
+                self.assertLess(before, limit)
+                self.assertLess(after, reach.COPY_MARGIN - reach.AFTER)
+        self.assertGreater(len(far), 0, "the premise: some built-in rules read far")
+
+    def test_every_regex_of_the_core_over_a_whole_text_reads_near_or_is_guarded(self):
+        # a regex that personal.py, core.py or a part runs over the whole text (`rx.finditer(text)`), found from the
+        # syntax tree: one that can read far is a record reader (rescan.record_hits), a long personal match
+        # (rescan.long_personal_match), the seed phrase (checksums), or reads a value or a path, not the text
+        import ast
+        import importlib
+        from maisecrets.detection import regex_reach as rr
+        reviewed = {
+            ("personal", "_SQL_CREATE_RE"), ("personal", "_HTML_TABLE_RE"), ("personal", "_SQL_STMT_RE"),
+            ("personal", "_JSON_STRING_RE"),                                     # record readers
+            ("personal", "_DE_TITLE_RE"), ("personal", "_XML_NAME_ELEMENT_RE"),  # long_personal_match
+            ("checksums", "_WORD_RUN_RE"),                                       # the seed phrase guard
+            ("core", "_GENERIC_TYPE"), ("core", "_PART_TEMPLATE_RE"), ("core", "_LITERAL_PLACEHOLDER_RE"),
+            ("core", "_CLOSED_TEMPLATE_RE"), ("core", "_EXPORT_NAME_RE"),         # a value or a path
+            ("text_index", "_TEST_PATH_RE"), ("text_index", "_REAL_VALUE_FILE_RE"),   # a path
+            ("fields", "_MD_KV_ROW_RE"), ("fields", "_WORD_SPLIT"),             # a table row of a line; a label
+        }
+        found = set()
+        for name in ("personal", "core", "secret_table", "encoded_mail", "fields", "text_index", "value_checks",
+                     "keyword_tail", "checksums", "own_rules", "normalise"):
+            mod = importlib.import_module("maisecrets.detection." + name)
+            for node in ast.walk(ast.parse(Path(mod.__file__).read_text(encoding="utf-8"))):
+                if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                        and node.func.attr in ("finditer", "search", "findall", "sub", "subn", "split")
+                        and isinstance(node.func.value, ast.Name) and len(node.args) == 1 and not node.keywords):
+                    continue
+                rx = getattr(mod, node.func.value.id, None)
+                pattern = getattr(rx, "pattern", None)
+                if not isinstance(pattern, str):
+                    continue
+                flags = rx._args[1] if hasattr(rx, "_args") and len(rx._args) > 1 else getattr(rx, "flags", 0)
+                before, after = rr.spread(pattern, flags)
+                if before >= reach.COPY_MARGIN - reach.CONTEXT or after >= reach.COPY_MARGIN - reach.AFTER:
+                    found.add((name, node.func.value.id))
+        self.assertEqual(found - reviewed, set(), "a new regex over the whole text reads far: guard it in rescan.py")
+
+
+class RememberedScanTests(unittest.TestCase):
+    def test_no_text_is_kept_after_a_call(self):
+        rnd = random.Random(8)
+        text = _prose(rnd, reach.LONG + 2_000)
+        D.findings(text, channel="tool", fields=[(0, len(text), ("notes",))])
+        D.scan(text, channel="tool", fields=[(0, len(text), ("notes",))])
+        D.findings(text, channel="tool")
+        from maisecrets.detection import rescan
+        self.assertIsNone(rescan.LAST_SCAN.get())
+
+
 class ProportionalWorkTests(unittest.TestCase):
     """The characters each rescan reads on one line of about 40,000 characters with one change far into it."""
 
@@ -258,7 +364,9 @@ class ProportionalWorkTests(unittest.TestCase):
             sizes.append((len(text), bool(k.get("_copy"))))
             return real(text, *a, **k)
         with mock.patch.object(core, "_scan", counting):
-            D.findings(self.text, channel="tool", **kw)
+            got = spans(D.findings(self.text, channel="tool", **kw))
+        with as_before():
+            self.assertEqual(got, spans(D.findings(self.text, channel="tool", **kw)), "the hits of before")
         return sizes
 
     def test_the_cleaned_copy_reads_a_window_around_the_change_not_the_line(self):

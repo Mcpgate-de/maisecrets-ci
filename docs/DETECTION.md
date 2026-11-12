@@ -172,7 +172,9 @@ d.findings("0171 4829173", channel="tool")                                      
   or a seed phrase after it, a record or table that reads otherwise with it, a cleaned copy that changes the value
   near its start), the whole labelled value is scanned as before. The cleaned copy of a tool result reads a line
   longer than 16,384 characters in windows of 6,144 characters around each change, and the whole line when a hit
-  there is new. `maisecrets/detection/reach.py` names each reader that reads further than a window and its guard;
+  there is new, when a built-in rule whose one match can run past the window matches there (worked out from its
+  regex, `maisecrets/detection/regex_reach.py`), and whenever a rule of your own runs.
+  `maisecrets/detection/reach.py` names each reader that reads further than a window and its guard;
   `tests/test_long_line_rescans.py` compares both with the whole-line rescans of before, span for span.
 - `tests/test_detection_fields.py` holds these points; `tests/conformance/cases.json` has cases with
   `context.fields` in the gateway's shapes (a leaf with its field path, and a JSON text with fields of its own keys).
