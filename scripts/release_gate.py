@@ -271,7 +271,9 @@ def verify_tag(tag: str, root: Path = ROOT) -> list:
 COVERAGE = ROOT / "docs" / "coverage.json"
 TIME_LIMIT = 1.2   # the candidate may take at most this much of the base's CPU time, unless the difference is too
 # small to feel: a short prompt went from 0.43 to 0.55 ms with 205 more rules (+27 %), which no hook notices
-TIME_MIN_DELTA = {"tool_1mb": 0.5, "prompt": 1.0}   # seconds for 1 MB, milliseconds for a prompt
+TIME_MIN_DELTA = {"tool_1mb": 0.5, "prompt": 1.0, "one_line": 0.1}   # s for 1 MB, ms for a prompt, s for one line
+TIME_CASES = (("tool_1mb", "1 MB tool text", "s"), ("prompt", "short prompt", "ms"),
+              ("one_line", "62 KB one-line JSON with a field label", "s"))
 
 
 def coverage_check(cand: Path, catalogs: Path, out: Path, python: str) -> tuple:
@@ -344,7 +346,7 @@ def time_check(cand: Path, tag: str, out: Path, rounds: int = 3) -> tuple:
     finally:
         _git("worktree", "remove", "--force", str(base), cwd=cand)
     load_after = os.getloadavg()[0]
-    med = {name: {k: sorted(x[k] for x in rs)[len(rs) // 2] for k in ("tool_1mb", "prompt")}
+    med = {name: {k: sorted(x[k] for x in rs)[len(rs) // 2] for k, _l, _u in TIME_CASES if all(k in x for x in rs)}
            for name, rs in runs.items()}
     return time_report(med, tag, rounds, (load_before, load_after), os.cpu_count() or 1)
 
@@ -355,7 +357,9 @@ def time_report(med: dict, tag: str, rounds: int, loads: tuple, cpus: int) -> tu
     lines, failed = ["", f"CPU time, base {tag} and candidate in turns ({rounds} rounds, median; load average "
                          f"{loads[0]:.1f} before, {loads[1]:.1f} after, {cpus} CPUs):", "",
                      "| Text | Base | Candidate | Ratio |", "|---|---:|---:|---:|"], False
-    for key, label, unit in (("tool_1mb", "1 MB tool text", "s"), ("prompt", "short prompt", "ms")):
+    for key, label, unit in TIME_CASES:
+        if key not in med["base"] or key not in med["candidate"]:
+            continue   # a case the timing script of this candidate does not measure
         b, c = med["base"][key], med["candidate"][key]
         ratio = c / b if b else 1.0
         slow = ratio > TIME_LIMIT and c - b > TIME_MIN_DELTA[key]

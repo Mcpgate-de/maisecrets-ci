@@ -3,10 +3,13 @@
 
     python3 -I scripts/time_detector.py CHECKOUT TEXT_FILE
 
-Prints one JSON line: {"tool_1mb": s, "prompt": ms}, both CPU time of this process (time.process_time), the median
-of five runs after a warm-up. CPU time counts this process only, so another program on the machine changes it less
-than the wall clock; the gate still measures base and candidate in turns and reports the load average. TEXT_FILE is
-the same file for both checkouts, so they scan the same characters. Standard library only; no home folder is read.
+Prints one JSON line: {"tool_1mb": s, "prompt": ms, "one_line": s}, each CPU time of this process
+(time.process_time), the median of five runs after a warm-up. `one_line` is 62 KB of the text as one JSON line with
+a field label over its content, the shape of a model request that stopped at a gateway's deadline (ai-gateway
+#1832). CPU time counts this process only, so another program on the machine changes it less than the wall clock;
+the gate still measures base and candidate in turns and reports the load average. TEXT_FILE is the same file for
+both checkouts, so they scan the same characters.
+Standard library only; no home folder is read.
 """
 from __future__ import annotations
 
@@ -37,7 +40,18 @@ def main(argv: list[str]) -> int:
     for _ in range(200):
         det.findings(PROMPT, channel="prompt", path="")
     prompt_ms = (time.process_time() - t0) / 200 * 1000
-    print(json.dumps({"tool_1mb": round(statistics.median(runs), 3), "prompt": round(prompt_ms, 3)}))
+    head, content = '{"messages": [{"role": "system", "content": "x"}, {"role": "user", "content": ', \
+        json.dumps(text[:60_000])
+    doc = head + content + "}]}"
+    fields = [(len(head) + 1, len(head) + len(content) - 1, ("messages", 1, "content"))]
+    det.findings(doc, channel="prompt", fields=fields)
+    one = []
+    for _ in range(5):
+        t0 = time.process_time()
+        det.findings(doc, channel="prompt", fields=fields)
+        one.append(time.process_time() - t0)
+    print(json.dumps({"tool_1mb": round(statistics.median(runs), 3), "prompt": round(prompt_ms, 3),
+                      "one_line": round(statistics.median(one), 3)}))
     return 0
 
 
