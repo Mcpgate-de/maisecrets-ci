@@ -2639,10 +2639,11 @@ def _host():
 # record, so its reach is the record and not a window of characters. core's bounded rescans of a long line ask
 # record_hits() and fall back to the whole line when it finds something.
 def _vcard_reader(text: str, want) -> list:
+    out = []
     if any(f in want for f in _VCARD_FORMS) and ("VCARD" in text.upper() or (
             _VCARD_BARE_WORDS_RE.search(text) and _VCARD_BARE_HINT_RE.search(text))):
-        return _vcard_hits(text, want)
-    return []
+        out += _vcard_hits(text, want)
+    return out
 
 
 def _record_readers(text: str, want) -> list:
