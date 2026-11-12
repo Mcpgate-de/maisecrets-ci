@@ -2472,16 +2472,18 @@ def scan(text: str, enabled: set[str] | None = None, channel: str = "prompt", pa
     spans = _fields.checked(text, fields)
     # the channel and the path travel as arguments: a nested scan (is_fixture) or a scan in another thread has its own
     mem = _LAST_SCAN.set(_WANT) if spans else None
-    hits = _scan(text, enabled, rule_list=rule_list, channel="tool" if channel == "tool" else "prompt", path=path or "")
-    try:
-        near = None if rule_list is not None else \
-            (lambda t, lead, v: _label_scan_near(t, lead, v, enabled, "tool" if channel == "tool" else "prompt"))
-        hits = _fields.added(text, hits, spans, lambda t: scan(t, enabled, channel, "", rule_list),
-                             near=near) if spans else hits
-        if channel == "tool" and rule_list is None and "|" in text:
-            hits = _fields.md_key_value_hits(text, hits, lambda t: scan(t, enabled, channel, "", rule_list))
-    except ScanIncomplete:
-        raise ScanIncomplete(list(hits)) from None   # a nested scan of a field: its offsets are not this text's
+    try:   # the reset also after a scan that raises (Gate A of 0.9.8: the marker kept the next long text alive)
+        hits = _scan(text, enabled, rule_list=rule_list, channel="tool" if channel == "tool" else "prompt",
+                     path=path or "")
+        try:
+            near = None if rule_list is not None else \
+                (lambda t, lead, v: _label_scan_near(t, lead, v, enabled, "tool" if channel == "tool" else "prompt"))
+            hits = _fields.added(text, hits, spans, lambda t: scan(t, enabled, channel, "", rule_list),
+                                 near=near) if spans else hits
+            if channel == "tool" and rule_list is None and "|" in text:
+                hits = _fields.md_key_value_hits(text, hits, lambda t: scan(t, enabled, channel, "", rule_list))
+        except ScanIncomplete:
+            raise ScanIncomplete(list(hits)) from None   # a nested scan of a field: its offsets are not this text's
     finally:
         if mem is not None:
             _LAST_SCAN.reset(mem)

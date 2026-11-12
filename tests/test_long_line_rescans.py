@@ -375,6 +375,72 @@ class RememberedScanTests(unittest.TestCase):
         self.assertIsNone(rescan.LAST_SCAN.get())
 
 
+# words that open no gate of a far rule, so a window around a change can stay bounded
+PLAIN = "die anwendung speichert jede antwort im verlauf und zeigt sie im bericht der woche an".split()
+
+
+def _one_line(rnd: random.Random, n: int) -> str:
+    """Prose on one line, with no value in it."""
+    out, size = [], 0
+    while size < n:
+        w = rnd.choice(PLAIN)
+        out.append(w)
+        size += len(w) + 1
+    return " ".join(out)
+
+
+class BoundedPathsAreTakenTests(unittest.TestCase):
+    """Each case reaches a bounded path (a spy sees it answer) and gives the hits of the whole rescan. Without these,
+    the two checks that keep the bounded path exact could be removed and every other test stayed green (Gate B of
+    0.9.8: the generated texts never reached them)."""
+
+    def test_a_token_split_by_a_zero_width_space_on_a_long_clean_line(self):
+        rnd = random.Random(31)
+        tok = "gh" + "p_" + "".join(rnd.choice("abcdefghijKLMNOP0123456789") for _ in range(36))
+        body = _one_line(rnd, 36_000)
+        text = body[:20_000] + " " + tok[:10] + "\u200b" + tok[10:] + " " + body[20_000:]
+        from maisecrets.detection import rescan
+        real = rescan.bounded_copy_windows
+        taken = []
+        with mock.patch.object(rescan, "bounded_copy_windows",
+                               side_effect=lambda *a: taken.append(real(*a)) or taken[-1]):
+            got = spans(D.findings(text, channel="tool"))
+        # the copy's new hit sends the window back to the whole rescan: the check that a removed `return None` skips
+        self.assertEqual(taken, [None], "the bounded copy path was asked and gave the window back")
+        with as_before():
+            self.assertEqual(got, spans(D.findings(text, channel="tool")))
+        self.assertIn("github-pat", [k for k, *_ in got])
+
+    def test_a_value_whose_start_only_the_label_makes_a_hit(self):
+        rnd = random.Random(32)
+        for label, start, kind in (("geburtsdatum", "12.03." + "1985", "birth-date-after-label"),
+                                   ("username", "jbei" + "spiel", "username-after-label")):
+            value = start + " " + _one_line(rnd, 20_000) + " " + label + " " + _one_line(rnd, 2_000)
+            seen = []
+            real = core._label_scan_near
+            with mock.patch.object(core, "_label_scan_near",
+                                   side_effect=lambda *a: seen.append(real(*a)) or seen[-1]):
+                got = spans(D.findings(value, channel="tool", fields=[(0, len(value), (label,))]))
+            with self.subTest(label=label):
+                self.assertTrue(any(isinstance(x, list) for x in seen), "the label's near scan answered")
+                with as_before():
+                    self.assertEqual(got, spans(D.findings(value, channel="tool", fields=[(0, len(value), (label,))])))
+                self.assertIn(kind, [k for k, *_ in got])
+
+    def test_no_text_is_kept_after_a_scan_that_stops_at_its_deadline(self):
+        import time
+        from maisecrets.detection import deadline, rescan
+        token = deadline.set_for(time.monotonic() - 1)
+        try:
+            with self.assertRaises(deadline.ScanIncomplete):
+                core.scan("plain test text", fields=[(0, 15, ("notes",))])
+        finally:
+            deadline.reset(token)
+        text = "word " * (reach.LONG // 5 + 10)
+        core.scan(text)
+        self.assertIsNone(rescan.LAST_SCAN.get())
+
+
 class ProportionalWorkTests(unittest.TestCase):
     """The characters each rescan reads on one line of about 40,000 characters with one change far into it."""
 
