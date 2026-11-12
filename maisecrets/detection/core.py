@@ -62,6 +62,7 @@ from .prefilter import NONE as _NO_PREFIX, any_keyword as _any_keyword, lacks_pr
 from .prefilter import lacks_required as _lacks_required, response_rules as _response_rules
 from . import prefilter as _prefilter
 from .prefilter import prefix_line  # noqa: F401  detect.prefix_line
+from .vendored_patches import BETTERLEAKS_PATCHES, _VENDORED_END, _SENTENCE_END, _patched  # noqa: F401
 # The value checks, the own rules and the text index live in modules of their own, so that each file stays readable.
 # The core imports each of their names: `core.<name>` stays the same object. A patch must go to the module that
 # defines it.
@@ -75,7 +76,7 @@ from .own_rules import (  # noqa: F401
     OWN_RULES, FALLBACK_RULES,
 )
 from .value_checks import (  # noqa: F401
-    _a_version, _LABEL_WORDS_TAIL_RE, _bitlocker_key_ok,
+    _a_version, _a_dotted_date_time, _LABEL_WORDS_TAIL_RE, _bitlocker_key_ok,
     _re2_to_python, _POSIX_CLASSES, shannon_entropy, ENTROPY_BY_ALPHABET, ENTROPY_BY_ALPHABET_RULES, _B62, _ALPHABETS,
     alphabet_of, _base64_of_text, _entropy_ok, _luhn_ok, IBAN_LENGTH, _iban_ok, _RESOLVER_IPS, _public_ip,
     _IBAN_GROUP_SEP_UPSTREAM, PRESIDIO_GROUP_SEP,
@@ -585,70 +586,6 @@ VALIDATORS = {
 # it, and maisecrets' own label rules cover these shapes (ds-keyword, url-query-secret, the email rule)
 BETTERLEAKS_SKIP_UNSUPPORTED = True
 
-# Corrections to vendored betterleaks rules. scripts/sync_betterleaks.py overwrites rules/betterleaks.json, so they
-# live here and apply when the rules load. Each names the upstream regex it expects ("expect"); after a re-sync that
-# changes that regex, tests/test_rules_from_the_catalogs.py goes red, and the correction is checked against the new
-# rule (and dropped if upstream fixed it). Found by a coverage measurement against other catalogs (0.6.20):
-# - three keyword lists named only the provider, so a bare token without the provider's name was never searched;
-#   the token's own prefix is now a keyword too (the regex is unchanged). The Airtable regex also used the RE2 class
-#   [[:alnum:]], which Python read as a set of six characters; _re2_to_python now translates the POSIX classes
-# - WakaTime's waka_ key is waka_ and a UUID (Kingfisher's rule and examples); the regex took no hyphen
-BETTERLEAKS_PATCHES = {
-    "resend-api-key.1": {"add_keywords": ("re_",)},
-    "ionic-personal-access-token": {"add_keywords": ("ion_",)},
-    "airtable-personnal-access-token": {"add_keywords": ("pat",)},
-    "microsoft-teams-webhook": {
-        "expect": r"https://[a-z0-9]+\.webhook\.office\.com/"
-                  r"webhookb2/[a-z0-9]{8}-([a-z0-9]{4}-){3}[a-z0-9]{12}@"
-                  r"[a-z0-9]{8}-([a-z0-9]{4}-){3}[a-z0-9]{12}/"
-                  r"IncomingWebhook/[a-z0-9]{32}/[a-z0-9]{8}-([a-z0-9]{4}-){3}[a-z0-9]{12}",
-        # the ids also in capital hex (the vendored [a-z0-9] stays, so no old hit is lost), a word boundary on both
-        # sides, and a further path part after the last id stays in the hit (codex Gate A of 0.6.39)
-        "regex": r"https(?:(?<![A-Za-z0-9]https)|(?<=\\[nrt]https))://[a-z0-9]+\.webhook\.office\.com/"
-                 r"webhookb2/[0-9a-zA-F]{8}-(?:[0-9a-zA-F]{4}-){3}[0-9a-zA-F]{12}@"
-                 r"[0-9a-zA-F]{8}-(?:[0-9a-zA-F]{4}-){3}[0-9a-zA-F]{12}/"
-                 r"IncomingWebhook/[0-9a-zA-F]{32}/[0-9a-zA-F]{8}-(?:[0-9a-zA-F]{4}-){3}[0-9a-zA-F]{12}"
-                 r"(?:/[0-9A-Za-z_-]{20,})?(?![0-9A-Za-z_-])",
-        "reason": "the ids were capturing groups, so a hit masked 17 of 204 characters; the whole URL is the "
-                  "credential (0.6.39, #11)"},
-    "wakatime-api-key.2": {
-        "expect": r"""(?i)\b(waka_[a-z0-9]{36,64})(?:\\?['"\x60]|[\s;]|\\[nr]|$)""",
-        "regex": r"""(?i)\b(waka_(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-z0-9]{36,64}))"""
-                 r"""(?:\\?['"\x60]|[\s;]|\\[nr]|$)"""},
-    # its own terminator refused "." and ":", so "the client secret is <value>." was no hit at all (13 catalog
-    # examples, 0.7.13); a full stop or colon before a space or the end of the text now ends the value, as for the
-    # 336 rules with the gitleaks terminator (_SENTENCE_END)
-    "azure-ad-client-secret": {
-        "expect": "(?:^|[\\\\'\"\\x60\\s>=:(,)])([a-zA-Z0-9_~.]{3}\\dQ~[a-zA-Z0-9_~.-]{31,34})"
-                  "(?:$|[\\\\'\"\\x60\\s<),])",
-        "regex": "(?:^|[\\\\'\"\\x60\\s>=:(,)])([a-zA-Z0-9_~.]{3}\\dQ~[a-zA-Z0-9_~.-]{31,34})"
-                 "(?:$|[\\\\'\"\\x60\\s<),]|[.:](?=\\s|$))"},
-}
-
-
-# The terminator that 336 vendored rules end with takes a quote, a space, ";" or a line end, which is right for an
-# assignment and wrong for a sentence: "the key is <token>." or "(<token>)" lost the whole hit. The terminator now
-# also takes sentence punctuation before a space or the end of the text; a dot before a letter (a host name) is still
-# no end, nor is punctuation next to a quote: `"<value>", "next"` and `<key>: "…"` are code, not a sentence (two
-# false alarms in the FP bank). The terminator is outside the secret group, so no value changes (0.7.11)
-_VENDORED_END = r"""(?:\\?['"\x60]|[\s;]|\\[nr]|$)"""
-_SENTENCE_END = r"""(?:\\?['"\x60]|[\s;]|\\[nr]|$|(?<!['"\x60])[.,:!?)](?=\s|$)(?!\s*['"\x60]))"""
-
-
-def _patched(r: dict) -> dict:
-    """The rule with its BETTERLEAKS_PATCHES entry applied, then the sentence terminator. A regex correction applies
-    only to the regex it expects."""
-    patch = BETTERLEAKS_PATCHES.get(r.get("id"))
-    r = dict(r)
-    if patch and patch.get("add_keywords"):
-        r["keywords"] = list(r.get("keywords") or []) + [k for k in patch["add_keywords"]
-                                                        if k not in (r.get("keywords") or [])]
-    if patch and patch.get("regex") and r.get("regex") == patch["expect"]:
-        r["regex"] = patch["regex"]
-    if r.get("regex", "").endswith(_VENDORED_END):
-        r["regex"] = r["regex"][:-len(_VENDORED_END)] + _SENTENCE_END
-    return r
-
 
 def _load_own_secret_rules() -> list[Rule]:
     """maisecrets' own secret rules (rules/own_secret_rules.json; patterns derived from gitleaks v8.30.1, MIT), with
@@ -712,6 +649,8 @@ def _load_betterleaks() -> list[Rule]:
             if "regex" not in r or r.get("skipReport"):
                 continue
             r = _patched(r)
+            if r is None:
+                continue
             own = None
             if r.get("filter"):
                 if r["filter"] not in read:
@@ -2931,6 +2870,8 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
                 continue   # a section number: RFC 6749 4.1.2.1, OIDC Core 3.1.2.1, section 7.1.2.3
             if rule.id == "ip#2" and _a_version(text, start, end, secret):
                 continue
+            if rule.type == "IP" and _a_dotted_date_time(text, start, secret):
+                continue   # ….2026.11.08.10.20: a date and time in a message id (#34)
             if overlaps(start, end):
                 continue
             if rule.entropy and not _entropy_ok(rule, secret, channel):

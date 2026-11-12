@@ -286,3 +286,77 @@ class WordValuesNotHuntedTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WordHitsOfNameRulesTests(WordValuesNotHuntedTests.__bases__[0]):
+    """#23: a name or shape rule's hit that is an English or developer word ("Claude", "confidential") was never weak,
+    so the store hunted it in every later text: "Claude Code" came back as a NAME placeholder, a GitLab issue's
+    "confidential": false key as a SECRET placeholder. Synthetic values only."""
+    setUp = WordValuesNotHuntedTests.setUp
+    hook = WordValuesNotHuntedTests.hook
+    bash = WordValuesNotHuntedTests.bash
+    put_by_hand = WordValuesNotHuntedTests.put_by_hand
+
+    PRODUCT = "Clau" + "de"            # a product name of the developer word list
+    LABEL_WORD = "confiden" + "tial"   # an English word with an ending the word test did not know before 0.9.7
+    SURNAME = "Zbyszko" + "wiak"       # a name that is no word: still hunted
+
+    @classmethod
+    def tearDownClass(cls):  # noqa: N802 - unittest hook
+        _hygiene.assert_children_ended()
+
+    def as_older_name_hits(self) -> None:
+        """Turn the hand-stored entries into hits of a single-name rule as 0.9.6 stored them: not weak, unchecked."""
+        index = Path(self.home, "index.json")
+        idx = json.loads(index.read_text())
+        for meta in idx["entries"].values():
+            meta.update(kind="name-single-after-label", type="NAME", weak=False)
+            meta.pop("wordcheck", None)
+        index.write_text(json.dumps(idx))
+        self.give_to_sessions()
+
+    def give_to_sessions(self) -> None:
+        """The sessions s1 and s2 may resolve each entry, as if the value had come up there."""
+        index = Path(self.home, "index.json")
+        idx = json.loads(index.read_text())
+        for meta in idx["entries"].values():
+            meta["sessions"] = ["s1", "s2"]
+        index.write_text(json.dumps(idx))
+
+    def refs(self) -> dict:
+        idx = json.loads(Path(self.home, "index.json").read_text())
+        return {m["kind"] + ":" + str(i): "\u27e6" + k + "\u27e7" for i, (k, m) in enumerate(idx["entries"].items())}
+
+    def resolve(self, session: str) -> None:
+        """An agent copies each placeholder into a command: the session resolved the values (the field case)."""
+        refs = " ".join(self.refs().values())
+        self.hook("pre-tool", {"tool_name": "Bash", "session_id": session, **CLAUDE,
+                               "tool_input": {"command": f"echo {refs} > /dev/null"}})
+
+    def test_a_resolved_name_hit_that_is_a_word_is_not_hunted_after_the_next_start(self):
+        for value in (self.PRODUCT, self.SURNAME):
+            self.put_by_hand(value)
+        self.as_older_name_hits()
+        line = f"another {self.PRODUCT} Code session and {self.PRODUCT}s, sent by {self.SURNAME}\n"
+        self.resolve("s1")
+        self.assertNotIn(self.PRODUCT, self.bash(line, "s1"), "hunted before the start, as in 0.9.6")
+        self.hook("session-start", {"session_id": "s2", **CLAUDE})
+        self.resolve("s2")
+        out = self.bash(line, "s2")
+        self.assertIn(f"another {self.PRODUCT} Code session and {self.PRODUCT}s", out)
+        self.assertNotIn(self.SURNAME, out, "a name that is no word stays hunted")
+        checked = [m.get("wordcheck") for m in json.loads(Path(self.home, "index.json").read_text())
+                   ["entries"].values()]
+        self.assertEqual(checked, [True, True], "each entry is read once and marked checked")
+
+    def test_a_word_the_person_stored_by_hand_stays_hunted(self):
+        self.put_by_hand(self.PRODUCT)
+        self.give_to_sessions()
+        self.hook("session-start", {"session_id": "s1", **CLAUDE})
+        self.resolve("s2")
+        self.assertNotIn(self.PRODUCT, self.bash(f"the {self.PRODUCT} app\n", "s2"), "chosen: hunted everywhere")
+
+    def test_a_word_with_an_ending_after_a_label_in_a_tool_result_is_masked_only_there(self):
+        self.assertNotIn(self.LABEL_WORD, self.bash(f"password: {self.LABEL_WORD}\n", "s1"))
+        issue = '{"iid": 23, "' + self.LABEL_WORD + '": false}\n'
+        self.assertEqual(self.bash(issue, "s2"), issue)

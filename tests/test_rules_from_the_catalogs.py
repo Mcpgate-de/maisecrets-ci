@@ -448,7 +448,12 @@ class BetterleaksPatchTests(unittest.TestCase):
         for rule_id, patch in detect.BETTERLEAKS_PATCHES.items():
             with self.subTest(rule=rule_id):
                 self.assertIn(rule_id, vendored)
+                if patch.get("skip"):
+                    self.assertNotIn(rule_id, loaded)
+                    continue
                 self.assertIn(rule_id, loaded)
+                if "filter" in patch:
+                    self.assertEqual(vendored[rule_id]["filter"], patch["expect_filter"])
                 for kw in patch.get("add_keywords", ()):
                     self.assertNotIn(kw, vendored[rule_id].get("keywords") or [])
                     self.assertIn(kw, loaded[rule_id].keywords)
@@ -458,6 +463,20 @@ class BetterleaksPatchTests(unittest.TestCase):
                     if want.endswith(detect._VENDORED_END):
                         want = want[:-len(detect._VENDORED_END)] + detect._SENTENCE_END
                     self.assertEqual(loaded[rule_id].regex.pattern, detect._re2_to_python(want))
+
+    def test_the_box_rule_keeps_a_token_and_drops_a_box_client_value(self):
+        # betterleaks v1.10.0 drops a value whose label names a client; the correction keeps that in the subset. The
+        # rule itself: in a whole scan a label rule takes these values first
+        box = next(x for x in detect._load_betterleaks() if x.id == "box-api-access-token")
+        r = random.Random(41)
+        for _ in range(20):
+            tok = rd(r, 16, L) + rd(r, 16, D)
+            for label, dropped in (("box_token = ", False), ("box_client_id = ", True), ("BOX_CLIENT_SECRET: ", True)):
+                text = label + tok + "\n"
+                m = box.regex.search(text)
+                self.assertEqual(m.group(1), tok)
+                env = {"secret": tok, "match": m.group(0), "line": text.strip(), "path": ""}
+                self.assertEqual(bool(box.drop(env)), dropped, label)
 
     def test_a_bare_token_without_the_providers_name_is_found(self):
         b58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"

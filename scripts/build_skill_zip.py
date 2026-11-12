@@ -26,6 +26,7 @@ DETECTOR = ("maisecrets/__init__.py", "maisecrets/detection/__init__.py", "maise
             "maisecrets/detection/fields.py", "maisecrets/detection/prefilter.py", "maisecrets/detection/lazy_regex.py",
             "maisecrets/detection/keyword_tail.py", "maisecrets/detection/deadline.py",
             "maisecrets/detection/card_shape.py", "maisecrets/detection/label_number.py",
+            "maisecrets/detection/vendored_patches.py",
             "maisecrets/detection/normalise.py",
             "maisecrets/detection/regions.py", "maisecrets/detection/registry.py",
             "maisecrets/detection/rule_filter.py", "maisecrets/detection/rulespec.py",

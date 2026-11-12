@@ -163,6 +163,22 @@ def _a_version(text: str, start: int, end: int, value: str) -> bool:
                 or re.search(re.escape(value) + "(?i:" + _PACKAGE_EXT + ")", text[end:line_end]))
 
 
+# a year and a dot right before an IPv4 shape whose parts read as month, day, hour and minute: a date and time
+# written with dots, as in a mail server's message id (`….2026.11.08.10.20` in a Received header, #34). Only this
+# form: any dot-number before or after an address also took dotted phones and identifiers (reverted in 0.9.3)
+_DOTTED_YEAR_RE = _LazyRx(r"(?<!\d)(?:19|20)\d\d\.$")
+
+
+def _a_dotted_date_time(text: str, start: int, value: str) -> bool:
+    parts = value.split(".")
+    if len(parts) != 4 or not all(p.isdigit() for p in parts):
+        return False
+    if not _DOTTED_YEAR_RE.search(text[max(0, start - 6):start]):
+        return False
+    month, day, hour, minute = map(int, parts)
+    return 1 <= month <= 12 and 1 <= day <= 31 and hour <= 23 and minute <= 59
+
+
 def _bitlocker_key_ok(v: str) -> bool:
     """Each of the 8 groups is divisible by 11 and below 65536 * 11 (the key is 8 16-bit words, each times 11)."""
     groups = v.split("-")

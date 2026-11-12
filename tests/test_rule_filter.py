@@ -43,8 +43,10 @@ def kinds(text: str) -> list[tuple[str, str]]:
 
 class FilterReaderTests(unittest.TestCase):
     def test_every_vendored_filter_compiles_except_the_four_programs(self):
+        # with the corrections applied: a program that a correction rewrites in the subset (box-api-access-token,
+        # betterleaks v1.10.0) compiles
         refused = []
-        for r in VENDORED["rules"]:
+        for r in filter(None, map(detect._patched, VENDORED["rules"])):
             if r.get("filter"):
                 try:
                     rule_filter.compile_filter(r["filter"])
@@ -57,11 +59,11 @@ class FilterReaderTests(unittest.TestCase):
     def test_each_loaded_rule_drops_what_its_own_filter_and_the_global_one_drop(self):
         # rules() reads each filter text once and the rules with the same text share it: the shared one must judge
         # as the filter of the rule's own text, and a rule whose filter cannot be read stays out
-        by_id = {r["id"]: r for r in VENDORED["rules"]}
+        by_id = {r["id"]: r for r in filter(None, map(detect._patched, VENDORED["rules"]))}
         loaded = detect._load_betterleaks()
         ids = [r.id for r in loaded]
         self.assertTrue({"generic-api-key", "generic-password"}.isdisjoint(ids))
-        self.assertEqual(len(ids), len([r for r in VENDORED["rules"] if "regex" in r and not r.get("skipReport")
+        self.assertEqual(len(ids), len([r for r in by_id.values() if "regex" in r and not r.get("skipReport")
                                         and r["id"] not in ("generic-api-key", "generic-credential-uri",
                                                             "generic-password", "generic-username")]))
         glob = rule_filter.compile_filter(VENDORED["filter"])

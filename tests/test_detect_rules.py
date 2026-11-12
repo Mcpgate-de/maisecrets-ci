@@ -287,6 +287,19 @@ class ValidatorTests(unittest.TestCase):
         embedded = "64:ff9b::" + "93.184.216.34"
         self.assertEqual([embedded[m.start:m.end] for m in detect.scan(embedded, channel="tool")], [embedded])
 
+    def test_a_dotted_date_and_time_after_a_year_is_no_address(self):
+        # a Received header: the date and time in the message id gave an IP hit (#34, field case 2026-11-08)
+        stamp = "11.08" + ".10.20"
+        for text in ("Received: by mx.example.com with SMTPS id a0b1c2d3e4f5.48.2026." + stamp + "\n",
+                     "id 1999." + stamp + ".x"):
+            with self.subTest(text=text[-24:]):
+                self.assertEqual([m for m in detect.scan(text, channel="tool") if m.type == "IP"], [])
+        # the same shape stays an address without the year before it, or when a part is no month, day, hour or minute
+        for text in (f"from {stamp} port 22", f"at 2026-{stamp}", "release 2026." + "13.08" + ".10.20",
+                     "build 2026." + "11.08" + ".25.20", "x 12026." + stamp):
+            with self.subTest(text=text):
+                self.assertEqual(len([m for m in detect.scan(text, channel="tool") if m.type == "IP"]), 1)
+
     def test_german_tax_id(self):
         self.assertTrue(detect._de_tax_id_ok("86095742719"))
         for bad in ("86095742710", "06095742719", "8609574271", "8609574271x", "11112345671"):

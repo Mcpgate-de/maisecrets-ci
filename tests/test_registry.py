@@ -86,7 +86,10 @@ class RegistryTests(unittest.TestCase):
             with self.subTest(rule=key):
                 self.assertEqual(registry.canonical_sha256(upstream[key.split(":", 1)[1]]), digest)
         specs = {s.key: s for s, _ in self.specs}
-        for rid in detect.BETTERLEAKS_PATCHES:
+        for rid, patch in detect.BETTERLEAKS_PATCHES.items():
+            if patch.get("skip"):                   # a rule left out has no spec
+                self.assertNotIn("betterleaks:" + rid, specs)
+                continue
             spec = specs["betterleaks:" + rid]
             self.assertEqual(spec.origin, "patched")
             self.assertTrue(spec.patches and all(p.upstream_sha256 == spec.upstream.sha256 for p in spec.patches))

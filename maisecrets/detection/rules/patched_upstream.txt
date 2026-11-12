@@ -1,9 +1,11 @@
-# The upstream rule each correction in maisecrets/detection/core.py (BETTERLEAKS_PATCHES) was written against: the
-# sha256 of the rule as canonical JSON (maisecrets/detection/rulespec.py, canonical_sha256), then <source>:<rule id>.
+# The upstream rule each correction in maisecrets/detection/vendored_patches.py (BETTERLEAKS_PATCHES) was written
+# against: the sha256 of the rule as canonical JSON (maisecrets/detection/rulespec.py, canonical_sha256), then <source>:<rule id>.
 # After a sync that changes such a rule, tests/test_registry.py goes red: check the correction against the new rule.
 35c0bc63529a91019981e4e38667dc8270d63dbb5daac04653572933ee334bd2  betterleaks:resend-api-key.1
 025c586b57e343dbf024141c94a3425add779df4d5958304ee412044c42e00fb  betterleaks:ionic-personal-access-token
 37b574fc07eb9b9d5b69eb01b465d7204c7016fee92dcb35bbb0a72e34ab6de6  betterleaks:airtable-personnal-access-token
-7b3f2bc8d99d3aa897d7b97280bafb43fd4d8b7fc16b23b38e414a7d3fd64dc0  betterleaks:wakatime-api-key.2
+bc6a4719b503ba7905c5ece1d8c69561aa68816cb1c119418371d69a214784c4  betterleaks:wakatime-api-key.2
 781c8879a0e766d95bc87e5131d610b2e594f9f1989dc3015328b85caa6001f6  betterleaks:microsoft-teams-webhook
 887c2ce1ada83ee33d5a9e44ddd9acf937144bb9a7380e2ff7733f9f364d9205  betterleaks:azure-ad-client-secret
+8081e38ca04f59a48cacd0195cfeaaa26e5b23b47759089480950cd52056caa3  betterleaks:box-api-access-token
+fb4c201579507af3d6cdca5dbfbc02aef51065e7569b9880e17876c517719b3a  betterleaks:nuget-api-key

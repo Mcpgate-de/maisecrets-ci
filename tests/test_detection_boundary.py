@@ -33,7 +33,7 @@ import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
 CORE_MODULES = ("checksums", "lazy_regex", "normalise", "regions", "registry", "rulespec", "rule_filter", "personal")
 # the parts of core.py and personal.py in modules of their own (they have no old name)
 CORE_PARTS = ("value_checks", "own_rules", "text_index", "encoded_mail", "fields", "prefilter", "keyword_tail",
-              "deadline", "phone_forms", "card_shape", "label_number", "secret_table")
+              "deadline", "phone_forms", "card_shape", "label_number", "secret_table", "vendored_patches")
 CORE = frozenset({"__init__", "detect", "detection", "detection.core", "detection.vocabulary", *CORE_MODULES,
                   *(f"detection.{m}" for m in CORE_MODULES + CORE_PARTS)})
 # the modules of the plugin that a plain scan still imports. Each is a later step: the config read for the regions

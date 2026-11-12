@@ -35,6 +35,10 @@ classifiers = [
     "Typing :: Typed",
 ]
 
+# the command line program of the JSON contract, the same as python -m maisecrets.detection (#39)
+[project.scripts]
+maisecrets-detect = "maisecrets.detection.contract:main"
+
 [project.urls]
 Homepage = "https://mcpgate.de/maisecrets/"
 Documentation = "https://github.com/Mcpgate-de/maisecrets/blob/main/docs/DETECTION.md"
@@ -49,7 +53,8 @@ pattern = "\"version\": \"(?P<version>[^\"]+)\""
 
 [tool.hatch.build.targets.wheel]
 only-include = ["maisecrets/__init__.py", "maisecrets/py.typed", "maisecrets/detection"]
-exclude = ["__pycache__", "*.pyc"]
+# the rules load from betterleaks.json; the TOML holds the same rules and only the tests read it (#39)
+exclude = ["__pycache__", "*.pyc", "maisecrets/detection/rules/betterleaks.toml"]
 
 [tool.hatch.build.targets.sdist]
 only-include = ["maisecrets/__init__.py", "maisecrets/py.typed", "maisecrets/detection", ".claude-plugin/plugin.json",

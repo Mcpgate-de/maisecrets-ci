@@ -25,6 +25,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CORE = ROOT / "maisecrets" / "detection"
+# the same rules as rules/betterleaks.json, read only by the tests (pyproject.toml, wheel exclude)
+NOT_IN_WHEEL = ("rules/betterleaks.toml",)
 
 # runs in the venv: no value here is real, the parts are joined at run time
 PROBE = r'''
@@ -68,7 +70,8 @@ def main(argv) -> int:
     wheel = Path(argv[argv.index("--wheel") + 1]).resolve() if "--wheel" in argv else None
     expected_version = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["version"]
     expected_files = sorted(p.relative_to(CORE).as_posix() for p in CORE.rglob("*")
-                            if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc")
+                            if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc"
+                            and p.relative_to(CORE).as_posix() not in NOT_IN_WHEEL)
     with tempfile.TemporaryDirectory(prefix="ms-lib-") as tmp:
         tmp = Path(tmp)
         if wheel is None:
@@ -102,6 +105,13 @@ def main(argv) -> int:
             entry = json.loads(e.stdout)
         except ValueError:
             entry = {}
+        # the same program as the command maisecrets-detect of [project.scripts]
+        cli = vpy.parent / ("maisecrets-detect.exe" if os.name == "nt" else "maisecrets-detect")
+        c = _run([str(cli)], cwd=str(home), env=env, input=json.dumps(request)) if cli.exists() else None
+        try:
+            by_cli = json.loads(c.stdout) if c else {}
+        except ValueError:
+            by_cli = {}
         home_after = sorted(os.listdir(home))
     checks = [
         ("version is the plugin's", got["version"] == expected_version, f"{got['version']} vs {expected_version}"),
@@ -123,6 +133,8 @@ def main(argv) -> int:
          e.returncode == 0 and e.stderr == "" and entry.get("engine", {}).get("version") == expected_version
          and sorted(f["type"] for f in entry.get("findings", [])) == ["SECRET", "US_SSN"],
          f"exit {e.returncode}, {len(e.stderr)} bytes on stderr, {sorted(entry)}"),
+        ("the command maisecrets-detect gives the same findings", c is not None and c.returncode == 0
+         and by_cli.get("findings") == entry.get("findings"), "missing" if c is None else f"exit {c.returncode}"),
         ("the empty HOME stays empty after the entry point", home_after == [], str(home_after)),
     ]
     # a wheel to hand out is built at the tag of its version: the release commit lands on main only, so a build from

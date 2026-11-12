@@ -935,7 +935,9 @@ logged as a loosened protection.
   when others can see your screen.
 - **Other plugins** get the tool output before maisecrets masks it for the
   model, because Claude Code gives every hook the same payload. A plugin that
-  logs tool output can store a value in clear text (#29).
+  logs tool output can store a value in clear text (#29). Measured on
+  2026-11-08: a memory plugin wrote the search text of its recall, built from
+  tool output, into its own event log. Check what your other plugins log.
 
 **Sending a blocked prompt.** `/maisecrets:send` sends the rewritten prompt as
 it is, without the clipboard. A plugin cannot register a command without its
@@ -1559,6 +1561,11 @@ Four sources, one scanner (`maisecrets/detection/core.py`):
   `/maisecrets:put` or after a label in a prompt) is hunted everywhere again. Since 0.8.2 a
   further place where the same tool result holds such a word without a label stays text, as for
   `fallback` since 0.6.38; before, the hunt masked it there too.
+  Since 0.9.7 the same holds for a hit of a name or shape rule that is an English or developer word
+  (a product name such as `Claude`, a JSON key such as `confidential`): it is masked where it was
+  found and not hunted in other texts, also when this session used its placeholder in a command
+  (#23). An entry that an older version stored is checked once at the next session start. A value
+  stored with `/maisecrets:put`, a term and an imported value stay hunted.
 - A key after a label that names a secret, in a form the keyword rules do not read (0.6.16):
   `<clientSecret>…</clientSecret>`, `<AccessToken>…</AccessToken>`, a short value
   (`label-secret-literal`, 8 characters and more); and a quoted key of 12 characters and more

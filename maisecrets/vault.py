@@ -111,6 +111,8 @@ class Entry:
     # a name of two words or more: the fingerprint of its case-folded form, so `joachim demo` finds the stored
     # `Joachim Demo` (#39). None for any other value; a name stored before 0.9.4 gets it when it is stored again
     fold: str | None = None
+    # the value was checked for an English word (Vault.weaken_word_hits, #23): a new entry is checked when it is stored
+    wordcheck: bool = False
     # no purged_at field: from_meta drops it, so the proof below can remove the filter and
     # the owning test sees the TypeError of the field report again
 
@@ -190,7 +192,8 @@ _ENDINGS = (("ically", ("ic",)), ("ally", ("", "al")), ("ily", ("y",)), ("ly", (
             ("er", ("", "e")), ("est", ("", "e")), ("es", ("",)), ("s", ("",)), ("ations", ("e", "")),
             ("ation", ("e", "")), ("ions", ("", "e")), ("ion", ("", "e")), ("ness", ("",)), ("ments", ("",)),
             ("ment", ("",)), ("ful", ("",)), ("less", ("",)), ("ity", ("", "e")), ("ive", ("", "e")),
-            ("able", ("", "e")), ("ible", ("", "e")), ("al", ("",)), ("ance", ("", "e")), ("ence", ("", "e")),
+            ("able", ("", "e")), ("ible", ("", "e")), ("al", ("",)),
+            ("ential", ("ence", "ent")), ("ial", ("", "e", "y")), ("ance", ("", "e")), ("ence", ("", "e")),
             ("ant", ("", "e")), ("ent", ("", "e")), ("ise", ("", "y")), ("ize", ("", "y")), ("ised", ("", "y")),
             ("ized", ("", "y")), ("ising", ("", "y")), ("izing", ("", "y")))
 
@@ -219,15 +222,23 @@ def code_word_spellings() -> list[str]:
     return [s for w in sorted(code_words()) for b in (w, w.capitalize(), w.upper()) for s in (b, b + ";")]
 
 
+# the kinds of a value the person chose: stored by hand (`maisecrets put`), a term of a term list, an imported value
+CHOSEN_KINDS = ("manual", "term:", "import:")
+
+
 def is_weak(kind: str, value: str, tool: bool = False) -> bool:
     """A value that only a label rule found and that is a known default word (DEFAULT_WORDS), or, in a tool result or
-    a file (tool), an English word (is_dictionary_word): replaced where it was found, never hunted in other
-    texts. A word the person gives in a prompt is a chosen password and stays hunted (is_quiet)."""
+    a file (tool), an English word (is_dictionary_word); or a name or shape rule's hit that is an English word:
+    replaced where it was found, never hunted in other texts. A word the person gives in a prompt after a label is a
+    chosen password and stays hunted (is_quiet)."""
     from .registry import is_label
     if kind.startswith("remote:"):
         return True    # a model's finding (remote_layer.py): masked where it was found, never hunted
     if not is_label(kind):
-        return False
+        # a name or shape rule's hit that is an English or developer word: a resolved "Claude" masked "Claude Code"
+        # and "Claudes" in every later tool result (#23). A value the person gives (manual), a term or an import is
+        # chosen and stays hunted
+        return not kind.startswith(CHOSEN_KINDS) and is_dictionary_word(value)
     if _folded(value) in DEFAULT_WORDS:
         return True
     return tool and is_dictionary_word(value)
@@ -744,6 +755,31 @@ class Vault:
         return n
 
     @_mutating
+    def weaken_word_hits(self) -> int:
+        """Mark weak the live entries of a name or shape rule whose value is an English word (is_weak, #23). Before
+        0.9.7 such an entry was never weak, so "Claude" or "confidential" was hunted in every later text. Reads the
+        value of each unchecked entry once and marks it checked ("wordcheck"); a store that refuses the read leaves
+        it for the next start. Returns the count marked weak."""
+        from .registry import is_label
+        todo = [k for k, m in self._index["entries"].items()
+                if not m.get("wordcheck") and not m.get("weak") and not m.get("purged")
+                and not is_label(m.get("kind", "")) and not str(m.get("kind", "")).startswith(CHOSEN_KINDS)]
+        n = 0
+        for key in todo:
+            try:
+                value = self.backend.get(key)
+            except RuntimeError as exc:
+                from . import incidents
+                incidents.note("store.mark-weak", exc)
+                continue
+            meta = self._index["entries"][key]
+            meta["wordcheck"] = True
+            if value is not None and is_weak(meta.get("kind", ""), value):
+                meta["weak"] = True
+                n += 1
+        return n
+
+    @_mutating
     def mark_weak_entries(self) -> int:
         """Mark the weak entries a version before 0.5.15 stored without the mark (see Entry.weak). Reads the value of
         each unmarked label-rule entry once; a store that refuses the read leaves the entry unmarked for the next
@@ -801,7 +837,8 @@ class Vault:
                   created=now, last_used=now,
                   expires=now + ttl, max_expires=now + int(self.cfg.get("max_ttl_seconds", 30 * 86400)),
                   session=session, uses=0, sessions=[session] if session else [],
-                  weak=is_weak(kind, value, tool), quiet=is_quiet(kind, value, tool), fold=self.fold_of(value, type_))
+                  weak=is_weak(kind, value, tool), quiet=is_quiet(kind, value, tool), fold=self.fold_of(value, type_),
+                  wordcheck=True)
         created = time.strftime("%Y-%m-%d %H:%M", time.localtime(now))
         self.backend.put(
             key, value,

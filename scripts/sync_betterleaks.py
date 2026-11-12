@@ -8,9 +8,10 @@ successor
 of gitleaks by the same maintainers (gitleaks takes security patches only since v8.30.1, Mcpgate-de/maisecrets#18).
 
 The files are written as upstream ships them. maisecrets' corrections to single rules (a keyword the prefilter
-lacks, a regex that rejects a real token) live in BETTERLEAKS_PATCHES in maisecrets/detection/core.py and apply when the
-rules load, so a sync keeps them. After a sync, run tests/test_rules_from_the_catalogs.py: it fails when a patched
-rule changed upstream. Then check the correction against the new rule and drop it if upstream fixed the gap.
+lacks, a regex that rejects a real token, a filter that is a program) live in BETTERLEAKS_PATCHES in
+maisecrets/detection/vendored_patches.py and apply when the rules load, so a sync keeps them. After a sync, run
+tests/test_rules_from_the_catalogs.py: it fails when a patched rule changed upstream. Then check the correction
+against the new rule and drop it if upstream fixed the gap.
 """
 import json
 import re

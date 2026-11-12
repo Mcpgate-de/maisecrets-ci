@@ -24,7 +24,7 @@ class Upstream:
 @dataclass(frozen=True)
 class Patch:
     rule_key: str        # the spec it changes; "detect-secrets:*" for every rule of that source
-    field: str           # regex | keywords | validator | context | context_rule | region | load
+    field: str           # regex | keywords | filter | validator | context | context_rule | region | load
     op: str              # replace | add | set | wrap | skip
     value: str           # what the patch puts there, short
     reason: str          # why, in one line
@@ -103,6 +103,12 @@ def betterleaks_patches(table: dict, upstream: dict) -> dict:
         if patch.get("regex"):
             recs.append(Patch("betterleaks:" + rule_id, "regex", "replace", patch["regex"],
                               patch.get("reason") or _BETTERLEAKS_REASONS["regex"],
+                              upstream.get("betterleaks:" + rule_id, "")))
+        if patch.get("filter"):
+            recs.append(Patch("betterleaks:" + rule_id, "filter", "replace", patch["filter"].strip(), patch["reason"],
+                              upstream.get("betterleaks:" + rule_id, "")))
+        if patch.get("skip"):
+            recs.append(Patch("betterleaks:" + rule_id, "load", "skip", "", patch["skip"],
                               upstream.get("betterleaks:" + rule_id, "")))
         out[rule_id] = tuple(recs)
     return out
