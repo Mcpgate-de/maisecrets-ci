@@ -513,10 +513,12 @@ SOURCES = dict([
     ('pkcs12-der-base64', 'MII[A-Za-z0-9+/]{3}IBAzCC[A-Za-z0-9+/]{300}'),
     ('rsa-pkcs8-key-der-base64', 'MII[A-Za-z0-9+/]{3}IBADANBgkqhkiG9w0BAQEFAASC[A-Za-z0-9+/]{300}'),
     ('rsa-pkcs1-key-der-base64', 'MII[A-Za-z0-9+/]{3}IBAAKC[A-Za-z0-9+/]{300}'),
+    # 0.9.7, the format watch (trufflehog's detector)
+    ('serval-secret-key', 'svl_secret_(pk|wk|mk)_[0-9A-Za-z]{49}'),
 ])
 # formats whose body has no upper length and a short lower one: any cut of a token is again one
 OPEN_ENDED = {"aws-bedrock-short-term-api-key"}
-N_RULES = 249
+N_RULES = 250
 
 
 def token(rule_id: str) -> str:

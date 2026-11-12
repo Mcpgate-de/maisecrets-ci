@@ -617,6 +617,7 @@ circleci_personal_access_token
 circleci_project_access_token
 circleci_release_integration_token
 clojars_deploy_token
+cloudflare_access_service_token
 cloudflare_account_api_token
 cloudflare_global_user_api_key
 cloudflare_user_api_token
@@ -2325,6 +2326,7 @@ sentryorgtoken
 sentrytoken
 serphouse
 serpstack
+serval
 sheety
 sherpadesk
 shipday

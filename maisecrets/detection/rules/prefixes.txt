@@ -433,3 +433,6 @@ dbt-cloud-user-token                        dbtu_  [A-Za-z0-9_-]{40,}
 anyscale-api-key                            esecret_  [a-z0-9]{26}
 ec-private-key-der-base64                   MHcCAQEEI  [A-Za-z0-9+/]{140,}={0,2}
 ec-pkcs8-key-der-base64                     MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg  [A-Za-z0-9+/]{120,}={0,2}
+# 0.9.7, from the format watch (trufflehog pkg/detectors/serval): a Serval secret key, svl_secret_ with pk, wk or
+# mk, then 43 characters and a 6-character check part
+serval-secret-key                           svl_secret_  (?:pk|wk|mk)_[0-9A-Za-z]{49}
