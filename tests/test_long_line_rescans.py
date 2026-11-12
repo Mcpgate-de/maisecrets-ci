@@ -13,6 +13,7 @@ Run: python3 -m unittest tests.test_long_line_rescans -v
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import random
@@ -26,8 +27,8 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
 
-from maisecrets.detection import NO_REFERENCES, NO_SOURCES, Active, Detector, Host  # noqa: E402
-from maisecrets.detection import core, reach  # noqa: E402
+from maisecrets.detection import NO_REFERENCES, NO_SOURCES, Active, Detector, Host, Sources, user_rule  # noqa: E402
+from maisecrets.detection import checksums, core, reach  # noqa: E402
 
 D = Detector(regions=Active(regions=("generic", "de"), languages=("en", "de"), source="long-line-test"),
              sources=NO_SOURCES, references=NO_REFERENCES, host=Host(user="", year=2026))
@@ -199,6 +200,45 @@ class SameHitsAsTheWholeLineTests(unittest.TestCase):
                     want = spans(D.findings(value, channel="tool", fields=field))
                 self.assertGreater(len(want), len(spans(D.findings(value, channel="tool"))), "the premise")
                 self.assertEqual(spans(D.findings(value, channel="tool", fields=field)), want)
+
+
+class CopyReachTests(unittest.TestCase):
+    """A change of the cleaned copy that a hit far from it depends on: the window around the change is not enough,
+    and the whole line is read (reach.py)."""
+
+    @staticmethod
+    def one_line(rnd: random.Random, n: int) -> str:
+        return _prose(rnd, n).replace("\n", " ")
+
+    def test_a_seed_phrase_with_its_context_word_far_back_on_its_line(self):
+        rnd = random.Random(11)
+        words = sorted(checksums.bip39_words(), key=checksums.bip39_words().get)
+        entropy = bytes(rnd.randrange(256) for _ in range(16))
+        bits = "".join(f"{b:08b}" for b in entropy) + f"{hashlib.sha256(entropy).digest()[0]:08b}"[:4]
+        phrase = [words[int(bits[i:i + 11], 2)] for i in range(0, 132, 11)]
+        self.assertTrue(checksums.bip39_ok(phrase), "the premise: a valid phrase, made at run time")
+        phrase[5] = phrase[5][:2] + "\u00ad" + phrase[5][2:]      # the raw text holds 11 words and a broken one
+        # the window around the change is less than half the line, so it is read in a window
+        text = "my wallet seed backup follows later. " + self.one_line(rnd, 9_000) + " " + " ".join(phrase) + " " \
+            + self.one_line(rnd, 16_000)
+        with as_before():
+            want = spans(D.findings(text, channel="tool"))
+        self.assertEqual([t[0] for t in want], ["crypto-seed-phrase"], "the premise: found in the copy only")
+        self.assertEqual(spans(D.findings(text, channel="tool")), want)
+
+    def test_a_gate_word_the_cleaning_makes_far_from_the_value(self):
+        class Own(Sources):
+            def user_rules(self):
+                # a rule of your own: its keyword gates it in the whole text, its regex does not hold the keyword
+                return [user_rule("zebra-code", "SECRET", r"QX\d{6}", keywords=("zebra",))]
+        d = Detector(regions=Active(regions=("generic",), languages=("en",), source="long-line-test"), sources=Own(),
+                     references=NO_REFERENCES, host=Host(user="", year=2026))
+        rnd = random.Random(12)
+        text = "ze\u00adbra " + self.one_line(rnd, 9_000) + " QX" + "123456 " + self.one_line(rnd, 9_000)
+        with as_before():
+            want = spans(d.findings(text, channel="tool"))
+        self.assertEqual([t[0] for t in want], ["user:zebra-code"], "the premise: the copy opens the rule")
+        self.assertEqual(spans(d.findings(text, channel="tool")), want)
 
 
 class ProportionalWorkTests(unittest.TestCase):
