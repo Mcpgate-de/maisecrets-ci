@@ -29,6 +29,7 @@ from __future__ import annotations
 import dataclasses
 
 from .lazy_regex import LazyRx as _LazyRx
+from . import reach as _reach
 
 # a word before `token` that makes the field the cursor of a paged list or a sync, not a credential (measured on
 # synthetic cursors: under nextPageToken, pageToken, syncToken and continuationToken each one was a SECRET). Only the
@@ -259,24 +260,37 @@ def _label(name) -> str:
     return label or ""
 
 
-def added(text: str, hits: list, spans: tuple, scan, same_scan: bool = False) -> list:
+def added(text: str, hits: list, spans: tuple, scan, same_scan: bool = False, near=None) -> list:
     """`hits` (the scan of the text) with the hits the field labels add; `scan(text)` scans a text with the rules,
     the channel and the rule list of the call. With `same_scan`, `hits` came from `scan(text)` itself: a field over
-    the whole text then reuses them as its bare scan (one scan per field, not two)."""
+    the whole text then reuses them as its bare scan (one scan per field, not two). `near(labelled, lead, value)`
+    scans a value longer than reach.LONG with its label only as far as the label can reach, or returns None
+    (core._label_scan_near): when none of its hits is new there, the label adds nothing to the value, and the whole
+    labelled value is not scanned."""
     taken = [(m.start, m.end) for m in hits]
     whole = list(taken) if same_scan else None
     extra = []
+
+    def outside(m, start: int, value: str, lead: int) -> bool:
+        a, b = m.start - lead, m.end - lead
+        return a < 0 or b > len(value) or text[a + start:b + start] != m.value \
+            or any(a + start < y and x < b + start for x, y in taken)
+
     for start, end, label in spans:
         value = text[start:end]
         if not value.strip():
             continue
         lead = len(label) + 2
+        labelled = f"{label}: {value}"
+        if near is not None and len(value) > _reach.LONG:
+            got = near(labelled, lead, value)
+            if got is not None and all(outside(m, start, value, lead) for m in got):
+                continue   # the label adds no hit where it can reach, and none further on
         bare = whole if whole is not None and (start, end) == (0, len(text)) else None
-        for m in scan(f"{label}: {value}"):
-            a, b = m.start - lead, m.end - lead
-            if a < 0 or b > len(value) or text[a + start:b + start] != m.value \
-                    or any(a + start < y and x < b + start for x, y in taken):
+        for m in scan(labelled):
+            if outside(m, start, value, lead):
                 continue   # in the label, or the text has a hit there already
+            a, b = m.start - lead, m.end - lead
             if bare is None:
                 # the bare value is scanned only for a hit the label gave: most fields give none, and the scan of
                 # each value was half the cost of a field (gateway corpus, 2026-11-02)

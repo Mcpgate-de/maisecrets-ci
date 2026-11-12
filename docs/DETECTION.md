@@ -166,6 +166,14 @@ d.findings("0171 4829173", channel="tool")                                      
   the same bytes. Each field costs two scans of its value, one with the label and one bare. In `findings()` with no
   `path`, a field over the whole text costs one, since the scan of the text is its bare scan; `scan(..., fields=)`
   scans twice.
+- **A long value** (more than 16,384 characters, `reach.LONG`) is scanned with its label only as far as the label
+  can reach (since 0.9.7): its first 6,144 characters, cut at whitespace, with the gates of the whole value. When no
+  hit there is new, the label adds nothing; else, and whenever the label may reach further (a gate it opens, a list
+  or a seed phrase after it, a record or table that reads otherwise with it, a cleaned copy that changes the value
+  near its start), the whole labelled value is scanned as before. The cleaned copy of a tool result reads a line
+  longer than 16,384 characters in windows of 6,144 characters around each change, and the whole line when a hit
+  there is new. `maisecrets/detection/reach.py` names each reader that reads further than a window and its guard;
+  `tests/test_long_line_rescans.py` compares both with the whole-line rescans of before, span for span.
 - `tests/test_detection_fields.py` holds these points; `tests/conformance/cases.json` has cases with
   `context.fields` in the gateway's shapes (a leaf with its field path, and a JSON text with fields of its own keys).
 
