@@ -266,6 +266,18 @@ class ProportionalWorkTests(unittest.TestCase):
         self.assertTrue(copies, "the premise: the soft hyphen makes a cleaned copy")
         self.assertLess(max(copies), len(self.text) // 2, copies)
 
+    def test_a_change_whose_window_ends_near_the_end_of_the_line_still_reads_a_window(self):
+        # the window would end a few characters before the end of the line, where no whitespace follows: it takes
+        # the end of the line (a Markdown page whose last bold label stood 6,145 characters before its end)
+        rnd = random.Random(6)
+        body = _prose(rnd, 40_000).replace("\n", " ").rstrip() + "x" * 40
+        at = len(body) - reach.COPY_MARGIN - 20
+        text = body[:at] + "\u00ad" + body[at:]
+        self.text = text
+        copies = [n for n, copy in self.read() if copy]
+        self.assertTrue(copies, "the premise: the soft hyphen makes a cleaned copy")
+        self.assertLess(max(copies), len(text) // 2, copies)
+
     def test_the_label_reads_the_start_of_the_value_not_the_value(self):
         whole = [(0, len(self.text), ("messages", 0, "content"))]
         sizes = self.read(fields=whole)

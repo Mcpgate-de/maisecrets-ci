@@ -197,8 +197,9 @@ def bounded_copy_windows(text: str, norm, wa: int, wb: int, lines: list, enabled
             continue
         for x, y in runs:
             p, q = x - reach.COPY_MARGIN, y + reach.COPY_MARGIN
-            s = line_wa if p <= a else reach.start_after_space(copy, p, a)
-            e = line_wb if q >= b else reach.cut_at_space(copy, q, b)
+            # within reach.SNAP of an edge of the line without whitespace, the window takes the line's own edge
+            s = line_wa if p - reach.SNAP <= a else reach.start_after_space(copy, p, a)
+            e = line_wb if q + reach.SNAP >= b else reach.cut_at_space(copy, q, b)
             if s is None or e is None:
                 return None
             if s > a and copy[s:s + 64].lstrip(" \t")[:1] == "|":
