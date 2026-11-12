@@ -59,11 +59,13 @@ from . import fields as _fields
 from . import regions as _regions
 from .label_number import LabelNumbers as _LabelNumbers
 from .prefilter import NONE as _NO_PREFIX, any_keyword as _any_keyword, lacks_prefix as _lacks_prefix  # noqa: F401
-from .prefilter import lacks_required as _lacks_required, response_rules as _response_rules
+from .prefilter import lacks_required as _lacks_required, response_rules as _response_rules  # noqa: F401
 from . import prefilter as _prefilter
 from .prefilter import prefix_line  # noqa: F401  detect.prefix_line
 from .vendored_patches import BETTERLEAKS_PATCHES, _VENDORED_END, _SENTENCE_END, _patched  # noqa: F401
 from . import reach as _reach
+from .rescan import changed_windows_scan as _changed_windows_scan, label_scan_near as _label_scan_near
+from .rescan import LAST_SCAN as _LAST_SCAN, gate_ok as _gate_ok
 # The value checks, the own rules and the text index live in modules of their own, so that each file stays readable.
 # The core imports each of their names: `core.<name>` stays the same object. A patch must go to the module that
 # defines it.
@@ -1387,7 +1389,6 @@ def reset_rules() -> None:
     d._sources_now().reset()
 
 
-
 # The time each rule of your own spent inside its regex in this process (seconds), and the characters it ran over.
 # Only the regex counts, around each step of its finditer: the work on each hit is no time of the rule (Opus review,
 # round 3: a correct rule with 170k hits was taken out by the wall time of its loop). The sum runs over every scan of
@@ -2212,7 +2213,6 @@ _LIST_ITEM_RE = _LazyRx(r"[ \t]*(?:\r?\n[ \t]*){0,2}([\"'`])([^\"'`\\\n]{1,256})
 _ENV_LIST_ITEM_RE = _LazyRx(r"()([A-Za-z0-9+/]{16,88}={0,2})(,|(?![A-Za-z0-9+/=]))")
 
 
-
 def _list_matches(rule: Rule, text: str):
     """Each quoted value of the list that starts after a label of label-secret-list and that looks like a key
     (_list_value_ok), as group 2 of a match whose group 0 starts at the label. The values are checked here, before
@@ -2662,11 +2662,10 @@ def _export_hits(text: str, low: str, path: str = "") -> list:
 
 
 def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
-          rule_list: list[Rule] | None = None, channel: str = "prompt", path: str = "", _gate: dict | None = None,
-          _quiet: list | None = None) -> list[Match]:
-    """_copy: the text is the normaliser's cleaned copy of a tool result, which is not cleaned again. _gate: which rules
-    run, by id(rule), decided by the gates of a longer text that this text is a part of (maisecrets/detection/reach.py).
-    _quiet: a list that gets True when the cleaned copy changed no hit and read only windows of each long line."""
+          rule_list: list[Rule] | None = None, channel: str = "prompt", path: str = "",
+          _gate: dict | None = None) -> list[Match]:
+    """_copy: the text is the normaliser's cleaned copy of a tool result, which is not cleaned again. _gate: the rules
+    that run, by id, as the gates of a longer text decide (rescan.py)."""
     if not text:
         return []
     low = _lower(text)
@@ -2717,13 +2716,9 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
             _personal_hits(text, enabled, found, taken_starts, taken_ends, overlaps, channel)
             if channel == "tool" and not _copy:
                 try:
-                    # the gates of this scan stand for the copy's only when every rule had them: not with a rule
-                    # list of the caller, the rules of a response or the gates of a longer text
                     full = rule_list is None and _gate is None and order is _in_scan_order(rules())
                     copy_quiet = _scan_cleaned_copy(text, enabled, found, taken_starts, taken_ends, channel, path,
                                                     gates if full else None)
-                    if _quiet is not None:
-                        _quiet.append(copy_quiet)
                 except ScanIncomplete:
                     raise ScanIncomplete(list(found)) from None   # the copy's offsets are not this text's
             continue
@@ -3012,8 +3007,6 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
             take(Match(rule.id, rule.type, secret, start, end), own)
     found.sort(key=lambda x: x.start)
     if not _copy and _gate is None and rule_list is None and len(text) > _reach.LONG:
-        # what a labelled scan of this text reads again (_label_scan_near): its gates, and where its cleaned copy
-        # started when it changed nothing and read windows only
         _LAST_SCAN.set((text, order, gates, channel, enabled, copy_quiet))
     return found
 
@@ -3180,242 +3173,6 @@ def _free_company_numbers(text: str, found: list, taken_starts: list, taken_ends
 
 _WINDOW_BEFORE = 2048  # context a rule may read before a value: a label 200, a context word 80, an AWS key id up to
 _WINDOW_AFTER = 512    # four lines of 400 before its secret (aws-secret-after-access-key); after it: a context word 40
-# the last long text that _scan read in this context: (text, order, gates, channel, enabled, copy). A labelled scan of
-# the same text (_label_scan_near) takes its gates and the outcome of its cleaned copy from here
-_LAST_SCAN: contextvars.ContextVar = contextvars.ContextVar("maisecrets_last_scan", default=None)
-
-
-def _is_marker(rule) -> bool:
-    """The steps of the scan order that are no rule: the personal data, the terms, the imported values."""
-    return rule is _PERSONAL or rule is _TERMS or rule is _IMPORTS
-
-
-def _gate_ok(rule: Rule, text: str, low: str, keywords_in: dict, channel: str) -> bool:
-    """Whether the gates of a rule let its regex run on this text: a keyword, the leading literal, a required literal
-    and a context word that it needs, each searched in the whole text."""
-    if rule.keywords and not _any_keyword(rule.keywords, low, keywords_in):
-        return False
-    if _lacks_prefix(rule.prefix, text, low):
-        return False
-    if _lacks_required(rule.need, text, low):
-        return False
-    # a rule that cannot fire without a context word need not run its regex without one
-    alone = channel == "tool" and rule.id in CARD_ALONE_IN_TOOL
-    return not (rule.context and (rule.require_context or rule.score < 0.5) and not alone
-                and not _has_context_word(low, rule.context))
-
-
-def _gate_words(order: tuple) -> tuple:
-    """((rule, its gate words in lower case), ...) of a scan order, and the length of the longest word. Kept per
-    order on the detector."""
-    d = _det()
-    got = getattr(d, "_gate_words", None)
-    if got is not None and got[0] is order:
-        return got[1], got[2]
-    out = []
-    longest = 1
-    for rule in order:
-        if _is_marker(rule):
-            continue
-        need, _icase = rule.prefix or _NO_PREFIX
-        words = tuple(w.lower() for w in (*(rule.keywords or ()), *((need,) if need else ()), *(rule.need or ()),
-                                          *(rule.context or ())) if w)
-        longest = max([longest] + [len(w) for w in words])
-        out.append((rule, words))
-    d._gate_words = (order, tuple(out), longest)
-    return d._gate_words[1], longest
-
-
-def _gates_for(order: tuple, text: str, enabled, channel: str, known: dict | None = None,
-               again: frozenset = frozenset()) -> dict:
-    """id(rule) -> whether the gates of the rule let it run on `text`, for each rule of `order` that `enabled`
-    allows. A rule in `known` and not in `again` keeps the answer of `known`."""
-    low = _lower(text)
-    words_in: dict = {}
-    out = {}
-    for rule in order:
-        if _is_marker(rule) or (enabled is not None and rule.id not in enabled and rule.key not in enabled):
-            continue
-        k = id(rule)
-        if known is not None and k in known and k not in again:
-            out[k] = known[k]
-        else:
-            out[k] = _gate_ok(rule, text, low, words_in, channel)
-    return out
-
-
-def _matcher(rule: Rule) -> str:
-    return rule.matcher or _registry.matcher_of(rule.id, "literal" if rule.id in _LITERAL_IDS else "")
-
-
-def _far_reaching_match(order: tuple, gates: dict, text: str, lo: int = 0, hi: int | None = None) -> bool:
-    """A rule with the list or the curl matcher that may run (gates) has its label or its `curl` in text[lo:hi]: its
-    hits run on past any window (a list to its closing bracket, a curl part over the rest of its line)."""
-    for rule in order:
-        if _is_marker(rule) or not gates.get(id(rule), False):
-            continue
-        m = _matcher(rule)
-        if m == "list":
-            rx = rule.regex
-        elif m == "curl":
-            parts = _curl_parts(rule)
-            rx = parts[0] if parts is not None else rule.regex
-        else:
-            continue
-        if rx.search(text if lo == 0 and hi is None else text[lo:hi]):
-            return True
-    return False
-
-
-def _copy_window_gates(text: str, norm, wa: int, wb: int, runs: list, order: tuple, enabled, channel: str,
-                       raw_gates: dict) -> dict | None:
-    """The gates of the copy's window [wa, wb), as a scan of that window decides them, or None when the copy opens a
-    rule that the raw text keeps closed: a word the cleaning made (pass&shy;word) lets that rule run anywhere in the
-    window, so the window is read whole."""
-    copy = norm.text
-    whole = wa == 0 and wb == len(copy)
-    again: set = set()
-    if whole:
-        # the copy is the raw text except at the runs: only a rule with a gate word near a run can read otherwise
-        words, longest = _gate_words(order)
-        near = []
-        for x, y in runs:
-            near.append(_lower(copy[max(0, x - longest):y + longest]))
-            near.append(_lower(text[max(0, norm.starts[x] - longest):norm.ends[y - 1] + longest]))
-        again = {id(r) for r, ws in words if any(w in piece for piece in near for w in ws)}
-    gates = _gates_for(order, copy[wa:wb], enabled, channel, raw_gates if whole else None, frozenset(again))
-    raw_low = None
-    raw_words: dict = {}
-    for rule in order:
-        if _is_marker(rule) or not gates.get(id(rule), False):
-            continue
-        k = id(rule)
-        opened = raw_gates.get(k)
-        if opened is None:   # a rule of your own runs after the copy: its gates on the raw text are asked here
-            raw_low = _lower(text) if raw_low is None else raw_low
-            opened = _gate_ok(rule, text, raw_low, raw_words, channel)
-        if not opened:
-            return None
-    return gates
-
-
-def _record_hits(text: str, channel: str) -> list:
-    """The hits of the record and table readers of personal.py; none without that module."""
-    try:
-        from . import personal
-    except ImportError:   # a copy of detect.py without its sibling modules
-        return []
-    return personal.record_hits(text, channel)
-
-
-def _bounded_copy_windows(text: str, norm, wa: int, wb: int, lines: list, enabled, channel: str, path: str,
-                          raw_gates: dict, taken: set) -> int | None:
-    """The window [wa, wb) of the copy holds a changed line longer than reach.LONG. Rescan only the parts of it
-    around each changed run (reach.COPY_MARGIN before and after, cut at whitespace) with the gates of the whole
-    window. The start of its first part when no hit there changes a hit of the raw text (each one has the span of a
-    raw hit): then no hit of
-    the whole window can, as a hit reads at most _WINDOW_BEFORE and 4,000 characters back and _WINDOW_AFTER on, and
-    the readers that read further (reach.py) are asked first. None when the whole window must be read: a hit that is
-    new or other, a reader of a record, a seed phrase, a list or a curl command in the window, a word the cleaning
-    made, or no whitespace to cut at."""
-    copy, starts, ends = norm.text, norm.starts, norm.ends
-    n = len(copy)
-    subs: list = []
-    runs_all: list = []
-    for a, b in lines:
-        oa = ends[a - 1] if a > 0 else 0
-        ob = starts[b] if b < n else len(text)
-        runs = _reach.changed_runs(text, copy, starts, ends, a, b)
-        if a < b and starts[a] != oa:
-            runs.insert(0, [a, a + 1])     # a character deleted before the first one of the line
-        if a < b and ends[b - 1] != ob:
-            runs.append([b - 1, b])        # or after its last one
-        if not runs:
-            runs = [[a, min(b, a + 1)]] if a < b else [[max(0, a - 1), a]]
-        runs_all += runs
-        line_wa = copy.rfind("\n", 0, max(0, a - _WINDOW_BEFORE)) + 1 if a > _WINDOW_BEFORE else 0
-        line_wb = copy.find("\n", min(n, b + _WINDOW_AFTER))
-        line_wb = n if line_wb < 0 else line_wb
-        if b - a <= _reach.LONG:
-            subs.append([line_wa, line_wb])
-            continue
-        for x, y in runs:
-            p, q = x - _reach.COPY_MARGIN, y + _reach.COPY_MARGIN
-            s = line_wa if p <= a else _reach.start_after_space(copy, p, a)
-            e = line_wb if q >= b else _reach.cut_at_space(copy, q, b)
-            if s is None or e is None:
-                return None
-            if s > a and copy[s:s + 64].lstrip(" \t")[:1] == "|":
-                return None   # a window that starts with | would read its first line as a row of a table
-            subs.append([s, e])
-    subs.sort()
-    merged: list = []
-    for s, e in subs:
-        if merged and s <= merged[-1][1] + 1:
-            merged[-1][1] = max(merged[-1][1], e)
-        else:
-            merged.append([s, e])
-    if 2 * sum(e - s for s, e in merged) > wb - wa:
-        return None   # the parts are most of the window
-    window = copy[wa:wb]
-    order = _in_scan_order(rules())
-    gates = _copy_window_gates(text, norm, wa, wb, runs_all, order, enabled, channel, raw_gates)
-    if gates is None or _record_hits(window, channel) or next(iter(checksums.bip39_spans(window)), None) \
-            or _far_reaching_match(order, gates, window):
-        return None
-    for s, e in merged:
-        for m in _scan(copy[s:e], enabled, _copy=True, channel=channel, path=path, _gate=gates):
-            if norm.span(m.start + s, m.end + s) not in taken:
-                return None
-    return merged[0][0]
-
-
-def _changed_windows_scan(text: str, norm, enabled, channel: str = "prompt", path: str = "",
-                          raw_gates: dict | None = None, taken: set | None = None) -> tuple:
-    """The hits of the cleaned copy, scanned only around its changed lines: each changed line with the whole lines
-    that hold the _WINDOW_BEFORE characters before it and the _WINDOW_AFTER characters after it, windows that touch
-    merged. A line the stages left alone holds the hits the raw scan already has, and a rescan of the whole text
-    doubled the time of a 70 KB tool result with one coloured line or one JWT. A window with a line longer than
-    reach.LONG is read in parts around its changes (_bounded_copy_windows) when `raw_gates` and `taken` are given.
-    Returns (hits, start): `start` is the start in the copy of the first window when no window of a long line was
-    read whole, else None."""
-    copy, starts, ends = norm.text, norm.starts, norm.ends
-    windows: list = []
-    a = 0
-    n = len(copy)
-    while a <= n:
-        b = copy.find("\n", a)
-        b = n if b < 0 else b
-        # the original range of this line, from after the previous line break to this one: deleted characters at
-        # its edges and a line that only deleted characters held count as a change (Gate A, round 2)
-        oa = ends[a - 1] if a > 0 else 0
-        ob = starts[b] if b < n else len(text)
-        if ob - oa != b - a or text[oa:ob] != copy[a:b]:
-            wa = copy.rfind("\n", 0, max(0, a - _WINDOW_BEFORE)) + 1 if a > _WINDOW_BEFORE else 0
-            wb = copy.find("\n", min(n, b + _WINDOW_AFTER))
-            wb = n if wb < 0 else wb
-            if windows and wa <= windows[-1][1] + 1:
-                windows[-1][1] = max(windows[-1][1], wb)
-                windows[-1][2].append((a, b))
-            else:
-                windows.append([wa, wb, [(a, b)]])
-        a = b + 1
-    out = []
-    first = n
-    whole = False
-    for wa, wb, lines in windows:
-        part = None
-        long_line = any(b - a > _reach.LONG for a, b in lines)
-        if long_line and raw_gates is not None and taken is not None:
-            part = _bounded_copy_windows(text, norm, wa, wb, lines, enabled, channel, path, raw_gates, taken)
-        if part is not None:
-            first = min(first, part)
-            continue
-        whole = whole or long_line
-        first = min(first, wa)
-        out += [Match(m.kind, m.type, m.value, m.start + wa, m.end + wa)
-                for m in _scan(copy[wa:wb], enabled, _copy=True, channel=channel, path=path)]
-    return out, None if whole else first
 
 
 def _scan_cleaned_copy(text: str, enabled, found: list, taken_starts: list, taken_ends: list,
@@ -3425,9 +3182,8 @@ def _scan_cleaned_copy(text: str, enabled, found: list, taken_starts: list, take
     copy
     redacts its original range, hidden characters included. The raw text's own hits came first and keep their spans,
     except a part of a value that the copy sees whole: the whole replaces the part, or the rest reaches the model.
-    `raw_gates`: the gates of the raw scan for every built-in rule, which lets a long line be read in windows.
-    Returns the start in the raw text of the first window of the copy (len(text) when the copy is the text) when the
-    copy changed no hit and read no long line whole, else None."""
+    `raw_gates`, the gates of the raw scan, lets a long line be read in windows (rescan.py). Returns where the copy
+    started to read when it changed no hit and read no long line whole, else None."""
     try:
         from .normalise import normalise
     except ImportError:   # a copy of detect.py without its sibling modules: the raw scan alone
@@ -3464,74 +3220,6 @@ def _scan_cleaned_copy(text: str, enabled, found: list, taken_starts: list, take
         taken_starts.insert(i, start)
         taken_ends.insert(i, end)
     return quiet
-
-
-def _label_scan_near(labelled: str, lead: int, value: str, enabled, channel: str) -> list | None:
-    """The hits of `label: value` (lead: the length of `label: `) as far as the label can reach: the first
-    reach.LABEL_REACH characters of the value, cut at whitespace, with the gates of the whole labelled text. None
-    when the label may reach further and the whole labelled text must be scanned: a label that is not plain words, a
-    value whose start a label changes the reading of (a blank first line, a quote, a table row), a gate the label
-    opens, a seed phrase or a list after the label, a record or table that reads otherwise with the label, and in the
-    tool channel a cleaned copy that changes the value near its start or was read whole (reach.py)."""
-    try:
-        from .normalise import normalise
-    except ImportError:   # a copy of detect.py without its sibling modules
-        return None
-    label = labelled[:lead - 2]
-    if not _reach.plain_label(label) or (not label.isascii() and value.isascii()):
-        return None
-    nl = value.find("\n")
-    if not value[:nl if nl >= 0 else len(value)].strip() or value.lstrip(" \t")[:1] in ("|", '"', "'", "`"):
-        return None
-    cut = _reach.cut_at_space(labelled, lead + _reach.LABEL_REACH, len(labelled))
-    if cut is None:
-        return None
-    tool = channel == "tool"
-    order = _in_scan_order(rules())
-    last = _LAST_SCAN.get()
-    if last is not None and last[0] is value and last[1] is order and last[3] == ("tool" if tool else "prompt") \
-            and last[4] == enabled:
-        gates, copy_start = last[2], last[5]
-    else:
-        gates, copy_start = _gates_for(order, value, enabled, channel), None
-    copy_v = value
-    if tool:
-        prefix = labelled[:lead]
-        if normalise(prefix).text is not prefix:
-            return None   # the cleaning changes the label itself
-        copy_v = normalise(value).text
-        if copy_v is not value and (copy_start is None or copy_start + lead < cut):
-            return None   # the copy of the value changes near its start, or was read whole: its windows reach the label
-    # a gate the label opens: a rule then runs over the whole value, wherever its regex matches
-    words, longest = _gate_words(order)
-    head = _lower(labelled[:lead + longest + 1])
-    low = None
-    for rule, ws in words:
-        k = id(rule)
-        if k not in gates or gates[k] or not any(w in head for w in ws):
-            continue
-        low = _lower(labelled) if low is None else low
-        if _gate_ok(rule, labelled, low, {}, channel):
-            return None
-        if copy_v is not value and _gate_ok(rule, labelled[:lead] + copy_v, _lower(labelled[:lead] + copy_v), {},
-                                            channel) and not _gate_ok(rule, copy_v, _lower(copy_v), {}, channel):
-            return None
-    # a seed phrase reads its context word back to the start of its line; a list runs on to its closing bracket
-    if (_SEED_CONTEXT_RE.search(labelled, 0, lead) and next(iter(checksums.bip39_spans(value)), None)) \
-            or _far_reaching_match(order, gates, labelled, 0, lead + 512):
-        return None
-    if tool:
-        # a record or a table: the label must not change a hit of its readers anywhere in the value
-        for lab, bare in ((labelled, value), (labelled[:lead] + copy_v, copy_v)) if copy_v is not value else \
-                ((labelled, value),):
-            with_label = {(a - lead, b - lead, k, t) for a, b, k, t in _record_hits(lab, channel)}
-            if with_label != set(_record_hits(bare, channel)):
-                return None
-    near = labelled[:cut]
-    hits = _scan(near, enabled, channel=channel, path="", _gate=gates)
-    if tool and "|" in near:
-        hits = _fields.md_key_value_hits(near, hits, lambda t: scan(t, enabled, channel, "", None))
-    return hits
 
 
 def _claim(m: Match, text: str, found: list, starts: list, ends: list) -> None:

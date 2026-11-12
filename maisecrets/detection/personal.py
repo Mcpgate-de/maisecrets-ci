@@ -2453,7 +2453,9 @@ def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> l
                     out.append((s0, s0 + len(v), "address-after-label", ADDRESS))
                 else:
                     _company_window(text, line, s0, s0 + len(v), "address-after-label", company)
-    out += _vcard_reader(text, want)
+    if any(f in want for f in _VCARD_FORMS) and ("VCARD" in text.upper() or (
+            _VCARD_BARE_WORDS_RE.search(text) and _VCARD_BARE_HINT_RE.search(text))):
+        out += _vcard_hits(text, want)
     if "address-in-form" in want and "in" in regions:
         for m in _IN_ADDRESS_RE.finditer(text):
             line = max(_line_back(text, m.start()), field_start(text, m.start()))
@@ -2557,7 +2559,20 @@ def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> l
                 out.append((m.start(g), m.end(g), "address-street-after-label", ADDRESS))
             else:
                 _company_window(text, line, m.start(g), m.end(g), "address-street-after-label", company)
-    out += _record_readers(text, want)
+    if "md-table-personal-column" in want and "|" in text and "---" in text:
+        out += _md_table_hits(text)
+    if "sql-insert-personal-column" in want and "(" in text and ("INSERT" in text or "insert" in text):
+        out += _sql_insert_hits(text)
+    if "html-table-personal-column" in want and "<t" in text:
+        out += _html_table_hits(text)
+    if "json-personal-field" in want and "{" in text and '":' in text.replace('" :', '":'):
+        out += _json_record_hits(text)
+    if "xml-personal-field" in want and ("</" in text or "/>" in text):
+        out += _xml_record_hits(text)
+    if "json-personal-field" in want and ('\\":' in text or "{'" in text):
+        out += _quoted_json_hits(text)
+    if "kv-personal-field" in want:
+        out += _kv_record_hits(text)
     if "phone-wrapped-line" in want and "-\n" in text:
         for m in _PHONE_WRAP_RE.finditer(text):
             d = re.sub(r"\D", "", m.group())
@@ -2633,54 +2648,6 @@ def _host():
     from . import core
     return core._det().host
 
-
-
-# The readers of a record or a table. A hit of one can depend on a key, a header or a BEGIN:VCARD anywhere in its
-# record, so its reach is the record and not a window of characters. core's bounded rescans of a long line ask
-# record_hits() and fall back to the whole line when it finds something.
-def _vcard_reader(text: str, want) -> list:
-    out = []
-    if any(f in want for f in _VCARD_FORMS) and ("VCARD" in text.upper() or (
-            _VCARD_BARE_WORDS_RE.search(text) and _VCARD_BARE_HINT_RE.search(text))):
-        out += _vcard_hits(text, want)
-    return out
-
-
-def _record_readers(text: str, want) -> list:
-    out = []
-    if "md-table-personal-column" in want and "|" in text and "---" in text:
-        out += _md_table_hits(text)
-    if "sql-insert-personal-column" in want and "(" in text and ("INSERT" in text or "insert" in text):
-        out += _sql_insert_hits(text)
-    if "html-table-personal-column" in want and "<t" in text:
-        out += _html_table_hits(text)
-    if "json-personal-field" in want and "{" in text and '":' in text.replace('" :', '":'):
-        out += _json_record_hits(text)
-    if "xml-personal-field" in want and ("</" in text or "/>" in text):
-        out += _xml_record_hits(text)
-    if "json-personal-field" in want and ('\\":' in text or "{'" in text):
-        out += _quoted_json_hits(text)
-    if "kv-personal-field" in want:
-        out += _kv_record_hits(text)
-    return out
-
-
-def _table_readers(text: str, want) -> list:
-    out = []
-    if "csv-personal-column" in want and "\n" in text:
-        out += _csv_hits(text)
-    if "secret-under-password-column" in want and "\n" in text and ("|" in text or "\t" in text):
-        from .secret_table import secret_table_hits
-        out += secret_table_hits(text)
-    return out
-
-
-def record_hits(text: str, channel: str) -> list:
-    """The hits of the record and table readers alone, as hits() finds them (before the overlap checks of the core)."""
-    want = RULE_IDS if channel == "tool" else PROMPT_RULES.intersection(RULE_IDS)
-    if channel != "tool":
-        return _vcard_reader(text, want) + _record_readers(text, want)
-    return _vcard_reader(text, want) + _record_readers(text, want) + _table_readers(text, want)
 
 def hits(text: str, channel: str, regions: tuple, company: list | None = None) -> list:
     """(start, end, rule id, type) of each hit. The caller drops a span another rule took and a placeholder. A list
@@ -2891,7 +2858,11 @@ def hits(text: str, channel: str, regions: tuple, company: list | None = None) -
             if _SERVICE_LOCAL_RE.match(m.group(2)) or not _name_ok(m.group(1)) or _reads_as_words(m.group(1)):
                 continue
             out.append((m.start(1), m.end(1), "name-before-email", NAME))
-    out += _table_readers(text, want)
+    if "csv-personal-column" in want and "\n" in text:
+        out += _csv_hits(text)
+    if "secret-under-password-column" in want and "\n" in text and ("|" in text or "\t" in text):
+        from .secret_table import secret_table_hits
+        out += secret_table_hits(text)
     if "address-street-postcode-city" in want and "," in text:
         for m in _STREET_POSTCODE_CITY_RE.finditer(text):
             if not _STREET_WORD_RE.search(m.group(1)):

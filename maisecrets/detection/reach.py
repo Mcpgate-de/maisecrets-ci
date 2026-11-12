@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import re
 
+from .lazy_regex import LazyRx
+
 # a line or a value longer than this is rescanned in windows; a shorter one as before
 LONG = 16_384
 # the part of a long labelled value that is scanned: the reach of the label (2,048, or 4,000 for a FHIR identifier
@@ -38,10 +40,10 @@ SNAP = 1_024
 # a run of the cleaned copy is compared character by character below this length
 _LEAF = 32
 
-_SPACE_RE = re.compile(r"\s")
+_SPACE_RE = LazyRx(r"\s")
 # the characters of a field label that read as text only: no bracket, quote, pipe, comma or slash that a record,
 # a table, a list or a path reader could take for its own syntax
-_PLAIN_LABEL_RE = re.compile(r"[^\W_]+(?:[ _.-]+[^\W_]+)*", re.UNICODE)
+_PLAIN_LABEL_RE = LazyRx(r"[^\W_]+(?:[ _.-]+[^\W_]+)*")
 # words that start a statement or a command whose reader runs past the label's reach (SQL, curl)
 _STATEMENT_WORDS = frozenset({"select", "update", "delete", "insert", "create", "curl"})
 
