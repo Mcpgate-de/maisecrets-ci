@@ -271,8 +271,36 @@ class RulesOfYourOwnTests(unittest.TestCase):
         self.assertEqual(spans(d.findings(text, channel="tool")), want)
 
 
+    def test_with_a_rule_of_your_own_the_cleaned_copy_reads_the_whole_line(self):
+        d = _own(user_rule("near", "SECRET", r"QX\d{6}"))
+        rnd = random.Random(13)
+        text = _place(_prose(rnd, 40_000).replace("\n", " "), [(30_000, "wei\u00adter")])
+        sizes = []
+        real = core._scan
+
+        def counting(t, *a, **k):
+            sizes.append((len(t), bool(k.get("_copy"))))
+            return real(t, *a, **k)
+        with mock.patch.object(core, "_scan", counting):
+            d.findings(text, channel="tool")
+        self.assertGreater(max(n for n, copy in sizes if copy), len(text) * 9 // 10, sizes)
+
+
 class BuiltInReachTests(unittest.TestCase):
     """The reach of the built-in rules, worked out from their regexes (maisecrets/detection/regex_reach.py)."""
+
+    def test_a_private_key_whose_header_the_cleaning_mends_far_from_its_end(self):
+        # private-key reads from BEGIN to END over any characters: the window around the mended header holds no END,
+        # so the rule is a far rule, and as it matches in the line the line is read whole
+        rnd = random.Random(21)
+        b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+        body = " ".join("".join(rnd.choice(b64) for _ in range(64)) for _ in range(140))
+        text = _prose(rnd, 3_000).replace("\n", " ") + " -----BEGIN PRIVATE K\u00adEY----- " + body \
+            + " -----END PRIVATE KEY----- " + _prose(rnd, 16_000).replace("\n", " ")
+        with as_before():
+            want = spans(D.findings(text, channel="tool"))
+        self.assertEqual([t[0] for t in want], ["private-key"], "the premise: found in the copy only")
+        self.assertEqual(spans(D.findings(text, channel="tool")), want)
 
     def test_the_spread_of_known_shapes(self):
         from maisecrets.detection import regex_reach as rr

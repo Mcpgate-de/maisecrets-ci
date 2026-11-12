@@ -117,6 +117,38 @@ def far_rule_matches(order: tuple, gates: dict, text: str, channel: str) -> bool
     return False
 
 
+def label_far_match(order: tuple, gates: dict, labelled: str, lead: int, value: str, channel: str) -> bool:
+    """A far rule that may run reads otherwise with the label before the value. A rule that did not match the value
+    bare (its gate is True, not 2: core._scan marks a rule that matched) and runs as one regex over the text, or over
+    each line, must not match the labelled text at all. Any other far rule has its matches with and without the
+    label compared: only a match that starts after `lead` and its longest lookbehind is one of the value."""
+    lines = None
+    for rule in far_rules(order):
+        seen = gates.get(id(rule), False)
+        if not seen:
+            continue
+        m = matcher(rule)
+        rx = rule.regex._for(labelled) if hasattr(rule.regex, "_for") else rule.regex
+        if seen != 2 and m in ("", "regex"):
+            if rx.search(labelled):
+                return True
+            continue
+        if seen != 2 and m == "lines":
+            lines = labelled.split("\n") if lines is None else lines
+            if not any(core._LABEL_ONLY_RE.search(x) for x in lines):
+                if any(rx.search(x) for x in lines):
+                    return True
+                continue
+        pattern = getattr(rule.regex, "pattern", None)
+        near = lead + (regex_reach.behind(pattern, rule.regex.flags or 0) if isinstance(pattern, str)
+                       else regex_reach.FAR)
+        got = [(x.start(), x.end()) for x in core._matches(rule, labelled, channel)]
+        if any(a < near for a, _ in got) or \
+                got != [(x.start() + lead, x.end() + lead) for x in core._matches(rule, value, channel)]:
+            return True
+    return False
+
+
 def unbounded(order: tuple, enabled, text: str) -> bool:
     """The reach of a window holds no proof here: a rule of your own runs (its regex may read anything), or the text
     holds a run of whitespace or of non-whitespace longer than regex_reach counts with."""
@@ -314,7 +346,8 @@ def label_scan_near(labelled: str, lead: int, value: str, enabled, channel: str)
             and last[4] == enabled:
         gates, copy_start = last[2], last[5]
     else:
-        gates, copy_start = gates_for(order, value, enabled, channel), None
+        # not from a scan of the value: whether a rule matched it is not known, so each counts as matched (2)
+        gates, copy_start = {k: 2 if v else v for k, v in gates_for(order, value, enabled, channel).items()}, None
     copy_v = value
     if tool:
         prefix = labelled[:lead]
@@ -341,7 +374,7 @@ def label_scan_near(labelled: str, lead: int, value: str, enabled, channel: str)
     # a seed phrase reads its context word back to the start of its line; a list runs on to its closing bracket
     if (core._SEED_CONTEXT_RE.search(labelled, 0, lead) and next(iter(checksums.bip39_spans(value)), None)) \
             or far_reaching_match(order, gates, labelled, 0, lead + 512) or unbounded(order, enabled, labelled[:cut]) \
-            or far_rule_matches(order, gates, labelled, channel) or long_personal_match(labelled):
+            or label_far_match(order, gates, labelled, lead, value, channel) or long_personal_match(labelled):
         return None
     if tool:
         # a record or a table: the label must not change a hit of its readers anywhere in the value

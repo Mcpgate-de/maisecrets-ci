@@ -163,6 +163,34 @@ def _node(op, av, flags: int) -> _W:
     return _UNKNOWN
 
 
+def _behind(items) -> int:
+    """The longest lookbehind in a parsed regex (FAR for a part this module does not read)."""
+    out = 0
+    for op, av in items:
+        if op in (_C.ASSERT, _C.ASSERT_NOT):
+            if av[0] < 0:
+                out = max(out, _seq(av[1], 0).width)
+            out = max(out, _behind(av[1]))
+        elif op is _C.SUBPATTERN:
+            out = max(out, _behind(av[-1]))
+        elif op is _C.BRANCH:
+            out = max([out] + [_behind(b) for b in av[1]])
+        elif op in _REPEATS:
+            out = max(out, _behind(av[2]))
+        elif op is getattr(_C, "ATOMIC_GROUP", object()):
+            out = max(out, _behind(av))
+    return out
+
+
+@functools.lru_cache(maxsize=4096)
+def behind(pattern: str, flags: int = 0) -> int:
+    """The most characters a lookbehind of the regex reads before the start of a match."""
+    try:
+        return min(FAR, _behind(list(_P.parse(pattern, flags))))
+    except Exception:  # noqa: BLE001
+        return FAR
+
+
 @functools.lru_cache(maxsize=4096)
 def spread(pattern: str, flags: int = 0) -> tuple:
     """(before, after) of a regex: see the module text. (FAR, FAR) for a regex the parser cannot read."""

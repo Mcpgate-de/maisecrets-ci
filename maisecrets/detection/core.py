@@ -2749,6 +2749,7 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
         filters = rule.filters if rule.filters is not None else _registry.filters_of(rule.id)
         hits = _matches(rule, text, channel)
         for m in (_timed(rule, hits, len(text)) if own and rule_list is None else hits):
+            gates[id(rule)] = 2   # it matched
             if until is not None and time.monotonic() > until:
                 raise ScanIncomplete(list(found))     # per hit too: a slow References callback outran the rule checks
             ngroups = rule.regex.groups or 0
