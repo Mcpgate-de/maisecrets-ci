@@ -36,6 +36,8 @@ echo '{"contract": "maisecrets.detect/1", "text": "token: ...", "channel": "tool
        "regions": ["generic", "de"], "languages": ["en", "de"]}' | python -m maisecrets.detection
 ```
 
+The package installs the same program as `maisecrets-detect`.
+
 The schema ships with the package (`maisecrets/detection/detect-1.schema.json`). An unknown key, region or label
 language gives an error response with exit status 2.
 
