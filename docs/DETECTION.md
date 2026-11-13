@@ -433,10 +433,11 @@ response = contract.result_response(detector, result)    # the same as JSON (mai
 - **Classes.** `classes` maps a class of the service to a type of `types.json`. The default is `PER` and `PERSON` to
   `NAME`, the one class the NER experiment measured; an operator adds more (`{"LOC": "ADDRESS"}`). `min_score` sets
   the least score per type; there is none by default, and no threshold here was chosen from a benchmark.
-- **A product name is no person.** A name span that `remote.is_product_name(span)` accepts (a word of
-  `PRODUCT_WORDS` alone, or one followed only by words of `PRODUCT_WORDS` and `PRODUCT_TAILS`, as "Claude Code") is
-  dropped, and so is a word of `GREETING_WORDS` alone. A caller that applies the spans itself calls the same function
-  (since 0.8.15).
+- **A product name, a greeting and a button word are no person.** A name span that `remote.is_no_person(span)`
+  accepts is dropped: a product name (`remote.is_product_name(span)`: a word of `PRODUCT_WORDS` alone, or one followed
+  only by words of `PRODUCT_WORDS` and `PRODUCT_TAILS`, as "Claude Code"), a word of `GREETING_WORDS` alone, and a word
+  of `UI_LABEL_WORDS` alone ("Allow", "Deny", "Submit"). A caller that applies the spans itself calls the same
+  function (`is_no_person` since 0.9.8, `is_product_name` since 0.8.15).
 - **It only adds.** A span is kept only where no finding of the rules and no span kept before it lies. A finding of
   the rules is never removed, made smaller, moved or retyped. A span that ends inside a word is widened to the whole
   word.

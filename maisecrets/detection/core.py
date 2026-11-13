@@ -2299,6 +2299,46 @@ def _names_its_label(text: str, start: int, secret: str) -> bool:
 # a run of capitals without a vowel or with a longer suffix is a value (review of 0.6.24)
 _CONSTANT_NAME_RE = _LazyRx(r"(?:[A-Z]*[AEIOUY][A-Z]*|DB)(?:[-_](?:[A-Z]*[AEIOUY][A-Z]*|DB))+_\d{1,2}")
 _TIME_OR_RATIO_RE = _LazyRx(r"\d+:[a-z]+")
+_SECRET_WORD_LABEL_RE = _LazyRx(r"(?i)(?<![\w.-])secret(?:s|os?|as?)?:")
+# an article or a possessive, and at most one more word, right before the label: "Le secret:", "Notre grand secret:",
+# "The secret:", "El secreto:". It starts the line or follows the end of a sentence; after `INFO `, `# ` or `| ` it is a
+# key of a log, a comment or a table
+_SENTENCE_DETERMINER = (r"(?P<det>the|a|an|my|our|your|his|her|their|this|that|its"
+                        r"|le|la|les|un|une|mon|ma|mes|ton|ta|tes|son|sa|ses|notre|nos|votre|vos|leur|leurs"
+                        r"|ce|cet|cette|du|des|el|los|las|una|mi|mis|tu|tus|su|sus|nuestro|nuestra|nuestros"
+                        r"|nuestras|este|esta|ese|esa|o|os|as|um|uma|meu|minha|nosso|nossa|seu|sua)"
+                        r"(?:[ \t]+[^\W\d_]{2,15})?[ \t]+")
+_DETERMINER_AT_START_RE = _LazyRx(r"(?i)[ \t]*" + _SENTENCE_DETERMINER)
+_DETERMINER_AFTER_SENTENCE_RE = _LazyRx(r"(?i)[.!?\u2026][ \t]+" + _SENTENCE_DETERMINER + r"$")
+_STRUCTURED_LINE_RE = _LazyRx(r"[ \t]*(?:[#|*>\[\d-]|//|[A-Z]{3,}\b)")
+# the sentence goes on after the word to its end: words, then . ! ? or ... (also after a space, as French writes it).
+# A passphrase in a file has no full stop after it
+_PROSE_GOES_ON_RE = _LazyRx(r"(?:,?[ \t]+[^\W\d_][^\W\d_'\u2019-]{0,30}){0,30}[ \t]?[.!?\u2026](?:\s|$)")
+
+
+def _word_after_secret(text: str, label_start: int, secret: str, end: int) -> bool:
+    """One word of a language in a sentence after an article, the word secret and a colon: the French sentence of
+    the field report Mcpgate-de/maisecrets#26, and the same in English and Spanish. The article
+    starts the line or follows the end of a sentence, and the sentence goes on after the word. A key of a file stays
+    a weak password (#25): `secret: <word>` at the start of a line or under `- `, `app secret: <word>`, a word
+    alone at the end of the line after `my secret:`, and a label after `INFO `, `# ` or `| `. The word list knows
+    English words only, so this reads the letter pairs (reads_as_word). A word with a digit, a word after an
+    identifier (client_secret:, SECRET_KEY:), letters with rare pairs, a run of two or three letters, a mix of cases
+    and capitals alone stay a value; so does any word after a password label. The rule cuts an unquoted value at a
+    space: in such a sentence its first word is no value either."""
+    word = secret.rstrip(".!?\u2026")   # the rule takes the full stop of the sentence into the value
+    if not _SECRET_WORD_LABEL_RE.match(text, label_start) or not (word != secret or _PROSE_GOES_ON_RE.match(text, end)):
+        return False
+    before = text[_line_start(text, label_start):label_start]
+    if _STRUCTURED_LINE_RE.match(before):
+        return False   # a comment, a list, a table, a quote, a log level or a time stamp: `INFO note. The secret: ...`
+    det = ((len(before) <= 80 and _DETERMINER_AT_START_RE.fullmatch(before))
+           or _DETERMINER_AFTER_SENTENCE_RE.search(before[-80:]))
+    if not det or not det.group("det")[0].isupper():
+        return False   # a sentence starts with a capital; a key of a file (`the secret: ...`) mostly does not
+    # a run of two or three letters (abababab) has common pairs too, and no word of 8 letters is one
+    return (len(set(word.lower())) >= 4 and reads_as_word(word)
+            and (word.islower() or word[1:].islower()))
 # a test result, not a password after the label `pass`: `--- PASS: TestUpload/large_file` (go test -v),
 # `PASS: test_login` and `PASS: tests/test_api.py::test_get` in a merge request or a job log (gateway shadow,
 # 2026-10-28). Only the bare word pass: a value after `password:` stays a value
@@ -2827,6 +2867,8 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
                 continue   # the name of a constant, not its value: PROD-DB-PASS_7
             if "time-or-ratio" in filters and _TIME_OR_RATIO_RE.fullmatch(secret.strip("\"'`")):
                 continue   # 0:default after `secret:`
+            if "word-after-secret" in filters and _word_after_secret(text, m.start(1), secret, end):
+                continue   # a sentence: an article, secret, a colon and one ordinary word (#26)
             if ("test-result" in filters and _TEST_NAME_RE.fullmatch(secret.strip("\"'`"))
                     and _PASS_LABEL_RE.search(_before_value(text, start))):
                 continue   # --- PASS: TestUpload

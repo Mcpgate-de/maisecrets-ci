@@ -438,8 +438,8 @@ class RemoteDetector:
             s, e = words.widen(s, e)
             if s >= e:
                 continue                          # white space only: no word to take
-            if type_ == "NAME" and _no_person(text[s:e]):
-                continue                          # a product word, a product name or a greeting alone is no person
+            if type_ == "NAME" and is_no_person(text[s:e]):
+                continue                          # a product name, a greeting or a UI label word alone is no person
             if _overlaps(occ, ends, s, e):
                 continue
             i = bisect.bisect_left(taken, (s, e))
@@ -461,9 +461,21 @@ PRODUCT_WORDS = frozenset({
 
 # greetings that the model takes for a person when they stand alone before a name (`Hallo` in "Hallo Lena, …": 88 of
 # 117 false names on a corpus of gateway responses, 2026-11-02); the name after them stays a name. On the DialogPII
-# dev split: 27 fewer false names, no name lost (netcup, prompt NER)
+# dev split: 27 fewer false names, no name lost (netcup, prompt NER). The word is dropped wherever it stands alone, not
+# only before a name: a quoted greeting ("the greeting Hallo") is no person either. None of these words is a name or a
+# part of a name among the 20,671 person spans of DialogPII dev (2026-11-13, also hoi and hej); "lieben" came back
+# alone as a name from the reference service for "Hallo Ihr Lieben," (#41). Lieben is also a rare surname: alone,
+# without a given name, it is dropped; a full name with it stays
 GREETING_WORDS = frozenset({"hallo", "hello", "hi", "hey", "moin", "servus", "grüezi", "hej", "hoi", "ciao", "hola",
-                            "salut", "bonjour", "dear", "liebe", "lieber", "danke", "thanks", "cheers"})
+                            "salut", "bonjour", "dear", "liebe", "lieber", "lieben", "danke", "thanks", "cheers"})
+# the words of buttons and links that the model takes for a person when two of them stand next to "and" or "or"
+# before a noun ("the Allow and Deny buttons": scores of 0.91 to 0.999 on int8 and fp32, reported in #41). A score
+# threshold does not tell them from a real one-word name, which scored down to 0.40 there. Never a word that is also
+# a given name or a surname: not edit (a Hungarian given name), not ok (a Korean surname). None of these is a name or a
+# part of a name among the 20,671 person spans of DialogPII dev
+UI_LABEL_WORDS = frozenset({
+    "accept", "allow", "approve", "cancel", "decline", "delete", "deny", "login", "logout", "reject", "reset", "save",
+    "submit"})
 # the words after a product word in a product name ("Claude Code", "GitHub Actions", "Docker Desktop"): the model
 # takes the whole name for a person. Never a word that is also a first name (no "max", no "pro")
 PRODUCT_TAILS = frozenset({
@@ -536,9 +548,12 @@ def is_product_name(span: str) -> bool:
                                                              for w in words[1:])
 
 
-def _no_person(span: str) -> bool:
-    """Whether a NAME span is a product name (is_product_name) or a greeting alone."""
-    return is_product_name(span) or span.strip().lower() in GREETING_WORDS
+def is_no_person(span: str) -> bool:
+    """Whether a NAME span is no person: a product name (is_product_name), or a word of GREETING_WORDS or of
+    UI_LABEL_WORDS alone. Public since 0.9.8: a caller that applies the spans itself drops these, the same rule as
+    the remote path here (#41)."""
+    word = span.strip().lower()
+    return is_product_name(span) or word in GREETING_WORDS or word in UI_LABEL_WORDS
 
 
 class _HttpStatus(Exception):

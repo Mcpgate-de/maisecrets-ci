@@ -353,6 +353,31 @@ class RemoteDetectorTests(unittest.TestCase):
         self.assertEqual(status.state, "ok")
         self.assertEqual([text[s:e] for s, e, _t, _sc in spans], [NAME])
 
+    def test_a_button_word_alone_is_no_name(self):
+        # #41: the reference service marks "Allow" and "Deny" before "buttons" as persons (0.91 to 0.999)
+        text = f"the warning and the Allow and Deny buttons, then {NAME} pressed Submit or Reset."
+
+        def answer(t):
+            out = []
+            for word in ("Allow", "Deny", NAME, "Submit", "Reset"):
+                at = t.find(word)
+                out.append({"entity_group": "PER", "start": at, "end": at + len(word), "score": 0.99, "word": word})
+            return out
+        svc = Service(answer=answer)
+        self.addCleanup(svc.close)
+        spans, status = rm.RemoteDetector(svc.url).ask(text, [])
+        self.assertEqual(status.state, "ok")
+        self.assertEqual([text[s:e] for s, e, _t, _sc in spans], [NAME])
+
+    def test_is_no_person_is_the_whole_rule_a_caller_applies_itself(self):
+        # the gateway applies the spans itself and asks this function (#41, devs/ai-gateway#1808)
+        for span in ("Allow", " deny ", "Submit", "Lieben", "Hallo", "hoi", "Claude Code", "GitHub"):
+            self.assertTrue(rm.is_no_person(span), span)
+        # a button word that is also a given name or a surname stays a name: Edit (Hungarian), Ok (Korean)
+        for span in ("", NAME, NAME.split()[0], NAME.split()[-1], "Allow " + NAME.split()[-1], "Allowance", "Edit",
+                     "Ok"):
+            self.assertFalse(rm.is_no_person(span), span)
+
     def test_the_hf_format_adds_a_name_with_its_score(self):
         r = self.run_with(Service("hf"), model="d3@test")
         names = [m for m in r.findings if m.type == "NAME"]

@@ -813,9 +813,51 @@ class LabelValueTests(unittest.TestCase):
         # "Sec§rets: connectors and plugins" is prose, but a lowercase value can be a random password
         # ("To§ken: abbabaabab, thanks", tests/detection_matrix.py) and a real word ("password:<word> and
         # <address>" leaked once as prose, 2026-09-27). Without a dictionary the two cannot be told apart:
-        # the false positive is the cheaper error (decision, 2026-09-29)
+        # the false positive is the cheaper error (decision, 2026-09-29). A word before the label makes it a
+        # sentence (#26, below)
         self.assertEqual(kinds("Sec§rets: connectors and plugins"), [("ds-keyword-colon", "connectors")])
         self.assertEqual(kinds("pass§word: hunter2hunter2 please"), [("ds-keyword-colon", "hunter2hunter2")])
+
+    def test_one_word_of_a_language_after_the_word_secret_is_prose(self):
+        # field report Mcpgate-de/maisecrets#26: a French word after "secret:" was masked; English and Spanish too.
+        # An article with a capital at the start of the line or after a full stop, and the sentence ends after the word
+        for text in ("Le sec§ret: travailler un peu chaque jour.", "The sec§ret: patience.",
+                     "El sec§reto: paciencia y trabajo.", "Mon sec§ret: Chocolat !",
+                     "Notre grand sec§ret: travailler, toujours.", "Le sec§ret: persévérance.",
+                     "Voilà. Le sec§ret: travailler dur.", "The" + " " * 45 + "sec§ret: patience."):
+            with self.subTest(text=text):
+                self.assertEqual(kinds(text), [])
+
+    def test_a_secret_label_keeps_a_value_that_is_no_word(self):
+        # a key of a file (#25): no article, a small article, no end of a sentence after the word (a passphrase); a
+        # log level, a time stamp, a comment sign or a word before the article, also before an earlier full stop or
+        # a semicolon; then in a sentence: a digit, an identifier as label, letters with rare pairs, a run of two
+        # letters, a mix of cases, capitals alone
+        for text, value in (("sec§ret: travailler", "travailler"), ("- sec§ret: travailler", "travailler"),
+                            ("Sec§ret: Travailler", "Travailler"), ("app sec§ret: travailler", "travailler"),
+                            ("my sec§ret: travailler", "travailler"), ("my sec§ret: travailler # note", "travailler"),
+                            ("INFO my sec§ret: travailler and more", "travailler"),
+                            ("# my sec§ret: travailler and more", "travailler"),
+                            ("the sec§ret: travailler un peu.", "travailler"),
+                            ("My sec§ret: travailler", "travailler"), ("My sec§ret: travailler # note", "travailler"),
+                            ("app The sec§ret: travailler and more.", "travailler"),
+                            ("The sec§ret: travailler encore", "travailler"),
+                            ("2026-11-13 10:00 note. The sec§ret: travailler encore.", "travailler"),
+                            ("[INFO] note. The sec§ret: travailler encore.", "travailler"),
+                            ("app.log note; The sec§ret: travailler encore.", "travailler"),
+                            ("INFO note. The sec§ret: travailler and more.", "travailler"),
+                            ("# note. The sec§ret: travailler and more.", "travailler"),
+                            ("The sec§ret: Xk9mPq2vRa and more.", "Xk9mPq2vRa"),
+                            ("The client_sec§ret: chocolat and more.", "chocolat"),
+                            ("The SEC§RET_KEY: patience and more.", "patience"),
+                            ("The sec§retariat: travailler and more.", "travailler"),
+                            ("The sec§ret: chOColAtiNe and more.", "chOColAtiNe"),
+                            ("The sec§ret: abababab and more.", "abababab"),
+                            ("The sec§ret: mnbvcxyzlk and more.", "mnbvcxyzlk"),
+                            ("The sec§ret: hjklhjklhj and more.", "hjklhjklhj"),
+                            ("The sec§ret: CHOCOLATINE and more.", "CHOCOLATINE")):
+            with self.subTest(text=text):
+                self.assertIn(("ds-keyword-colon", value), kinds(text))
 
     def test_two_distinct_characters_are_a_value(self):
         for text, value in [("pass§word:asasasasasasaasasasa", "asasasasasasaasasasa"),

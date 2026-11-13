@@ -122,8 +122,8 @@ class ScanContextTests(unittest.TestCase):
 # _CHANNEL, _PATH and _INDEX left this list (2026-10-18); the per-text index is now one per thread
 # (THREAD_LOCAL_STATE). The caches that follow from the configuration (_RULES, _ALLOW, _REGIONS, _ORDER,
 # _LABEL_CLASS, _PW_LAST_ON, _REGEX_*, _RUNNING) left it for the Detector, which owns them (tests/test_detector.py).
-KNOWN_SCAN_STATE = frozenset({"_COVER_CACHE", "_CTX_CACHE", "_CURL_PARTS", "_KEYWORD_WINDOWS", "_PUBLIC_TEST_VALUES",
-                              "_WORDS", "_WORDS_OK"})
+KNOWN_SCAN_STATE = frozenset({"_COMMON_PAIRS", "_COVER_CACHE", "_CTX_CACHE", "_CURL_PARTS", "_KEYWORD_WINDOWS",
+                              "_PUBLIC_TEST_VALUES", "_WORDS", "_WORDS_OK"})
 # module-level objects a scan writes that are one per thread (threading.local): no thread reads another's
 THREAD_LOCAL_STATE = frozenset({"_TEXT_INDEX"})
 
