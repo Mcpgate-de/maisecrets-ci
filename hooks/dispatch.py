@@ -284,11 +284,11 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
             screen = ""
     if v.backend.test_mode or not marker.exists():
         tried = True        # the try-it line names ms:(…): the Codex tip below would say it twice
-        from maisecrets.tips import try_it_line  # noqa: E402
+        from maisecrets.tips import before_line, try_it_line  # noqa: E402
         more = "" if codex else " /maisecrets:status shows the details, /maisecrets:list what is stored."
         out["systemMessage"] = (f"maisecrets {version} is on{own_rules}.{screen} "
                                 + intro_line(v.backend, _names_on(), codex) + more + " "
-                                + try_it_line())
+                                + try_it_line() + " " + before_line(codex))
         try:
             marker.write_text(type(v.backend).__name__ + "\n")
         except OSError:

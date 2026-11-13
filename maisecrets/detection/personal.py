@@ -337,7 +337,7 @@ _PERSON_LABELS = (r"full[ _-]?name|customer[ _-]?name|first[ _-]?name|last[ _-]?
                   r"|patient(?:[ _-]?name)?|employee(?:[ _-]?name)?|student(?:[ _-]?name)?|contact[ _-]?person"
                   r"|account[ _-]?holder|card[ _-]?holder|cardholder|passenger|tenant|landlord|signer|co-signer"
                   r"|guardian|beneficiary|billed to|oncall|on-call|requested by|reviewed by|approved by|salari[ée]"
-                  r"|vorname|nachname|mieter|vermieter|ansprechpartner(?:in)?|kontaktperson|pr[ée]nom")
+                  r"|vorname|nachname|mieter|vermieter|ansprechpartner(?:in)?|kontaktperson|pr[ée]nom|kontoinhaber(?:in)?")
 # a key or label of a person's record before the company's name, in the same paragraph: the record is a person's,
 # whether or not the name rules find the name in its value (a lower-case or abbreviated name)
 _PERSON_KEY_RE = _LazyRx(r"(?i)(?<![a-z])(?:" + _PERSON_LABELS + r"|name|person|resident|bewohner(?:in)?"

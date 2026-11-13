@@ -1,4 +1,4 @@
-// The values on the person's screen (claude-mod/show-values.mjs), run by `claude plugin test` with $.process.run
+// The values on the person's screen (claude-mod/maisecrets-mod.mjs), run by `claude plugin test` with $.process.run
 // stubbed: dispatch.py mod-values answers from STORE. Synthetic values only. The placeholders are built from their
 // code points: written as text in this file, the plugin's own hook would read them as placeholders of the store.
 import { expect, mock, test } from 'claude-code/testing'
@@ -104,6 +104,18 @@ test('click: a click shows the values of that text for 10 seconds', async ($, on
   await clock.advance(10_001)
   now = await ui.find({ type: 'Markdown' })
   expect(now?.props.text).not.toContain('Max Mustermann')
+  await ui.unmount()
+})
+
+test('click: a sent prompt hides what a click opened, before the 10 seconds end', async ($, on) => {
+  const clock = world(on, { mode: 'click' })
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+  const { ui, md } = await shown($, clock, 'terminal', FULL)
+  await ui.press({ key: md!.key!, link: { href: real(md, 'NAME_c1') } as any })
+  expect((await ui.find({ type: 'Markdown' }))?.props.text).toContain('`max@example.com \u{1F512}`')
+  await $.prompt.submit({ text: 'next question', wait: false, origin: { kind: 'composer' } })
+  await clock.advance(1_000)
+  expect((await ui.find({ type: 'Markdown' }))?.props.text).not.toContain('max@example.com')
   await ui.unmount()
 })
 

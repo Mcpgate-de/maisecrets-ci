@@ -3079,7 +3079,11 @@ def _personal_hits(text: str, enabled, found: list, taken_starts: list, taken_en
     allowed, off = allow_list()
     by_start, gone = None, set()
     company: list = []
-    every = sorted(personal.hits(text, channel, _pii_regions_cached(), company))
+    from .holder_line import company_follows, names_above_bank   # a name line above a bank block (#40)
+    every = personal.hits(text, channel, _pii_regions_cached(), company)
+    if channel == "tool" and ":" in text and "\n" in text:
+        every += [(s, e, "name-after-label", personal.NAME) for s, e in names_above_bank(text)]
+    every = sorted(every)
     # the decision belongs to an address rule that runs: a rule that `enabled` or the allow list turns off decides
     # nothing (Gate B of this change)
     company = [c for c in company if (enabled is None or c[4] in enabled or "personal:" + c[4] in enabled)
@@ -3097,6 +3101,8 @@ def _personal_hits(text: str, enabled, found: list, taken_starts: list, taken_en
         value = text[start:end]
         if value in allowed or (off and kind in off):
             continue   # the allow list holds for these rules too: an exact value, or `rule: <id>`
+        if kind == "name-after-label" and company_follows(text, start, end):
+            continue   # Kontoinhaber: Musterbau Schmidt GmbH: a legal form after the words names a company (#40)
         low = value.lower()
         if _references().has_marks(value) or "example" in low or low in personal.PLACEHOLDER_NAMES \
                 or looks_like_placeholder(value) or is_public_test_value(value, typ):

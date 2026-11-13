@@ -18,6 +18,8 @@ TIPS = [
     "with ms:(…), or use /maisecrets:put.",
     "maisecrets: add detection rules for the tokens of your own services in ~/.maisecrets/rules.d or a team "
     "folder; /maisecrets:rules shows them, README \"Rules of your own\" says how.",
+    "maisecrets: secrets that leaked before maisecrets ran stay valid until you rotate them. "
+    "/maisecrets:secret-hygiene checks a repository, its git history and your earlier sessions.",
 ]
 # Codex has no slash commands for plugins: its tips name only what works there
 TIPS_CODEX = [
@@ -29,6 +31,8 @@ TIPS_CODEX = [
     "with ms:(…) alone as your prompt.",
     "maisecrets: add detection rules for the tokens of your own services in ~/.maisecrets/rules.d or a team "
     "folder (`maisecrets: set rule_dirs add DIR` as your own prompt); README \"Rules of your own\" says how.",
+    "maisecrets: secrets that leaked before maisecrets ran stay valid until you rotate them. Ask the AI to check "
+    "this repository, its git history and your earlier sessions with the secret-hygiene skill.",
 ]
 
 
@@ -61,3 +65,12 @@ TRY_IT_EXAMPLE = "max.muster@firma-xyz.de"   # not example.com: a reserved domai
 
 def try_it_line() -> str:
     return f"Try it: send ms:({TRY_IT_EXAMPLE}) alone. maisecrets says what it would mask, and nothing reaches the AI."
+
+
+def before_line(codex: bool = False) -> str:
+    """The first session start: maisecrets protects from now on, and the skill finds what leaked before (a token in a
+    committed settings file, in the git history or in an earlier session stays valid until someone rotates it)."""
+    how = ("ask the AI to check this repository, its git history and your earlier sessions with the secret-hygiene "
+           "skill" if codex else "/maisecrets:secret-hygiene checks a repository, its git history and your earlier "
+           "sessions")
+    return f"It protects from now on. For secrets that leaked before, {how}, and rotate what it finds."

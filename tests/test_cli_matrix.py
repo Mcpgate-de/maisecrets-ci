@@ -984,6 +984,7 @@ class SessionStartTests(unittest.TestCase):
         self.assertIn("in an encrypted file", msg)
         self.assertIn("/maisecrets:status shows the details", msg)
         self.assertIn(" " + tips.try_it_line() + " ", msg, "the first start says how to see it work")
+        self.assertIn(" " + tips.before_line() + " ", msg, "the first start names the skill for what leaked before")
         self.assertTrue(msg.endswith(" Tip: /maisecrets:shortcut adds /ms as a short form of /maisecrets:send."))
         self.assertEqual(out["hookSpecificOutput"], {"hookEventName": "SessionStart",
                                                      "additionalContext": hooks.primer()})
@@ -1609,6 +1610,16 @@ class TipsTests(unittest.TestCase):
             self.assertIn(step, tip)
             self.assertIn('README "Rules of your own"', tip)
         self.assertIn("\n## Rules of your own\n", readme, "the tip names a README section that exists")
+
+    def test_each_pool_and_the_first_start_name_the_skill_for_what_leaked_before_in_a_form_of_its_client(self):
+        for pool, codex, step in ((self.tips.TIPS, False, "/maisecrets:secret-hygiene"),
+                                  (self.tips.TIPS_CODEX, True, "with the secret-hygiene skill")):
+            (tip,) = [t for t in pool if "leaked before" in t]
+            self.assertIn(step, tip)
+            self.assertIn(step, self.tips.before_line(codex))
+            self.assertIn("rotate", tip)
+        self.assertTrue((ROOT / "skills" / "secret-hygiene" / "SKILL.md").is_file(),
+                        "the tip names a skill that exists")
 
     def test_the_rotation_wraps_and_a_damaged_state_starts_at_the_first_tip(self):
         (self.dir / ".tip").write_text(f"2000-01-01 {len(self.tips.TIPS) - 1}\n")

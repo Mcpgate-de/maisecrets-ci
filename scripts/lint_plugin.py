@@ -182,9 +182,9 @@ def check_cli_commands(root: Path = ROOT) -> list[str]:
 
 
 def check_mod(root: Path = ROOT) -> list[str]:
-    """The mod: the manifest names the mod's hooks file, its module exists, and the launcher command the module asks
-    (`const MARK`) is one dispatch.py handles. Otherwise the mod gets no answer and every prompt is blocked
-    again, which no test of the hook alone would notice."""
+    """The mod: the manifest names the mod's hooks file, its module exists, and each launcher command the module asks
+    is one dispatch.py handles, for each of the three Python names. Otherwise the mod gets no answer and every prompt
+    is blocked again, which no test of the hook alone would notice."""
     errors = []
     try:
         named = json.loads((root / ".claude-plugin/plugin.json").read_text(encoding="utf-8")).get("hooks")
@@ -203,9 +203,9 @@ def check_mod(root: Path = ROOT) -> list[str]:
         calls = {argv: set(re.findall(argv + r", 'hooks/dispatch\.py', '([a-z][a-z-]*)'\]", text))
                  for argv in (r"\['python3'", r"\['py', '-3'", r"\['python'")}
         cmds = set().union(*calls.values())
-        if any(not c for c in calls.values()) or len(cmds) != 1 or not cmds <= dispatcher_names(root)[0]:
-            errors.append(f"claude-mod/{module}: its commands {sorted(cmds) or '(none)'} are not one command that "
-                          "hooks/dispatch.py handles, for each of python3, py -3 and python")
+        if not cmds or any(c != cmds for c in calls.values()) or not cmds <= dispatcher_names(root)[0]:
+            errors.append(f"claude-mod/{module}: its commands {sorted(cmds) or '(none)'} are not commands that "
+                          "hooks/dispatch.py handles, each for all of python3, py -3 and python")
     return errors
 
 
