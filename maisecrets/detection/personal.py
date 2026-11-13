@@ -2803,6 +2803,8 @@ def hits(text: str, channel: str, regions: tuple, company: list | None = None) -
                 continue   # author_name: Deleted User, a team or a group in a role field of an API, no person
             if _name_ok(v) and not (_reads_as_words(v, every=True) and _reads_as_words(plain, every=True)):
                 out.append((m.start(2), m.start(2) + len(v), "name-after-label", NAME))
+        from .role_names import one_word_names
+        out.extend((s, e, "name-after-label", NAME) for s, e in one_word_names(text))
     if "name-after-label" in want and "</" in text:
         # <card_holder>Jane Roe</card_holder>: the element's name is the label of its text
         for m in _XML_NAME_ELEMENT_RE.finditer(text):

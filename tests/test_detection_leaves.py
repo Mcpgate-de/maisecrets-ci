@@ -290,6 +290,40 @@ class LinesLayoutTests(unittest.TestCase):
             with self.subTest(team=team):
                 self.assertEqual([m for _l, m in L.findings_by_leaf(D, {"author": {"name": team}})], [])
 
+    def test_a_role_key_with_a_string_reads_as_the_name_of_that_role(self):
+        # #40: an API wrapper flattens the person to its display name (Jira in a gateway: assignee: <name>)
+        two, one = "Dana Okafor", "Dana"
+        for key in ("assignee", "reporter", "creator", "approver", "requester", "committer", "organizer"):
+            for name in (two, one):
+                with self.subTest(key=key, words=name.count(" ") + 1):
+                    got = L.findings_by_leaf(D, {"issues": [{"key": "PBE-1", key: name}]})
+                    self.assertEqual([(m.type, m.value) for _l, m in got], [("NAME", name)])
+        for key in ("assignees", "authors", "reporters", "creators", "approvers", "requesters", "committers",
+                    "organizers", "mergedBy", "approvedBy", "mergeUser"):
+            with self.subTest(key=key):
+                got = L.findings_by_leaf(D, {key: [two, one]} if key.endswith("s") else {key: two})
+                want = [("NAME", two), ("NAME", one)] if key.endswith("s") else [("NAME", two)]
+                self.assertEqual([(m.type, m.value) for _l, m in got], want)
+        self.assertEqual((L.label(("assignee",)), L.label(("assignees", 0)), L.label(("issues", 0, "reporter")),
+                          L.label(("authors", 0)), L.label(("mergedBy",)), L.label(("closedBy", "displayName"))),
+                         ("assignee_name", "assignee_name", "reporter_name", "author_name", "merged_by_name",
+                          "closed_by_display_name"))
+
+    def test_one_word_is_a_name_under_a_role_and_not_under_a_weak_key(self):
+        one = "Dana"
+        for obj in ({"assignee": {"displayName": one}}, {"author": {"name": one}}, {"full_name": one}):
+            with self.subTest(obj=list(obj)):
+                self.assertEqual([(m.type, m.value) for _l, m in L.findings_by_leaf(D, obj)], [("NAME", one)])
+        for obj in ({"name": one}, {"displayName": one}, {"owner": one}, {"customer_name": one}, {"user": one}):
+            with self.subTest(obj=list(obj)):
+                self.assertEqual([m for _l, m in L.findings_by_leaf(D, obj)], [])
+
+    def test_a_state_a_team_a_product_or_a_bot_under_a_role_key_is_no_person(self):
+        for value in ("Deleted User", "Platform Team", "Unassigned", "Backend", "DevOps", "Platform", "Jira",
+                      "Jenkins", "Dependabot", "Renovate", "Mobile-Team", "Ehemalig", "Anonymous", "Inc", "Nginx"):
+            with self.subTest(value=value):
+                self.assertEqual([m for _l, m in L.findings_by_leaf(D, {"assignee": value})], [])
+
     def test_label_is_the_label_the_scan_text_carries(self):
         obj = {"author": {"name": "x"}, "a:b": "y", "token": "z", "nextPageToken": "w"}
         got = {leaf.path: L.label(leaf.path) for leaf in L.json_text(obj)[1]}

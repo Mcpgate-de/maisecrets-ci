@@ -21,6 +21,7 @@ import contextlib
 import dataclasses
 import functools
 import json
+import re
 
 from .deadline import ScanIncomplete
 from .prefilter import rules_for, with_response_rules
@@ -149,8 +150,9 @@ _LABEL_MAX = 64
 
 # a parent whose name field names a person: its string is read after `<parent>_name` (author_name), a person label of
 # the core (personal._COMPOUND_PERSON_KEY_RE), not after the weak `name`
-_PERSON_PARENTS = frozenset({"author", "reviewer", "reviewers", "assignee", "assignees", "reporter", "creator",
-                             "organizer", "attendee", "attendees", "committer", "approver", "requester",
+_PERSON_PARENTS = frozenset({"author", "authors", "reviewer", "reviewers", "assignee", "assignees", "reporter",
+                             "reporters", "creator", "creators", "organizer", "organizers", "attendee", "attendees",
+                             "committer", "committers", "approver", "approvers", "requester", "requesters",
                              "merged_by", "closed_by", "approved_by", "requested_by", "merge_user"})
 _NAME_KEYS = {"name": "name", "displayname": "display_name", "display_name": "display_name", "fullname": "full_name",
               "full_name": "full_name"}
@@ -158,13 +160,25 @@ _NAME_KEYS = {"name": "name", "displayname": "display_name", "display_name": "di
 
 def _role_label(path: tuple) -> str:
     keys = [part for part in path if isinstance(part, str)]
+    if keys and _snake(keys[-1]) in _PERSON_PARENTS:
+        # a role key with a string: an API wrapper flattened the person to the display name (assignee: <name>, Jira
+        # in a gateway). It reads as <role>.displayName does (#40)
+        return f"{_singular(_snake(keys[-1]))}_name"
     if len(keys) < 2 or keys[-1].lower() not in _NAME_KEYS:
         return ""
-    parent = keys[-2].lower()
+    parent = _snake(keys[-2])
     if parent not in _PERSON_PARENTS:
         return ""
-    return f"{parent.rstrip('s') if parent.endswith('ees') or parent.endswith('ers') else parent}_" \
-           f"{_NAME_KEYS[keys[-1].lower()]}"
+    return f"{_singular(parent)}_{_NAME_KEYS[keys[-1].lower()]}"
+
+
+def _snake(key: str) -> str:
+    """mergedBy and merged-by as merged_by: the role keys of _PERSON_PARENTS are snake case."""
+    return re.sub(r"[-\s]+", "_", re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", key)).lower()
+
+
+def _singular(role: str) -> str:
+    return role[:-1] if role.endswith(("ees", "ers", "ors")) else role
 
 
 def _label(path: tuple) -> str:
