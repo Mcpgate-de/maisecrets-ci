@@ -1033,6 +1033,13 @@ def user_prompt(payload: dict) -> dict:
     if change:
         slash = prompt.lstrip().lower().startswith(("/maisecrets:settings", "/maisecrets:ner"))
         route = "slash command" if slash else "typed prompt"
+        from .prompt_values import carries_value
+        if slash and client_of(payload) != "codex" and carries_value(
+                prompt, cfg, session, payload.get("origin") in ("composer", "bridge")):
+            # it runs on, and its arguments reach the model (#44)
+            return {"decision": "block", "reason": "maisecrets: this settings command carries a value that "
+                    "maisecrets masks (a secret or personal data). Nothing was changed; this prompt was not sent.",
+                    "hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "suppressOriginalPrompt": True}}
         changed, reason = settings_mod.apply_typed(*change, route=route, cwd=str(payload.get("cwd") or "")) if typed \
             else (False, settings_mod.not_typed_reason(payload))
         if changed and change[0] == "clean_dirs" and change[1].startswith("add:"):

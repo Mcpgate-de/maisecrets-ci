@@ -280,3 +280,22 @@ test('a timeout ends the search: no second Python runs the rewrite again', async
   expect(runs).toBe(1)
 })
 
+
+test("a slash command's line goes on unchanged, without a launcher call: the settings hook decides it (#44)", async ($, on) => {
+  let calls = 0
+  common(on, () => {
+    calls += 1
+    return { value: { exitCode: 0, stderr: '',
+                      stdout: JSON.stringify({ maisecrets: 'mod-prompt', text: REWRITTEN, count: 1 }) } }
+  })
+  // Claude Code throws away a prompt.submit change of a slash command's line and sends the line as typed: a rewrite
+  // here made the hook see a placeholder while the value went to the model
+  for (const text of ['/plugin:skill TOKENWORD', '/review TOKENWORD', '  /x', '/a.b-c:d-e TOKENWORD',
+                      '/plugin:dir:cmd TOKENWORD', '/übersetzen TOKENWORD', '\n/x TOKENWORD']) {
+    expect((await $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } })).text).toBe(text)
+  }
+  expect(calls).toBe(0)
+  // a slash inside the text is no command
+  expect((await $.prompt.submit({ text: 'see a/b TOKENWORD', wait: false, origin: { kind: 'composer' } })).text)
+    .toBe(REWRITTEN)
+})

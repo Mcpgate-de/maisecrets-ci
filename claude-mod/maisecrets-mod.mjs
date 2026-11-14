@@ -416,6 +416,12 @@ const PERSON = new Set(['composer', 'bridge', 'sdk'])
 // not a person's goes on to the settings hook, which blocks it as a check
 // (blanks around the colon and the full-width colon and bracket count, as in check_value.py, which takes more)
 const CHECK = /^\s*ms\s*[:\uff1a]\s*[(\uff08]/i
+// a line that starts with a slash. Claude Code throws away a prompt.submit change of a slash command's line and sends
+// it as typed, so a rewrite here would let the settings hook pass a value it never sees: the line goes on unchanged,
+// and the hook decides it (#44). Every slash, not only a command name a regex could know: names with two colons
+// (/plugin:dir:cmd) and non-ASCII names are commands too (Gate A). A prompt that starts with a path gets the hook's
+// block, with /ms to send it
+const SLASH = /^\s*\//
 
 // The plugin's own hooks/dispatch.py, started by this computer's Python, in the plugin folder: each call is
 // fixed text, no shell and no environment read (the directory review asks for one program by name with fixed
@@ -473,6 +479,7 @@ export function register(on) {
   on('prompt.submit', async ($, e, next) => {
     if (!PERSON.has(e.origin?.kind)) return next(e)
     afterPrompt($, e.text)
+    if (SLASH.test(e.text)) return next(e)
     if (CHECK.test(e.text)) {
       // a check of a value is never passed on: the verdict, or this sentence when Python gives none in time
       let verdict = null

@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import types
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -1033,6 +1034,35 @@ class TypedSettings(_Work):
         self.assertEqual(load_config()["clean_dirs"], [])
         out = self._prompt("/maisecrets:settings clean_dirs add relative/dir")
         self.assertIn("not added", said(out))
+
+    def test_a_settings_command_with_a_value_changes_nothing_and_is_not_sent(self):
+        # a slash command that succeeds runs on, and its expansion holds the arguments (codex review of #44)
+        token = "glpat-" + "Q7w8E9r0T1y2U3i4O5p6"          # a fake token of the GitLab shape, built at run time
+        for line in (f"/maisecrets:settings clean_dirs add {self.dir / token}",
+                     f"/maisecrets:settings value_files add {self.dir / token}"):
+            with self.subTest(line=line[:40]):
+                before = load_config()
+                out = self._prompt(line)
+                self.assertEqual(out.get("decision"), "block")
+                self.assertTrue(out["hookSpecificOutput"].get("suppressOriginalPrompt"))
+                self.assertIn("Nothing was changed", out["reason"])
+                self.assertNotIn(token, json.dumps(out))
+                self.assertEqual(load_config(), before)
+
+    def test_a_settings_command_with_a_marked_or_a_service_name_is_not_sent(self):
+        # a name marked with {{…}} and a name only the name service finds (codex review of #44)
+        before = load_config()
+        out = self._prompt("/maisecrets:settings clean_dirs add %s/{{Wenzel Orbanek}}" % self.dir)
+        self.assertEqual(out.get("decision"), "block")
+        found = [types.SimpleNamespace(start=0, end=1, value="x", type="NAME")]
+        with mock.patch.object(hooks, "_prompt_names", return_value=(found, "")) as names:
+            out = self._prompt(f"/maisecrets:settings clean_dirs add {self.dir / 'Wenzel Orbanek'}")
+        self.assertTrue(names.called)
+        self.assertEqual(out.get("decision"), "block")
+        self.assertEqual(load_config(), before)
+        # without a name the command runs on
+        self.assertNotEqual(self._prompt(f"/maisecrets:settings clean_dirs add {self.dir / 'scans'}").get("decision"),
+                            "block")
 
     def test_a_tool_call_cannot_set_them(self):
         for cmd in ("echo '/maisecrets:settings read_pdf allow'", "echo 'maisecrets: set clean_dirs add /tmp'"):
