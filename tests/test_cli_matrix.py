@@ -843,6 +843,21 @@ class StateMatrixTests(unittest.TestCase):
         self.assertEqual(sorted(sb.index()["entries"]), ["SECRET_c2"])
         self.assertIn("unknown", sb.run("get", "SECRET_c1").stderr)
 
+    def test_forget_takes_keys_as_a_person_types_them(self):
+        # #44: a full stop after a key, a comma between keys and a key twice were taken as part of a key
+        sb, r = self._run("live", "forget", "⟦SECRET_c1⟧.", "EMAIL_c1,SECRET_c1;", "SECRET_c1")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(r.stdout.count("Deleted "), 2, r.stdout)
+        self.assertNotIn("There is no", r.stdout)
+        self.assertEqual(sorted(sb.index()["entries"]), ["SECRET_c2"])
+
+    def test_forget_takes_a_placeholder_in_brackets_whole(self):
+        # its shown form may hold a space or a comma; the word after it is no second key (codex review of #44)
+        sb, r = self._run("live", "forget", "\u27e6EMAIL_c1:ma, SECRET_c2", "x\u27e7")
+        self.assertEqual(r.stdout.count("Deleted "), 1, r.stdout)
+        self.assertNotIn("There is no", r.stdout)
+        self.assertEqual(sorted(sb.index()["entries"]), ["SECRET_c1", "SECRET_c2"])
+
     def test_audit_prints_the_newest_rows_and_skips_malformed_ones(self):
         sb = base_state("empty").copy()
         self.addCleanup(sb.remove)

@@ -193,3 +193,4 @@ are not published: the numbers of record come from the release baseline (`script
 | 2026-11-12 | maisecrets 0.9.6+8392c7f4 8392c7f45cb64754678a381fa409c16e614be950 | holdout-v2 | 872 | 0.6522 | 0.9971 | 2 |
 | 2026-11-13 | maisecrets 0.9.7+85b2eb11 85b2eb119045e8fb1ca4452d40f174059085d26c | holdout-v2 | 872 | 0.6522 | 0.9972 | 2 |
 | 2026-11-13 | maisecrets 0.9.8+dac07453 dac07453c4cc65846fe4ceae133e0d31d46114f3 | holdout-v2 | 872 | 0.6522 | 0.9972 | 2 |
+| 2026-11-14 | maisecrets 0.9.9+cc52a362 cc52a3620fb65728eb0870de7b70a6b2dd294456 | holdout-v2 | 872 | 0.6522 | 0.9972 | 2 |

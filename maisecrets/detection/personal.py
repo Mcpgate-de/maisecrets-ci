@@ -25,6 +25,7 @@ import re
 
 from . import deadline as _deadline
 from .lazy_regex import LazyRx as _LazyRx
+from .id_labels import _ID_DATE_RE, _ID_RE, _ID_WORDS
 from .text_index import field_end, field_start
 from .phone_forms import _DE_CALL_REGIONS, _PHONE_DE_CUE_RE, _PHONE_DE_NEXT_RE, _e164_without_plus
 
@@ -73,44 +74,6 @@ _BIRTH_RE = _LazyRx(r"(?i)(?:\bd\.?o\.?b\b|date[ _-]?of[ _-]?birth|birth[ _-]?da
                     r"\s{1,3})?"
                     r"[:=,\uff1a]?\*{0,2}\s{0,3}[\"'(]?\s{0,3}"
                     r"(" + _DATE + r"|(?:19|20)\d{6})(?!\d)")   # and YYYYMMDD after the label (Gretel, 2026-10-19)
-
-# --------------------------------------------------------------------------------- ID number after a label --
-# the labels of health, tax and national numbers: the number of a health plan's beneficiary, a medical record, a
-# national ID card, a tax ID and a social security number (Nemotron-PII writes them in its forms and notes, 2026-10-16)
-# "beneficiary" and "social security" alone name a payee and a benefit (Beneficiary: VENDOR 00042)
-_HEALTH_ID_LABELS = (r"|health[ _-]?plan[ _-]?beneficiary(?:[ _-]?(?:number|no\.?|id|#))?"
-                     r"|beneficiary[ _-]?(?:number|no\.?|id|#)"
-                     r"|medical[ _-]?record(?:[ _-]?(?:number|no\.?|#))?"
-                     r"|national[ _-]?id(?:entification|entity)?(?:[ _-]?(?:number|no\.?|card))?"
-                     r"|tax(?:payer)?[ _-]?id(?:entification)?(?:[ _-]?(?:number|no\.?))?|tin"
-                     r"|social[ _-]?security[ _-]?(?:number|no\.?|#)")
-# passport and driving licence in the label languages of the EU (Gretel writes them in its forms, 2026-10-16), and the
-# English "driving licence": de, fr, es, it, nl, pt, sv, pl. "pass" alone is a password, "patente" alone a patent
-_TRAVEL_ID_LABELS = (r"|driving[ _-]?licen[cs]e(?:[ _-]?(?:no|number))?"
-                     r"|reisepass(?:[ _-]?(?:nummer|nr\.?))?|pass(?:nummer|[ _-]nr\.?)"
-                     r"|f(?:ü|ue)hrerschein(?:[ _-]?(?:nummer|nr\.?))?"
-                     r"|(?:num[ée]ro (?:de |du )?)?(?:passeport|permis de conduire)"
-                     r"|(?:n[úu]mero (?:de |del |do )?)?(?:pasaporte|passaporte"
-                     r"|(?:carn[ée]t|permiso|licencia) de conducir"
-                     r"|carta de condu[çc][ãa]o|carteira de (?:motorista|habilita[çc][ãa]o))"
-                     r"|(?:numero (?:di |del |della )?)?passaporto|numero (?:di |della )?patente|patente di guida"
-                     r"|paspoort(?:nummer)?|rijbewijs(?:nummer)?|k[öo]rkort(?:snummer)?"
-                     r"|(?:numer )?paszportu?|(?:numer )?praw[oa] jazdy")
-_ID_RE = _LazyRx(r"(?i)(?<![a-z])(?:mrn|member[ -]?id|passport(?:[ _-]?(?:no|number))?|driver'?s? licen[cs]e"
-                 r"(?:[ _-]?(?:no|number))?|dl[ _-]?(?:no|number|#)|(?-i:DL)(?=\s{0,3}[:#])|sin|tfn|nir|tax[ _-]?id"
-                 r"|insurance (?:member )?id"
-                 r"|account[ _-]?(?:number|no\.?)|(?:certificate[ _-]?)?licen[cs]e[ _-]?(?:number|no\.?)"
-                 r"|patient[ -]?id|id on file" + _HEALTH_ID_LABELS
-                 + _TRAVEL_ID_LABELS + r")(?![a-z])[\"']?"
-                 r"(?:\s{0,3}(?:on file|is|of|number|no\.?|#|n\.?[º°o]\.?|nr\.?|num[ée]ro|n[úu]mero|numero"
-                 r"|nummer|numer))?"
-                 # a comma too: `your health plan beneficiary number, <id>, to medical professionals` (Nemotron-PII)
-                 r"\s{0,3}[:=#,]?\s{0,3}[\"']?"
-                 r"((?-i:[A-Z0-9](?:[A-Z0-9]|[ -](?=[A-Z0-9])){4,24}))(?![A-Za-z0-9])")
-# a date or the date and hour of a timestamp is no id: `2026-11-08T21` of a CI log line after `sin`, `tax id`
-_ID_DATE_RE = _LazyRx(r"\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])[T ](?:[01]\d|2[0-3])(?::[0-5]\d)?")
-# only a timestamp with its hour: a plain date after an id label can be the id (a licence number written as a
-# date, Nemotron; the 0.9.3 release gate)
 
 # ------------------------------------------------------------------------------------- user in a URL or path --
 _URL_USER_RE = _LazyRx(r"://([^:/?#\s@\[\]]{1,64}):[^@\s/]{1,128}@")
@@ -2589,24 +2552,20 @@ _BIRTH_WORDS = ("dob", "d.o.b", "birth", "born", "bday", "geb", "n\u00e9", "ne l
                 "naci", "nac\u00ed", "nascimento", "nascita", "nato", "nata il", "nascid", "geboorte", "geboren",
                 "delsedatum", "dd den", "dselsdato", "syntym", "urodz", "narozen", "tarih", "рождения", "народження",
                 "na\u0219ter", "na\u015fter", "naster", "γέννησης", "ميلاد", "生年月日", "出生日期", "생년월일")
-_ID_WORDS = ("mrn", "member", "passport", "licen", "dl", "sin", "tfn", "nir", "tax", "insurance", "account",
-             "patient", "id on file", "beneficiary", "medical", "national", "tin", "social",
-             "reisepass", "passnummer", "pass-nr", "pass nr", "hrerschein", "passeport", "permis", "pasaporte",
-             "passaporte", "conducir", "condu", "carteira", "passaporto", "patente", "paspoort", "rijbewijs",
-             "körkort", "korkort", "paszport", "prawo jazdy", "prawa jazdy", "driving")
 RULE_IDS = ("phone-one-digit-groups", "phone-us-national", "birth-date-after-label", "id-number-after-label",
             "user-in-url", "user-in-home-path", "street-address", "name-after-label", "name-before-email",
-            "csv-personal-column") + tuple(FORMS)
+            "csv-personal-column", "password-after-key") + tuple(FORMS)
 # the rules a typed prompt also takes: a fix of the phone rule that both channels have
 PROMPT_RULES = frozenset({"phone-one-digit-groups"} | {k for k, v in FORMS.items() if v[1] == "both"})
 # the type and the region of each rule, for the registry (detect.pass_specs)
 TYPES = {"phone-one-digit-groups": PHONE, "phone-us-national": PHONE, "birth-date-after-label": BIRTH_DATE,
          "id-number-after-label": ID_NUMBER, "user-in-url": USERNAME, "user-in-home-path": USERNAME,
          "street-address": ADDRESS, "name-after-label": NAME, "name-before-email": NAME,
-         "csv-personal-column": "COLUMN", **{k: v[0] for k, v in FORMS.items()}}
+         "csv-personal-column": "COLUMN", "password-after-key": "SECRET", **{k: v[0] for k, v in FORMS.items()}}
 REGIONS = {k: v[2] for k, v in FORMS.items()}
 NEEDS = {"birth-date-after-label": "label", "id-number-after-label": "label", "name-after-label": "label",
          "name-before-email": "form", "street-address": "form", "csv-personal-column": "label",
+         "password-after-key": "label",
          **{k: v[3] for k, v in FORMS.items()}}
 _US_PHONE_REGIONS = frozenset({"us", "ca"})
 
@@ -2685,7 +2644,10 @@ def hits(text: str, channel: str, regions: tuple, company: list | None = None) -
         for m in _ID_RE.finditer(text):
             v = m.group(1)
             # 17 digits and more: a snowflake id of a chat platform or a database key, no document number
-            if sum(c.isdigit() for c in v) >= 5 and not (v.isdigit() and len(v) >= 17) and not _placeholder_digits(v) \
+            # four digits with a letter prefix are an id too (A-4817, a medical record number); four alone a year
+            digits = sum(c.isdigit() for c in v)
+            if (digits >= 5 or digits == 4 and v[0].isalpha()) and not (v.isdigit() and len(v) >= 17) \
+                    and not _placeholder_digits(v) \
                     and not _ID_DATE_RE.fullmatch(v):
                 # MRN4829173: the label glued to the number is the id's own prefix, masked with it
                 start = m.start() if text[m.start():m.start(1)].isalpha() else m.start(1)

@@ -101,6 +101,8 @@ crates-io-api-key
 curl-auth-header
 curl-auth-user
 cursor-api-key
+cypress-project-id
+cypress-record-key
 databento-api-key
 databricks-api-token
 datadog-api-key

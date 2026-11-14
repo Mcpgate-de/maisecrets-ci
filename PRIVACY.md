@@ -77,11 +77,13 @@ Connections start only from a command you run, or go to an MCP server you added 
   before such a server sent a token. `client_header: false` turns this off and removes the
   header.
 - A named-entity service (`remote_detector`, off by default): only when you chose a source
-  (`/maisecrets:ner local` or `url URL`, or `config.json` names its `url`), the text of a tool result goes to that service after the rules ran, with
+  (`/maisecrets:ner local`, `url URL` or `gateway URL`, or `config.json` names its `url`), the text of a tool result goes to that service after the rules ran, with
   every value the rules found replaced by filler of the same length (a service on this
   computer gets them as they are only when the setting says `"mask": false`). A typed prompt goes
   there only in Claude Code with the mod (which rewrites the prompt), only when the service is on
-  this computer, and not with `"prompts": false`; a service on the network never gets a prompt.
+  this computer, and not with `"prompts": false`. A service on the network gets a prompt only after you
+  typed `/maisecrets:ner prompts on` while that source was set, with the same filler; a new source takes
+  that back. The gateway source sends the text with the access token of your own `/maisecrets:sref login`.
   A fallback you add (`/maisecrets:ner fallback url URL`) gets tool results only while the
   service on this computer is not running, and never a prompt. `ner.log` in the store folder
   records per request the time, the service, the kind, the length and the count of names, never text. The plugin accepts only a loopback address (127.0.0.0/8, `::1`, `localhost`)

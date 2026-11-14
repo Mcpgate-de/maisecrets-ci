@@ -147,6 +147,33 @@ class IdNumberTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(values(text), [])
 
+    def test_an_id_label_in_prose_markdown_and_tables(self):
+        # #45, Nemotron-PII: a short id with a letter prefix, `was`, `on file as`, bold labels, a table cell, a
+        # parenthesis after a space. The values are built at run time
+        a, b = "A-" + "4817", "4817-" + "2930"
+        for text, v in (("the medical record number " + a + ". The", a),
+                        ("provide the **medical record number** " + b + ".", b),
+                        ("including the **medical record number** (" + b + ").", b),
+                        ("the medical record number (" + a + "9) of the patient", a + "9"),
+                        ("member id (M4817" + "2930)", "M48172930"),
+                        ("Health Plan Beneficiary Number: A" + "4817\n", "A4817"),
+                        ("whose health plan beneficiary number was " + a + ". Participants", a),
+                        ("we have her tax id on file as 481-" + "729-306. Her account", "481-729-306")):
+            with self.subTest(text=text):
+                self.assertTrue(masked(text, v))
+
+    def test_a_short_number_a_header_and_a_function_after_an_id_label_stay_text(self):
+        for text in ("the policy number 2024 of the firewall", "Medical record number: unknown",
+                     "| Policy Number | Status |", "the policy number was 4 and the rule", "his tax id was 2024.",
+                     "(see the medical record number field) 1234 rows", "SELECT SIN(31415);",
+                     "y = sin (31415)", "SELECT SIN (31415) FROM dual;", "y = sin**(48172)",
+                     "fw: matched firewall policy number 10023 action=deny", "firewall_policy_number: 10023",
+                     # an insurance policy number is no id the datasets label (release gate: 207 false alarms)
+                     "Policy Number: A-4817-29", "| Policy Number        | A-4817-29 |",
+                     "with the policy number A4817. The effective date"):
+            with self.subTest(text=text):
+                self.assertEqual(values(text), [])
+
 
 class UrlUserTests(unittest.TestCase):
     def test_the_user_of_a_url(self):
