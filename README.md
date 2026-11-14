@@ -2403,9 +2403,12 @@ a source, with one command typed as your own prompt:
 |---|---|
 | `/maisecrets:ner local` | the service on this computer, `http://127.0.0.1:8765/` (`on` is the same) |
 | `/maisecrets:ner url URL` | a service of your team on a private network |
+| `/maisecrets:ner gateway URL` | the gateway of your `/maisecrets:sref login`, when it offers name detection (log in once more after the switch) |
 | `/maisecrets:ner off` | the rules alone (the default) |
 | `/maisecrets:ner fallback url URL` | a second service for tool results while the local one is not running (`fallback off` removes it) |
 | `/maisecrets:ner prompts off` | the prompts you type keep the rules alone; tool results still go to the service (`prompts on` turns it back on) |
+| `/maisecrets:ner prompts on` | with a service on the network (`url`, `gateway`): your prompts go there too, with the rules' findings as filler; a new source takes this back |
+| `/maisecrets:ner unavailable withhold` | while the service gives no answer, a tool result is kept from the AI; by default (`unavailable rules`) the rules alone mask it |
 | `/maisecrets:ner updates off` | the image of the local service stays as it is; by default it follows the plugin (`updates on` turns that back on) |
 | `/maisecrets:ner` | which source is set, and whether it answers |
 
@@ -2518,7 +2521,8 @@ and keeps its other keys. Written by hand, the setting looks like this:
   results go there (PRIVACY.md).
 - Tool results, and the prompts you type in Claude Code (with the mod) when the service is on this computer: a
   name in a prompt becomes a placeholder and never blocks it. `/maisecrets:ner prompts off` turns the prompt part off (the setting `"prompts": false`). A
-  service on the network never gets a prompt, and Codex prompts keep the rules alone (Codex cannot rewrite a
+  service on the network gets a prompt only after `/maisecrets:ner prompts on`, typed while that source is set; a
+  new source takes it back (threat model, C30a). Codex prompts keep the rules alone (Codex cannot rewrite a
   prompt). One request per tool call or prompt. A tool result waits `timeout_ms`
   (300 by default, at most 5000; the name lookup and a slow answer count too), plus a share
   that grows with its length: 1.5 times the rate of this computer (ms per 1,000 characters,
@@ -2538,6 +2542,20 @@ and keeps its other keys. Written by hand, the setting looks like this:
   `"mask": false`; any other host always gets the filler. A slow, dead or
   confused service changes nothing: the rules' result stays as it is. A result
   longer than `max_chars` is not sent.
+- Each tool result whose names the service did not check shows a line on your screen, for example
+  `⚠ names not checked: the name service did not answer in time; the rules masked this result.` A name the AI then
+  writes in clear text came through that result; it is not made up. With `/maisecrets:ner unavailable withhold`
+  such a result does not reach the AI at all (a text longer than the service takes is named, not withheld). The
+  output of a failed command (Bash with an exit code other than 0) is neither checked by the service nor
+  withheld: Claude Code does not let a hook replace it (threat model, PostToolUseFailure).
+- **gateway**: the gateway of your `/maisecrets:sref login` finds the names, when its protected resource metadata
+  names `ner_endpoint` and `ner_scope`. The login asks for that scope only while this source is set, so you log in
+  once more after the switch. The text goes over https with your access token, the rules' findings as filler.
+  A tool result waits 3,000 ms by default (`timeout_ms`); measured from a laptop against the reference gateway:
+  p50 160 ms for 200 characters and 740 ms for 10,000; with 8 sessions at once p95 600 ms. The gateway's wait
+  does not grow with the length of the text, and its answers do not change the rate of this computer
+  (`ner-rate.json`). A prompt waits 2,000 ms by default; only a prompt you type goes there, never one of
+  `claude -p` or the Agent SDK.
 - A name the service finds is masked and stored, so its placeholder resolves,
   but it is never searched for in other texts: a wrong name such as `Build`
   costs one mask, where the service saw it. If a rule finds the same value

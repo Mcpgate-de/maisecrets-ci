@@ -125,8 +125,21 @@ def discover(cfg: dict, mcp_url: str, deadline: float | None = None) -> dict | N
                 extra.setdefault(entry.get("sink_type"), more[0])
     process_scope = block.get("process_scope") if isinstance(block.get("process_scope"), str) else extra.get("process")
     display_scope = block.get("display_scope") if isinstance(block.get("display_scope"), str) else extra.get("display")
-    return {"origin": origin, "resolve": block["resolve_endpoint"],
-            "scope": login_scope(resolve_scope, process_scope, display_scope=display_scope),
+    # the gateway's name detection (ai-gateway #1819): its endpoint on the same origin, its own scope. A login asks
+    # for that scope only while /maisecrets:ner gateway names this origin: text of tool results goes there (#33)
+    ner = None
+    ner_scope = block.get("ner_scope")
+    if origin_of(block.get("ner_endpoint")) == origin and isinstance(ner_scope, str) and _SCOPE_RE.fullmatch(ner_scope):
+        size = block.get("ner_max_chars")
+        ner = {"endpoint": block["ner_endpoint"], "scope": ner_scope,
+               "max_chars": size if isinstance(size, int) and not isinstance(size, bool) and size > 0 else 20000}
+    conf = cfg.get("remote_detector") if isinstance(cfg, dict) else None
+    wants_ner = bool(ner) and isinstance(conf, dict) and conf.get("gateway") == origin
+    scope = login_scope(resolve_scope, process_scope, display_scope=display_scope)
+    if wants_ner and ner["scope"] not in scope.split():
+        scope += " " + ner["scope"]
+    return {"origin": origin, "resolve": block["resolve_endpoint"], "ner": ner,
+            "scope": scope,
             "process_scope": process_scope if isinstance(process_scope, str) else None,
             "display_scope": display_scope if isinstance(display_scope, str) else None,
             "sinks": sinks, "sink_types": types,

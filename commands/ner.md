@@ -1,7 +1,7 @@
 ---
-description: Names in tool results from a named-entity service - local (a container on this computer), url URL (a service of your team) or off. Without an argument it shows the source and whether it answers.
-argument-hint: "[on | local | url URL | fallback url URL | fallback off | prompts on | prompts off | updates on | updates off | off]"
-allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" ner *), Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" ner), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" ner *), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" ner)
+description: Names in tool results from a named-entity service - local (a container on this computer), url URL (a service of your team), gateway URL (the gateway of your login) or off. Without an argument it shows the source and whether it answers.
+argument-hint: "[on | local | url URL | gateway URL | fallback url URL | fallback off | prompts on | prompts off | unavailable rules | unavailable withhold | updates on | updates off | off]"
+allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" ner *), Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" ner), Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" sref login *), Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" sref login), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" ner *), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" ner), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" sref login *), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" sref login)
 ---
 
 The maisecrets prompt hook has already made the change the user typed (`$ARGUMENTS`), if there was one. Do not change the setting in another way, and do not write maisecrets files.
@@ -29,3 +29,5 @@ If the command exits with code 3, the local service is not running and docker or
 2. Run the command above again with `--wait 120` after `ner`, and show the user its output.
 
 If it still does not answer, show the user the output of `docker logs --tail 20 ner` (or `podman logs --tail 20 ner`) and stop. Do not start a service on another port or address, and do not change the setting.
+
+If the command exits with code 4, the gateway source needs a login with the name scope. Only if `$ARGUMENTS` starts with `gateway` (the user just chose this source, which asks for that login), run the command its line `login:` names (`run.sh sref login` with the server name it gives, or the `run.cmd` form on Windows), and show its output: it opens the browser and waits up to 110 seconds for the user's consent. Then run `run.sh ner` again and show its output. If `$ARGUMENTS` does not start with `gateway`, do not start a login: tell the user to send `/maisecrets:sref login` as their own prompt.

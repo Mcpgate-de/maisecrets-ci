@@ -106,9 +106,10 @@ class _PinnedConnection(http.client.HTTPConnection):
     """A connection to the address that _connection checked, not to a second lookup of the name; TLS still checks the
     certificate against the name. Without allow_network the peer is checked again before a byte is sent."""
 
-    def __init__(self, host: str, port: int, addr, timeout: float, tls: bool, allow_network: bool):
+    def __init__(self, host: str, port: int, addr, timeout: float, tls: bool, allow_network: bool,
+                 cafile: str = ""):
         super().__init__(host, port, timeout=timeout)
-        self._addr, self._tls, self._allow = addr, tls, allow_network
+        self._addr, self._tls, self._allow, self._cafile = addr, tls, allow_network, cafile
 
     def connect(self) -> None:
         family, type_, proto, _canon, sockaddr = self._addr
@@ -120,7 +121,8 @@ class _PinnedConnection(http.client.HTTPConnection):
                 raise ConnectionError("not a loopback peer")
             if self._tls:
                 import ssl
-                s = ssl.create_default_context().wrap_socket(s, server_hostname=self.host)
+                ctx = ssl.create_default_context(cafile=self._cafile) if self._cafile else ssl.create_default_context()
+                s = ctx.wrap_socket(s, server_hostname=self.host)
         except BaseException:
             s.close()
             raise
@@ -165,7 +167,8 @@ class RemoteDetector:
     def __init__(self, url: str, format: str = "hf", model: str = "", classes: dict | None = None,
                  min_score: dict | None = None, timeout: float = 0.3, max_chars: int = 20000,
                  language: str = "en", allow_network: bool = False, mask: bool = True, ask_labels: bool = False,
-                 private_http_only: bool = False, bearer: str = "", secret: str = ""):
+                 private_http_only: bool = False, bearer: str = "", secret: str = "", token: str = "",
+                 cafile: str = ""):
         if format not in FORMATS:
             raise ValueError(f"format must be one of {', '.join(FORMATS)}")
         parts = urlsplit(url)
@@ -212,8 +215,18 @@ class RemoteDetector:
             raise ValueError("secret: 32 to 128 url-safe characters")
         if secret and bearer:
             raise ValueError("secret or bearer, not both")
+        # `token`: the access token of a login (the gateway of /maisecrets:sref login, #33). Only over https, and only
+        # a token's characters: no CR, LF or blank reaches the header
+        if not (isinstance(token, str) and (token == "" or re.fullmatch(r"[A-Za-z0-9._~+/=-]{16,4096}", token))):
+            raise ValueError("token: 16 to 4096 token characters")
+        if token and (secret or bearer):
+            raise ValueError("a token, a bearer or a secret, only one")
+        if token and parts.scheme != "https":
+            raise ValueError("a token goes only over https")
         self.__secret = secret
-        self.__bearer = _mac(secret, "bearer") if secret else bearer
+        self.__bearer = _mac(secret, "bearer") if secret else (bearer or token)
+        # a CA file to trust besides the system's (a company CA, the test gateway): client_vault_cafile, as the login
+        self.cafile = str(cafile or "")
 
     def status(self, state: str, reason: str = "", added: int = 0, ms: float = 0.0) -> RemoteStatus:
         return RemoteStatus(self.format, self.model, state, reason, added, ms)
@@ -246,7 +259,8 @@ class RemoteDetector:
         if self.private_http_only and p.scheme == "http" and not all(_private(a[4][0]) for a in addrs):
             raise _Policy("plain http to an address that is not private")
         target = (p.path or "/") + (f"?{p.query}" if p.query else "")
-        return _PinnedConnection(p.hostname, port, addrs[0], left, p.scheme == "https", self.allow_network), target
+        return _PinnedConnection(p.hostname, port, addrs[0], left, p.scheme == "https", self.allow_network,
+                                 self.cafile), target
 
     def _prove(self, deadline: float, pin: dict | None = None) -> None:
         """GET /health?challenge=<a fresh nonce> and compare the proof (#1699). Raises _NotOurs on any other answer.
@@ -304,7 +318,7 @@ class RemoteDetector:
             if resp.status == 401:
                 raise _Unauthorized
             if resp.status != 200:
-                raise _HttpStatus
+                raise _HttpStatus(resp.status)
             chunks, size = [], 0
             while True:
                 if time.monotonic() > deadline:
@@ -412,7 +426,11 @@ class RemoteDetector:
         if isinstance(exc, _Unauthorized):
             return [], self.status("unavailable", "unauthorized", ms=_ms(t0))
         if isinstance(exc, _HttpStatus):
-            return [], self.status("unavailable", "http", ms=_ms(t0))
+            # a gateway's refusals by name (ai-gateway #1819): 403 the login lacks the name scope, 413 the text is too
+            # long, 429 a limit per person, 503 the gateway's own name lookups run first
+            code = exc.args[0] if exc.args else 0
+            reason = {403: "forbidden", 413: "too_long", 429: "rate_limited", 503: "busy"}.get(code, "http")
+            return [], self.status("unavailable", reason, ms=_ms(t0))
         if isinstance(exc, (ConnectionRefusedError, FileNotFoundError)):
             # nothing listens there (no service, no socket file): the one reason a caller may take for "not running"
             return [], self.status("unavailable", "refused", ms=_ms(t0))

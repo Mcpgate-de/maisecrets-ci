@@ -31,6 +31,9 @@ from maisecrets import detect  # noqa: E402
 
 SKIP = {".git", ".claude", "__pycache__", "dist", "node_modules"}
 VENDORED = ("maisecrets/detection/rules/",)   # the rule sets carry secret shapes by design
+# written by Claude Code when it loads the mod from this folder (`claude --plugin-dir`): its API types, ignored by git
+# (.gitignore), so never pushed; their examples carry shapes the scan took for a value (2026-11-14)
+GENERATED = (".claude-plugin/types",)
 
 
 def scan_file(path: str, rel: str) -> tuple:
@@ -47,7 +50,8 @@ def main(argv: list[str]) -> int:
     root = Path(argv[0]) if argv else ROOT
     todo = []
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in SKIP]
+        dirnames[:] = [d for d in dirnames if d not in SKIP
+                       and (Path(dirpath) / d).relative_to(root).as_posix() not in GENERATED]
         for name in filenames:
             path = Path(dirpath) / name
             rel = path.relative_to(root).as_posix()

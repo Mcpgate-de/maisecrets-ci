@@ -32,6 +32,7 @@ from vault_server import _QuietServer, make_cert
 
 PROCESS_SCOPE = "sensitive-references.resolve.process"
 DISPLAY_SCOPE = "sensitive-references.resolve.display"
+NER_SCOPE = "sensitive-references.ner"
 SINK_PROFILES = {"local_file": "local-file-1", "process": "process-1", "display": "display-1"}
 
 
@@ -58,6 +59,11 @@ class SrefServer:
         self.process_scope = True        # mcpgate 2.0.3815: the process sink needs its own scope
         self.display_scope = True        # ai-gateway #1804: the display sink needs its own scope
         self.scopes: dict = {}           # access or refresh token -> the scope it was granted
+        self.ner = False                 # ai-gateway #1819: the name endpoint and its scope, while the switch is on
+        self.ner_answer = None           # (status, body): the name endpoint answers this instead
+        self.ner_texts: list = []        # every text the name endpoint got
+        self.ner_word = "Okafor"         # the endpoint finds this word as a person
+        self.ner_delay = 0.0             # seconds the endpoint waits before it answers
         server = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -88,6 +94,10 @@ class SrefServer:
                                                  "sink_profiles": server.sinks,
                                                  "sinks": {p: {"sink_type": t} for t, p in SINK_PROFILES.items()
                                                            if p in server.sinks},
+                                                 **({"ner_endpoint": server.url + "/sensitive-references/ner",
+                                                     "ner_scope": NER_SCOPE, "ner_format": "hf",
+                                                     "ner_max_chars": 20000, "ner_labels": ["PER", "ORG", "LOC"]}
+                                                    if server.ner else {}),
                                                  "status": "experimental"}})
                 if parts.path == "/.well-known/oauth-authorization-server":
                     return self._send(200, {"issuer": server.url,
@@ -154,7 +164,26 @@ class SrefServer:
                     return self._send(400, {"error": "unsupported_grant_type"})
                 if self.path == "/sensitive-references/resolve":
                     return self._resolve(raw)
+                if self.path == "/sensitive-references/ner" and server.ner:
+                    return self._ner(raw)
                 self._send(404, {"error": "not_found"})
+
+            def _ner(self, raw: bytes) -> None:
+                auth = self.headers.get("Authorization", "")
+                token = auth[7:] if auth.startswith("Bearer ") else ""
+                if float(server.access.get(token, 0)) < time.time():
+                    return self._send(401, {"error": "invalid_token"})
+                if NER_SCOPE not in server.scopes.get(token, "").split():
+                    return self._send(403, {"error": "insufficient_scope"})
+                if server.ner_answer is not None:
+                    return self._send(*server.ner_answer)
+                text = json.loads(raw or b"{}").get("inputs", "")
+                server.ner_texts.append(text)
+                time.sleep(server.ner_delay)
+                at = text.find(server.ner_word)
+                spans = [] if at < 0 else [{"entity_group": "PER", "word": server.ner_word, "start": at,
+                                            "end": at + len(server.ner_word), "score": 0.99}]
+                return self._send(200, spans)
 
             def _resolve(self, raw: bytes) -> None:
                 auth = self.headers.get("Authorization", "")
@@ -217,10 +246,12 @@ class SrefServer:
         base = "sensitive-references.resolve"
         process = [PROCESS_SCOPE] if self.process_scope else []
         display = [DISPLAY_SCOPE] if self.display_scope else []
+        ner = [NER_SCOPE] if self.ner else []
         out = []
         for p in ([], process):
             for d in ([], display):
-                out.append(" ".join([base, *p, *d]))
+                for n in ([], ner):
+                    out.append(" ".join([base, *p, *d, *n]))
         return tuple(dict.fromkeys(out))
 
     def _pair(self, client_id: str, scope: str = "sensitive-references.resolve") -> dict:

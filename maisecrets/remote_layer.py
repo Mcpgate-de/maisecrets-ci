@@ -45,7 +45,12 @@ def from_config(cfg: dict, fallback: bool = False) -> tuple:
         conf = {**{k: v for k, v in conf.items() if k not in ("url", "allow_network", "format", "mask", "fallback")},
                 **fb}
     url = str(conf["url"])
-    ms = conf.get("timeout_ms", 300)
+    gateway = bool(conf.get("gateway")) and not fallback
+    if gateway and conf.get("allow_network") is not True:
+        return None, "the gateway is on the network, and this setting has no allow_network"
+    if gateway:
+        from .ner_gateway import DEFAULT_TIMEOUT_MS
+    ms = conf.get("timeout_ms", DEFAULT_TIMEOUT_MS if gateway else 300)
     try:
         ms = float(ms) if isinstance(ms, (int, float)) and not isinstance(ms, bool) else math.nan
     except OverflowError:
@@ -57,6 +62,20 @@ def from_config(cfg: dict, fallback: bool = False) -> tuple:
     mask = conf.get("mask") is not False or not remote.is_local(url)
     # the container maisecrets started proves its secret before each text (#1699); only `run.sh ner start` records one
     secret = _stored_secret(cfg, url) if remote.is_local(url) else ""
+    if gateway:
+        from . import ner_gateway
+
+        def make(endpoint: str, token: str, max_chars: int):
+            return remote.RemoteDetector(
+                endpoint, format="hf", classes=conf.get("classes"), min_score=conf.get("min_score"),
+                timeout=min(ms, 5000) / 1000, max_chars=min(int(conf.get("max_chars", max_chars)), max_chars),
+                language=str(conf.get("language", "en")), allow_network=True, mask=True,
+                ask_labels=conf.get("ask_labels") is True, private_http_only=True, token=token,
+                cafile=str(cfg.get("client_vault_cafile") or ""))
+        try:
+            return ner_gateway.detector(cfg, conf, make)
+        except (ValueError, TypeError, AttributeError, OSError) as exc:
+            return None, str(exc)
     try:
         return remote.RemoteDetector(
             url, format=str(conf.get("format", "hf")), model=str(conf.get("model", "")),
@@ -164,9 +183,16 @@ def prepare(cfg: dict, strings: list, scan, protect=None, use_fallback: bool = T
     timeout, an HTTP error or a broken answer never switches (a busy laptop must not send text over the network).
     A prompt never goes to the fallback (use_fallback False). Each call adds a line to the NER log (ner_setup.log):
     time, source, kind, characters, names; never text."""
-    ner, _why = from_config(cfg)
+    ner, why = from_config(cfg)
     if ner is None:
-        return None
+        if not why:
+            return None                    # no source set: the rules alone, nothing to say
+        # a source is set and cannot be asked (no login, no name scope, a discovery or a token that failed, a setting
+        # it cannot use): the names are unchecked, as when the service gives no answer (Gate A of #33)
+        from . import ner_setup
+        found = {s: list(scan(s)) for s in dict.fromkeys(strings)}
+        ner_setup.log("rules", kind, sum(len(s) for s in found), 0, why="setup", ms=0.0)
+        return Layer(found, remote.RemoteStatus(state="unavailable", reason="setup"))
     from .detection.core import Match
     found: dict = {}
     pieces: list = []          # (text, offset in the joined text)
@@ -182,13 +208,15 @@ def prepare(cfg: dict, strings: list, scan, protect=None, use_fallback: bool = T
     occupied = [(off + m.start, off + m.end) for s, off in pieces for m in found[s]]
     if protect is not None:
         occupied += [(off + a, off + b) for s, off in pieces for a, b in protect(s)]
-    scaled = kind == "tool" and conf_of(cfg).get("timeout_scales", True) is not False
+    # the share by length is the rate of the service on this computer; a gateway waits its own fixed time
+    scaled = (kind == "tool" and conf_of(cfg).get("timeout_scales", True) is not False
+              and not conf_of(cfg).get("gateway"))
     if scaled:
         ner.timeout = wait_ms(conf_of(cfg), len(joined)) / 1000
     spans, status = ner.ask(joined, occupied, time.monotonic() + ner.timeout)
     if scaled:
         note_rate(len(joined), status)
-    source = "local" if remote.is_local(ner.url) else "url"
+    source = "gateway" if conf_of(cfg).get("gateway") else ("local" if remote.is_local(ner.url) else "url")
     asked = ner
     # only a local service that nothing answers for (refused: not running) hands over: never a network primary, a
     # timeout, a name, TLS or a policy refusal (codex review of 0.8.7)
@@ -215,32 +243,41 @@ def prepare(cfg: dict, strings: list, scan, protect=None, use_fallback: bool = T
 
 
 PROMPT_TIMEOUT_MS = 1000    # a person waits for a prompt anyway; 300 ms left a long or a busy prompt to the rules
+# a service on the network: its round trip comes on top (the gateway: p50 160 ms for 200 characters, p95 600 ms)
+NETWORK_PROMPT_TIMEOUT_MS = 2000
 
 
-def prompt_names(cfg: dict, prompt: str, matches: list, protect_of) -> tuple:
+def prompt_names(cfg: dict, prompt: str, matches: list, protect_of, typed: bool = True) -> tuple:
     """(names, why) for a prompt the mod rewrites (Claude Code): the names the service of /maisecrets:ner finds
     become placeholders like the rules' findings (`matches`), and nothing is blocked for a name. `why` is "" when the
     service answered or was not asked, else why it did not check the prompt (the reason or the state of its status:
     timeout, too_long, refused, unauthorized …): the prompt keeps the rules alone, and the person is told.
-    Only a service on this computer reads a prompt: the home page promises that no prompt goes to a server by default,
-    so a service on the network (url), a fallback and the setting `"prompts": false` leave the prompt to the rules.
-    The rules' findings and the stored values (`protect_of()`) go out as filler. A prompt waits up to
-    `prompt_timeout_ms` (1,000 by default, at most 5,000), never less than `timeout_ms`."""
+    By default only a service on this computer reads a prompt (C30): the home page promises that no prompt goes to a
+    server unless the person chose one. A service on the network (url, gateway) reads a prompt only with
+    `"prompts": true`, which only `/maisecrets:ner prompts on` typed while that source is set writes, and which a
+    change of the source takes away (C30a, ner_setup.updated). A fallback never reads one, and `"prompts": false`
+    leaves every prompt to the rules. The rules' findings and the stored values (`protect_of()`) go out as filler.
+    A prompt waits up to `prompt_timeout_ms` (1,000 by default, 2,000 for a service on the network, at most 5,000),
+    never less than `timeout_ms`. `typed`: the person typed the prompt (the mod's origin composer or bridge); a
+    prompt of a program (claude -p, the Agent SDK) never goes to a service on the network (Gate A of #33)."""
     conf = cfg.get("remote_detector")
     if not (isinstance(conf, dict) and conf.get("url")) or conf.get("prompts") is False:
         return [], ""
-    if not remote.is_local(str(conf["url"])):
+    local = remote.is_local(str(conf["url"])) and not conf.get("gateway")
+    if not local and (conf.get("prompts") is not True or not typed):
         return [], ""
-    wait = conf.get("prompt_timeout_ms", PROMPT_TIMEOUT_MS)
+    default = PROMPT_TIMEOUT_MS if local else NETWORK_PROMPT_TIMEOUT_MS
+    wait = conf.get("prompt_timeout_ms", default)
     if not isinstance(wait, (int, float)) or isinstance(wait, bool) or not 0 < wait <= 5000:
-        wait = PROMPT_TIMEOUT_MS
+        wait = default
     own = conf.get("timeout_ms", 300)
     if isinstance(own, (int, float)) and not isinstance(own, bool) and own > wait:
         wait = own
-    # the network stays shut for a prompt whatever the setting says: a "localhost" that resolves to another host is
-    # refused when it connects (codex review of 0.8.7)
-    local_only = {**cfg, "remote_detector": {**conf, "allow_network": False, "timeout_ms": wait}}
-    layer = prepare(local_only, [prompt], lambda s: list(matches), protect_of(), use_fallback=False, kind="prompt")
+    # a service on this computer: the network stays shut for a prompt whatever the setting says, so a "localhost" that
+    # resolves to another host is refused when it connects (codex review of 0.8.7)
+    asked = {**conf, "timeout_ms": wait, **({"allow_network": False} if local else {})}
+    layer = prepare({**cfg, "remote_detector": asked}, [prompt], lambda s: list(matches), protect_of(),
+                    use_fallback=False, kind="prompt")
     if layer is None:
         return [], ""
     st = layer.status
@@ -291,7 +328,44 @@ def for_tool_result(cfg: dict, response, binary, strip, scan, protect_of):
 _TOOL_WHY = {"timeout": "no answer in time", "too_long": "the text is longer than the service takes",
              "refused": "the service is not running", "unauthorized": "the service wants another bearer",
              "policy": "the address is not on this computer", "network": "the network failed",
-             "http": "the service answered with an error"}
+             "http": "the service answered with an error", "busy": "the gateway was busy",
+             "rate_limited": "the gateway's limit per minute was reached",
+             "forbidden": "the login lacks the name scope",
+             "setup": "the source cannot be asked; /maisecrets:ner names the reason"}
+
+# the person's screen, one line per tool result: the same words for every source (a missed name must not look like a
+# clean result, and a name the AI writes must not look like one the AI made up)
+_SCREEN_WHY = {"timeout": "did not answer in time", "too_long": "does not take a text this long",
+               "refused": "is not running", "network": "could not be reached", "busy": "was busy",
+               "rate_limited": "reached its limit per minute", "forbidden": "refused the login",
+               "not_ours": "is not the container maisecrets started", "policy": "is at an address it may not use",
+               "setup": "cannot be asked; /maisecrets:ner names the reason"}
+
+
+def screen_line(why: str, withheld: bool) -> str:
+    """The line on the person's screen for a tool result whose names the service did not check."""
+    said = _SCREEN_WHY.get(why, "gave no usable answer")
+    if withheld:
+        return (f"⚠ maisecrets withheld this result from the AI: names not checked, the name service {said}. "
+                "/maisecrets:ner unavailable rules lets the rules alone mask it.")
+    return f"⚠ names not checked: the name service {said}; the rules masked this result."
+
+
+def unchecked_context(why: str) -> str:
+    """The note for the AI at each tool result whose names the service did not check: the person sees a line about
+    it, the AI does not, and told the person that no warning came (live test of #33)."""
+    said = _TOOL_WHY.get(why, "no usable answer")
+    return (f"maisecrets: the name service did not check the names in this tool result ({said}); the rules alone "
+            "masked it, so a person's name in it may stand in clear text. The person's screen shows this for each "
+            "such result; do not say that names were masked or that no warning came.")
+
+
+def withhold_text(why: str) -> str:
+    """What the AI reads in place of a withheld tool result."""
+    said = _TOOL_WHY.get(why, "no usable answer")
+    return (f"[maisecrets withheld this tool result: the name service gave no result ({said}), and the person chose "
+            "to keep such a result from you (/maisecrets:ner unavailable withhold). The tool ran and finished. Do NOT "
+            "run it again to see the output; tell the user, who can check the result in their terminal.]")
 
 # the remote detector of the last tool result did not answer (set by hooks.post_tool, read by hint() of the same call)
 NER_DOWN = {"v": False}
@@ -299,8 +373,11 @@ NER_DOWN = {"v": False}
 
 def note_result(layer) -> None:
     NER_DOWN["v"] = layer is not None and layer.status.state == "unavailable"
+    # the names were not checked: the service gave no answer, or the text was longer than it takes
+    NER_DOWN["unchecked"] = layer is not None and layer.status.state in ("unavailable", "too_long")
+    NER_DOWN["state"] = layer.status.state if layer is not None else ""
     NER_DOWN["not_ours"] = layer is not None and layer.status.reason == "not_ours"
-    NER_DOWN["why"] = layer.status.reason if layer is not None else ""
+    NER_DOWN["why"] = (layer.status.reason or layer.status.state) if layer is not None else ""
     if layer is not None:
         from . import ner_setup
         NER_DOWN["fallback"] = ner_setup.LAST["source"] == "fallback"

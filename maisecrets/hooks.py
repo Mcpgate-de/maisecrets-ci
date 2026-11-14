@@ -856,7 +856,7 @@ def rewrite_prompt(payload: dict) -> dict:
         except OSError:
             return {}           # the hook answers it, and blocks when it cannot record the name either
     matches = _prompt_hits(prompt)
-    names, why = _prompt_names(cfg, prompt, matches, session)
+    names, why = _prompt_names(cfg, prompt, matches, session, payload.get("origin") in ("composer", "bridge"))
     if names:
         matches = sorted(matches + names, key=lambda m: (m.start, m.end))
     # the name check did not run: the person learns it once per session (a silent miss looked like a clean prompt)
@@ -895,11 +895,11 @@ def _unchecked_note(session: str | None, why: str) -> str | None:
     return remote_layer.unchecked_note(session, why)
 
 
-def _prompt_names(cfg: dict, prompt: str, matches: list, session: str | None) -> tuple:
+def _prompt_names(cfg: dict, prompt: str, matches: list, session: str | None, typed: bool = False) -> tuple:
     """(names, why not checked or "") for a prompt the mod rewrites (remote_layer.prompt_names)."""
     try:
         from . import remote_layer
-        return remote_layer.prompt_names(cfg, prompt, matches, lambda: _protect(cfg, session))
+        return remote_layer.prompt_names(cfg, prompt, matches, lambda: _protect(cfg, session), typed)
     except Exception as exc:  # noqa: BLE001 - the rules' rewrite runs as without the service
         _debug(f"prompt names: {type(exc).__name__}")
         return [], "error"
@@ -2587,6 +2587,7 @@ def _remote_layer(cfg: dict, response, binary, strip: bool, scan_tool, session: 
 def post_tool(payload: dict) -> dict:
     from . import remote_layer as _rl
     _rl.NER_DOWN["v"] = False
+    _rl.NER_DOWN["unchecked"] = False
     cfg = load_config()
     response = payload.get("tool_response")
     if response is None:
@@ -2964,10 +2965,19 @@ def _post_tool_guarded_rest(payload: dict) -> dict:
         _record(functools.partial(_queue_failure, exc, "post-tool", _tool_class(payload), client_of(payload)))
         return out
     try:
+        result = _with_unchecked_names(payload, result)
+    except Exception as exc:  # noqa: BLE001 - a line that fails must not change the output
+        _debug(f"post-tool unchecked names: {type(exc).__name__}")
+    try:
         return _with_hint(payload, result)
     except Exception as exc:  # noqa: BLE001 - a hint that fails must not withhold the output
         _debug(f"post-tool hint: {type(exc).__name__}")
         return result
+
+
+def _with_unchecked_names(payload: dict, result: dict) -> dict:
+    from .tool_withhold import with_unchecked_names
+    return with_unchecked_names(payload, result, client_of(payload) == "codex", load_config)
 
 
 def post_tool_failure(payload: dict) -> dict:
@@ -3145,22 +3155,12 @@ def _fail_closed(event: str, payload: dict, why: str, hint: bool = True) -> dict
         return _deny(reason + tail)
     tail = (" The tool ran and finished; its output is withheld because the masking did not finish. "
             "Do NOT run it again to see the output; tell the user to check the result in their terminal.")
-    if codex:
-        return {"decision": "block", "reason": reason + tail}
-    response = payload.get("tool_response")
-    if payload.get("tool_name") == "Bash" and isinstance(response, dict) and response.get("isImage") is True:
-        # an image of a Bash result: a string fails open here too; the client's Bash shape with isImage off removes
-        # the image (measured live, review of block 4)
-        return {"hookSpecificOutput": {"hookEventName": "PostToolUse", "updatedToolOutput": {
-            **response, "stdout": f"[{reason}{tail}]", "stderr": "", "isImage": False}}}
-    if payload.get("tool_name") == "Read":
-        # a string fails the shape check of Read and the client sends the original, a PDF or an image too (measured,
-        # harness/probe_file_reads.py): only a text Read withholds it
-        from .file_reads import text_result
-        path = (payload.get("tool_input") or {}).get("file_path") if isinstance(payload.get("tool_input"), dict) else ""
-        return {"hookSpecificOutput": {"hookEventName": "PostToolUse",
-                                       "updatedToolOutput": text_result(str(path or ""), f"[{reason}{tail}]")}}
-    return {"hookSpecificOutput": {"hookEventName": "PostToolUse", "updatedToolOutput": f"[{reason}{tail}]"}}
+    return _withheld(payload, f"[{reason}{tail}]")
+
+
+def _withheld(payload: dict, text: str) -> dict:
+    from .tool_withhold import withheld
+    return withheld(payload, text, client_of(payload) == "codex")
 
 
 def _incident_line(codex: bool) -> str:

@@ -985,6 +985,13 @@ def cmd_sref(args: list[str]) -> int:
             print(f"{server} ({urlsplit(f['origin']).hostname}): {state}"
                   + ("; account shown to you only" if who else ""))
         return 0
+    if len(found) > 1 and name is None:
+        # the gateway that /maisecrets:ner gateway URL names is the one meant (live test of #33)
+        from .ner_setup import gateway_server
+        conf = cfg.get("remote_detector")
+        own = gateway_server(conf) if isinstance(conf, dict) and conf.get("gateway") else ""
+        if own in found:
+            found = {own: found[own]}
     if len(found) > 1:
         print("maisecrets: more than one server offers Sensitive References; name one: " + ", ".join(found))
         return 2

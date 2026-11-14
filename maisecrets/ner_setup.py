@@ -41,12 +41,15 @@ FIRST_SECRET_IMAGE = IMAGE + ":v2.0.3584"
 SECRET_IMAGE = IMAGE + ":v2.0.3798@sha256:38c0442e10f75e2b41bdcf5a66c6aee02961f9609bf7ebb7d1ce64c1f9c907cf"
 START = f"docker run -d --name ner --restart unless-stopped -p 127.0.0.1:8765:8765 {IMAGE}"
 # the keys a source sets; any other key of the setting is the person's tuning and stays
-SOURCE_KEYS = ("url", "format", "model", "allow_network", "mask", "ask_labels")
+SOURCE_KEYS = ("url", "format", "model", "allow_network", "mask", "ask_labels", "gateway", "gateway_url")
 
 _NER_RE = re.compile(r"\A\s*(?:/maisecrets:ner|maisecrets:\s*ner)\s+(?:(off|local|on)|url\s+(\S+)|"
-                     r"fallback\s+(?:(off)|url\s+(\S+))|prompts\s+(on|off)|updates\s+(on|off))\s*\Z", re.I)
+                     r"gateway\s+(\S+)|"
+                     r"fallback\s+(?:(off)|url\s+(\S+))|prompts\s+(on|off)|updates\s+(on|off)|"
+                     r"unavailable\s+(rules|withhold))\s*\Z", re.I)
 # the same sentence anywhere in a tool call (settings.IN_A_COMMAND_RE)
-IN_A_COMMAND = r"(?:/maisecrets:ner|maisecrets:\s*ner)\s+(?:off|local|on|url|fallback|prompts|updates)\b"
+IN_A_COMMAND = (r"(?:/maisecrets:ner|maisecrets:\s*ner)\s+(?:off|local|on|url|gateway|fallback|prompts|updates|"
+                r"unavailable)\b")
 
 
 def parse(prompt) -> str | None:
@@ -59,11 +62,15 @@ def parse(prompt) -> str | None:
         return "off" if m.group(1).lower() == "off" else "local"
     if m.group(2):
         return "url:" + m.group(2)
-    if m.group(5):
-        return "prompts:" + m.group(5).lower()
+    if m.group(3):
+        return "gateway:" + m.group(3)
     if m.group(6):
-        return "updates:" + m.group(6).lower()
-    return "fallback:off" if m.group(3) else "fallback:url:" + m.group(4)
+        return "prompts:" + m.group(6).lower()
+    if m.group(7):
+        return "updates:" + m.group(7).lower()
+    if m.group(8):
+        return "unavailable:" + m.group(8).lower()
+    return "fallback:off" if m.group(4) else "fallback:url:" + m.group(5)
 
 
 def check_url(url: str) -> str:
@@ -99,11 +106,21 @@ def updated(current, word: str) -> dict:
     """The new value of the setting for `word` (from parse), the tuning keys of `current` kept."""
     current = dict(current) if isinstance(current, dict) else {}
     if word.startswith("prompts:"):
-        # not a source key: it stays when the source changes
+        # off is not a source key: it stays when the source changes. On for a service on the network is a choice for
+        # that source alone (C30a): a change of the source takes it away below
         if word == "prompts:off":
             current["prompts"] = False
+        elif current.get("url") and (current.get("gateway") or not remote.is_local(str(current["url"]))):
+            current["prompts"] = True
         else:
             current.pop("prompts", None)
+        return current
+    if word.startswith("unavailable:"):
+        # what a tool result gets while the service gives no answer: the rules alone (the default) or nothing
+        if word == "unavailable:withhold":
+            current["unavailable"] = "withhold"
+        else:
+            current.pop("unavailable", None)
         return current
     if word.startswith("updates:"):
         # not a source key either: the image of the local service follows the plugin unless this is false
@@ -121,9 +138,18 @@ def updated(current, word: str) -> dict:
                                **({} if remote.is_local(url) else {"allow_network": True})}
         return current
     keep = {k: v for k, v in current.items() if k not in SOURCE_KEYS}
+    if keep.get("prompts") is True:
+        del keep["prompts"]                 # prompts on was a choice for the old source (C30a)
     if word == "off":
         keep.pop("fallback", None)          # off is off: no fallback answers either
         return keep
+    if word.startswith("gateway:"):
+        # the gateway of /maisecrets:sref login (#33): its name endpoint and a token come at each tool result
+        from .vault_refs import origin_of
+        given = word[len("gateway:"):]
+        origin = origin_of(given) or given
+        return {**keep, "gateway": origin, "gateway_url": given, "url": origin, "format": "hf",
+                "allow_network": True}
     url = LOCAL_URL if word == "local" else word[4:]
     # the service of this command is mcpgate/ner (examples/ner_service.py): it takes `labels` for classes in `classes`
     new = {**keep, "url": url, "format": "hf", "ask_labels": True}
@@ -137,8 +163,12 @@ def describe(conf) -> str:
     url = conf.get("url") if isinstance(conf, dict) else None
     if not url:
         return "names from a service: off (the rules alone)"
+    prompts = "tool results and your prompts" if conf.get("prompts") is True else "tool results only"
+    if conf.get("gateway"):
+        return (f"names from a service: the gateway {conf['gateway']} (its login; {prompts}; the findings of "
+                "the rules go there as filler)")
     where = ("on this computer" if remote.is_local(str(url))
-             else "on the network; the findings of the rules go there as filler")
+             else f"on the network; {prompts}; the findings of the rules go there as filler")
     fb = conf.get("fallback") if isinstance(conf.get("fallback"), dict) else {}
     tail = (f"; fallback {fb['url']} while it does not answer, tool results only" if fb.get("url") else "")
     return f"names from a service: {url} ({where}){tail}"
@@ -156,11 +186,26 @@ _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedire
 def scope(conf) -> str:
     """One line: what the service reads. A prompt only on this computer and only where the client rewrites it."""
     url = str(conf.get("url") or "") if isinstance(conf, dict) else ""
-    if remote.is_local(url) and conf.get("prompts") is not False:
+    network = bool(url) and (bool(conf.get("gateway")) or not remote.is_local(url))
+    if url and conf.get("prompts") is not False and (not network or conf.get("prompts") is True):
+        where = (f" Your prompts go to {conf.get('gateway') or url} for this, with the rules' findings as filler."
+                 if network else "")
         return ("It masks person names in what the AI reads (files, command output, tool results) and in your prompts "
-                "in Claude Code. In Codex it covers what the AI reads only. It may mask a few extra words.")
+                f"in Claude Code.{where} In Codex it covers what the AI reads only. It may mask a few extra words.")
+    more = (" /maisecrets:ner prompts on sends your prompts there too, with the rules' findings as filler."
+            if network and conf.get("prompts") is not False else "")
     return ("It masks person names in what the AI reads (files, command output, tool results). Your prompts keep the "
-            "rules alone. It may mask a few extra words.")
+            f"rules alone.{more} It may mask a few extra words.")
+
+
+def unavailable_line(conf) -> str:
+    """One line: what a tool result gets while the service gives no answer."""
+    if isinstance(conf, dict) and conf.get("unavailable") == "withhold":
+        return ("While the name service gives no answer, maisecrets withholds the tool result from the AI, and your "
+                "screen names the reason. /maisecrets:ner unavailable rules lets the rules alone mask it.")
+    return ("While the name service gives no answer, the rules alone mask a tool result, and your screen shows "
+            "'names not checked' with the reason. /maisecrets:ner unavailable withhold keeps such a result from "
+            "the AI.")
 
 
 def updates_line(conf) -> str:
@@ -578,15 +623,19 @@ def _start_local(cfg: dict, tool: str) -> tuple[int, list]:
 def report(conf, wait: float = 0.0) -> tuple[int, list]:
     """(exit code, lines) for /maisecrets:ner: the source, whether it answers (waiting up to `wait` seconds), and for
     the local source that does not answer the command that starts it. The exit code is 0 when the source answers or
-    is off, 3 when the local service needs a start, 1 otherwise."""
+    is off, 3 when the local service needs a start, 4 when the gateway source needs a login with the name scope
+    (commands/ner.md runs it after the person's /maisecrets:ner gateway URL), 1 otherwise."""
     lines = [describe(conf)]
     url = conf.get("url") if isinstance(conf, dict) else None
     if not url:
-        lines.append("To turn it on: /maisecrets:ner local (the service on this computer) or "
-                     "/maisecrets:ner url URL (a service of your team), as your own prompt.")
+        lines.append("To turn it on: /maisecrets:ner local (the service on this computer), url URL (a service of your "
+                     "team) or gateway URL (the gateway of your login), as your own prompt.")
         return 0, lines
     lines.append(scope(conf))
+    lines.append(unavailable_line(conf))
     lines.append(counts_line())
+    if conf.get("gateway"):
+        return _gateway_report(conf, lines)
     deadline = time.monotonic() + wait
     ok, line = probe(conf)
     while not ok and time.monotonic() < deadline:
@@ -636,6 +685,41 @@ def report(conf, wait: float = 0.0) -> tuple[int, list]:
     elif not remote.is_local(str(url)):
         lines.append("Check the address with the team that runs the service.")
     return 1, lines
+
+
+def _gateway_report(conf: dict, lines: list) -> tuple[int, list]:
+    """The gateway source as a tool result meets it: its discovery, the login with the name scope, one short request.
+    /health of the gateway says nothing about the login, so it is not asked."""
+    from . import remote_layer
+    from .home import load_config
+    det, why = remote_layer.from_config({**load_config(), "remote_detector": conf})
+    if det is None:
+        lines.append(f"the gateway: not asked; {why}")
+        if "login" in why:
+            name = gateway_server(conf)
+            lines.append(f"login: run.sh sref login{(' ' + name) if name else ''}")
+            return 4, lines
+        return 1, lines
+    _spans, st = det.ask("A check of the name service.", [])
+    if st.available:
+        lines.append(f"the gateway: answers ({st.ms:.0f} ms) with your login")
+        return 0, lines
+    lines.append(f"the gateway: gives no result ({st.reason or st.state}); the rules mask tool results alone until it "
+                 "does")
+    return 1, lines
+
+
+def gateway_server(conf: dict) -> str:
+    """The name of the MCP server of the user configuration whose origin is the gateway of this source, or ""."""
+    from . import vault_refs
+    from .vault_refs import origin_of
+    want = str(conf.get("gateway") or "")
+    try:
+        servers = vault_refs.user_servers()
+    except Exception:  # noqa: BLE001 - no name: `sref login` alone then works for one server
+        return ""
+    names = [k for k, v in servers.items() if origin_of(str(v)) == want]
+    return names[0] if len(names) == 1 and re.fullmatch(r"[\w.-]{1,64}", names[0]) else ""
 
 
 # --------------------------------------------------------- the down note --

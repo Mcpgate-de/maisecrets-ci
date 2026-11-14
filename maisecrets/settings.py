@@ -436,10 +436,16 @@ def loosens(key: str, before, after) -> bool:
         new_fb = ((after or {}).get("fallback") or {}).get("url") if isinstance(after, dict) else None
         prompts_off = (isinstance(after, dict) and after.get("prompts") is False
                        and not (isinstance(before, dict) and before.get("prompts") is False))
+        # prompts to a service on the network (C30a): the text of each prompt leaves the computer
+        prompts_out = (isinstance(after, dict) and after.get("prompts") is True
+                       and not (isinstance(before, dict) and before.get("prompts") is True))
+        # a withheld tool result is the rules' result again: names that only the service finds reach the AI
+        withhold_off = (isinstance(before, dict) and before.get("unavailable") == "withhold"
+                        and not (isinstance(after, dict) and after.get("unavailable") == "withhold"))
         # an image that no longer follows the plugin keeps its old fixes and misses the new ones
         updates_off = (isinstance(after, dict) and after.get("auto_update") is False
                        and not (isinstance(before, dict) and before.get("auto_update") is False))
-        return (prompts_off or updates_off or bool(old and not new)
+        return (prompts_off or prompts_out or withhold_off or updates_off or bool(old and not new)
                 or bool(new and new != old and not ner_setup.remote.is_local(str(new)))
                 or bool(new_fb and new_fb != old_fb and not ner_setup.remote.is_local(str(new_fb))))
 
@@ -520,6 +526,13 @@ def apply_typed(key: str, word: str, route: str = "typed prompt", cwd: str = "")
         elif not ner_setup.remote.is_local(word_url):
             note = (" The text of each tool result goes to that service, the findings of the rules as filler. The "
                     "service has no sign-in: use one on a private network only.")
+    if ner_change and word.startswith("ner:gateway:"):
+        gw = word[len("ner:gateway:"):]
+        why = ner_setup.check_url(gw) or ("" if gw.lower().startswith("https://") else "a gateway is https only")
+        if why:
+            return False, f"maisecrets: the address is not used ({why}). Nothing was changed."
+        note = (" The text of each tool result goes to this gateway, the findings of the rules as filler; a prompt you"
+                " type does not. Log in once more with /maisecrets:sref login: it asks for the name scope.")
     if key == "read_pdf" and word == "convert":
         from .file_reads import INSTALL, pdftotext
         if not pdftotext():
@@ -603,6 +616,8 @@ def apply_typed(key: str, word: str, route: str = "typed prompt", cwd: str = "")
         events.record_weakening("setting", key, route)      # the next session start names it to the person
     if ner_change and word.startswith("ner:prompts:"):
         return True, f"maisecrets: {ner_setup.scope(after.get(key) or {})}"
+    if ner_change and word.startswith("ner:unavailable:"):
+        return True, f"maisecrets: {ner_setup.unavailable_line(after.get(key) or {})}"
     if ner_change and word.startswith("ner:updates:"):
         return True, f"maisecrets: {ner_setup.updates_line(after.get(key) or {})}"
     if ner_change:
