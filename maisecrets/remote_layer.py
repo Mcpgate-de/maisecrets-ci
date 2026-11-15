@@ -230,16 +230,24 @@ def prepare(cfg: dict, strings: list, scan, protect=None, use_fallback: bool = T
                   why="" if status.available else (status.reason or status.state), ms=status.ms)
     starts = [off for _s, off in pieces]
     added: dict = {}
+    # the allow list holds for the service's names as for the rules' findings: an exact value, never a part of one
+    allowed = _allowed() if spans else frozenset()
     for a, b, type_, score in spans:
         i = bisect.bisect_right(starts, a) - 1
         if i >= 0:
             s, off = pieces[i]
-            if b <= off + len(s):          # a span over two strings is no name of either: dropped
+            if b <= off + len(s) and s[a - off:b - off] not in allowed:   # a span over two strings: dropped
                 added.setdefault(s, []).append(Match("remote:" + asked.format, type_, s[a - off:b - off], a - off,
                                                      b - off, score))
     for s, extra in added.items():
         found[s] = sorted(found[s] + extra, key=lambda m: (m.start, m.end))
     return Layer(found, status)
+
+
+def _allowed() -> frozenset:
+    """The exact values of the allow list (detect.allow_list); a list that cannot be read allows nothing."""
+    from . import detect
+    return detect.allow_list()[0]
 
 
 PROMPT_TIMEOUT_MS = 1000    # a person waits for a prompt anyway; 300 ms left a long or a busy prompt to the rules

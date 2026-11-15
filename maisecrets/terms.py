@@ -1260,3 +1260,49 @@ def summary(loaded: Loaded | None = None) -> str:
     return (f"terms: {own} of your own, {team} from {len(loaded.files)} team file(s)"
             + (f" ({len(loaded.refused)} line(s) left out)" if loaded.refused else "")
             + f", {loaded.marked} marked in prompts")
+
+
+# ------------------------------------------------------------ the typed command --
+def command_answer(payload: dict, cmd: tuple, typed: bool, cfg: dict) -> dict:
+    """The answer to /maisecrets:term add|remove (Codex: maisecrets: term add …): always a block, because the prompt
+    carries the name. Only the person's typed prompt changes the list (as a setting, C22); the name is masked in the
+    transcript, and the answer names a label and a line, never the name."""
+    # the prompt hook's helpers, read at call time (a test patches them on hooks)
+    from .hooks import _scrub_transcript, _scrub_transcript_later, client_of, find_refs, settings_mod_came_from
+    verb, words = cmd
+    # the name in every form the transcript can hold it: the whole prompt as typed (two spaces, a tab, a line break,
+    # a name under 4 characters that the scrub skips alone), the words, and the variants (gate review, M2)
+    raw = payload.get("prompt") if isinstance(payload.get("prompt"), str) else ""
+    extra = [raw, raw.strip()] + [w for w in re.findall(r"[^\s|*]+", words or "") if len(w) >= 4]
+    scrub: list = [words] if words else []
+    if verb == "usage":
+        reason = USAGE
+    elif not typed:
+        reason = ("maisecrets: a change of your terms counts only when you type it as your prompt; this one came from "
+                  f"{settings_mod_came_from(payload)}, so nothing was changed.")
+    elif verb == "add":
+        # Claude Code sends a source with every prompt; one without it may not come from the person, so the floor of
+        # a team list holds. Codex never sends a source: its adds follow the person's rules (gate review, round 2)
+        floor = client_of(payload) == "claude" and "source" not in payload
+        _ok, reason, scrub = add_typed(words, floor=floor)
+    else:
+        entity = None
+        refs = find_refs(words)
+        if len(refs) == 1 and refs[0][1] == 0 and refs[0][2] == len(words):
+            # the placeholder the person copied from a tool result: the entity of that key
+            from .vault import INDEX
+            try:
+                meta = json.loads(INDEX.read_text(encoding="utf-8")).get("entries", {}).get(refs[0][0]) or {}
+            except (OSError, ValueError):
+                meta = {}
+            entity = meta.get("kind", "")[5:] if term_files.is_term_kind(meta.get("kind")) else None
+        _ok, reason, scrub = term_remove_typed(words, entity)
+    scrub = list(dict.fromkeys(scrub + [x for x in extra if x]))
+    if cfg.get("scrub_transcript", True) and scrub:
+        path = payload.get("transcript_path", "")
+        _scrub_transcript(path, scrub, [])
+        _scrub_transcript_later(path, scrub, [], session=payload.get("session_id"))
+    if client_of(payload) == "codex":
+        return {"decision": "block", "reason": reason}
+    return {"decision": "block", "reason": reason,
+            "hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "suppressOriginalPrompt": True}}

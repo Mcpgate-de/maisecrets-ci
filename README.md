@@ -36,6 +36,7 @@ claude plugin install maisecrets@maisecrets     # then start a new session
 /maisecrets:status        what runs, which version
 ms:(your value)           would this value be caught?
 /maisecrets:settings      the choices you make
+/maisecrets:not-a-secret KEY   a wrong hit: never mask this exact value again
 /maisecrets:secret-hygiene   secrets that leaked before you installed it
 ```
 
@@ -1795,7 +1796,23 @@ rule off (`rule: user:acme-token`, or a built-in id from
 same lines in `allow` of the machine policy. A folder of `rule_dirs` carries
 no allow list: the AI can write a shared checkout, and the AI may only make
 detection stricter. A value that is already stored stays redacted by its
-exact match; `/maisecrets:forget` deletes it.
+exact match; `/maisecrets:forget` deletes it. The list holds for the name
+service too (`/maisecrets:ner`).
+
+**A wrong hit in one step.** Type `/maisecrets:not-a-secret KEY` as your own
+prompt (Codex: `maisecrets: not a secret KEY`), with the key from
+`/maisecrets:list` or the placeholder you copied. It deletes the stored value
+and adds its exact value to `allow.txt`, under a comment line with the key. The
+answer names the key and the masked form, never the value. A secret, a card
+number, an IBAN or an official, tax or bank number needs the same command
+twice within 2 minutes. Only your typed prompt counts: a subagent, a program,
+a scheduled prompt, another session or a tool call changes nothing.
+`/maisecrets:list` shows each such allowance with its key, type, date and
+masked form; `/maisecrets:not-a-secret undo KEY` (Codex: `maisecrets: undo
+not a secret KEY`) takes it back. Undo deletes only the line it wrote, directly under its
+comment line; a line you wrote yourself stays, and the answer says so when it
+cannot tell the two apart. The line that tells you what was masked
+ends with this hint.
 
 ## PDFs and images
 

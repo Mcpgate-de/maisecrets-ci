@@ -139,6 +139,8 @@ def _label(e: dict) -> str:
         return f"the setting {TITLE.get(name, name)} ({route})"
     if kind == "forget":
         return f"stored value {name} deleted ({route})"
+    if kind == "allow":
+        return f"stored value {name} put on your allow list ({route})"
     if kind == "value-import":
         return f"imported values {name} removed ({route})"
     return f"{kind} {name} ({route})"

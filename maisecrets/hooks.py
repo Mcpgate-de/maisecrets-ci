@@ -23,7 +23,7 @@ import time
 import sys
 from typing import Any
 
-from . import check_value, detect, incidents, rehydration, term_files, value_files
+from . import check_value, detect, incidents, not_a_secret, rehydration, term_files, value_files
 from .lazy_regex import LazyRx as _LazyRx
 from .placeholder import KEY_RE, find_refs
 from . import vault as vault_mod
@@ -834,7 +834,7 @@ def rewrite_prompt(payload: dict) -> dict:
     if "<task-notification>" in prompt:
         return {}
     # /maisecrets:term add|remove carries a name: the hook answers it, and the mod must not rewrite the name first
-    if term_files.parse_command(prompt) or value_files.parse_removal(prompt):
+    if term_files.parse_command(prompt) or value_files.parse_removal(prompt) or not_a_secret.parse(prompt):
         return {}
     # a settings prompt and the ssh grant sentence are the person's controls: the hook reads them before the detector,
     # and the mod must not rewrite a word of them first (an imported or listed value would break the control; Gate A
@@ -926,50 +926,6 @@ def _name_ttl(cfg: dict) -> int:
         return 86400
 
 
-def _term_command(payload: dict, cmd: tuple, typed: bool, cfg: dict) -> dict:
-    """The answer to /maisecrets:term add|remove (Codex: maisecrets: term add …): always a block, because the prompt
-    carries the name. Only the person's typed prompt changes the list (as a setting, C22); the name is masked in the
-    transcript, and the answer names a label and a line, never the name."""
-    from . import terms
-    verb, words = cmd
-    # the name in every form the transcript can hold it: the whole prompt as typed (two spaces, a tab, a line break,
-    # a name under 4 characters that the scrub skips alone), the words, and the variants (gate review, M2)
-    raw = payload.get("prompt") if isinstance(payload.get("prompt"), str) else ""
-    extra = [raw, raw.strip()] + [w for w in re.findall(r"[^\s|*]+", words or "") if len(w) >= 4]
-    scrub: list = [words] if words else []
-    if verb == "usage":
-        reason = terms.USAGE
-    elif not typed:
-        reason = ("maisecrets: a change of your terms counts only when you type it as your prompt; this one came from "
-                  f"{settings_mod_came_from(payload)}, so nothing was changed.")
-    elif verb == "add":
-        # Claude Code sends a source with every prompt; one without it may not come from the person, so the floor of
-        # a team list holds. Codex never sends a source: its adds follow the person's rules (gate review, round 2)
-        floor = client_of(payload) == "claude" and "source" not in payload
-        _ok, reason, scrub = terms.add_typed(words, floor=floor)
-    else:
-        entity = None
-        refs = find_refs(words)
-        if len(refs) == 1 and refs[0][1] == 0 and refs[0][2] == len(words):
-            # the placeholder the person copied from a tool result: the entity of that key
-            from .vault import INDEX
-            try:
-                meta = json.loads(INDEX.read_text(encoding="utf-8")).get("entries", {}).get(refs[0][0]) or {}
-            except (OSError, ValueError):
-                meta = {}
-            entity = meta.get("kind", "")[5:] if term_files.is_term_kind(meta.get("kind")) else None
-        _ok, reason, scrub = terms.term_remove_typed(words, entity)
-    scrub = list(dict.fromkeys(scrub + [x for x in extra if x]))
-    if cfg.get("scrub_transcript", True) and scrub:
-        path = payload.get("transcript_path", "")
-        _scrub_transcript(path, scrub, [])
-        _scrub_transcript_later(path, scrub, [], session=payload.get("session_id"))
-    if client_of(payload) == "codex":
-        return {"decision": "block", "reason": reason}
-    return {"decision": "block", "reason": reason,
-            "hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "suppressOriginalPrompt": True}}
-
-
 def user_prompt(payload: dict) -> dict:
     groups = check_value.parse_all(payload.get("prompt"))
     if groups is not None:
@@ -1059,7 +1015,12 @@ def user_prompt(payload: dict) -> dict:
     term_cmd = term_files.parse_command(prompt)
     if term_cmd:
         # a subagent's prompt is no prompt of the person (as for the marker below)
-        return _term_command(payload, term_cmd, typed and not payload.get("agent_id"), cfg)
+        from .terms import command_answer
+        return command_answer(payload, term_cmd, typed and not payload.get("agent_id"), cfg)
+    # /maisecrets:not-a-secret KEY (not_a_secret.py): makes detection weaker, so only the person's typed prompt counts
+    nas = not_a_secret.parse(prompt)
+    if nas:
+        return not_a_secret.answer(payload, nas, typed and not payload.get("agent_id"), client_of(payload))
     # /maisecrets:forget import:ID (Codex: maisecrets: forget import:ID): the only way an import of values is removed
     # (C26). It makes detection weaker, so only the person's typed prompt counts, and a tool call that carries it is
     # refused (_pre_bash). Before the detector: an imported value never masks the prompt that removes it
@@ -1749,6 +1710,8 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
         return _deny(_SETTINGS_IN_A_COMMAND)
     if value_files.removal_in_command(command):
         return _deny(value_files.IN_A_COMMAND)
+    if not_a_secret.in_a_command(command):
+        return _deny(not_a_secret.IN_A_COMMAND)
     # ssh consent (#8), before any value is recorded or served: a refusal leaves no audit line
     if cfg.get("ssh_consent") and re.search(r"maisecrets:\s*allow\s+ssh\s+\S|allow\s+ssh\s+\S+\s+\d{6}", command,
                                            re.I):
@@ -2426,6 +2389,8 @@ def _pre_powershell(payload: dict, tool_input: dict, cfg: dict | None = None) ->
         return _deny(_SETTINGS_IN_A_COMMAND)
     if value_files.removal_in_command(command):
         return _deny(value_files.IN_A_COMMAND)
+    if not_a_secret.in_a_command(command):
+        return _deny(not_a_secret.IN_A_COMMAND)
     if _HOOK_ENTRY_TEXT_RE.search(command):
         # PowerShell has no word parser here: any mention of a hook entry with its event is refused
         return _deny("maisecrets: this command calls a maisecrets hook directly; only the client calls the hooks. "
@@ -2802,7 +2767,8 @@ def post_tool(payload: dict) -> dict:
         "systemMessage": f"maisecrets masked {hit['n']} value(s) in this {tool} "
                          f"result before the AI saw it: {shown}."
                          + (f" It also removed {hidden['n']} invisible character(s)." if hidden["n"] else "")
-                         + (f" {swap[2]}" if swap else ""),
+                         + (f" {swap[2]}" if swap else "")
+                         + not_a_secret.hint(entries),
         "hookSpecificOutput": {
             "hookEventName": "PostToolUse",
             "updatedToolOutput": new_response,

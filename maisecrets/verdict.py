@@ -47,9 +47,12 @@ def _personal_needs(kind: str) -> str:
 
 
 def how_found(kind: str) -> str:
-    """`label` (a word in front of the value found it), `words` (words near it or a fixed form around it) or `format`
+    """`label` (a word in front of the value found it), `words` (words near it or a fixed form around it), `ner` (the
+    name service, remote_layer.py: its kind is `remote:<format>`, in the store since the service came) or `format`
     (the value alone). The keyword and label rules of the rule list, the personal-data rules with a label or a form
     (their spec form, rulespec._form) and the rules that fire only with a context word near them are not found alone."""
+    if kind.startswith("remote:"):
+        return "ner"
     from .detection import registry
     if registry.form_of(kind) != "shape":
         return "label"
@@ -102,6 +105,8 @@ def hit_sentences(text: str, m, entry, spans) -> tuple:
         return ("It is in the password column of a password export, so the whole cell is masked.",
                 "in the password column of a password export")
     how = how_found(kind)
+    if how == "ner":
+        return ("The name service found it as a name.", "found by the name service")
     if how == "format":
         return FORMAT_LONG, FORMAT_SHORT
     stored_long, stored_short = _found_again(entry, m.value, how == "words")

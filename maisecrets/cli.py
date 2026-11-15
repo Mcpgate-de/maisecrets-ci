@@ -24,6 +24,10 @@ def _age(ts: float) -> str:
 def cmd_list(_: list[str]) -> int:
     """What is stored, masked: the same view a person gets from /maisecrets:list. No value."""
     rc = _list_values()
+    from .not_a_secret import list_lines
+    allowed = list_lines()       # the values the person said are no secret: masked form and date (C22)
+    if allowed:
+        print("\n" + "\n".join(allowed))
     from . import value_files
     if value_files.present():
         from . import values

@@ -108,6 +108,7 @@ Details: `PRIVACY.md` and `SECURITY.md` in this folder.
 /maisecrets:list          the stored values (placeholders and masked displays, never a secret)
 /maisecrets:settings      the choices you make
 /maisecrets:forget        delete a stored value
+/maisecrets:not-a-secret  a wrong hit: delete it and never mask that exact value again
 /maisecrets:report        an issue text for a problem
 ```
 

@@ -1761,7 +1761,9 @@ class Detector(_LabelNumbers):
         if remote is None:
             return Result(found, OFF)
         spans, status = remote.ask(text, [(m.start, m.end) for m in found], deadline)
-        extra = [Match("remote:" + remote.format, t, text[s:e], s, e, score) for s, e, t, score in spans]
+        allowed = self.allow_list()[0] if spans else ()   # an exact value of the allow list, as for a rule
+        extra = [Match("remote:" + remote.format, t, text[s:e], s, e, score) for s, e, t, score in spans
+                 if text[s:e] not in allowed]
         return Result(sorted(found + extra, key=lambda m: (m.start, m.end)) if extra else found, status)
 
     def rules(self) -> list[Rule]:

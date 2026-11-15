@@ -5,6 +5,6 @@ statement = "/maisecrets:term add and remove change terms.txt only in a prompt t
 runner = ["tests/test_terms_hooks.py::TypedCommandTests::test_a_prompt_the_client_injected_changes_nothing"]
 
 [proof]
-file = "maisecrets/hooks.py"
+file = "maisecrets/terms.py"
 find = "    elif not typed:\n"
 replace = "    elif False:\n"
