@@ -63,6 +63,12 @@ _PASSWORD_VALUE = r"([^\s\"'`<>,;|&]{3,64})"
 _USER_ID_WORDS = ("userid", "user_id", "user-id", "userlogin", "loginname", "login_name", "loginid", "login_id")
 _USER_VALUE = r"([A-Za-z][A-Za-z0-9._-]{1,30}[A-Za-z0-9])"
 _ID_VALUE = r"([A-Za-z0-9](?:[A-Za-z0-9]|[ -](?=[A-Za-z0-9])){3,24})"
+# a key that holds the street line of a postal address (Cloakroom 1.4.0 rules.py:134-138): street, address_line1,
+# addressLine1, billing_street. The value must be a street line (personal._STREET_LINE_RE)
+_STREET_WORDS = ("street", "address_line", "addressline", "address1", "address_1", "address-line")
+_STREET_KEYS = frozenset({"street", "streetaddress", "streetline", "addressline1", "addressline", "address1",
+                          "billingstreet", "shippingstreet", "homestreet", "mailingstreet", "streetline1"})
+_STREET_VALUE = r"([0-9A-Za-zÀ-ÿ][^\"'`<>\n,;|]{4,60})"
 # a literal that an expression joins with more: password = "…" + os.environ["PW_SUFFIX"] is a part of the value
 _JOINED_RE = re.compile(r"[\"'`][ \t]*(?:\+|\|\||\.[ \t]|~)")
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4}")
@@ -102,10 +108,36 @@ def _a_persons_id(text: str, m, key: str, things, parent) -> bool:
     return True
 
 
+def _street_ok(v: str) -> bool:
+    from .personal import _STREET_LINE_RE
+    return bool(_STREET_LINE_RE.fullmatch(v.strip()))
+
+
+# a test or placeholder record (Musterstraße, Anytown, a fixture) and a well-known public address are no person's
+_PLACEHOLDER_RE = re.compile(
+    r"(?i)(?<![a-z])(?:muster\w*|anytown|springfield|test\w*|sample|example|fake|fixture|dummy|lorem|placeholder"
+    r"|1600 amphitheatre|1 infinite loop|one apple park|1 microsoft way|1 hacker way|410 terry ave|10 downing street"
+    r"|1600 pennsylvania|742 evergreen|suite|ste\.?(?= ?\d)|floor)(?![a-z])")
+# a place as the parent of the street: a venue, a store, a location of a business
+_PLACE_PARENT_RE = re.compile(r"(?i)[\"']?(?:venue|store|location|place|merchant|branch|site|facility)[\"']?\s*[:=]")
+
+
+def _a_business_near(text: str, a: int, b: int) -> bool:
+    """A company, an office or a public place in the record around a street key, a test or placeholder record, or a
+    well-known public address: its street stays text, as the address rules leave it (the setting business_addresses
+    mask turns the business regexes off; a placeholder stays text either way)."""
+    from .personal import _BUSINESS_RE, _NOT_A_HOME_RE
+    lo, hi = max(0, a - 300), min(len(text), b + 300)
+    if _PLACEHOLDER_RE.search(text, lo, hi):
+        return True
+    return bool(_NOT_A_HOME_RE.search(text, lo, hi) or _BUSINESS_RE.search(text, lo, hi)
+                or _PLACE_PARENT_RE.search(text, lo, a))
+
+
 def hits(text: str) -> list:
     """(start, end, kind, type) of a name (#43), a password and an id number (#45) after a key, and a user name after
     a user-id key or a cue in prose (#51)."""
-    from .personal import ID_NUMBER, NAME, USERNAME, _THING_PARENTS, _xml_parent
+    from .personal import ADDRESS, ID_NUMBER, NAME, USERNAME, _THING_PARENTS, _xml_parent
     from .core import _references
     from .role_names import key_names
     from .user_forms import USER_ID_KEYS, user_id_matches, user_id_ok, user_names
@@ -118,7 +150,9 @@ def hits(text: str) -> list:
             (_ID_WORDS, _ID_VALUE, lambda k: fold(k) in _ID_KEYS or fold(k) in _GENERIC_ID_KEYS, _id_ok,
              "id-number-after-label", ID_NUMBER),
             (_USER_ID_WORDS, _USER_VALUE, lambda k: fold(k) in USER_ID_KEYS, user_id_ok, "username-after-label",
-             USERNAME)):
+             USERNAME),
+            (_STREET_WORDS, _STREET_VALUE, lambda k: fold(k) in _STREET_KEYS, _street_ok, "address-after-key",
+             ADDRESS)):
         if not any(w in low for w in words):
             continue
         found = user_id_matches(text, low, value, _COMPARE, _END) if typ == USERNAME else \
@@ -129,6 +163,8 @@ def hits(text: str) -> list:
                     or refs.hit_is_a_reference(text, m.start(4), m.group(4)):
                 continue   # a reference in a form of the detector's sources is no value
             if typ == ID_NUMBER and not _a_persons_id(text, m, key, _THING_PARENTS, _xml_parent):
+                continue
+            if typ == ADDRESS and _a_business_near(text, m.start(), m.end()):
                 continue
             out.append((m.start(4), m.end(4), kind, typ))
     return out
