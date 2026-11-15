@@ -57,7 +57,10 @@ _DATE = (r"(?:\d{4}-\d{2}-\d{2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{1,2}\.?\s+[A-
 # A colon must follow: /api/users/bday;from=2020-01-01 is a path, and its date is no birth date (review of 0.6.25)
 _VCARD_PARAMS = r"(?:(?:;[A-Za-z][\w-]{0,20}(?:=(?:\"[^\"\n]{0,80}\"|[^:;\"\n]{0,60}))?){1,8}(?=:))?"
 # "born" alone is left out: "born 23 June 1912" is history in a text about a public person (holdout v6 negative)
-_BIRTH_RE = _LazyRx(r"(?i)(?:\bd\.?o\.?b\b|date[ _-]?of[ _-]?birth|birth[ _-]?date|\bborn on"
+# after a birth label also an ordinal day: 14th March 1987, March 14th, 1987 (Cloakroom 1.4.0 rules.py:131)
+_BDATE = _DATE.replace(r"\d{1,2}\.?\s+[A-Za-z", r"\d{1,2}(?:st|nd|rd|th)?\.?\s+[A-Za-z").replace(
+    r"\s+\d{1,2},", r"\s+\d{1,2}(?:st|nd|rd|th)?,")
+_BIRTH_RE = _LazyRx(r"(?i)(?:\bd\.?o\.?b\b|date[ _-]?of[ _-]?birth|birth[ _-]?date|\bborn on|\bbirthday|\bb-day"
                     r"|\bbday\b" + _VCARD_PARAMS
                     + r"|\bgeb(?:\.|oren am|urtsdatum)"
                     r"|n[ée]\(?e?\)? le|date de naissance|fecha de nacimiento|\bnac[ií](?:d[oa])? el"
@@ -74,7 +77,7 @@ _BIRTH_RE = _LazyRx(r"(?i)(?:\bd\.?o\.?b\b|date[ _-]?of[ _-]?birth|birth[ _-]?da
                     r"\*{0,2}\s{0,3}(?:(?:is|was|as|ist|war|est|es|era|è|é|er|var|är|on|oli|jest|je|este|είναι)"
                     r"\s{1,3})?"
                     r"[:=,\uff1a]?\*{0,2}\s{0,3}[\"'(]?\s{0,3}"
-                    r"(" + _DATE + r"|(?:19|20)\d{6})(?!\d)")   # and YYYYMMDD after the label (Gretel, 2026-10-19)
+                    r"(" + _BDATE + r"|(?:19|20)\d{6})(?!\d)")   # and YYYYMMDD after the label (Gretel, 2026-10-19)
 
 # ------------------------------------------------------------------------------------- user in a URL or path --
 _URL_USER_RE = _LazyRx(r"://([^:/?#\s@\[\]]{1,64}):[^@\s/]{1,128}@")
@@ -2554,7 +2557,8 @@ def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> l
 
 # ------------------------------------------------------------------------------------------------- the scan --
 # words one of which a text must hold before a rule's regex runs (a cheap test on the lowered text)
-_BIRTH_WORDS = ("dob", "d.o.b", "birth", "born", "bday", "geb", "n\u00e9", "ne le", "nee le", "naissance", "nacimiento",
+_BIRTH_WORDS = ("dob", "d.o.b", "birth", "born", "bday", "b-day",
+                "geb", "n\u00e9", "ne le", "nee le", "naissance", "nacimiento",
                 "naci", "nac\u00ed", "nascimento", "nascita", "nato", "nata il", "nascid", "geboorte", "geboren",
                 "delsedatum", "dd den", "dselsdato", "syntym", "urodz", "narozen", "tarih", "рождения", "народження",
                 "na\u0219ter", "na\u015fter", "naster", "γέννησης", "ميلاد", "生年月日", "出生日期", "생년월일")
@@ -2599,9 +2603,10 @@ def _compact_birth_date(v: str) -> bool:
 
 
 def _past_year(date: str) -> bool:
-    """A birth date lies before this year: a date of this year or later is an event, a release, a deadline."""
+    """A birth date lies before this year (a date of this year or later is an event, a release, a deadline) and after
+    the year 1000 (0001-01-01 is the zero time of Go and .NET in API JSON)."""
     years = re.findall(r"(?<!\d)(\d{4})(?!\d)", date)
-    return not years or int(years[-1]) < _host().this_year()
+    return not years or 1000 <= int(years[-1]) < _host().this_year()
 
 
 def _own_user() -> str:
