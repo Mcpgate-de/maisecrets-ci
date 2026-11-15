@@ -22,6 +22,7 @@ import bisect
 import functools
 import itertools
 import re
+from pathlib import Path as _Path
 
 from . import deadline as _deadline
 from .lazy_regex import LazyRx as _LazyRx
@@ -57,7 +58,10 @@ _DATE = (r"(?:\d{4}-\d{2}-\d{2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{1,2}\.?\s+[A-
 # A colon must follow: /api/users/bday;from=2020-01-01 is a path, and its date is no birth date (review of 0.6.25)
 _VCARD_PARAMS = r"(?:(?:;[A-Za-z][\w-]{0,20}(?:=(?:\"[^\"\n]{0,80}\"|[^:;\"\n]{0,60}))?){1,8}(?=:))?"
 # "born" alone is left out: "born 23 June 1912" is history in a text about a public person (holdout v6 negative)
-_BIRTH_RE = _LazyRx(r"(?i)(?:\bd\.?o\.?b\b|date[ _-]?of[ _-]?birth|birth[ _-]?date|\bborn on"
+# after a birth label also an ordinal day: 14th March 1987, March 14th, 1987 (Cloakroom 1.4.0 rules.py:131)
+_BDATE = _DATE.replace(r"\d{1,2}\.?\s+[A-Za-z", r"\d{1,2}(?:st|nd|rd|th)?\.?\s+[A-Za-z").replace(
+    r"\s+\d{1,2},", r"\s+\d{1,2}(?:st|nd|rd|th)?,")
+_BIRTH_RE = _LazyRx(r"(?i)(?:\bd\.?o\.?b\b|date[ _-]?of[ _-]?birth|birth[ _-]?date|\bborn on|\bbirthday|\bb-day"
                     r"|\bbday\b" + _VCARD_PARAMS
                     + r"|\bgeb(?:\.|oren am|urtsdatum)"
                     r"|n[ée]\(?e?\)? le|date de naissance|fecha de nacimiento|\bnac[ií](?:d[oa])? el"
@@ -74,7 +78,7 @@ _BIRTH_RE = _LazyRx(r"(?i)(?:\bd\.?o\.?b\b|date[ _-]?of[ _-]?birth|birth[ _-]?da
                     r"\*{0,2}\s{0,3}(?:(?:is|was|as|ist|war|est|es|era|è|é|er|var|är|on|oli|jest|je|este|είναι)"
                     r"\s{1,3})?"
                     r"[:=,\uff1a]?\*{0,2}\s{0,3}[\"'(]?\s{0,3}"
-                    r"(" + _DATE + r"|(?:19|20)\d{6})(?!\d)")   # and YYYYMMDD after the label (Gretel, 2026-10-19)
+                    r"(" + _BDATE + r"|(?:19|20)\d{6})(?!\d)")   # and YYYYMMDD after the label (Gretel, 2026-10-19)
 
 # ------------------------------------------------------------------------------------- user in a URL or path --
 _URL_USER_RE = _LazyRx(r"://([^:/?#\s@\[\]]{1,64}):[^@\s/]{1,128}@")
@@ -137,7 +141,7 @@ _DE_TWO_LINES_RE = _LazyRx(r"\b[A-ZÄÖÜ][\wäöüß-]{0,40}(?:straße|strasse|
 # Box 5678\nAPO AE 09876): the second line, a city, a state code and a ZIP code, is the strong part, so the street line
 # needs no street word (Mendeley, 2026-10-20: 27,427 such addresses, all on two lines, were missed)
 _US_STATES = ("AL|AK|AZ|AR|CA|CO|CT|DE|DC|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND"
-              "|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|PR|GU|VI|AS|MP")
+              "|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|PR|GU|VI|AS|MP|FM|MH|PW")
 _US_TWO_LINES_RE = _LazyRx(
     # the house number starts the line or follows a separator or a word of place (at, to, is): `Release 2 Notes` has
     # its number inside a heading
@@ -163,8 +167,9 @@ _US_ONE_LINE_RE = _LazyRx(
     r",?[ \t]+(?:APO|FPO|DPO) (?:AA|AE|AP) \d{5})(?![\w-])")
 # a label that names a person's home right before the address (residential address (…), home address: …): the address
 # is the person's, whatever company the sentence names before it
-_HOME_ADDRESS_BEFORE_RE = _LazyRx(r"(?i)(?<![a-z])(?:residential|home|permanent|private)[ _-]?(?:address|addr\.?)"
-                                  r"[\"']?[ \t]{0,3}[:(=-]?[ \t]{0,3}$")
+_HOME_ADDRESS_BEFORE_RE = _LazyRx(r"(?i)(?<![a-z])(?:(?:residential|home|permanent|private)[ _-]?(?:address|addr\.?)"
+                                  r"[\"']?[ \t]{0,3}[:(=-]?|resid(?:ing|es) at|(?:a )?resident of|li(?:ves|ving) at)"
+                                  r"[ \t]{0,3}$")
 _NAMED_PLACE_BEFORE_RE = _LazyRx(r"\bat the (?:[A-Z][\w'&.-]*[ \t]+){0,4}[A-Z][\w'&.-]*,[ \t]*$")
 _DEPARTMENT_LINE_RE = _LazyRx(r"(?i)[ \t]*(?:abteilung|abt\.|department|dept\.?|division|bereich)[ \t]")
 _ADDRESS_FORMS = tuple(
@@ -1754,9 +1759,12 @@ _PLACEHOLDER_NAME_WORDS = frozenset({"doe", "roe", "mustermann", "musterfrau", "
 _STREET_DIRECTION = r"(?:N|S|E|W|NE|NW|SE|SW|North|South|East|West|Northeast|Northwest|Southeast|Southwest)"
 # the end of a street value: a separator, the end of the line or of a sentence, Markdown bold, or the place after it
 _STREET_VALUE_END = r"[ \t]*(?:$|[,;|\n)]|\.(?:\s|$)|\*\*| (?:in|and)\b)"
+# the USPS suffixes (rules/street_suffixes_us.txt), only in the street line after a label or a key
+_USPS = "|".join(x.strip() for x in (_Path(__file__).parent / "rules" / "street_suffixes_us.txt").read_text(
+    encoding="utf-8").splitlines() if x.strip() and not x.startswith("#"))
 _STREET_LINE = (r"(?:\d{1,6}[A-Za-z]?(?:-\d{1,4})? (?:(?:[A-Z][A-Za-z'.-]{0,30}|\d{1,3}(?:st|nd|rd|th)) ){1,4}"
                 r"(?:" + _STREET[3:-1]
-                + r"|Circle|Cir|Parkway|Pkwy|Trail|Trl|Loop|Pike|Alley|Grove|Gardens|Heights|Mews)\.?"
+                + r"|Circle|Cir|Parkway|Pkwy|Trail|Trl|Loop|Pike|Alley|Grove|Gardens|Heights|Mews{USPS})\.?"
                 # a direction after the street type and a unit, also without a unit word (Main St SW, Oak Ave 12B,
                 # Elm Rd N Ste A): only where the value ends right after it, so a number of the sentence stays out
                 r"(?:(?: " + _STREET_DIRECTION + r")?"
@@ -1780,6 +1788,10 @@ _STREET_LINE_EU = (r"(?:[A-ZÅÄÖ][\wåäöé-]{1,40}(?:straat|laan|gracht|plei
                    r"(?:(?:de la|de l'|des|du|de|d'|la|le|les) ?)?[A-ZÀ-Þ][\wà-ÿ'’-]{1,30}"
                    r"(?: [A-ZÀ-Þ][\wà-ÿ'’-]{1,30}){0,3}"
                    r")(?![\w-])")
+# the long form (the USPS suffixes) after an address label or key; the short one after a prose cue (lives at,
+# located in), where Point, Keys or Fields end ordinary sentences (Gate A: "the cache lives at 1 Shared Point")
+_STREET_LINE_SHORT = _STREET_LINE.replace("{USPS}", "")
+_STREET_LINE = _STREET_LINE.replace("{USPS}", "|" + _USPS)
 _STREET_LINE_RE = _lazy(_STREET_LINE)
 # a company, a supplier or a legal form in the record before an EU street form: a business's address
 _EU_BUSINESS_RE = _lazy(r"(?i)(?<![a-z])(?:fornitore|azienda|societ[aà]|ditta|proveedor|empresa|entreprise"
@@ -1790,10 +1802,12 @@ _STREET_LABEL_RE = _lazy(
     r"address|address(?: on file)?|anschrift|wohnadresse|wohnanschrift|adresse|domicilio|direcci[oó]n|indirizzo"
     r"|endere[cç]o|adres|adress|gatuadress|straatadres|stra(?:ß|ss)e|residenza)[\"']?[ \t]{0,3}"
     r"(?:is[ \t]{1,3}|[:=][ \t]{0,3})[\"']?[ \t]{0,2}(?-i:(" + _STREET_LINE + "|" + _STREET_LINE_EU + "))"
-    r"|(?<![a-z])(?:resides?|residing|reside|lives?|living|domiciled|wohnt|wohnhaft"
+    r"|(?<![a-z])(?:resides?|residing|reside|resident[ei]?|lives?|living|domiciled|domiciliad[oa]|wohnt|wohnhaft"
+    r"|woonachtig|woonadres|bosatt"
     # a place word before a street line: the property located at, situated at (the company check below holds)
     r"|located|situated|property)"
-    r"(?: (?:at|in|on|im|am|in der|an der))?[ \t]{1,3}(?-i:(" + _STREET_LINE + "|" + _STREET_LINE_EU + "))")
+    r"(?: (?:at|in|on|of|en|op|på|aan|im|am|in der|an der))?[ \t]{1,3}"
+    r"(?-i:(" + _STREET_LINE_SHORT + "|" + _STREET_LINE_EU + "))")
 
 
 def _eu_street_ok(text: str, a: int, b: int) -> bool:
@@ -1884,7 +1898,8 @@ _THING_SUBJECT_RE = _lazy(r"(?i)(?<![a-z])(?:server|service|function|file|files|
 _HOME_LABEL_RE = _lazy(r"(?i)home|residential|permanent|wohn|resid|liv|domicil")
 _STREET_LABEL_WORDS = ("address", "anschrift", "adresse", "domicilio", "direcci", "indirizzo", "endere", "adres",
                        "adress", "straße", "strasse", "residenza",
-                       "resid", "live", "living", "domiciled", "wohn", "located", "situated", "property")
+                       "resid", "live", "living", "domicil", "wohn", "woon", "bosatt", "located", "situated",
+                       "property")
 _PHONE_WORDS = ("phone", "tel", "mobil", "cell", "fax", "handy", "portable", "rufnummer", "rufnr", "durchwahl",
                 "festnetz", "whatsapp", "hotline",
                 "contact", "call", "reach", "text", "dial",
@@ -2554,7 +2569,8 @@ def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> l
 
 # ------------------------------------------------------------------------------------------------- the scan --
 # words one of which a text must hold before a rule's regex runs (a cheap test on the lowered text)
-_BIRTH_WORDS = ("dob", "d.o.b", "birth", "born", "bday", "geb", "n\u00e9", "ne le", "nee le", "naissance", "nacimiento",
+_BIRTH_WORDS = ("dob", "d.o.b", "birth", "born", "bday", "b-day",
+                "geb", "n\u00e9", "ne le", "nee le", "naissance", "nacimiento",
                 "naci", "nac\u00ed", "nascimento", "nascita", "nato", "nata il", "nascid", "geboorte", "geboren",
                 "delsedatum", "dd den", "dselsdato", "syntym", "urodz", "narozen", "tarih", "рождения", "народження",
                 "na\u0219ter", "na\u015fter", "naster", "γέννησης", "ميلاد", "生年月日", "出生日期", "생년월일")
@@ -2599,9 +2615,10 @@ def _compact_birth_date(v: str) -> bool:
 
 
 def _past_year(date: str) -> bool:
-    """A birth date lies before this year: a date of this year or later is an event, a release, a deadline."""
+    """A birth date lies before this year (a date of this year or later is an event, a release, a deadline) and after
+    the year 1000 (0001-01-01 is the zero time of Go and .NET in API JSON)."""
     years = re.findall(r"(?<!\d)(\d{4})(?!\d)", date)
-    return not years or int(years[-1]) < _host().this_year()
+    return not years or 1000 <= int(years[-1]) < _host().this_year()
 
 
 def _own_user() -> str:

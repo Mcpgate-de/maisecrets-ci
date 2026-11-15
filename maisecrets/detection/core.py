@@ -49,6 +49,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import checksums
+from . import public_values as _pv
 from .card_shape import _card_shaped
 from .lazy_regex import LazyRx as _LazyRx
 from .keyword_tail import _KeywordTail, _HeadTail  # noqa: F401
@@ -2950,7 +2951,7 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
             labelled = rule.type == "SECRET" and form != "shape"
             # a seed phrase is compared in one form: its words with one space between them
             as_published = " ".join(_WORD_RE_ANY.findall(secret)) if "seed-phrase" in filters else secret
-            if is_public_test_value(as_published, rule.type) and not labelled:
+            if _pv.no_person_value(secret, rule.type) or is_public_test_value(as_published, rule.type) and not labelled:
                 # a documented test card, key or number that a shape rule found. A published key that a label assigns
                 # (PROD_PASSWORD=<the Stripe docs key>) is used as a credential and stays a hit: being public does not
                 # make the same bytes no secret there (review of 0.6.12). The label rules run first, so no later rule
@@ -3109,7 +3110,8 @@ def _personal_hits(text: str, enabled, found: list, taken_starts: list, taken_en
             continue   # Kontoinhaber: Musterbau Schmidt GmbH: a legal form after the words names a company (#40)
         low = value.lower()
         if _references().has_marks(value) or "example" in low or low in personal.PLACEHOLDER_NAMES \
-                or looks_like_placeholder(value) or is_public_test_value(value, typ):
+                or looks_like_placeholder(value) or is_public_test_value(value, typ) \
+                or _pv.no_person_value(value, typ):
             continue
         if kind in personal.ONLY_WIDENS and not overlaps(start, end):
             continue   # a form that only completes a hit another rule made: alone it would mask company addresses
