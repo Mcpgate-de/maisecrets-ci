@@ -33,11 +33,11 @@ def declared(path: str, pattern: str) -> int | None:
 
 def main() -> int:
     checks = [
-        ("README Claude scenarios", declared("README.md", r"harness/run.py\s+# (\d+) scenarios"),
+        ("ADMIN.md Claude scenarios", declared("docs/ADMIN.md", r"harness/run.py\s+# (\d+) scenarios"),
          count_scenarios("harness/run.py", r'^    "[a-z_]+": \{$')),
-        ("README Codex scenarios", declared("README.md", r"harness/codex.py \[--real\]\s+# (\d+) scenarios"),
+        ("ADMIN.md Codex scenarios", declared("docs/ADMIN.md", r"harness/codex.py \[--real\]\s+# (\d+) scenarios"),
          count_scenarios("harness/codex.py", r'^    "[a-z_]+": \{$')),
-        ("README beliefs", declared("README.md", r"replay_can_fail.py\s+# (\d+) proofs"),
+        ("ADMIN.md beliefs", declared("docs/ADMIN.md", r"replay_can_fail.py\s+# (\d+) proofs"),
          len(list((ROOT / "beliefs").glob("*.toml")))),
     ]
     rc = 0

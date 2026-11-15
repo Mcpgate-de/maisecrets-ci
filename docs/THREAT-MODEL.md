@@ -151,7 +151,7 @@ Four goals hold over every path, each with its own tests and a mutation per path
   copy of `~/.maisecrets` by a tool that is not Bash, Write or Edit. The Claude Code sandbox closes these
   (`sandbox.credentials` deny for the files, `injectHosts` for allowed
   destinations); it lives in the user's settings, not in the plugin, and does
-  not exist on native Windows. The README recommends the settings.
+  not exist on native Windows. [ADMIN.md, "Rehydration policy"](ADMIN.md#rehydration-policy-optional) recommends the settings.
 - **The client's permission prompt for an MCP tool**, when the client shows
   one, shows the resolved argument. It is the person's own value at the point
   of the real call.

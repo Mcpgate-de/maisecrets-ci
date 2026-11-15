@@ -1,7 +1,7 @@
 {
   "name": "maisecrets",
   "version": "0.7.2",
-  "description": "Intercepts detected secrets and PII before they reach the cloud model: deterministic detection, a local vault with TTL, placeholders resolved only where the real call happens. Free and open source, by mcpgate.de.",
+  "description": "Intercepts detected secrets and PII before they reach the cloud model: deterministic detection, a local vault with TTL, placeholders resolved only where the real call happens. No model, no download: Python's standard library only. Free and open source, by mcpgate.de.",
   "author": {
     "name": "mcpgate",
     "url": "https://mcpgate.de"
@@ -20,7 +20,7 @@
   "interface": {
     "displayName": "maisecrets",
     "shortDescription": "Intercepts secrets and PII",
-    "longDescription": "A hook blocks a prompt that carries a secret or personal data, stores the value in a local vault with a TTL, and hands the model a placeholder. The placeholder resolves only where the real call happens: in the shell, in an MCP argument, in a file write. Tool output is redacted before it reaches the model. maisecrets itself sends no prompt, value or telemetry to a server. Free and open source, by mcpgate.de.",
+    "longDescription": "A hook blocks a prompt that carries a secret or personal data, stores the value in a local vault with a TTL, and hands the model a placeholder. The placeholder resolves only where the real call happens: in the shell, in an MCP argument, in a file write. Tool output is redacted before it reaches the model. maisecrets itself sends no prompt, value or telemetry to a server. No model, no download: Python's standard library only. Free and open source, by mcpgate.de.",
     "developerName": "mcpgate",
     "category": "Security",
     "capabilities": [],

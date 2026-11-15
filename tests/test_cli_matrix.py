@@ -1619,12 +1619,14 @@ class TipsTests(unittest.TestCase):
 
     def test_each_pool_has_a_tip_about_rules_of_your_own_with_a_step_that_works_in_its_client(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        admin = (ROOT / "docs" / "ADMIN.md").read_text(encoding="utf-8")
         for pool, step in ((self.tips.TIPS, "/maisecrets:rules"),
                            (self.tips.TIPS_CODEX, "maisecrets: set rule_dirs add")):
             (tip,) = [t for t in pool if "rules for the tokens of your own services" in t]
             self.assertIn(step, tip)
             self.assertIn('README "Rules of your own"', tip)
-        self.assertIn("\n## Rules of your own\n", readme, "the tip names a README section that exists")
+        self.assertIn("\n### Rules of your own\n", readme, "the tip names a README heading that exists")
+        self.assertIn("\n## Rules of your own\n", admin, "and the README heading links to the section")
 
     def test_each_pool_and_the_first_start_name_the_skill_for_what_leaked_before_in_a_form_of_its_client(self):
         for pool, codex, step in ((self.tips.TIPS, False, "/maisecrets:secret-hygiene"),

@@ -265,7 +265,7 @@ def cmd_report(args: list[str]) -> int:
     return rc
 
 
-TEST_DATA_URL = "https://github.com/Mcpgate-de/maisecrets#test-data-that-maisecrets-leaves-alone"
+TEST_DATA_URL = "https://github.com/Mcpgate-de/maisecrets/blob/main/docs/USING.md#test-data-that-maisecrets-leaves-alone"
 
 
 def _forget_the_false_positive(ev: dict) -> None:

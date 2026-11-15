@@ -14,7 +14,7 @@ and OpenAI plugin directories.
   checklist).
 - `.gitignore` excludes caches and harness output. Nothing under
   `~/.maisecrets/` is ever committed.
-- `LICENSE` Apache-2.0, `README.md` describes what the plugin runs, writes,
+- `LICENSE` Apache-2.0, `README.md` and `docs/HOW-IT-WORKS.md` describe what the plugin runs, writes,
   sends and fetches (the directory reviewer reads it), `CHANGELOG.md`.
 
 ## Git hooks (now)

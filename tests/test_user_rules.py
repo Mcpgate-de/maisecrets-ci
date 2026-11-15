@@ -637,7 +637,7 @@ class SessionStartLine(Base):
         self.assertIn("a?b (setting) is missing", note)
 
     def test_the_readme_section_opens_with_the_recipe_for_administrators(self):
-        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        readme = (ROOT / "docs" / "ADMIN.md").read_text(encoding="utf-8")
         start = readme.index("\n## Rules of your own\n")
         recipe = readme[start:readme.index("You can add detection rules", start)]
         self.assertIn("**For administrators.**", recipe)

@@ -473,7 +473,7 @@ response = contract.result_response(detector, result)    # the same as JSON (mai
   class that `GET /info` does not list in `labels` is a 400. `RemoteDetector` sends the labels only with
   `ask_labels=True` (the Hugging Face API has no such parameter) and when `classes` maps a class beyond
   `PER`/`PERSON`, so any other service gets the request it always got. `GET /health` answers `{"status": "ok"}`. The image `mcpgate/ner` runs this service, and in the plugin `/maisecrets:ner` sets it
-  up (README, "Names from a service").
+  up ([ADMIN.md, "Names from a service"](ADMIN.md#names-from-a-service-optional)).
 - **In a response** (`contract.result_response`), a finding of the service has `score` and `provenance.origin` and
   `layer` `model`; `engine.remote` holds `format`, `model`, `state` and, when unavailable, `reason`. Without a
   remote detector the response is the one of the entry point. The schema has both fields as optional.

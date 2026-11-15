@@ -88,7 +88,7 @@ class AdviceTests(unittest.TestCase):
     send an agent that follows it into the block it wanted to avoid."""
 
     def test_every_form_the_readme_and_the_primer_name_is_no_hit(self):
-        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        readme = (ROOT / "docs" / "USING.md").read_text(encoding="utf-8")
         section = readme.split("## Test data that maisecrets leaves alone", 1)[1].split("\n## ", 1)[0]
         for text in ("pass§word = testpass", "pass§word = secret123", "pass§word = Passw0rd!",
                      "tok§en = my-test-token", "tok§en: <your-token>", "api§_key = ${API_KEY}",
@@ -113,7 +113,8 @@ class AdviceTests(unittest.TestCase):
         import re as _re
         from maisecrets import cli
         heading = "Test data that maisecrets leaves alone"
-        self.assertIn(f"\n## {heading}\n", (ROOT / "README.md").read_text(encoding="utf-8"))
+        self.assertIn(f"\n## {heading}\n", (ROOT / "docs" / "USING.md").read_text(encoding="utf-8"))
+        self.assertIn(f"\n### {heading}\n", (ROOT / "README.md").read_text(encoding="utf-8"), "the old anchor")
         anchor = _re.sub(r"[^a-z0-9 -]", "", heading.lower()).replace(" ", "-")     # GitHub's heading anchor
         self.assertTrue(cli.TEST_DATA_URL.endswith("#" + anchor), cli.TEST_DATA_URL)
         import io
