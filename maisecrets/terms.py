@@ -135,6 +135,9 @@ def _variant(raw: str, n: int, floor: frozenset | None) -> Variant:
         raise TermsError(f"line {n}: a variant needs a letter or a digit", n)
     if len(words) > MAX_WORDS:
         raise TermsError(f"line {n}: a variant of more than {MAX_WORDS} words", n)
+    if __name__.split(".")[0].lower() in words:
+        # the plugin's own name masked its commands and paths, and blocked the prompt that removes it (#53)
+        raise TermsError(f"line {n}: the plugin's own name is no term", n)
     mode = INSIDE if starts and ends else STARTS if ends else ENDS if starts else WORD
     if mode == INSIDE and len(text) < MIN_INSIDE:
         raise TermsError(f"line {n}: a *…* variant needs at least {MIN_INSIDE} characters", n)

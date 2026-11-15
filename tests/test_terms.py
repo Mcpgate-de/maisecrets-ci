@@ -91,6 +91,13 @@ class ParseTests(unittest.TestCase):
 class RejectTests(unittest.TestCase):
     """The person's own list: the first bad line raises, and the message names the line, never its text."""
 
+    def test_the_plugins_own_name_is_no_term(self):
+        # #53: as a term it masked the plugin's commands and paths and blocked the prompt that removes it
+        own = terms.__name__.split(".")[0]
+        self.assertRejected(f"NAME_1  {own.capitalize()}\n", 1)
+        self.assertRejected(f"NAME_1  Varga\nNAME_2  {own} team\n", 2)
+        self.assertEqual(len(terms.parse(f"NAME_1  {own}x\n")[0]), 1, "a longer word is a term")
+
     def assertRejected(self, text: str, line: int, words: tuple = ()):  # noqa: N802 - unittest style
         with self.assertRaises(TermsError) as cm:
             terms.parse(text)
