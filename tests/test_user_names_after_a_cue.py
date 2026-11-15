@@ -37,7 +37,21 @@ class UserNameAfterACueTests(unittest.TestCase):
                             ("2026-11-15 10:00 user plind88 logged in", "plind88"),
                             ("Failed password for invalid user plind88 from", "plind88"),
                             ("Welcome back, kalin_orb_42!", "kalin_orb_42"),
-                            ("Failed password for invalid user k.orbek from", "k.orbek")):
+                            ("Failed password for invalid user k.orbek from", "k.orbek"),
+                            # #52: quoted values, key=value, systemd, sshd, sudo, pam, a plain word after a strong cue
+                            ('auth failed for user "lhartmann7"', "lhartmann7"),
+                            ("Access denied for user 'lhartmann7'@'10.0.0.5'", "lhartmann7"),
+                            ("Login failed for user 'lhartmann7'.", "lhartmann7"),
+                            ('User "lena.hartmann" cannot list resource "pods"', "lena.hartmann"),
+                            ("ts=1 user=lhartmann7 action=login", "lhartmann7"),
+                            ('User "KalinOrbek" logged in', "KalinOrbek"),
+                            ("Started Session 3 of User kmorgan42.", "kmorgan42"),
+                            ("Accepted password for kmorgan42 from 192.0.2.4 port 22", "kmorgan42"),
+                            ("Failed publickey for k.morgan from 192.0.2.4 port 22", "k.morgan"),
+                            ("sudo: kmorgan42 : TTY=pts/0 ; PWD=/home", "kmorgan42"),
+                            ("GET /api?user=kmorgan42&page=2", "kmorgan42"),
+                            ("session opened for user kmorgan42(uid=1001) by (uid=0)", "kmorgan42"),
+                            ("session opened for user root(uid=0) by kmorgan42(uid=1001)", "kmorgan42")):
             with self.subTest(text=text):
                 self.assertIn(value, users(text))
 
@@ -61,7 +75,20 @@ class UserNameAfterACueTests(unittest.TestCase):
                      "session closed for user postgres2", "User ConfigManager failed", '{"userId": "kalinorbek"}',
                      '{"branch": "fix-orbek7"}', '{"handle": "kalin_orb_42"}', "for user e.g", "the user a.out",
                      "for user x.y", "session closed for user kibana8", "Requested by user codecov-commenter",
-                     '{"userLogin": "jira-integration2"}', "user pgbouncer2 failed to authenticate"):
+                     '{"userLogin": "jira-integration2"}', "user pgbouncer2 failed to authenticate",
+                     "the user dashboard", "a user agent string", "for user preferences", 'user "admin" created',
+                     "user=root", "user=$USER", "Failed password for root from 192.0.2.4", "sudo: deploy : TTY=pts/0",
+                     "session opened for user root(uid=0) by (uid=0)", "Started Session 3 of User root.",
+                     "the user interface of user settings", "user='postgres'", "by user system",
+                     "from user input.", "Approved by user tkowalczyk", "Failed password for kmorgan42 to",
+                     "sudo: kmorgan42 ran", "Started Session 3 of User kmorganx.",
+                     "User=caddy", "GET /admin?user=dashboard HTTP/1.1", "Set the user 'profile' field",
+                     "Access denied for user 'magento'@'localhost'", "Reset the password for profile42 from the page",
+                     "Accepted publickey for kmorganx from 192.0.2.4", "sudo: kmorgan42 : command not found",
+                     "owned by polkitd(uid=998)", "nearby kmorgan42(uid=1)",
+                     "sudo: kmorganx : TTY=pts/0", "for user 'magento2'@'localhost'",
+                     "session closed for user telegraf1",
+                     "by kmorgan42 for sshd(uid=0)"):
             with self.subTest(text=text):
                 self.assertEqual([], users(text))
 

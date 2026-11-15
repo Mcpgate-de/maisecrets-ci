@@ -12,33 +12,50 @@ _CAMEL = r"[A-Z][a-z]{1,15}[A-Z][a-z0-9]{1,15}"
 # the cues: `for user kalin.orbek`, `for invalid user k.orbek` (sshd), `User kalin.orbek successfully logged in` (also
 # after a log prefix), `Welcome, kalin_orb_42.` and `Welcome back, ...`
 # matched only where str.find saw `user` or `welcome`: one regex pass over a megabyte cost 0.09 s (#51)
-_AT_RE = re.compile(r"(?i:user|welcome(?: back)?,)[ \t]+(" + _HANDLE + "|" + _CAMEL + r")(?=[.,;:!?)\s]|$)")
-_STRONG = ("for", "by", "from", "the", "a", "invalid")       # `for user x` needs no verb of a login after it
+# a plain word is never a user name here, not even in quotes or after `user=`: the word list lacks many ordinary
+# words and service accounts (`User=caddy` in a systemd unit, `?user=dashboard`, `for user 'profile'`; Gate A of #52)
+_AT_RE = re.compile(r"(?i:user|welcome(?: back)?,)(?:[ \t]+(?P<q>[\"'])?|(?P<eq>=))(?P<v>" + _HANDLE + "|" + _CAMEL
+                    + r")(?(q)(?P=q))(?=[.,;:!?)(@\s&]|$)")
+_STRONG = ("for", "by", "from", "the", "a", "invalid", "of")  # `for user x` needs no verb of a login after it
+# sshd `Accepted password for kmorgan42 from`, sudo `sudo: kmorgan42 : TTY=`, pam `by kmorgan42(uid=1001)` (#52)
+_SSHD_RE = re.compile(r"(?:Accepted|Failed) (?:password|publickey) for (" + _HANDLE + r") from\b")
+_SUDO_RE = re.compile(r"sudo:[ \t]+(" + _HANDLE + r")[ \t]+:[ \t]+TTY=")
+_UID_RE = re.compile(r"\bby[ \t]+(" + _HANDLE + r")$")
 _LOGIN_VERB_RE = re.compile(r"[ \t]+(?:successfully|logged|signed|accessed|failed|was|has|reported|attempted)\b")
 _IS_RE = re.compile(r"(?i)user ?name is[ \t]+([A-Za-z][A-Za-z0-9._-]{1,30}?)(?=[.,;:!?)\s]|$)")
 
 
 def user_names(text: str) -> list:
-    """(start, end) of a user name after a cue in prose."""
+    """(start, end) of a user name after a cue in prose, and in an sshd, a sudo or a pam line."""
     low = text.lower()
     starts = _at(low, "user") + _at(low, "welcome")
-    if not starts:
+    lines = _all(low, "accepted ") + _all(low, "failed ")
+    sudo = _all(low, "sudo:")
+    uids = _all(low, "(uid=")
+    if not (starts or sudo or uids or lines):
         return []
     from .core import _word_set
     from .personal import _username_value_ok
     out = []
+
+    def keep(v: str, a: int, b: int) -> None:
+        # the word list loads only for a candidate value: a text with the word `user` and no value loads nothing
+        if _username_value_ok(v, False, " ") and _handle_ok(v, _word_set()):
+            out.append((a, b))
     for pos in sorted(starts):
         before = low[max(0, pos - 9):pos].split()
         m = _AT_RE.match(text, pos)
         if m is not None:
-            v = m.group(1)
-            login = bool(_LOGIN_VERB_RE.match(text, m.end(1)))
-            # `user x` alone names an account only before a verb of a login (`User k.orbek logged in`)
-            weak = low.startswith("user", pos) and not (before and before[-1] in _STRONG and low[pos - 1] == " ")
+            v = m.group("v")
+            login = bool(_LOGIN_VERB_RE.match(text, m.end("v") + (1 if m.group("q") else 0)))
+            cue = before[-1] if before and low[pos - 1] == " " else ""
+            marked = bool(m.group("q") or m.group("eq"))
+            # `user x` alone names an account only before a verb of a login (`User k.orbek logged in`); quotes and
+            # `user=` mark a value (`User "lena.hartmann" cannot list`, `user=lhartmann7`)
+            weak = low.startswith("user", pos) and cue not in _STRONG and not marked
             if (weak or re.fullmatch(_CAMEL, v)) and not login:
                 continue
-            if _username_value_ok(v, False, " ") and _handle_ok(v, _word_set()):
-                out.append((m.start(1), m.end(1)))
+            keep(v, m.start("v"), m.end("v"))
             continue
         if before and before[-1] == "my":
             m = _IS_RE.match(text, pos)
@@ -47,6 +64,27 @@ def user_names(text: str) -> list:
                 # _username_value_ok refuses a word of the word list of 3 letters or more (`my username is visible`)
                 if len(v) > 2 and _username_value_ok(v, False, " "):
                     out.append((m.start(1), m.start(1) + len(v)))
+    for at in lines:
+        m = _SSHD_RE.match(text, at)
+        if m is not None:
+            keep(m.group(1), m.start(1), m.end(1))
+    for at in sudo:
+        m = _SUDO_RE.match(text, at)
+        if m is not None:
+            keep(m.group(1), m.start(1), m.end(1))
+    for at in uids:
+        m = _UID_RE.search(text, max(0, at - 40), at)
+        if m is not None:
+            keep(m.group(1), m.start(1), m.end(1))
+    return sorted(set(out))
+
+
+def _all(low: str, word: str) -> list:
+    """Every start of `word` in the lowercased text (str.find)."""
+    out, i = [], low.find(word)
+    while i >= 0:
+        out.append(i)
+        i = low.find(word, i + 1)
     return out
 
 
@@ -67,7 +105,9 @@ _TOOL_PARTS = frozenset(
     "mysql jenkins gitlab github bitbucket jira confluence sonar sonarqube nexus artifactory ansible terraform "
     "docker podman kube kubernetes helm vault consul nomad airflow celery rabbitmq kafka zookeeper hadoop spark "
     "nginx apache httpd tomcat jetty ubuntu debian centos fedora alpine admin root guest webmaster postmaster "
-    "backup monitor monitoring codecov dependabot renovate travis circleci".split())
+    "backup monitor monitoring codecov dependabot renovate travis circleci magento drupal moodle nextcloud minikube "
+    "kubelet traefik telegraf caddy jellyfin pihole polkitd lightdm restic borg rhel linux wordpress joomla "
+    "keycloak".split())
 
 
 def _handle_ok(v: str, known) -> bool:
