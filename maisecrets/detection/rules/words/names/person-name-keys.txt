@@ -1,0 +1,15 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a person-name key in structured data (#43)
+# first_name, family-name-female, "given name", `last name`, full__name__male: the key, folded (lower case, no space,
+# _ or -, no gender word at the end), names one person's name. Not user_name, file_name or app_name: no person
+# Read as _PERSON_NAME_KEYS in maisecrets/detection/role_names.py.
+familyname
+firstname
+forename
+fullname
+givenname
+lastname
+maidenname
+middlename
+surname

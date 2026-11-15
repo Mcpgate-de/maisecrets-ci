@@ -1,0 +1,88 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# one word in a name field that is the state of the field in a form or a schema, not a name; the word list knows the.
+# stem (require, mask) but not every form of it
+# Read as _FIELD_STATE_WORDS in maisecrets/detection/role_names.py.
+anonymised
+anonymized
+anonymous
+blank
+empty
+hidden
+invalid
+mandatory
+masked
+missing
+nil
+null
+optional
+placeholder
+redacted
+required
+sample
+tbd
+todo
+undisclosed
+unspecified
+withheld
+# a verb or a function word that starts a message after the key (first_name: Was
+# …), which the word list leaves out
+am
+and
+are
+be
+been
+but
+can
+could
+did
+does
+had
+has
+have
+if
+is
+may
+might
+must
+not
+or
+see
+shall
+should
+then
+use
+was
+were
+will
+would
+# a validation message in words (Too Short, Can't Be Blank)
+can't
+too
+# a sort order or the key itself as the value (ORDER BY last_name DESC)
+asc
+desc
+familyname
+firstname
+givenname
+lastname
+surname
+# the label itself, translated: an i18n catalog under a name key
+achternaam
+apellido
+apellidos
+cognome
+efternamn
+efternavn
+fornavn
+förnamn
+imię
+nachname
+nazwisko
+nom
+nombre
+prenom
+prénom
+sobrenome
+voornaam
+vorname

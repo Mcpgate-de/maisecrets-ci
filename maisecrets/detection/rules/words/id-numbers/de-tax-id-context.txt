@@ -1,0 +1,21 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# country rules of our own (0.6.19): forms Presidio has no pattern for, and Switzerland and Austria, which it has no.
+# rules for. The design follows a fork of this project (Apache-2.0, see NOTICE). Each rule names its region; a rule
+# with require_context needs one of its context words within 80 characters before or 40 after the value.
+# Read as _DE_TAX_ID_CONTEXT in maisecrets/detection/core.py.
+bzst
+identifikationsnummer
+idnr
+persönliche identifikationsnummer
+steuer identifikation
+steuer-id
+steuer-identifikationsnummer
+steuer-idnr
+steuer_id
+steuer_identifikationsnummer
+steuer_idnr
+steuerid
+steueridentifikationsnummer
+steuerliche identifikation
+steuerliche identifikationsnummer

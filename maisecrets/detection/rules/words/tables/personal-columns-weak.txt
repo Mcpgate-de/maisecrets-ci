@@ -1,0 +1,43 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a column of a person in a role; weak, so it counts only next to a strong column.
+# Read as _WEAK_COLS in maisecrets/detection/personal.py.
+customer
+customer_name
+emp_name
+employee
+employee_name
+family_name
+first_name
+firstname
+full_name
+fullname
+given_name
+last_name
+lastname
+nachname
+name
+nom
+nombre
+nome
+patient
+patient_name
+surname
+user_id
+user_name
+userid
+username
+vorname
+# the name of a person in a role (Benchmark V3 Phase C, 2026-10-21: candidate, player, client,
+# recipient name columns of Nemotron dev stayed text); weak, so only beside a strong column
+applicant_name
+beneficiary_name
+candidate_name
+client_name
+contact_name
+member_name
+passenger_name
+player_name
+recipient_name
+student_name
+tenant_name

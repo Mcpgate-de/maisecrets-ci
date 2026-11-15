@@ -1,0 +1,9 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a column of an id number that only a person has.
+# Read as _NEW_ID_COLS in maisecrets/detection/personal.py.
+beneficiary_number
+certificate_license_number
+driver_license_number
+health_plan_beneficiary_number
+patient_id

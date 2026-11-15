@@ -1,0 +1,25 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# the owner word must be the last word of the header: login_user and user are addresses, end_user_id and.
+# contact_asset are an id and a file (review of 0.6.25)
+# Read as _OWNER_WORDS in maisecrets/detection/encoded_mail.py.
+absender
+benutzer
+benutzername
+contact
+contacts
+destinataire
+empfänger
+expéditeur
+kontakt
+login
+logins
+recipient
+recipients
+sender
+upn
+user
+username
+usernames
+users
+utilisateur

@@ -1,0 +1,12 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a last part that only holds the value of the object above it: {"phone": [{"value": ...}]}, {"phone": {"number": ...}}.
+# The part above it names the value (ai-gateway #1764: Pipedrive, HubSpot and vCard-like contacts)
+# not `text`: it is the content of a message (Slack text and blocks[].text), and the label of a copy must stay the same
+# Read as _WRAPPER_WORDS in maisecrets/detection/fields.py.
+number
+nummer
+val
+value
+values
+wert

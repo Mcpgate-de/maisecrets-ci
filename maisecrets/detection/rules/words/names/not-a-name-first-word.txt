@@ -1,0 +1,57 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# the first word of a value that is no name.
+# Read as _NOT_A_NAME_START in maisecrets/detection/personal.py.
+a
+admin
+all
+amazon
+an
+anonymous
+any
+apple
+das
+default
+der
+die
+docker
+ein
+eine
+el
+example
+false
+github
+gitlab
+google
+kein
+keine
+kubernetes
+la
+le
+les
+meta
+microsoft
+my
+n/a
+new
+no
+none
+not
+null
+old
+our
+see
+service
+system
+tbd
+team
+test
+that
+the
+this
+todo
+true
+unknown
+user
+visual
+your

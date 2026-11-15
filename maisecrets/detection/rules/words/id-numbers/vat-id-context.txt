@@ -1,0 +1,20 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a word near a Swiss or Austrian VAT id that names it.
+# Read as _VAT_CONTEXT in maisecrets/detection/core.py.
+iva
+mwst
+mwst-nr
+tva
+uid
+uid-nr
+uid-nummer
+umsatzsteuer
+umsatzsteuer-identifikationsnummer
+unternehmens-identifikationsnummer
+ust-id
+ust-idnr
+ustid
+vat
+vat id
+vat number

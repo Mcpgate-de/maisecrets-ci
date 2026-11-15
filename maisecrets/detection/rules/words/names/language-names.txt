@@ -1,0 +1,24 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# names of a language in its own script: a locale table is no person.
+# Read as _AUTONYMS in maisecrets/detection/personal.py.
+ελληνικά
+беларуская
+български
+македонски
+русский
+русский язык
+српски
+українська
+қазақ тілі
+עברית
+اردو
+العربية
+فارسی
+हिन्दी
+বাংলা
+中文
+日本語
+简体中文
+繁體中文
+한국어

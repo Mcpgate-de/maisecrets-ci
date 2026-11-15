@@ -1,0 +1,13 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a word that starts a validation message or a changelog line after a name label.
+# Read as _NAME_SENTENCE_START in maisecrets/detection/personal.py.
+cannot
+is
+may
+must
+not
+renamed
+should
+too
+was

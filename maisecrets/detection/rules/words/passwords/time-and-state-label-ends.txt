@@ -1,0 +1,20 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# the last word of a label that names a time or a state of a secret: lastPasswordChangeDateTime, password_set.
+# Read as _TIME_STATE_END in maisecrets/detection/fields.py.
+changed
+created
+date
+enabled
+expiration
+expires
+expiry
+required
+revoked
+rotated
+set
+state
+status
+time
+timestamp
+updated

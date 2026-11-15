@@ -1,0 +1,15 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# the text must hold one of these words before the rule for an address after a label runs.
+# Read as _ADDRESS_WORDS in maisecrets/detection/personal.py.
+address
+adr
+adresse
+anschrift
+direcci
+endere
+indirizzo
+lives
+location
+property
+ship

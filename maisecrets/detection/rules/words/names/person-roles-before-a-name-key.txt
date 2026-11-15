@@ -1,0 +1,39 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a role before a person-name key (customer_first_name, billingLastName): the name is still a person's. Not user,.
+# company, account, app or file: their name is a login or a thing
+# Read as _PERSON_KEY_ROLES in maisecrets/detection/role_names.py.
+applicant
+author
+beneficiary
+billing
+borrower
+buyer
+cardholder
+child
+client
+contact
+customer
+doctor
+emergencycontact
+employee
+guarantor
+guardian
+holder
+member
+owner
+parent
+passenger
+patient
+physician
+preferred
+primary
+recipient
+reviewer
+secondary
+seller
+sender
+shipping
+spouse
+student
+tenant

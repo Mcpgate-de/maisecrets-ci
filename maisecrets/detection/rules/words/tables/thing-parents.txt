@@ -1,0 +1,36 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# the parent of a name element that is a thing, not a person: a pom.xml project, a product, a package, and the.
+# instruments and parties of a financial message (a party or a counterparty is a company as often as a person)
+# Read as _THING_PARENTS in maisecrets/detection/personal.py.
+app
+application
+artifact
+asset
+build
+commodity
+company
+component
+counterparty
+dependency
+fund
+group
+instrument
+issuer
+item
+module
+organisation
+organization
+package
+parent
+party
+plugin
+product
+profile
+project
+repository
+security
+service
+site
+team
+unit

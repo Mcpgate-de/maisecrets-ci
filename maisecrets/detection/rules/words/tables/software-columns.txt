@@ -1,0 +1,12 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a column of a software table: next to it a name column names a product, not a person.
+# Read as _SOFTWARE_COLS in maisecrets/detection/personal.py.
+app
+application
+build
+package
+product
+release
+sku
+version

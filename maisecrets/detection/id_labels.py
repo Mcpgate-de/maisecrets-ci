@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .lazy_regex import LazyRx as _LazyRx
+from .wordlists import word_tuple as _word_tuple
 
 # --------------------------------------------------------------------------------- ID number after a label --
 # the labels of health, tax and national numbers: the number of a health plan's beneficiary, a medical record, a
@@ -44,8 +45,4 @@ _ID_DATE_RE = _LazyRx(r"\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])[T ](?:[0
 # only a timestamp with its hour: a plain date after an id label can be the id (a licence number written as a
 # date, Nemotron; the 0.9.3 release gate)
 
-_ID_WORDS = ("mrn", "member", "passport", "licen", "dl", "sin", "tfn", "nir", "tax", "insurance", "account",
-             "patient", "id on file", "beneficiary", "medical", "national", "tin", "social",
-             "reisepass", "passnummer", "pass-nr", "pass nr", "hrerschein", "passeport", "permis", "pasaporte",
-             "passaporte", "conducir", "condu", "carteira", "passaporto", "patente", "paspoort", "rijbewijs",
-             "körkort", "korkort", "paszport", "prawo jazdy", "prawa jazdy", "driving")
+_ID_WORDS = _word_tuple("id-numbers/id-label-words")

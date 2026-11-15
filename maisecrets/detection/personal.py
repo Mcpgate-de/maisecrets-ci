@@ -30,15 +30,14 @@ from .street_forms import street_number_last
 from .id_labels import _ID_DATE_RE, _ID_RE, _ID_WORDS
 from .text_index import field_end, field_start
 from .phone_forms import _DE_CALL_REGIONS, _PHONE_DE_CUE_RE, _PHONE_DE_NEXT_RE, _e164_without_plus, intl_after_cue
+from .wordlists import words as _words, word_tuple as _word_tuple
 
 # ---------------------------------------------------------------------------------------------------- types --
 NAME, ADDRESS, BIRTH_DATE, ID_NUMBER, USERNAME, PHONE = "NAME", "ADDRESS", "BIRTH_DATE", "ID_NUMBER", "USERNAME", \
     "PHONE"
 
 # documentation names: a value that is one of them is an example, not a person
-PLACEHOLDER_NAMES = frozenset({"jane doe", "john doe", "max mustermann", "erika mustermann", "john smith",
-                               "jane smith", "joe bloggs", "john q. public", "richard roe", "jane roe",
-                               "max muster", "maria musterfrau", "otto normalverbraucher", "alice", "bob"})
+PLACEHOLDER_NAMES = _words("placeholders/person-names")
 
 # ------------------------------------------------------------------------------- phone with one-digit groups --
 # the phone rule of detect.py wants groups of two digits or more after the country code: "+1 4 15 22 3344" and
@@ -84,32 +83,7 @@ _BIRTH_RE = _LazyRx(r"(?i)(?:\bd\.?o\.?b\b|date[ _-]?of[ _-]?birth|birth[ _-]?da
 _URL_USER_RE = _LazyRx(r"://([^:/?#\s@\[\]]{1,64}):[^@\s/]{1,128}@")
 _HOME_USER_RE = _LazyRx(r"(?:/home/|/Users/|[A-Za-z]:\\\\?Users\\\\?)([A-Za-z][A-Za-z0-9._-]{1,31})(?=[/\\])")
 # service accounts and the words of documentation: no person
-SERVICE_USERS = frozenset({
-    "root", "runner", "ubuntu", "user", "admin", "shared", "public", "default", "ec2-user", "git", "node", "app",
-    "vscode", "jenkins", "gitlab-runner", "circleci", "travis", "docker", "dev", "developer", "me", "you",
-    "username", "yourname", "your-user", "your_user", "name", "foo", "bar", "test", "pi", "linuxbrew", "runneradmin",
-    "builder", "build", "ci", "www-data", "nobody", "postgres", "mysql", "jovyan", "vagrant", "centos", "fedora",
-    "debian", "alpine", "azureuser", "opc", "cloud-user", "core", "steam", "guest", "administrator", "all users",
-    "default user", "defaultapppool", "localservice", "networkservice", "systemprofile", "redis", "elastic",
-    "oracle", "sa", "deploy", "deployer", "ansible", "github", "gitlab", "bitbucket", "bamboo", "teamcity",
-    "buildkite", "buildbot", "actions", "codespace", "gitpod", "coder", "workspace", "sandbox", "tester", "demo",
-    "example", "sample", "someone", "somebody", "john", "jane", "alice", "bob", "x", "xxx", "home", "users",
-    "anonymous", "anon", "apikey", "api", "api_key", "token", "oauth", "oauth2", "x-access-token", "x-token-auth",
-    "x-oauth-basic", "bearer", "key", "secret", "pass", "password", "login", "account", "service", "client",
-    "nonroot", "airflow", "rstudio", "rocky", "kali", "vsts", "keycloak", "rabbitmq", "kubeadmin", "aws", "gcp",
-    "azure", "wordpress", "gitlab-ci-token", "personalaccesstoken", "jupyter", "spark", "hadoop", "kafka",
-    "zookeeper", "grafana", "prometheus", "nginx", "apache", "httpd", "tomcat", "minio", "gitea", "sonar",
-    "sonarqube", "nexus", "odoo", "ftp", "mail", "www", "web", "backup", "ops", "devops", "cloud", "ubuntu-server",
-    "arch", "manjaro", "suse", "opensuse", "kubernetes", "k8s", "pi", "postgresql", "mongodb", "mongo", "mariadb",
-    "couchdb", "neo4j", "influxdb", "clickhouse", "sentry", "superset", "metabase", "n8n", "frappe", "erpnext",
-    "dependabot", "renovate", "github-actions", "travis-ci", "drone", "woodpecker", "argocd", "flux", "vault",
-    "consul", "nomad", "terraform", "packer", "bitnami", "daemon", "bin", "sys", "sync", "games", "man", "lp",
-    "news", "uucp", "proxy", "list", "irc", "gnats", "systemd-network", "messagebus", "sshd", "chrony", "ntp",
-    "oai", "readonly", "read_only", "reader", "writer", "readwrite", "migration", "migrations", "migrator",
-    "replication", "replicator", "repl", "monitor", "monitoring", "metrics", "exporter", "healthcheck", "probe",
-    "owner", "dbo", "dbadmin", "dba", "superuser", "su", "operator", "scheduler", "etl", "analytics", "report",
-    "reporting", "integration", "webhook", "smtp", "imap", "noreply", "no-reply", "relay", "upload", "download",
-})
+SERVICE_USERS = _words("usernames/service-accounts")
 # a user name that a tool or an image creates, not a person: appuser, app_user, mambauser, seluser, pwuser, user1
 _SERVICE_USER_RE = _LazyRx(r"(?i)^(?:.{0,12}[-_]?user\d*|user[-_]?\d+|.{0,20}(?:bot|svc|service|admin|runner|"
                            r"agent|daemon|worker|deploy|build)(?:[-_]?\d+)?|[a-z]{1,3}\d+|.*\[bot\])$")
@@ -344,20 +318,14 @@ _COMPOUND_PERSON_KEY_RE = _LazyRx(
 _ROLE_KEY_RE = _LazyRx(r"(?:^|_)(?:author|reviewer|assignee|reporter|creator|organi[sz]er|attendee|committer"
                        r"|approver|requester|merged_by|closed_by|approved_by|requested_by|merge_user)"
                        r"_(?:full_|display_)?name$")
-_ACCOUNT_WORDS = frozenset({"account", "team", "teams", "group", "department", "resources", "deleted",
-                            "removed", "former", "unknown", "bot", "service", "system", "automation",
-                            "benutzer", "nutzer", "konto", "gruppe", "abteilung", "mannschaft", "verein", "ehemalig"})
+_ACCOUNT_WORDS = _words("names/team-and-group-words")
 # an element whose name is a person label, around a name alone: <card_holder>, <customerName>, <ns:fullName>
 _XML_NAME_ELEMENT_RE = _LazyRx(r"<([A-Za-z_][\w.:-]{0,64})(?:\s[^<>]{0,200})?>[ \t]*" + _NAME_VALUE
                                + r"[ \t]*</\1>")
 _PERSON_TAG_RE = _LazyRx(r"(?i)(" + _PERSON_LABELS + r")|(" + _WEAK_LABELS + r")")
 # the parent of a name element that is a thing, not a person: a pom.xml project, a product, a package, and the
 # instruments and parties of a financial message (a party or a counterparty is a company as often as a person)
-_THING_PARENTS = frozenset({"project", "product", "item", "package", "plugin", "dependency", "module", "artifact",
-                            "application", "app", "service", "component", "repository", "organization",
-                            "organisation", "company", "team", "group", "parent", "build", "profile", "site",
-                            "instrument", "security", "commodity", "unit", "issuer", "party", "counterparty", "fund",
-                            "asset"})
+_THING_PARENTS = _words("tables/thing-parents")
 _XML_OPEN_RE = _LazyRx(r"<(/?)([A-Za-z_][\w.:-]{0,64})(?:\s[^<>]{0,200})?(/?)>")
 
 
@@ -383,10 +351,7 @@ _NOUN_END_RE = _LazyRx(r"(?i)(?:ing|tion|sion|ment|ness|ity|ism|ogy|ware|ance|en
 
 
 # English words of two and three letters (the word list starts at four): the verb of a CI step name, `Run Pytest`
-_SHORT_EN = frozenset({"run", "set", "get", "add", "use", "fix", "new", "old", "all", "the", "and", "for", "not", "top",
-                       "end", "log", "job", "app", "web", "api", "dev", "ops", "off", "on", "up", "out", "key", "map",
-                       "tag", "pin", "cut", "mix", "bug", "put", "pop", "via", "to", "of", "in", "at", "by", "is",
-                       "no", "go", "do", "my", "our", "own", "per", "pre", "sub", "max", "min", "raw", "dry", "lint"})
+_SHORT_EN = _words("passwords/short-english-words")
 
 
 def _city_is_a_word(city: str) -> bool:
@@ -420,48 +385,13 @@ def _reads_as_words(v: str, every: bool = False) -> bool:
 
 
 # given names that are also English words (SCOWL); a value that starts with one may still be a person
-_GIVEN_NAME_WORDS = frozenset({"john", "peter", "maria", "mark", "rose", "grace", "will", "bill", "jack", "frank",
-                               "dean", "drew", "faith", "hope", "joy", "june", "may", "pat", "ray", "rich", "sue",
-                               "ruby", "pearl", "amber", "rob", "tom", "tim", "ben", "dan", "don", "ian", "eve",
-                               "lily", "iris", "holly", "ivy", "jade", "dawn", "summer", "victor", "carl", "sam"})
+_GIVEN_NAME_WORDS = _words("names/given-names-that-are-words")
 
 
 # the first word of a value that is no name
-_NOT_A_NAME_START = frozenset({
-    "the", "a", "an", "my", "your", "our", "this", "that", "new", "old", "none", "null", "true", "false", "test",
-    "example", "admin", "user", "team", "service", "system", "default", "unknown", "anonymous", "all", "any", "no",
-    "not", "see", "tbd", "todo", "n/a", "der", "die", "das", "ein", "eine", "kein", "keine", "le", "la", "les", "el",
-    "github", "gitlab", "google", "microsoft", "amazon", "apple", "meta", "docker", "kubernetes", "visual",
-})
+_NOT_A_NAME_START = _words("names/not-a-name-first-word")
 # a word in a value that makes it an organisation, a product or a place, not a person
-_NOT_A_NAME_WORD = frozenset({
-    "team", "teams", "group", "squad", "crew", "department", "dept", "division", "org", "organisation", "organization",
-    "inc", "corp", "corporation", "company", "co", "llc", "ltd", "limited", "plc", "gmbh", "ag", "kg", "ug", "se",
-    "sa", "sarl", "bv", "nv", "foundation", "project", "developers", "contributors", "community", "authors",
-    "maintainers", "bot", "robot", "agent", "server", "service", "services", "cache", "cluster", "proxy", "gateway",
-    "controller", "operator", "worker", "manager", "engine", "platform", "studio", "code", "app", "application",
-    "suite", "cloud", "api", "sdk", "cli", "ui", "web", "data", "database", "store", "storage", "queue", "stream",
-    "network", "labs", "lab", "systems", "solutions", "software", "technologies", "tech", "digital", "media", "games",
-    "university", "universität", "school", "college", "institute", "hospital", "city", "street", "road",
-    "avenue", "center", "centre", "building", "tower", "station", "airport", "river", "lake", "mountain",
-    "north", "south", "east", "west", "new", "san", "los", "las", "saint", "st", "fort", "port", "am", "main",
-    "edition", "version", "release", "update", "preview", "beta", "alpha", "stable", "nightly", "pro", "plus",
-    "enterprise", "community", "free", "basic", "premium", "standard", "default", "custom", "local", "global",
-    "nord", "süd", "sued", "ost", "mitte", "vertrieb", "einkauf", "stadtwerke", "werke", "retail", "studios",
-    "workers", "weblate", "autofix", "ci", "oss", "snyk", "sonar", "codecov", "github", "gitlab", "bitbucket",
-    "atlassian", "jenkins", "grafana", "loki", "kibana", "elastic", "datadog", "sentry", "jira", "confluence",
-    "sammlung", "verwaltung", "abteilung", "gruppe", "dienst", "konto", "kunden", "ordner", "datei", "seite",
-    "monitoring", "logging", "security", "support", "sales", "marketing", "finance", "ops", "devops", "infra",
-    "infrastructure", "backend", "frontend", "mobile", "desktop", "release", "build", "deploy", "staging",
-    "production", "prod", "dev", "test", "tests", "testing", "demo", "sample", "example", "template", "docs",
-    "documentation", "readme", "guide", "manual", "handbook", "policy", "rule", "rules", "config", "settings",
-    "dashboard", "report", "reports", "alert", "alerts", "job", "jobs", "task", "tasks", "pipeline", "workflow",
-    # German words of a greeting or a sign, in both spellings: Freundliche Grüße and Große Straße before a mail
-    # address or after Name: are no person (codex review of the ß change, 2026-11-01; the ss forms were names before)
-    "grüße", "grüsse", "gruesse", "gruß", "gruss", "freundliche", "freundlichen", "viele", "beste", "besten",
-    "straße", "strasse", "größe", "grösse", "groesse", "große", "grosse", "großer", "grosser", "großes", "grosses",
-    "fußball", "fussball", "gemäß", "gemaess",
-})
+_NOT_A_NAME_WORD = _words("names/not-a-name-word")
 
 
 def _name_ok(v: str) -> bool:
@@ -492,28 +422,10 @@ _DE_ARTICLE_BEFORE_RE = _LazyRx(r"(?i)(?:^|[^\w])(?:der|die|das|den|dem|des|ein|
                                 r"jeder|jeden|jedem|keine|keiner|diese|dieser|diesen|jene|meine|deine|seine|ihre|"
                                 r"unsere|eure|welche|welcher|erste|zweite|letzte|junge|alte) $")
 # a role after the title: the word itself, or a compound that ends in one of the stems (Oberarzt, Geschäftsführerin)
-_DE_TITLE_ROLES = frozenset({
-    "doktor", "doktorin", "professor", "professorin", "pfarrer", "pfarrerin", "pastor", "pastorin", "kollege",
-    "kollegin", "ober", "rat", "rätin", "abgeordnete", "abgeordneter", "vorsitzende", "vorsitzender", "oberst",
-    "general", "major", "leutnant", "kapitän", "chef", "chefin", "kunde", "kundin", "mama", "papa", "mutter", "vater",
-    "oma", "opa", "tante", "onkel", "schwester", "bruder", "gott", "jesus", "christus", "holle", "konsul", "konsulin",
-    "kaplan", "diakon", "diakonin", "vikar", "vikarin", "dekan", "dekanin", "rektor", "rektorin", "magister", "dozent",
-    "dozentin", "notar", "notarin", "zeuge", "zeugin", "angeklagte", "angeklagter", "wirt", "wirtin", "graf",
-    "gräfin", "baron", "baronin", "coach", "dr", "prof", "dipl", "mag"})
-_DE_ROLE_STEMS = (
-    "arzt", "ärztin", "leiter", "leiterin", "führer", "führerin", "vorstand", "sekretär", "sekretärin", "präsident",
-    "präsidentin", "minister", "ministerin", "direktor", "direktorin", "kommissar", "kommissarin", "meister",
-    "meisterin", "kanzler", "kanzlerin", "senator", "senatorin", "botschafter", "botschafterin", "inspektor",
-    "inspektorin", "ingenieur", "ingenieurin", "richter", "richterin", "anwalt", "anwältin", "lehrer", "lehrerin",
-    "nachbar", "nachbarin", "pfleger", "pflegerin", "verwalter", "verwalterin", "mieter", "mieterin", "trainer",
-    "trainerin", "erzieher", "erzieherin", "ausbilder", "ausbilderin", "hauptmann", "wachtmeister", "bürgermeister",
-    "landrat", "stadtrat", "geheimrat", "rätin", "leutnant", "oberst", "general", "major")
+_DE_TITLE_ROLES = _words("names/de-roles-after-a-title")
+_DE_ROLE_STEMS = _word_tuple("names/de-role-word-endings")
 # a word after the title that names no one: a template field, a pronoun, a greeting, the title again
-_DE_TITLE_NOT_A_NAME = frozenset({
-    "vorname", "nachname", "name", "familienname", "firstname", "lastname", "surname", "test", "beispiel",
-    "platzhalter", "anrede", "titel", "nutzer", "benutzer", "user", "sie", "ihnen", "ihre", "ihr", "ihrer", "ihrem",
-    "ihren", "du", "dein", "deine", "danke", "bitte", "hallo", "guten", "liebe", "lieber", "herr", "herrn", "frau",
-    "namens"})
+_DE_TITLE_NOT_A_NAME = _words("names/de-not-a-name-after-a-title")
 # the countries where Herr and Frau are the titles; the registry names "de", the gate takes all five
 _DE_TITLE_REGIONS = frozenset({"de", "at", "ch", "li", "lu"})
 
@@ -592,21 +504,10 @@ _PERSON_CUE_RES = (
 # the title before a one-word surname (the end of the text before the surname), and the words after it that are no
 # surname: a title, a form's placeholder, a role
 _TITLE_ONE_WORD_RE = _LazyRx(r"(?<![A-Za-z])(?:Mr|Mrs|Ms)\.? $")
-_TITLE_NOT_A_SURNAME = frozenset({"mr", "mrs", "ms", "mx", "miss", "mister", "madam", "sir", "ok", "lastname",
-                                  "surname", "nachname", "vorname", "name", "title", "undefined", "null", "president",
-                                  "speaker", "chairman", "chairwoman", "mayor", "secretary", "minister",
-                                  "ambassador", "senator", "governor", "director"})
+_TITLE_NOT_A_SURNAME = _words("names/not-a-surname-after-a-title")
 # the roles a salutation names instead of a person, which the word list lacks (Dear Valued Policyholder): read on the
 # dev split of Gretel and Nemotron-PII, 2026-10-20, with their common relatives
-_ROLE_WORDS = frozenset({
-    "valued", "esteemed", "prospective", "policyholder", "policyholders", "subscriber", "subscribers", "cardholder",
-    "beneficiary", "applicant", "applicants", "customer", "customers", "member", "members", "client", "clients", "team",
-    "committee", "manager", "managers", "sir", "madam", "colleague", "colleagues", "partner", "partners", "patron",
-    "investor", "investors", "shareholder", "shareholders", "stakeholder", "stakeholders", "user", "users",
-    "participant", "participants", "resident", "residents", "homeowner", "homeowners", "tenant", "tenants", "borrower",
-    "insured",
-    "claimant", "account", "holder", "student", "students", "parent", "parents", "guardian", "patient", "patients",
-    "employee", "employees", "friend", "friends", "admissions", "hiring", "selection", "support", "sales", "board"})
+_ROLE_WORDS = _words("names/roles-in-a-salutation")
 _SERVICE_LOCAL_RE = _LazyRx(r"(?i)^(?:no-?reply|do-?not-?reply|notifications?|support|info|hello|contact|team"
                             r"|admin|root|git|bot|ci|build|release|deploy|security|alerts?|monitoring|postmaster"
                             r"|webmaster|mailer-daemon|bounces?|github-actions|actions|dependabot|renovate)"
@@ -615,31 +516,8 @@ _SERVICE_LOCAL_RE = _LazyRx(r"(?i)^(?:no-?reply|do-?not-?reply|notifications?|su
 # ---------------------------------------------------------------------------------------- CSV header columns --
 # a header with a column that holds personal data on every row. A name or a user column alone is no proof (a product
 # list has a `name` column): it counts only next to a strong column
-_STRONG_COLS = frozenset({"address", "street", "street_address", "home_address", "endereco", "direccion", "adresse",
-                          "anschrift", "strasse", "dob", "date_of_birth", "birth_date", "birthdate", "birthday",
-                          "geburtsdatum", "phone", "phone_number", "telephone", "telefone", "telefono", "telefon",
-                          "mobile", "mobile_phone", "cell", "ssn", "tfn", "aadhaar", "nir",
-                          "passport", "passport_number", "national_id", "tax_id", "mrn",
-                          # German ids that only a person has (2026-10-19): the tax identification number, the social
-                          # insurance and the identity card number. `steuernummer` and `steuer_id` stay out: a company
-                          # register and a table of tax rates have them too (codex Gate A); a tax id in such a column is
-                          # found by its checksum rule (de-tax-id, region de)
-                          # only the long names: `sv_nummer` and `ausweisnummer` also number versions and badges
-                          "steueridentifikationsnummer", "steuer_identifikationsnummer", "sozialversicherungsnummer",
-                          "rentenversicherungsnummer", "personalausweisnummer",
-                          # ids only a person has, as the records of the datasets name them (Benchmark V3 Phase C,
-                          # 2026-10-22: 54 health plan and 26 certificate license numbers in Markdown tables of dev)
-                          "health_plan_beneficiary_number", "beneficiary_number", "certificate_license_number",
-                          "driver_license_number", "patient_id"})
-_WEAK_COLS = frozenset({"name", "full_name", "fullname", "first_name", "last_name", "firstname", "lastname",
-                        "given_name", "family_name", "surname", "customer", "customer_name", "employee",
-                        "employee_name", "emp_name", "patient", "patient_name", "nome", "nombre", "nom", "vorname",
-                        "nachname", "username", "user_name", "user_id", "userid",
-                        # the name of a person in a role (Benchmark V3 Phase C, 2026-10-21: candidate, player, client,
-                        # recipient name columns of Nemotron dev stayed text); weak, so only beside a strong column
-                        "candidate_name", "client_name", "player_name", "recipient_name", "applicant_name",
-                        "student_name", "member_name", "contact_name", "passenger_name", "beneficiary_name",
-                        "tenant_name"})
+_STRONG_COLS = _words("tables/personal-columns")
+_WEAK_COLS = _words("tables/personal-columns-weak")
 _CSV_ROWS = 10000   # rows read under one header; a larger table is read in its first rows only
 _CSV_CELL_RE = {sep: _LazyRx(r'"[^"\n]{0,512}"|[^' + sep + r'\n]{0,512}') for sep in (",", ";", "\t")}
 _NOT_A_CELL = frozenset({"", "null", "none", "n/a", "na", "-", "true", "false", "nan"})
@@ -667,16 +545,10 @@ def _column_type(col: str) -> str:
 
 # a field that names one part of a name holds one word (| First Name | X |): a record with a person in it says so
 # (Benchmark V3 Phase C, 2026-10-21: 1,272 first and last names alone in field-value tables of Nemotron dev stayed text)
-_NAME_PART_COLS = frozenset({"first_name", "last_name", "firstname", "lastname", "given_name", "family_name",
-                             "surname", "vorname", "nachname"})
+_NAME_PART_COLS = _words("tables/name-part-columns")
 _NAME_PART_RE = _LazyRx(_NAME_STEM)
-_NOT_A_NAME_PART = frozenset({"required", "optional", "unknown", "none", "redacted", "pending", "mandatory",
-                              "string", "text", "varchar", "first", "last", "name", "value", "field", "example",
-                              "sample", "test",
-                              # the words of fixtures and seed data (first_name,last_name / Foo,Bar)
-                              "foo", "bar", "baz", "qux", "quux", "user", "demo", "dummy", "fake", "placeholder",
-                              "lorem", "ipsum", "guest", "anonymous"})
-_FIRST_PART_COLS = frozenset({"first_name", "firstname", "given_name", "vorname"})
+_NOT_A_NAME_PART = _words("names/not-a-name-part")
+_FIRST_PART_COLS = _words("tables/first-name-columns")
 
 
 _FIXTURE_USER_RE = _LazyRx(r"(?i)(?:^|[^a-z])(?:fixture|mock|sample|dummy|test|example|demo|fake|placeholder)"
@@ -1003,10 +875,9 @@ def _password_cell(v: str) -> bool:
         and _ds_value_ok(v, min_len=6)
 
 
-_BIRTH_ANCHOR_COLS = frozenset({"dob", "date_of_birth", "birth_date", "birthdate", "geburtsdatum"})
-_NEW_ID_COLS = frozenset({"health_plan_beneficiary_number", "beneficiary_number", "certificate_license_number",
-                          "driver_license_number", "patient_id"})
-_SOFTWARE_COLS = frozenset({"product", "version", "release", "build", "sku", "package", "app", "application"})
+_BIRTH_ANCHOR_COLS = _words("tables/birth-date-columns")
+_NEW_ID_COLS = _words("tables/id-columns")
+_SOFTWARE_COLS = _words("tables/software-columns")
 
 
 def _birth_anchor(text: str, names: list, hit: tuple) -> bool:
@@ -1093,7 +964,7 @@ _SQL_CELL_RE = _lazy(r"\s*(?:'((?:[^'\n]|''){0,512})'|(-?[\w.:+-]{1,64}))\s*([,)
 _SQL_INSERT_BARE_RE = _lazy(r"(?i)\binsert\s+into\s+([\w.`\"\[\]]{1,128})\s+values\s*")
 _SQL_CREATE_RE = _lazy(r"(?is)\bcreate\s+table\s+(?:if\s+not\s+exists\s+)?([\w.`\"\[\]]{1,128})\s*\((.{1,20000}?)\)\s*"
                        r"(?:[\w=\s]{0,200})?;")
-_SQL_NOT_A_COLUMN = frozenset({"primary", "key", "unique", "constraint", "foreign", "index", "check", "fulltext"})
+_SQL_NOT_A_COLUMN = _words("tables/sql-not-a-column")
 
 
 def _sql_create_columns(text: str) -> dict:
@@ -1484,9 +1355,7 @@ _ADD_MASK_RE = _lazy(r"::add-mask::([^\s\"'`]{6,256})")
 _SAS_KEY_RE = _lazy(r"(?i)\bSharedAccessKey=([A-Za-z0-9+/_=-]{16,256})(?![A-Za-z0-9+/_=-])")
 # a Postman or Insomnia variable, a HAR header: {"key"|"name": "<secret word>", "value": "..."}
 _KV_SECRET_RE = _lazy(r"\"(?:key|name)\"\s*:\s*\"([^\"\n]{1,60})\"\s*,\s*\"value\"\s*:\s*\"([^\"\n]{6,512})\"")
-_SECRET_NAME_PARTS = frozenset({"password", "passwd", "pwd", "secret", "token", "apikey", "pass", "credential",
-                                 "credentials", "auth", "passphrase", "bearer", "jwt", "privatekey", "signingkey",
-                                 "clientkey", "accesskey", "secretkey"})
+_SECRET_NAME_PARTS = _words("passwords/secret-name-parts")
 _META_NAME_RE = _lazy(r"(?i)(?:type|url|uri|name|header|policy|length|len|ttl|seconds|expiry|expires|endpoint|path"
                            r"|id|ids|hint|label|format|scheme|prefix|mode|kind|version|count|audience|issuer|provider"
                            r"|scope|store|tokenizer|algorithm|alg|encoding|status|method|rate|format)$")
@@ -1642,12 +1511,9 @@ _USERNAME_CODE_START = ("self.", "this.", "os.", "request.", "req.", "user.", "c
                         "process.", "params.", "form.", "data.", "props.", "ctx.", "context.", "options.", "opts.",
                         "cls.", "obj.", "row.", "item.", "record.", "payload.", "body.", "event.", "input.")
 # the last word of a field, a role or a variable, not of a person's name: ci_actor, database_owner, enum_value
-_USERNAME_NOT_A_NAME_END = ("_actor", "_account", "_owner", "_value", "_name", "_user", "_id", "_type", "_field",
-                            "_key", "_role", "_group", "_bot", "_service", "_svc", "_admin", "acct", "_reader",
-                            "_writer")
+_USERNAME_NOT_A_NAME_END = _word_tuple("usernames/not-a-person-ends")
 # the last part of an attribute in code: `username=authn.principal`, `username: current.user`
-_USERNAME_ATTRIBUTE_END = frozenset({"name", "user", "username", "login", "principal", "id", "email", "value",
-                                     "current", "subject", "sub", "identity", "account", "owner"})
+_USERNAME_ATTRIBUTE_END = _words("usernames/code-attribute-ends")
 # a service account by its form only (the short-name rule of a home path, `ab12`, is no help here: js42 is a person).
 # The service forms: a short name that ends in a service word (up to 20 characters before it, as before), and a
 # forge's own forms (service_account_<id>, the token bots project_<id>_bot_<hex> and group_<id>_bot_<hex>). A service
@@ -1656,10 +1522,7 @@ _USERNAME_ATTRIBUTE_END = frozenset({"name", "user", "username", "login", "princ
 _USERNAME_SERVICE_RE = _LazyRx(r"(?i)^(?:.{0,12}[-_]?user\d*|user[-_]?\d+|.{0,20}(?:bot|svc|service|admin|runner|"
                                r"agent|daemon|worker|deploy|build)(?:[-_]?\d+)?|.*\[bot\]"
                                r"|service_account_[a-z0-9_]*[a-z0-9][a-z0-9_]*|(?:project|group)_\d+_bot_[0-9a-f]{8,})$")
-_USERNAME_NOT_A_VALUE = frozenset({"string", "null", "none", "true", "false", "required", "optional", "undefined",
-                                   "unknown", "changeme", "placeholder", "value", "empty", "text", "varchar",
-                                   "your_username", "yourusername", "my_username", "myusername", "username_here",
-                                   "ok", "no", "na", "yes", "on", "off", "nil", "tbd", "todo"})
+_USERNAME_NOT_A_VALUE = _words("usernames/not-a-value")
 
 
 _JSON_EXAMPLE_RE = _lazy(r"(?i)[\"']examples?[\"']\s*:\s*[\[{]")
@@ -1722,36 +1585,14 @@ def _username_value_ok(v: str, quoted: bool, sep: str) -> bool:
 # the value of an i18n file or a form schema, not a name: the label in another language (first_name: Vorname) and the
 # words of a type, a case or an option
 # the translations of a name label: a text whose name fields hold these is an i18n file or a form schema
-_NAME_LABEL_TRANSLATIONS = frozenset({
-    "firstname", "lastname", "surname", "forename", "givenname", "familyname", "middlename", "name", "vorname",
-    "nachname", "familienname", "rufname", "prénom", "prenom", "nom", "nombre", "apellido", "apellidos", "nome",
-    "cognome", "prenome", "sobrenome", "voornaam", "achternaam", "förnamn", "fornamn", "efternamn", "imię", "imie",
-    "nazwisko", "etunimi", "sukunimi", "fornavn", "etternavn", "efternavn", "jméno", "jmeno", "příjmení", "prijmeni",
-    "keresztnév", "vezetéknév", "ad", "soyad", "soyadı", "patronymic"})
+_NAME_LABEL_TRANSLATIONS = _words("names/name-label-translations")
 # a word that starts a validation message or a changelog line after a name label
-_NAME_SENTENCE_START = frozenset({"too", "may", "was", "renamed", "must", "should", "cannot", "is", "not"})
+_NAME_SENTENCE_START = _words("names/message-start-after-a-name-label")
 # a lower-case word right after the value on the same line: the value starts a sentence
 _WORD_AFTER_RE = _lazy(r"[ \t]+[a-zäöüßàâçéèêëîïôûùüÿñ]{2,}")
-_NAME_LABEL_VALUES = frozenset({
-    "firstname", "lastname", "surname", "forename", "givenname", "familyname", "middlename", "name", "vorname",
-    "nachname", "familienname", "rufname", "prénom", "prenom", "nom", "nombre", "apellido", "apellidos", "nome",
-    "cognome", "prenome", "sobrenome", "voornaam", "achternaam", "förnamn", "fornamn", "efternamn", "imię", "imie",
-    "nazwisko", "etunimi", "sukunimi", "fornavn", "etternavn", "efternavn", "jméno", "jmeno", "příjmení", "prijmeni",
-    "keresztnév", "vezetéknév", "ad", "soyad", "soyadı", "unicode", "lowercase", "uppercase", "titlecase", "asc",
-    "desc", "latin", "validator", "sanitizer", "enum", "alphanumeric", "alpha", "patronymic", "untitled", "pydantic",
-    "joi", "yup", "zod", "deprecated", "removed", "normalized", "normalised", "translated", "pseudonymized",
-    "pseudonymised", "capitalized", "capitalised", "trimmed", "hidden", "visible", "editable", "default", "string",
-    "text", "unknown", "anonymous", "texte", "zeichenfolge", "zeichenkette", "chaîne", "chaine", "cadena", "testo",
-    "tekst", "sträng", "strang", "ciąg", "teksto", "zahl", "número", "numero", "nummer", "liczba", "erforderlich",
-    "obligatoire", "requis", "facultatif", "optionnel", "opcional", "obbligatorio", "facoltativo", "verplicht",
-    "optioneel", "wymagane", "opcjonalne", "obligatorisk", "valfri", "vazio", "vacío", "vide", "leer", "pusty",
-    "prenume", "nume", "ime", "prezime", "priimek", "vardas", "pavardė", "pavarde", "vārds", "vards", "uzvārds",
-    "uzvards", "eesnimi", "perekonnanimi", "fornafn", "eftirnafn", "cognoms", "nom de pila", "nama", "meno",
-    "priezvisko", "jina", "input", "textfield", "textbox", "textarea", "attribute", "multiline", "nvarchar",
-    "lowercased", "uppercased", "confidential", "pii", "sensitive", "label", "placeholder", "field", "value"})
+_NAME_LABEL_VALUES = _words("names/name-label-values")
 # the surnames and given names of documentation, which the name rule finds as a pair
-_PLACEHOLDER_NAME_WORDS = frozenset({"doe", "roe", "mustermann", "musterfrau", "muster", "bloggs", "normalverbraucher",
-                                     "john", "jane", "max", "erika", "alice", "bob", "foo", "bar", "baz", "qux"})
+_PLACEHOLDER_NAME_WORDS = _words("placeholders/name-words")
 # a street line after an address label or a verb of residence, without a city or a postcode (Nemotron-PII,
 # 2026-10-16: "street address: 4821 Maple Ridge Drive", "resides at 77 Harbour Lane"). The company check of the
 # address label holds: a company, an office or a public place on the line keeps the address text
@@ -1833,9 +1674,7 @@ _PLACE_OF_A_BUSINESS_RE = _lazy(r"(?i)(?<![a-z])(?:provider|insurance|insurer|ve
 
 
 # the state of a form field after its label, not a name: the word list holds the stems only (require, mandate)
-_FIELD_STATES = frozenset({"required", "optional", "mandatory", "nullable", "readonly", "redacted", "masked",
-                           "anonymized", "anonymised", "withheld", "missing", "blank", "empty", "varchar", "str", "int",
-                           "char", "pflicht", "pflichtfeld", "leer", "obligatoire", "obligatorio", "obbligatorio"})
+_FIELD_STATES = _words("names/field-states")
 
 
 def _no_marks(w: str) -> str:
@@ -1896,18 +1735,9 @@ _THING_SUBJECT_RE = _lazy(r"(?i)(?<![a-z])(?:server|service|function|file|files|
                           r"|site|website|page|bot|script|binary|image|container|cluster|host|shard|handler|worker|job|task)"
                           r"[ \t]{1,3}$")
 _HOME_LABEL_RE = _lazy(r"(?i)home|residential|permanent|wohn|resid|liv|domicil")
-_STREET_LABEL_WORDS = ("address", "anschrift", "adresse", "domicilio", "direcci", "indirizzo", "endere", "adres",
-                       "adress", "straße", "strasse", "residenza",
-                       "resid", "live", "living", "domicil", "wohn", "woon", "bosatt", "located", "situated",
-                       "property")
-_PHONE_WORDS = ("phone", "tel", "mobil", "cell", "fax", "handy", "portable", "rufnummer", "rufnr", "durchwahl",
-                "festnetz", "whatsapp", "hotline",
-                "contact", "call", "reach", "text", "dial",
-                # the personal cues of phone-after-phone-word without a phone word (my number is, … him at)
-                "number is", "line is", "me at", "him at", "her at", "them at", "directly at", "me on",
-                "him on", "her on", "them on", "directly on")
-_ADDRESS_WORDS = ("address", "adr", "ship", "property", "lives", "endere", "direcci", "adresse", "location",
-                  "indirizzo", "anschrift")
+_STREET_LABEL_WORDS = _word_tuple("addresses/street-labels")
+_PHONE_WORDS = _word_tuple("phones/phone-cues")
+_ADDRESS_WORDS = _word_tuple("addresses/address-cues")
 _IN_ADDRESS_RE = _lazy(r"\b\d{1,4}(?:/\d{1,4})?, [^\n]{10,90}?, [A-Z][a-z]+ \d{6}\b")
 _NONLATIN = "Ͱ-ϿЀ-ӿ֐-׿؀-ۿऀ-ॿঀ-৿"
 _CJK_NAME = "一-鿿가-힯぀-ヿ"
@@ -1918,9 +1748,7 @@ _NONLATIN_LABEL_RE = _lazy(
     r"|^fn" + _VCARD_PARAMS + r"[\"']?[ \t]{0,3}[:=])[ \t]{0,3}[\"']?"
     r"((?:[" + _NONLATIN + r"]{2,20}(?: [" + _NONLATIN + r"]{2,20}){1,3})|[" + _CJK_NAME + r"]{2,5})(?![\w])", re.M)
 # names of a language in its own script: a locale table is no person
-_AUTONYMS = frozenset({"русский", "українська", "беларуская", "български", "српски", "македонски", "ελληνικά",
-                       "עברית", "العربية", "فارسی", "اردو", "हिन्दी", "বাংলা", "中文", "简体中文", "繁體中文", "日本語",
-                       "한국어", "русский язык", "қазақ тілі"})
+_AUTONYMS = _words("names/language-names")
 _PHONE_URL_RE = _lazy(r"(?i)(?<![a-z])(?:phone|tel|mobile|msisdn|cell)[\w-]{0,10}=(%2B\d{7,15})(?!\d)")
 # a phone number in its national form after a phone word (Nemotron-PII and Gretel, 2026-10-16: 999-999-9999 after
 # "phone number:", 99 9999 9999 after "telefoonnummer:"). A label (phone, Telefon, téléphone, + number, then `:`, `=`
@@ -2569,11 +2397,7 @@ def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> l
 
 # ------------------------------------------------------------------------------------------------- the scan --
 # words one of which a text must hold before a rule's regex runs (a cheap test on the lowered text)
-_BIRTH_WORDS = ("dob", "d.o.b", "birth", "born", "bday", "b-day",
-                "geb", "n\u00e9", "ne le", "nee le", "naissance", "nacimiento",
-                "naci", "nac\u00ed", "nascimento", "nascita", "nato", "nata il", "nascid", "geboorte", "geboren",
-                "delsedatum", "dd den", "dselsdato", "syntym", "urodz", "narozen", "tarih", "рождения", "народження",
-                "na\u0219ter", "na\u015fter", "naster", "γέννησης", "ميلاد", "生年月日", "出生日期", "생년월일")
+_BIRTH_WORDS = _word_tuple("birth-dates/birth-cues")
 RULE_IDS = ("phone-one-digit-groups", "phone-us-national", "birth-date-after-label", "id-number-after-label",
             "user-in-url", "user-in-home-path", "street-address", "name-after-label", "name-before-email",
             "csv-personal-column", "password-after-key") + tuple(FORMS)

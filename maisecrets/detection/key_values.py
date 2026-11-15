@@ -4,6 +4,7 @@ these forms. Kept out of core.py and personal.py, which are at the size limit of
 from __future__ import annotations
 
 import re
+from .wordlists import words as _words, word_tuple as _word_tuple
 
 from .lazy_regex import LazyRx as _LazyRx
 
@@ -36,40 +37,31 @@ def fold(key: str) -> str:
 
 # a key whose value is a password (key_store_password, current-password, keypassword, db_pwd); a key that names a rule
 # or a state of one ends in another word (password_policy, password_length) and is no password key
-_PASSWORD_ENDS = ("password", "passwd", "passphrase", "pwd")
+_PASSWORD_ENDS = _word_tuple("passwords/password-key-ends")
 # a key whose value is an id number of a person (Privy, the Benchmark V3 sample, 2026-11-14)
-_ID_KEYS = frozenset({
-    "driverlicense", "driverslicense", "drivinglicense", "driverlicensenumber", "driverslicensenumber",
-    "nationalidentity", "nationalid", "nationalidentitynumber", "nationalidnumber", "identitydocumentnumber",
-    "passport", "passportnumber", "passportno", "taxid", "taxidentificationnumber", "taxpayeridentificationnumber",
-    "taxpayerid", "itin", "medicalrecordnumber", "healthplanbeneficiarynumber"})
+_ID_KEYS = _words("id-numbers/id-keys")
 # a key that an invoice, an order or a journal uses too (DocumentNumber INV-2024-0042, idNumber ORD-1234): an id of a
 # person only in a person's element or next to the type of a person's document. A word near it is no evidence: an
 # invoice has a customerName and an address too (Gate A, round 2)
 _GENERIC_ID_KEYS = frozenset({"documentnumber", "idnumber", "identitydocument"})
-_PERSON_PARENTS = frozenset({"person", "holder", "applicant", "passenger", "traveler", "traveller", "citizen",
-                             "patient", "employee", "guest", "member", "student", "identity", "identification"})
+_PERSON_PARENTS = _words("tables/person-parents-of-an-id")
 _DOCUMENT_TYPE_RE = re.compile(r"(?i)[\"'`<]?document[_ -]?type[\"'`>]?\s{0,3}[:=>]?\s{0,3}[\"'`]?"
                                r"(?:passport|id[ _-]?card|identity[ _-]?card|national[ _-]?id|driv(?:er|ing))")
 _NEAR = 200
 # the words one of the keys of a family holds: a text without any of them is not scanned for that family
 _PASSWORD_WORDS = ("pass", "pwd")
-_ID_WORDS = ("licen", "identit", "passport", "documentnumber", "document_number", "document-number",
-             "document number", "document__number", "idnumber", "id_number", "id-number", "id number", "id__number",
-             "taxid", "tax_id", "tax-id", "tax id", "tax__id", "taxpayer", "taxidentification", "tax_identification",
-             "itin", "medical", "beneficiary", "national")
+_ID_WORDS = _word_tuple("id-numbers/id-key-words")
 _ID_KEY_CHARS = r"[A-Za-z0-9 _'’&#;-]"            # driver's-license, driver&#x27;s-license in a table head
 _COMPARE = r"(?:=>|<>|!=|[:=])"                   # WHEN "keypassword"<>'…' in SQL
 _PASSWORD_VALUE = r"([^\s\"'`<>,;|&]{3,64})"
 # a key that holds a user name (#51): userID, login_name
-_USER_ID_WORDS = ("userid", "user_id", "user-id", "userlogin", "loginname", "login_name", "loginid", "login_id")
+_USER_ID_WORDS = _word_tuple("usernames/user-name-key-words")
 _USER_VALUE = r"([A-Za-z][A-Za-z0-9._-]{1,30}[A-Za-z0-9])"
 _ID_VALUE = r"([A-Za-z0-9](?:[A-Za-z0-9]|[ -](?=[A-Za-z0-9])){3,24})"
 # a key that holds the street line of a postal address (Cloakroom 1.4.0 rules.py:134-138): street, address_line1,
 # addressLine1, billing_street. The value must be a street line (personal._STREET_LINE_RE)
-_STREET_WORDS = ("street", "address_line", "addressline", "address1", "address_1", "address-line")
-_STREET_KEYS = frozenset({"street", "streetaddress", "streetline", "addressline1", "addressline", "address1",
-                          "billingstreet", "shippingstreet", "homestreet", "mailingstreet", "streetline1"})
+_STREET_WORDS = _word_tuple("addresses/street-key-words")
+_STREET_KEYS = _words("addresses/street-keys")
 _STREET_VALUE = r"([0-9A-Za-zÀ-ÿ][^\"'`<>\n,;|]{4,60})"
 # a literal that an expression joins with more: password = "…" + os.environ["PW_SUFFIX"] is a part of the value
 _JOINED_RE = re.compile(r"[\"'`][ \t]*(?:\+|\|\||\.[ \t]|~)")

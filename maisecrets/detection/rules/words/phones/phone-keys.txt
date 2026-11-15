@@ -1,0 +1,14 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a phone word with qualifiers only names a phone: phone_home, telefon_privat, mobileBusiness, phone_cell. A name with.
+# another word stays as it is: phone_type, phone_country_code and mobile_app_version name no phone number
+# Read as _PHONE_HEADS in maisecrets/detection/fields.py.
+cell
+fax
+handy
+mobil
+mobile
+phone
+tel
+telefon
+telephone

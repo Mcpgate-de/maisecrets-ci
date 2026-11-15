@@ -1,0 +1,55 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a header with a column that holds personal data on every row. A name or a user column alone is no proof (a product.
+# list has a `name` column): it counts only next to a strong column
+# Read as _STRONG_COLS in maisecrets/detection/personal.py.
+aadhaar
+address
+adresse
+anschrift
+birth_date
+birthdate
+birthday
+cell
+date_of_birth
+direccion
+dob
+endereco
+geburtsdatum
+home_address
+mobile
+mobile_phone
+mrn
+national_id
+nir
+passport
+passport_number
+phone
+phone_number
+ssn
+strasse
+street
+street_address
+tax_id
+telefon
+telefone
+telefono
+telephone
+tfn
+# German ids that only a person has (2026-10-19): the tax identification number, the social
+# insurance and the identity card number. `steuernummer` and `steuer_id` stay out: a company
+# register and a table of tax rates have them too (codex Gate A); a tax id in such a column is
+# found by its checksum rule (de-tax-id, region de)
+# only the long names: `sv_nummer` and `ausweisnummer` also number versions and badges
+personalausweisnummer
+rentenversicherungsnummer
+sozialversicherungsnummer
+steuer_identifikationsnummer
+steueridentifikationsnummer
+# ids only a person has, as the records of the datasets name them (Benchmark V3 Phase C,
+# 2026-10-22: 54 health plan and 26 certificate license numbers in Markdown tables of dev)
+beneficiary_number
+certificate_license_number
+driver_license_number
+health_plan_beneficiary_number
+patient_id

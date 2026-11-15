@@ -1,0 +1,12 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# an SQL word in CREATE TABLE that is no column: primary, key, constraint.
+# Read as _SQL_NOT_A_COLUMN in maisecrets/detection/personal.py.
+check
+constraint
+foreign
+fulltext
+index
+key
+primary
+unique

@@ -1,0 +1,24 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# words after a product word in a product name: Claude Code, GitHub Actions.
+actions
+agent
+api
+app
+cli
+cloud
+code
+compose
+desktop
+enterprise
+haiku
+hub
+opus
+pages
+registry
+runner
+server
+sonnet
+studio
+web
+workspace

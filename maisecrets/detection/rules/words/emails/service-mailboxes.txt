@@ -1,0 +1,18 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# the local part of a mail address of a service, not of a person: alerts@, backup@.
+# Read as _SERVICE_MAILBOXES in maisecrets/detection/value_checks.py.
+alert
+alerts
+backup
+bot
+build
+ci
+dependabot
+deploy
+github-actions
+gitlab-runner
+jenkins
+monitoring
+release
+renovate

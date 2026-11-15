@@ -1,0 +1,16 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# `at` and `on` end such a label only after a verb: token_expires_at, secretCreatedAt; not secret_at or api_key_on.
+# Read as _AT_ON_AFTER in maisecrets/detection/fields.py.
+changed
+created
+expired
+expires
+issued
+modified
+reset
+revoked
+rotated
+set
+updated
+used

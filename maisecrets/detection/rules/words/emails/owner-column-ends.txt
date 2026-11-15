@@ -1,0 +1,8 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# an owner word before one of these is the same column: Recipient Address, Login Name, sender_addr.
+# Read as _OWNER_TAILS in maisecrets/detection/encoded_mail.py.
+addr
+address
+adresse
+name

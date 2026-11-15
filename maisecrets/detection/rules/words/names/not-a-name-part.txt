@@ -1,0 +1,37 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a word in a first or last name column that is no name: the words of fixtures and seed data.
+# Read as _NOT_A_NAME_PART in maisecrets/detection/personal.py.
+example
+field
+first
+last
+mandatory
+name
+none
+optional
+pending
+redacted
+required
+sample
+string
+test
+text
+unknown
+value
+varchar
+# the words of fixtures and seed data (first_name,last_name / Foo,Bar)
+anonymous
+bar
+baz
+demo
+dummy
+fake
+foo
+guest
+ipsum
+lorem
+placeholder
+quux
+qux
+user

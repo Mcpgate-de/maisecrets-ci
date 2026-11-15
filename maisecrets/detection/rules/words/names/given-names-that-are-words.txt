@@ -1,0 +1,46 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# given names that are also English words (SCOWL); a value that starts with one may still be a person.
+# Read as _GIVEN_NAME_WORDS in maisecrets/detection/personal.py.
+amber
+ben
+bill
+carl
+dan
+dawn
+dean
+don
+drew
+eve
+faith
+frank
+grace
+holly
+hope
+ian
+iris
+ivy
+jack
+jade
+john
+joy
+june
+lily
+maria
+mark
+may
+pat
+pearl
+peter
+ray
+rich
+rob
+rose
+ruby
+sam
+sue
+summer
+tim
+tom
+victor
+will

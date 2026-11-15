@@ -1,0 +1,15 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a word near a German passport number that names it.
+# Read as _DE_PASSPORT_CONTEXT in maisecrets/detection/core.py.
+dokumentennummer
+mrz
+pass-nr
+passnr
+passnummer
+passport
+passport number
+reisepass
+reisepass-nr
+reisepassnr
+reisepassnummer

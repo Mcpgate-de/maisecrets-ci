@@ -1,0 +1,37 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# the word after a label in an error message or a log line: "pwd: expected bytes, got str" (Python standard library,.
+# 2026-09-29), "token: invalid", "password: required". None is a password anyone chooses
+# Read as _MESSAGE_WORDS in maisecrets/detection/core.py.
+abgelaufen
+cannot
+denied
+empty
+erforderlich
+expected
+expired
+failed
+gesperrt
+geändert
+incorrect
+invalid
+mismatch
+missing
+must
+no
+not
+rejected
+required
+revoked
+should
+unbekannt
+ungueltig
+ungültig
+unknown
+unset
+unsupported
+unverändert
+vergessen
+widerrufen
+wrong
+zurückgesetzt

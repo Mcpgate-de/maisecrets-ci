@@ -1,0 +1,12 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a key that holds a user name (#51): userID, login_name.
+# Read as _USER_ID_WORDS in maisecrets/detection/key_values.py.
+login_id
+login_name
+loginid
+loginname
+user-id
+user_id
+userid
+userlogin

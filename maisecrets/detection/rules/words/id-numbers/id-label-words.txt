@@ -1,0 +1,44 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a word in a label before an id number of a person: passport, licence, member.
+# Read as _ID_WORDS in maisecrets/detection/id_labels.py.
+account
+beneficiary
+carteira
+condu
+conducir
+dl
+driving
+hrerschein
+id on file
+insurance
+korkort
+körkort
+licen
+medical
+member
+mrn
+national
+nir
+pasaporte
+paspoort
+pass nr
+pass-nr
+passaporte
+passaporto
+passeport
+passnummer
+passport
+paszport
+patente
+patient
+permis
+prawa jazdy
+prawo jazdy
+reisepass
+rijbewijs
+sin
+social
+tax
+tfn
+tin

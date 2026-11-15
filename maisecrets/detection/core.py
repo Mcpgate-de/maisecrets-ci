@@ -109,6 +109,7 @@ from .encoded_mail import (  # noqa: F401
     _url_password,
     _OWNER_PAIRS, _OWNER_TAILS, _FILE_EXTENSIONS, _names_a_mail_column,
 )
+from .wordlists import words as _words, word_tuple as _word_tuple
 
 RULES_DIR = Path(__file__).resolve().parent / "rules"
 
@@ -798,24 +799,12 @@ DEFAULT_PII_REGIONS = ("generic",)   # without a config: the rules of no country
 # country rules of our own (0.6.19): forms Presidio has no pattern for, and Switzerland and Austria, which it has no
 # rules for. The design follows a fork of this project (Apache-2.0, see NOTICE). Each rule names its region; a rule
 # with require_context needs one of its context words within 80 characters before or 40 after the value.
-_DE_TAX_ID_CONTEXT = ("steueridentifikationsnummer", "steuer-id", "steuerid", "steuerliche identifikationsnummer",
-                      "steuerliche identifikation", "persönliche identifikationsnummer", "steuer identifikation",
-                      "idnr", "steuer-idnr", "identifikationsnummer", "bzst",
-                      "steuer_id", "steuer_identifikationsnummer", "steuer-identifikationsnummer", "steuer_idnr")
-_DE_ID_CARD_CONTEXT = ("personalausweis", "ausweis", "personalausweisnummer", "ausweisnummer", "ausweis-nr",
-                       "ausweisnr", "personalausweisnr", "dokumentennummer", "ausweisdokument", "npa",
-                       "neuer personalausweis", "bundespersonalausweis", "identity card", "id card", "id-card",
-                       "national id", "mrz")
-_DE_PASSPORT_CONTEXT = ("reisepass", "passnummer", "reisepassnummer", "reisepass-nr", "pass-nr", "passnr",
-                        "reisepassnr", "dokumentennummer", "passport", "passport number", "mrz")
-_CH_AHV_CONTEXT = ("ahv", "avs", "ahv-nr", "ahv-nummer", "ahvn13", "avs-nr", "sozialversicherungsnummer",
-                   "sozialversicherung", "versichertennummer", "sv-nummer", "numéro avs", "numero avs", "n° avs",
-                   "no avs", "assurance sociale", "assicurazione sociale")
-_AT_SV_CONTEXT = ("sozialversicherungsnummer", "versicherungsnummer", "sv-nummer", "sv-nr", "svnr", "vsnr",
-                  "e-card", "sozialversicherung")
-_VAT_CONTEXT = ("uid", "uid-nr", "uid-nummer", "ust-id", "ust-idnr", "ustid", "umsatzsteuer",
-                "umsatzsteuer-identifikationsnummer", "mwst", "mwst-nr", "tva", "iva", "vat", "vat id", "vat number",
-                "unternehmens-identifikationsnummer")
+_DE_TAX_ID_CONTEXT = _word_tuple("id-numbers/de-tax-id-context")
+_DE_ID_CARD_CONTEXT = _word_tuple("id-numbers/de-id-card-context")
+_DE_PASSPORT_CONTEXT = _word_tuple("id-numbers/de-passport-context")
+_CH_AHV_CONTEXT = _word_tuple("id-numbers/ch-ahv-context")
+_AT_SV_CONTEXT = _word_tuple("id-numbers/at-social-security-context")
+_VAT_CONTEXT = _word_tuple("id-numbers/vat-id-context")
 _DOC = "CFGHJKLMNPRTVWXYZ"
 REGIONAL_RULES: list = [
     # the German ID card and passport: 9 characters as printed on the card, or 10 with the ICAO check digit as in the
@@ -1913,11 +1902,7 @@ _CODE_WORDS = frozenset({"break", "continue", "return", "pass", "raise", "throw"
 
 # the word after a label in an error message or a log line: "pwd: expected bytes, got str" (Python standard library,
 # 2026-09-29), "token: invalid", "password: required". None is a password anyone chooses
-_MESSAGE_WORDS = frozenset({"expected", "invalid", "missing", "required", "incorrect", "wrong", "failed", "denied",
-                            "unsupported", "mismatch", "rejected", "expired", "revoked", "unset", "empty", "unknown",
-                            "must", "cannot", "should", "not", "no", "abgelaufen", "unbekannt", "erforderlich",
-                            "vergessen", "unver\u00e4ndert", "ung\u00fcltig", "ungueltig", "gesperrt",
-                            "ge\u00e4ndert", "widerrufen", "zur\u00fcckgesetzt"})
+_MESSAGE_WORDS = _words("passwords/error-message-words")
 
 
 def is_code_word(value: str) -> bool:
@@ -2531,13 +2516,9 @@ _EXPORT_NAME_RE = _LazyRx(r"(?i)(?:passw|kennw|logins?\b|bitwarden|1password|las
 # a header names what its cells hold by its words (camelCase, _ - . and spaces split them): the last word, or the
 # last two together. A flag (is_secret, has_password) holds no value; `token` alone is often an NLP column
 _HEADER_WORD_RE = _LazyRx(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+")
-_EXPORT_SECRET_WORDS = frozenset({"password", "passwd", "pwd", "passphrase", "passwort", "kennwort", "secret", "totp",
-                                  "hotp", "otp", "otpauth"})
-_EXPORT_SECRET_PAIRS = frozenset({"apikey", "secretkey", "privatekey", "accesstoken", "otpauth", "otpsecret",
-                                  "mfasecret"})
-_EXPORT_ID_WORDS = frozenset({"username", "user", "login", "loginname", "email", "mail", "url", "uri", "website",
-                              "site", "web", "origin", "hostname", "host", "title", "name", "account", "benutzer",
-                              "benutzername"})
+_EXPORT_SECRET_WORDS = _words("passwords/export-secret-columns")
+_EXPORT_SECRET_PAIRS = _words("passwords/export-secret-column-pairs")
+_EXPORT_ID_WORDS = _words("passwords/export-login-columns")
 _EXPORT_DELIMITERS = (",", ";", "\t")
 
 
@@ -2599,10 +2580,7 @@ def _csv_cells(text: str, pos: int, delim: str):
 
 
 # what a cell of a schema, a form or a masked export holds instead of a password
-_NOT_A_CELL_VALUE = frozenset({"true", "false", "null", "none", "nil", "undefined", "string", "str", "text", "int",
-                               "integer", "bool", "boolean", "varchar", "yes", "no", "n/a", "na", "-", "--", "*",
-                               "required", "optional", "hidden", "redacted", "masked", "empty", "password", "passwort",
-                               "secret", "totp", "otp"})
+_NOT_A_CELL_VALUE = _words("passwords/not-a-password-cell")
 
 
 def _outside_placeholders(text: str, a: int, b: int) -> list:

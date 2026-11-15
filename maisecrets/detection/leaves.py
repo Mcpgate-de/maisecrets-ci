@@ -27,6 +27,7 @@ from .deadline import ScanIncomplete
 from .prefilter import rules_for, with_response_rules
 from .lazy_regex import LazyRx
 from .text_index import record_fields
+from .wordlists import words as _words
 
 # The level of the record guarantee: in layout "lines" a record finds every span that a scan of each field alone after
 # its label finds. A caller can gate on it; it moves up each time a context window that crossed a field is closed.
@@ -150,10 +151,7 @@ _LABEL_MAX = 64
 
 # a parent whose name field names a person: its string is read after `<parent>_name` (author_name), a person label of
 # the core (personal._COMPOUND_PERSON_KEY_RE), not after the weak `name`
-_PERSON_PARENTS = frozenset({"author", "authors", "reviewer", "reviewers", "assignee", "assignees", "reporter",
-                             "reporters", "creator", "creators", "organizer", "organizers", "attendee", "attendees",
-                             "committer", "committers", "approver", "approvers", "requester", "requesters",
-                             "merged_by", "closed_by", "approved_by", "requested_by", "merge_user"})
+_PERSON_PARENTS = _words("tables/person-parents-of-a-name")
 _NAME_KEYS = {"name": "name", "displayname": "display_name", "display_name": "display_name", "fullname": "full_name",
               "full_name": "full_name"}
 
