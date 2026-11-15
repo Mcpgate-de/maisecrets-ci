@@ -50,6 +50,12 @@ class UserNameAfterACueTests(unittest.TestCase):
                             ("Failed publickey for k.morgan from 192.0.2.4 port 22", "k.morgan"),
                             ("sudo: kmorgan42 : TTY=pts/0 ; PWD=/home", "kmorgan42"),
                             ("GET /api?user=kmorgan42&page=2", "kmorgan42"),
+                            ("Accepted publickey for jlindqvist from 192.0.2.4 port 22 ssh2", "jlindqvist"),
+                            ("Accepted keyboard-interactive/pam for tvoss42 from 192.0.2.4", "tvoss42"),
+                            ("Invalid user jlindqvist from 192.0.2.4 port 50122", "jlindqvist"),
+                            ("Failed password for invalid user jlindqvist from 192.0.2.4", "jlindqvist"),
+                            ("sudo: jlindqvist : TTY=pts/0 ; PWD=/home", "jlindqvist"),
+                            ("sudo: jlindqvist : 3 incorrect password attempts ; TTY=pts/1", "jlindqvist"),
                             ("session opened for user kmorgan42(uid=1001) by (uid=0)", "kmorgan42"),
                             ("session opened for user root(uid=0) by kmorgan42(uid=1001)", "kmorgan42")):
             with self.subTest(text=text):
@@ -84,9 +90,13 @@ class UserNameAfterACueTests(unittest.TestCase):
                      "sudo: kmorgan42 ran", "Started Session 3 of User kmorganx.",
                      "User=caddy", "GET /admin?user=dashboard HTTP/1.1", "Set the user 'profile' field",
                      "Access denied for user 'magento'@'localhost'", "Reset the password for profile42 from the page",
-                     "Accepted publickey for kmorganx from 192.0.2.4", "sudo: kmorgan42 : command not found",
+                     "sudo: kmorgan42 : command not found",
+                     "Accepted publickey for ubuntu from 192.0.2.4", "Accepted publickey for borgbackup from 192.0.2.4",
+                     "Invalid user admin from 192.0.2.4", "Failed password for root from 192.0.2.4",
+                     "sudo: deploy : TTY=pts/0", "Accepted publickey for Jdoe from 192.0.2.4",
+                     "Accepted publickey for git from 192.0.2.4", "accepted the password for review from the team",
                      "owned by polkitd(uid=998)", "nearby kmorgan42(uid=1)",
-                     "sudo: kmorganx : TTY=pts/0", "for user 'magento2'@'localhost'",
+                     "for user 'magento2'@'localhost'",
                      "session closed for user telegraf1",
                      "by kmorgan42 for sshd(uid=0)"):
             with self.subTest(text=text):

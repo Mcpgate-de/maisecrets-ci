@@ -18,8 +18,12 @@ _AT_RE = re.compile(r"(?i:user|welcome(?: back)?,)(?:[ \t]+(?P<q>[\"'])?|(?P<eq>
                     + r")(?(q)(?P=q))(?=[.,;:!?)(@\s&]|$)")
 _STRONG = ("for", "by", "from", "the", "a", "invalid", "of")  # `for user x` needs no verb of a login after it
 # sshd `Accepted password for kmorgan42 from`, sudo `sudo: kmorgan42 : TTY=`, pam `by kmorgan42(uid=1001)` (#52)
-_SSHD_RE = re.compile(r"(?:Accepted|Failed) (?:password|publickey) for (" + _HANDLE + r") from\b")
-_SUDO_RE = re.compile(r"sudo:[ \t]+(" + _HANDLE + r")[ \t]+:[ \t]+TTY=")
+# a Unix login without digits (jdoe) only in these two forms, which name a login and nothing else; the value checks
+# still refuse a word of the word list, a service account and a tool word
+_LOGIN = r"[a-z][a-z0-9_]{3,31}"
+_SSHD_RE = re.compile(r"(?:(?:Accepted|Failed) (?:password|publickey|keyboard-interactive/pam) for (?:invalid user )?"
+                      r"|Invalid user )(" + _HANDLE + "|" + _LOGIN + r") from\b")
+_SUDO_RE = re.compile(r"sudo:[ \t]+(" + _HANDLE + "|" + _LOGIN + r")[ \t]+:[ \t]+(?:TTY=|\d+ incorrect password)")
 _UID_RE = re.compile(r"\bby[ \t]+(" + _HANDLE + r")$")
 _LOGIN_VERB_RE = re.compile(r"[ \t]+(?:successfully|logged|signed|accessed|failed|was|has|reported|attempted)\b")
 _IS_RE = re.compile(r"(?i)user ?name is[ \t]+([A-Za-z][A-Za-z0-9._-]{1,30}?)(?=[.,;:!?)\s]|$)")
@@ -29,7 +33,7 @@ def user_names(text: str) -> list:
     """(start, end) of a user name after a cue in prose, and in an sshd, a sudo or a pam line."""
     low = text.lower()
     starts = _at(low, "user") + _at(low, "welcome")
-    lines = _all(low, "accepted ") + _all(low, "failed ")
+    lines = _all(low, "accepted ") + _all(low, "failed ") + _all(low, "invalid user ")
     sudo = _all(low, "sudo:")
     uids = _all(low, "(uid=")
     if not (starts or sudo or uids or lines):
@@ -105,7 +109,8 @@ _TOOL_PARTS = frozenset(
     "mysql jenkins gitlab github bitbucket jira confluence sonar sonarqube nexus artifactory ansible terraform "
     "docker podman kube kubernetes helm vault consul nomad airflow celery rabbitmq kafka zookeeper hadoop spark "
     "nginx apache httpd tomcat jetty ubuntu debian centos fedora alpine admin root guest webmaster postmaster "
-    "backup monitor monitoring codecov dependabot renovate travis circleci magento drupal moodle nextcloud minikube "
+    "backup borgbackup rsync rsyncd monitor monitoring codecov dependabot renovate travis circleci magento drupal "
+    "moodle nextcloud minikube "
     "kubelet traefik telegraf caddy jellyfin pihole polkitd lightdm restic borg rhel linux wordpress joomla "
     "keycloak".split())
 
