@@ -25,9 +25,10 @@ import re
 
 from . import deadline as _deadline
 from .lazy_regex import LazyRx as _LazyRx
+from .street_forms import street_number_last
 from .id_labels import _ID_DATE_RE, _ID_RE, _ID_WORDS
 from .text_index import field_end, field_start
-from .phone_forms import _DE_CALL_REGIONS, _PHONE_DE_CUE_RE, _PHONE_DE_NEXT_RE, _e164_without_plus
+from .phone_forms import _DE_CALL_REGIONS, _PHONE_DE_CUE_RE, _PHONE_DE_NEXT_RE, _e164_without_plus, intl_after_cue
 
 # ---------------------------------------------------------------------------------------------------- types --
 NAME, ADDRESS, BIRTH_DATE, ID_NUMBER, USERNAME, PHONE = "NAME", "ADDRESS", "BIRTH_DATE", "ID_NUMBER", "USERNAME", \
@@ -1847,6 +1848,10 @@ _BUSINESS_RE = _lazy(r"(?i)(?<![a-z])(?:employer|industries|enterprises?|holding
                      r"|distribution|fulfil?ment"
                      r"|bank(?![ _-]?(?:account|details|statement|transfer|card|code|holiday|balance|info)))(?![a-z])")
 _BANK_ACCOUNT_RE = _lazy(r"(?i)bank[ _-]?(?:account|details|statement|transfer|card|code|holiday|balance|info)")
+# the setting business_addresses mask: these find nothing, so a business address is masked as any address (#49)
+from .business import Unless as _U  # noqa: E402
+_NOT_A_HOME_RE, _BUSINESS_RE, _EU_BUSINESS_RE, _PLACE_OF_A_BUSINESS_RE, _NAMED_PLACE_BEFORE_RE = (
+    _U(_NOT_A_HOME_RE), _U(_BUSINESS_RE), _U(_EU_BUSINESS_RE), _U(_PLACE_OF_A_BUSINESS_RE), _U(_NAMED_PLACE_BEFORE_RE))
 
 
 def _not_a_home(text: str, a: int, b: int) -> bool:
@@ -2249,9 +2254,9 @@ def _phone_word_hits(text: str, low: str, regions: tuple, want, prompt: bool = F
                 if _national_phone_ok(v):
                     out.append((m.start(1), m.start(1) + len(v), "phone-after-phone-word", PHONE))
                 m = _PHONE_DE_NEXT_RE.match(text, m.end(1))
-    if not any(w in low for w in _PHONE_WORDS):
-        return out
     us = bool(_US_PHONE_REGIONS.intersection(regions))
+    if not any(w in low for w in _PHONE_WORDS):   # each cue of _PHONE_CUE_INTL_RE holds one of these words
+        return out
     for rx in (_PHONE_TIGHT_RE,) if prompt else (_PHONE_TIGHT_RE, _PHONE_LOOSE_RE):
         for m in rx.finditer(text):
             v = m.group(1).rstrip(" .-/")
@@ -2280,7 +2285,7 @@ def _phone_word_hits(text: str, low: str, regions: tuple, want, prompt: bool = F
                 out.append((m.start(1), m.start(1) + len(v), "phone-after-phone-word", PHONE))
             elif rx is _PHONE_TIGHT_RE and len(_SERIES_GROUP_RE.findall(v)) >= 3:
                 out.extend((a, b, "phone-after-phone-word", PHONE) for a, b in _numbers_in_series(text, m.start(1)))
-    return out
+    return out if prompt else intl_after_cue(text, out)
 
 
 def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> list:
@@ -2404,7 +2409,8 @@ def _form_hits(text: str, channel: str, regions: tuple, want, company=None) -> l
                     if u and re.search(r"(?i)\b(?:ste|apt|rm|fl|bldg|no|nr)$", v) and _address_value_ok(
                             v + text[s0 + len(v):u.end()]):
                         v = text[s0:u.end()]
-                if not _address_value_ok(v):
+                if not (_address_value_ok(v) or street_number_last(text, m.start(), m.end(1), v,
+                                                                   _line_back(text, m.start()))):
                     continue
                 done.add(m.start())
                 # the check for a company or a public place reads at most 120 characters of the line before the

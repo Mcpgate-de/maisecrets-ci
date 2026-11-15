@@ -82,6 +82,7 @@ DEFAULT_CONFIG = {
     "clean_dirs": [],                # folders whose PDFs and images pass as allow; a typed prompt adds one
     "value_files": [],               # files of values from your own tools (values.py); a typed prompt adds one
     "remote_detector": {},           # a named-entity service for names in tool results (remote_layer.py); off: {}
+    "business_addresses": "keep",    # keep | mask: the address of a company, an office or a shop (#49)
     "secret_destinations": "observe",  # note where each secret is sent (destinations.py); protect also asks; off
     "rehydration": "automatic",      # automatic | confirm | block: does maisecrets add a confirm (rehydration.py)
     "guard": True,                   # a synced install registers the guard outside its folder (hooks/guard.py)
@@ -117,7 +118,7 @@ _CONFIG_TYPES = {
     "ssh_approval": str, "rehydration": str, "guard": bool, "client_header": bool, "client_vault_cafile": str,
     "pass_agent_reports": bool, "rule_dirs": list,
     "read_pdf": str, "read_image": str, "show_values": str, "clean_dirs": list, "value_files": list,
-    "remote_detector": dict,
+    "remote_detector": dict, "business_addresses": str,
 }
 
 
@@ -290,7 +291,7 @@ class ConfigError(RuntimeError):
     """A config value of the wrong type; the message names the key, never a value."""
 
 
-_CONFIG_CHOICES = {"secret_destinations": ("observe", "off", "protect")}
+_CONFIG_CHOICES = {"secret_destinations": ("observe", "off", "protect"), "business_addresses": ("keep", "mask")}
 
 
 def _check_types(cfg: dict, source: str) -> None:

@@ -706,6 +706,11 @@ class LogVersionTests(unittest.TestCase):
         self.assertIn("rules 1 (too_long 1)", text)
         self.assertNotIn("another version", text)
 
+    def test_the_counts_name_the_requests_to_a_gateway(self):
+        ner_setup.log("gateway", "tool", 10, 1, ms=5)
+        ner_setup.log("gateway", "prompt", 10, 0, ms=5)
+        self.assertIn("(ner.log): gateway 2", ner_setup.counts_line())
+
 
 if __name__ == "__main__":
     unittest.main()

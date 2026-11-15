@@ -210,6 +210,7 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
         v = Vault(cfg)
         v.expire(limit=None)
         quieted = v.quiet_code_words()
+        v.weaken_own_name()
         v.mark_weak_entries()
         v.weaken_quiet_words()
         v.weaken_word_hits()

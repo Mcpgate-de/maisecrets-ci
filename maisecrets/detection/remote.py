@@ -467,8 +467,8 @@ class RemoteDetector:
             s, e = words.widen(s, e)
             if s >= e:
                 continue                          # white space only: no word to take
-            if type_ == "NAME" and is_no_person(text[s:e]):
-                continue                          # a product name, a greeting or a UI label word alone is no person
+            if type_ == "NAME" and (is_no_person(text[s:e]) or is_company_name(text, s, e)):
+                continue                          # a product, a greeting, a UI label word or a company is no person
             if _overlaps(occ, ends, s, e):
                 continue
             i = bisect.bisect_left(taken, (s, e))
@@ -505,6 +505,9 @@ GREETING_WORDS = frozenset({"hallo", "hello", "hi", "hey", "moin", "servus", "gr
 UI_LABEL_WORDS = frozenset({
     "accept", "allow", "approve", "cancel", "decline", "delete", "deny", "login", "logout", "reject", "reset", "save",
     "submit"})
+# words of a test runner's or a build's summary line that the model takes for a person at the start of a line
+# ("Ran 3561 tests in 606 s", "Passed 12, Skipped 3"); "Ok" stays out: it is a Korean surname
+RUNNER_WORDS = frozenset({"ran", "passed", "failed", "skipped", "finished", "collected", "errors", "warnings"})
 # the words after a product word in a product name ("Claude Code", "GitHub Actions", "Docker Desktop"): the model
 # takes the whole name for a person. Never a word that is also a first name (no "max", no "pro")
 PRODUCT_TAILS = frozenset({
@@ -578,11 +581,28 @@ def is_product_name(span: str) -> bool:
 
 
 def is_no_person(span: str) -> bool:
-    """Whether a NAME span is no person: a product name (is_product_name), or a word of GREETING_WORDS or of
-    UI_LABEL_WORDS alone. Public since 0.9.8: a caller that applies the spans itself drops these, the same rule as
-    the remote path here (#41)."""
+    """Whether a NAME span is no person: a product name (is_product_name), or a word of GREETING_WORDS, of
+    UI_LABEL_WORDS or of RUNNER_WORDS alone. Public since 0.9.8: a caller that applies the spans itself drops
+    these, the same rule as the remote path here (#41)."""
     word = span.strip().lower()
-    return is_product_name(span) or word in GREETING_WORDS or word in UI_LABEL_WORDS
+    return (is_product_name(span) or word in GREETING_WORDS or word in UI_LABEL_WORDS
+            or word in RUNNER_WORDS)
+
+
+# a legal form that is never a job title, an initial or a short word of another meaning, in its usual spelling, as
+# the last word of a name span or right after it (#46: the name service took company names of the Mendeley sample for
+# persons). Not SE, AG, KG, Group, S.A. or N.V.: "Jane Doe, SE at Acme", "Hi Tom, Group chat", "Raghav N.V. Rao" are
+# persons (Gate A of #46); no comma before it and no hyphen after it ("Herr Mueller AG-Leiter")
+_COMPANY_TAIL = r"(?:GmbH|mbH|LLC|LLP|Ltd\.?|Inc\.?|Corp\.?|Limited|PLC|plc)"
+_COMPANY_END_RE = re.compile(_COMPANY_TAIL + r"$")
+_COMPANY_AFTER_RE = re.compile(r"[ \t]+" + _COMPANY_TAIL + r"(?![\w-])")
+
+
+def is_company_name(text: str, start: int, end: int) -> bool:
+    """Whether the NAME span text[start:end] names a company: it ends in a legal form (Ltd, LLC, GmbH, Inc), or one
+    follows it ("Becker-Lindqvist Ltd"). Public since 0.9.11: a caller that applies the
+    spans itself drops these too (#46)."""
+    return bool(_COMPANY_END_RE.search(text, start, end) or _COMPANY_AFTER_RE.match(text, end))
 
 
 class _HttpStatus(Exception):

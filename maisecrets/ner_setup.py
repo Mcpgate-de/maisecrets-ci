@@ -883,7 +883,7 @@ def counts_line(now: float | None = None) -> str:
     c = today_counts(now)
     if not c:
         return "today, your sessions on this computer (ner.log): no request yet"
-    parts = [f"{k} {c[k]}" for k in ("local", "url", "fallback", "rules") if c.get(k)]
+    parts = [f"{k} {c[k]}" for k in ("local", "url", "gateway", "fallback", "rules") if c.get(k)]
     whys = sorted(((v, k[4:]) for k, v in c.items() if k.startswith("why:")), reverse=True)
     if whys and c.get("rules"):
         parts[-1] += " (" + ", ".join(f"{w} {v}" for v, w in whys) + ")"

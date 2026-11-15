@@ -54,7 +54,7 @@ for m in d.findings(text, channel="tool", path="notes.txt"):
 | `Sources`, `NO_SOURCES` | What a scan takes besides the built-in rules |
 | `References`, `NO_REFERENCES` | The reference form of the caller |
 | `Host`, `THIS_COMPUTER` | What a scan reads of its computer |
-| `Active`, `resolve_regions` | The regions and label languages, and their resolution from a config (`locale=` to give the locale). A `Detector` given an `Active` with a region or a label language that the JSON entry point does not know raises `ValueError`, which names the known codes (since 0.9.4; before, an unknown region was ignored and an unknown language raised `FileNotFoundError`) |
+| `Active`, `resolve_regions` | The regions and label languages, and their resolution from a config (`locale=` to give the locale). `Active(..., business_addresses=True)` (since 0.9.11, the setting `business_addresses` `mask`) masks the address of a company, an office or a public place too; the default leaves it as text. A `Detector` given an `Active` with a region or a label language that the JSON entry point does not know raises `ValueError`, which names the known codes (since 0.9.4; before, an unknown region was ignored and an unknown language raised `FileNotFoundError`) |
 | `user_rule` | A rule of your own, for `Sources.user_rules` (returns a `Rule`) |
 | `TYPES` | The type vocabulary: each type a `Match` can carry, with its `family` and `class` (`maisecrets/detection/types.json`) |
 | `ScanIncomplete` | Raised by a scan past its `deadline=` (since 0.8.24): `findings`, `reason`, `read`, below |
@@ -436,8 +436,13 @@ response = contract.result_response(detector, result)    # the same as JSON (mai
 - **A product name, a greeting and a button word are no person.** A name span that `remote.is_no_person(span)`
   accepts is dropped: a product name (`remote.is_product_name(span)`: a word of `PRODUCT_WORDS` alone, or one followed
   only by words of `PRODUCT_WORDS` and `PRODUCT_TAILS`, as "Claude Code"), a word of `GREETING_WORDS` alone, and a word
-  of `UI_LABEL_WORDS` alone ("Allow", "Deny", "Submit"). A caller that applies the spans itself calls the same
+  of `UI_LABEL_WORDS` alone ("Allow", "Deny", "Submit") and a word of a test runner's summary alone (`RUNNER_WORDS`:
+  "Ran", "Passed", "Skipped"). A caller that applies the spans itself calls the same
   function (`is_no_person` since 0.9.8, `is_product_name` since 0.8.15).
+- **A company is no person.** A name span that `remote.is_company_name(text, start, end)` accepts is dropped: it ends
+  in a legal form that is never a title or an initial, in its usual spelling (GmbH, mbH, LLC, LLP, Ltd, Inc, Corp,
+  Limited, PLC), or one follows it without a comma. Public since 0.9.11 (#46). Known limits: "X, Y and Z", "X-Y" and
+  a company with SE, AG, KG, S.A. or N.V. read as persons (those forms are also titles and initials).
 - **It only adds.** A span is kept only where no finding of the rules and no span kept before it lies. A finding of
   the rules is never removed, made smaller, moved or retyped. A span that ends inside a word is widened to the whole
   word.
