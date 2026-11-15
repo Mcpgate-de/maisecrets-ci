@@ -1,0 +1,23 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a column of a password-manager export that holds the login, next to the password column.
+# Read as _EXPORT_ID_WORDS in maisecrets/detection/core.py.
+account
+benutzer
+benutzername
+email
+host
+hostname
+login
+loginname
+mail
+name
+origin
+site
+title
+uri
+url
+user
+username
+web
+website

@@ -1,0 +1,44 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a short glued value that is a type or a keyword of code or config, or a camelCase identifier:
+# password:string, {token:number}, secret=config, api_key=apiKey, auth_token=Bearer (final review,
+# 2026-09-28: the 6-character floor for glued values took these for secrets)
+# Read as _SHORT_WORDS in maisecrets/detection/value_checks.py.
+array
+bearer
+bigint
+binary
+boolean
+boolean[]
+buffer
+config
+decimal
+default
+disabled
+double
+enabled
+hidden
+integer
+masked
+never
+nullable
+number
+object
+option
+optional
+private
+public
+require
+secret
+secretbytes
+secretstr
+securestring
+settings
+string
+string[]
+symbol
+tokens
+undefined
+unknown
+values
+varchar

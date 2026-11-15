@@ -1,0 +1,11 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a key that holds the street line of a postal address (Cloakroom 1.4.0 rules.py:134-138): street, address_line1,.
+# addressLine1, billing_street. The value must be a street line (personal._STREET_LINE_RE)
+# Read as _STREET_WORDS in maisecrets/detection/key_values.py.
+address-line
+address1
+address_1
+address_line
+addressline
+street

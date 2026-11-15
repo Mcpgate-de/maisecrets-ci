@@ -1,0 +1,17 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a part of a value that makes it a placeholder: your_, dummy, example, <redacted.
+# Read as PLACEHOLDER_PARTS in maisecrets/detection/value_checks.py.
+<redacted
+bogus
+changeme
+dummy
+example
+fake
+placeholder
+sample
+secure-token
+test-token
+xxxxxxxx
+your-
+your_

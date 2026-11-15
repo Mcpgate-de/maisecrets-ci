@@ -1,0 +1,20 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# one word in a role field of an API that is a state or a team, not a person (assignee: Unassigned, assignee: DevOps)
+# Read as _ROLE_FIELD_WORDS in maisecrets/detection/role_names.py.
+backend
+devops
+devsecops
+frontend
+fullstack
+helpdesk
+hr
+infra
+it
+nobody
+none
+ops
+qa
+servicedesk
+sre
+unassigned

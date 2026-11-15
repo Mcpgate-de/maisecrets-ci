@@ -1,0 +1,35 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a word before a phone number that makes it a person's number: call, cell, my number is.
+# Read as _PHONE_WORDS in maisecrets/detection/personal.py.
+call
+cell
+contact
+dial
+durchwahl
+fax
+festnetz
+handy
+hotline
+mobil
+phone
+portable
+reach
+rufnr
+rufnummer
+tel
+text
+whatsapp
+# the personal cues of phone-after-phone-word without a phone word (my number is, … him at)
+directly at
+directly on
+her at
+her on
+him at
+him on
+line is
+me at
+me on
+number is
+them at
+them on

@@ -196,3 +196,4 @@ are not published: the numbers of record come from the release baseline (`script
 | 2026-11-14 | maisecrets 0.9.9+cc52a362 cc52a3620fb65728eb0870de7b70a6b2dd294456 | holdout-v2 | 872 | 0.6522 | 0.9972 | 2 |
 | 2026-11-15 | maisecrets 0.9.10+bb696013 bb696013fa82f723074041e6e9d1a62636642b4d (gate stopped: 49 user names worse) | holdout-v2 | 872 | 0.6594 | 0.9972 | 2 |
 | 2026-11-15 | maisecrets 0.9.10+bec30797 bec30797d539c078d9dd79024aa7b5c2f4e0632e | holdout-v2 | 872 | 0.6594 | 0.9972 | 2 |
+| 2026-11-15 | maisecrets 0.9.11+916fda2f 916fda2f513c7a83c9d50644fb5a2c0566f14bf3 | holdout-v2 | 872 | 0.6594 | 0.9972 | 2 |

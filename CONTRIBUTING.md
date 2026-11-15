@@ -49,6 +49,15 @@ Run `scripts/install-hooks.sh` once, so the pre-commit hook scans your diff
 and checks your commit subject. `python3 -m unittest discover -s tests` runs
 the tests; `/usr/bin/python3` (3.9) is the oldest Python we support.
 
+## A word of a word list
+
+Many rules use a word list: words that are no name, the cues before an address or a phone number, the columns
+of a table with personal data, the words that make a value code and not a password. Each list is a plain text
+file in a topic folder of `maisecrets/detection/rules/words/`. The `README.md` there names every file. The first
+line of each file says its effect: a word makes maisecrets mask less, or find more. To add a word, add one line
+in its sorted place; `tests/test_word_lists.py` checks the format. A single word can change the false alarms a
+lot, so the maintainer measures the full benchmark splits before the merge.
+
 ## A detection rule
 
 A new or changed detection rule needs numbers, not only tests:

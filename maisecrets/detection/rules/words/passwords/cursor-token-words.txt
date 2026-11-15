@@ -1,0 +1,20 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a word before `token` that makes the field the cursor of a paged list or a sync, not a credential (measured on.
+# synthetic cursors: under nextPageToken, pageToken, syncToken and continuationToken each one was a SECRET). Only the
+# word right before `token` counts: NextToken (AWS) is a cursor, PrevAuthToken (Grafana) names an auth token. In text
+# `next` and `prev` alone stay out: Samsung CredData labels 40 AWS NextToken values credentials, and the text scan
+# took them before this release too
+# Read as _CURSOR_WORDS in maisecrets/detection/fields.py.
+continuation
+continue
+cursor
+delta
+page
+pagination
+purchase
+resume
+rewrite
+sequence
+skip
+sync

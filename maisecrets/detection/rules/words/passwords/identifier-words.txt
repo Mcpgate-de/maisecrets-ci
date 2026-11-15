@@ -1,0 +1,46 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a camelCase value with one of these words is an identifier of code, not a passphrase.
+# Read as _IDENT_WORDS in maisecrets/detection/value_checks.py.
+admin
+api
+auth
+build
+config
+create
+credential
+credentials
+current
+default
+encrypted
+env
+environment
+extract
+fetch
+from
+get
+hashed
+header
+key
+load
+new
+old
+parse
+password
+passwort
+read
+request
+resolve
+secret
+set
+setting
+settings
+store
+stored
+to
+token
+user
+value
+variable
+vault
+with

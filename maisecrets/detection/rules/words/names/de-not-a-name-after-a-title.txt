@@ -1,0 +1,39 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a word after the title that names no one: a template field, a pronoun, a greeting, the title again.
+# Read as _DE_TITLE_NOT_A_NAME in maisecrets/detection/personal.py.
+anrede
+beispiel
+benutzer
+bitte
+danke
+dein
+deine
+du
+familienname
+firstname
+frau
+guten
+hallo
+herr
+herrn
+ihnen
+ihr
+ihre
+ihrem
+ihren
+ihrer
+lastname
+liebe
+lieber
+nachname
+name
+namens
+nutzer
+platzhalter
+sie
+surname
+test
+titel
+user
+vorname

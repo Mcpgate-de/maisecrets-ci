@@ -1,0 +1,15 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# the word before `key` in the name of a key that is an identifier: file_key (Figma), partition_key, idempotency_key.
+# Read as _HANDLE_KEY_WORDS in maisecrets/detection/fields.py.
+component
+file
+foreign
+idempotency
+node
+partition
+primary
+property
+row
+sort
+style

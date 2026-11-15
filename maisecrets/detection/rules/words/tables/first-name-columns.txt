@@ -1,0 +1,8 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a column of a first name.
+# Read as _FIRST_PART_COLS in maisecrets/detection/personal.py.
+first_name
+firstname
+given_name
+vorname

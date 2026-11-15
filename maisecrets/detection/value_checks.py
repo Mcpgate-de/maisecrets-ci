@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .lazy_regex import LazyRx as _LazyRx
+from .wordlists import words as _words, word_tuple as _word_tuple
 
 if TYPE_CHECKING:
     from .core import Rule
@@ -425,11 +426,7 @@ _FORMAT_ONLY_RE = _LazyRx(r"(?:%[-+ #0]*\d*(?:\.\d+)?[sdifxXeEgGrcoba%]|\{[^{}]*
 # a short glued value that is a type or a keyword of code or config, or a camelCase identifier:
 # password:string, {token:number}, secret=config, api_key=apiKey, auth_token=Bearer (final review,
 # 2026-09-28: the 6-character floor for glued values took these for secrets)
-_SHORT_WORDS = frozenset({
-    "string", "number", "boolean", "object", "integer", "bigint", "symbol", "unknown", "config", "bearer", "secret",
-    "tokens", "hidden", "masked", "optional", "default", "require", "undefined", "double", "decimal", "varchar",
-    "binary", "buffer", "array", "values", "string[]", "never", "nullable", "boolean[]", "option", "settings",
-    "private", "public", "enabled", "disabled", "secretstr", "secretbytes", "securestring"})
+_SHORT_WORDS = _words("passwords/code-types-and-keywords")
 _CAMEL_RE = _LazyRx(r"^[a-z]+(?:[A-Z][a-z0-9]*)+$")
 # the review of 2026-09-29 (679 snippets of normal work): the next label taken for the value (`DB_PASSWORD=` then
 # `API_KEY=`), a generic type (`Option<String>`), a UUID, and a fixture that names itself (`testpass`, `secret123`,
@@ -486,11 +483,7 @@ def _names_itself(v: str) -> bool:
     return sum(1 for i, c in enumerate(v) if c.isalpha() and not covered[i]) <= 1
 
 
-_IDENT_WORDS = frozenset({"password", "passwort", "token", "secret", "key", "value", "default", "config", "env",
-                          "setting", "settings", "credential", "credentials", "auth", "api", "get", "set", "new", "old",
-                          "user", "admin", "current", "stored", "hashed", "encrypted", "load", "read", "fetch",
-                          "extract", "parse", "resolve", "build", "create", "from", "to", "with", "vault", "request",
-                          "header", "environment", "variable", "store"})
+_IDENT_WORDS = _words("passwords/identifier-words")
 
 
 def _short_word(v: str) -> bool:
@@ -527,20 +520,9 @@ def _label_value_ok(v: str) -> bool:
 # AES-256-encrypted, 1Password-managed, OWASP-ASVS-4.0-compliant), and names of algorithms, encodings and standards
 # with their numbers and versions (PBKDF2-SHA256, ISO-8859-1, UTF-16LE, WPA2-PSK, Argon2id-v19, RFC-7617, ARGON2ID).
 # A compound with a word of its own stays a value: Xk9-q2-secret, Winter-2024-berlin, Sha256-2024! (round 2)
-_PROSE_LAST = frozenset({
-    "hashed", "encrypted", "encoded", "decoded", "managed", "protected", "enabled", "disabled", "signed", "salted",
-    "compliant", "based", "derived", "generated", "stored", "secured", "wrapped", "rotated", "required", "enforced",
-    "backed", "verified", "validated", "compatible", "formatted", "only", "free", "safe", "aware", "style", "format",
-    "encryption", "hashing", "encoding"})
+_PROSE_LAST = _words("passwords/prose-about-a-password")
 _VERSION_PART_RE = _LazyRx(r"v?\d+(?:\.\d+)*")
-_ALGORITHM_PARTS = frozenset({
-    "md5", "sha1", "sha2", "sha3", "sha224", "sha256", "sha384", "sha512", "pbkdf2", "bcrypt", "scrypt", "argon2",
-    "argon2i", "argon2d", "argon2id", "aes", "aes128", "aes192", "aes256", "gcm", "cbc", "ctr", "rsa", "hmac", "des",
-    "3des", "blake2b", "blake2s", "blake3", "sha", "crypt", "ntlm", "ntlmv2", "chacha20", "poly1305", "ecdsa",
-    "ed25519", "x25519", "pkcs1", "pkcs5", "pkcs8", "pkcs12", "oaep", "pss",
-    "iso", "utf", "utf8", "utf16", "utf16le", "utf16be", "utf32", "16le", "16be", "latin1", "cp1252", "ascii",
-    "base64", "base32", "hex", "wpa", "wpa2", "wpa3", "psk", "sae", "eap", "tls", "ssl", "rfc", "owasp", "asvs", "nist",
-    "fips", "scram", "chap", "totp", "hotp", "kerberos", "x509", "plus", "jwt", "jwe", "jws", "oauth", "oauth2"})
+_ALGORITHM_PARTS = _words("passwords/algorithm-names")
 
 
 def _prose_word(v: str) -> bool:
@@ -557,10 +539,7 @@ def _prose_word(v: str) -> bool:
 _EXAMPLE_PASSWORD_RE = _LazyRx(r"([^\W\d_]{3,})\d{1,4}[^\w\s]?")
 # the word for password itself before a number (Passwort1, Salasana1, Haslo2024) is an example in every language, and
 # so are the German words of example passwords that the English list lacks (Willkommen1, Hallo123!, Init1234)
-_PW_WORD_EXAMPLES = frozenset({"willkommen", "hallo", "init", "start", "geheim", "passwort", "kennwort", "salasana",
-                               "hasło", "haslo", "heslo", "senha", "wachtwoord",
-                               "passord", "lösenord", "losenord", "adgangskode", "kodeord", "şifre", "sifre",
-                               "parola", "contraseña", "contrasena"})
+_PW_WORD_EXAMPLES = _words("placeholders/password-words")
 
 
 def _example_password(v: str) -> bool:
@@ -687,30 +666,8 @@ _WORDS: list = []
 # "password" in other languages: the whole value of a locale key (`"password": "Senha"`) is a label text, not a
 # password (Opus Gate B of 0.6.17). An exact value only: as words they made Senha123 a word with a number, and 0.6.16
 # took it (Gate B round 2)
-_PW_TRANSLATIONS = frozenset({
-    "senha", "heslo", "geslo", "lozinka", "sifre", "haslo", "parola", "parool", "salasana", "jelszo", "losenord",
-    "passord", "adgangskode", "wachtwoord", "kennwort", "passwort", "contrasena", "motdepasse", "sifra", "parole"})
-_EXTRA_WORDS = frozenset({
-    "api", "key", "id", "db", "url", "uri", "app", "dev", "prod", "test", "user", "pass", "pwd", "sql", "web",
-    "admin", "root", "my", "new", "old", "the", "and", "for", "get", "set", "put", "add", "max", "min", "log",
-    "tmp", "env", "var", "val", "str", "int", "num", "src", "dst", "cfg", "conf", "auth", "oauth", "jwt", "aws",
-    "gcp", "ssh", "rsa", "pem", "http", "https", "www", "com", "org", "net", "io", "js", "py", "go", "is", "on",
-    "of", "to", "in", "at", "by", "no", "ok", "yes", "let", "me", "foo", "bar", "baz", "abc", "xyz", "qwerty", "pw",
-    "secret", "token", "hello", "world", "demo", "mock", "fake", "dummy", "sample", "example", "default",
-    "kwargs", "args", "argv", "self", "this", "opts", "params", "nil", "none", "null", "undefined",
-    "md5", "sha1", "sha2", "sha3", "sha224", "sha256", "sha384", "sha512", "pbkdf2", "bcrypt", "scrypt", "argon2",
-    "argon2i", "argon2d", "argon2id", "aes", "aes128", "aes192", "aes256", "gcm", "cbc", "ctr", "hmac", "des",
-    "blake2b", "blake2s", "blake3", "sha", "crypt", "ntlm", "ntlmv2", "chacha20", "poly1305", "ecdsa", "ed25519",
-    "x25519", "pkcs1", "pkcs5", "pkcs8", "pkcs12", "oaep", "pss", "utf8", "utf16", "latin1", "ascii", "base64",
-    "base32", "hex", "wpa", "wpa2", "psk", "tls", "ssl", "totp", "hotp", "jwe", "jws", "oauth2", "varchar",
-    "bigint", "secretstr", "securestring", "bool", "float", "char", "byte", "bytes", "uuid", "json",
-    "yaml", "html", "xml", "csv", "ldap", "smtp", "imap", "ftp", "sftp", "redis", "mysql", "postgres",
-    "psql", "mongo", "mongodb", "sqlite", "oracle", "guest", "anon", "localhost",
-    "siehe", "geheim", "kennwort", "passwort", "benutzer", "zugang", "zugangsdaten", "anmeldung", "nutzer", "wird",
-    "nicht", "oder", "und", "mit", "ohne", "bitte", "hier", "dort", "neu", "alt", "leer", "fehlt", "falsch",
-    "richtig", "geheimnis", "schluessel", "sommer", "winter", "herbst", "fruehling", "schl\u00fcssel",
-    "fr\u00fchling",
-})
+_PW_TRANSLATIONS = _words("passwords/password-translations")
+_EXTRA_WORDS = _words("passwords/known-words")
 
 
 def _word_set() -> frozenset:
@@ -805,24 +762,12 @@ def _norm_label(name: str) -> list:
 
 
 # the last word of a password label, and the words before it that make the label name something else
-_PW_LAST = frozenset({"password", "passwd", "passphrase", "passwort", "pwd", "userpwd", "pass", "pw", "passcode",
-                      "passw", "pword", "pswd", "psw"})
+_PW_LAST = _words("passwords/password-label-words")
 # the label words of a language that is on (regions.py): Kennwort is a label only with German on, as for the keyword
 # rules; passwort counts always, as the English `pass` label allows letters after it
 _PW_LAST_OF = {"de": frozenset({"kennwort"})}
-_PASS_NEG_PREV = frozenset({"two", "one", "single", "multi", "first", "second", "third", "by", "no", "skip", "sur",
-                            "over", "under", "compass", "render", "shader", "high", "low", "band", "all", "each",
-                            "next", "last", "test", "tests"})
-_LABEL_NEG_WORDS = frozenset({
-    "hint", "label", "title", "text", "message", "msg", "error", "err", "prompt", "placeholder", "field", "policy",
-    "length", "len", "min", "max", "required", "confirm", "confirmation", "reset", "forgot", "invalid", "incorrect",
-    "wrong", "strength", "rule", "rules", "regex", "pattern", "hash", "hashed", "salt", "file", "path", "env", "var",
-    "type", "mode", "enabled", "expire", "expires", "expiry", "changed", "change", "validation", "valid", "show",
-    "hide", "toggle", "visible", "icon", "button", "btn", "no", "without", "skip", "ask", "input", "form", "dialog",
-    "tooltip", "description", "desc", "help", "name", "id", "count", "cmd", "command", "url", "uri", "key", "column",
-    "col", "header", "param", "arg", "option", "opt", "flag", "set", "get", "update", "lbl", "str", "string", "i18n",
-    "translation", "not", "missing", "empty", "format", "fmt", "encoder", "encoded", "encrypted", "digest",
-    "algorithm", "manager", "provider", "store", "storage", "service", "handler", "callback", "validator", "widget"})
+_PASS_NEG_PREV = _words("passwords/not-a-password-before-pass")
+_LABEL_NEG_WORDS = _words("passwords/not-a-password-label")
 
 
 def _sequential(low: str) -> bool:
@@ -990,17 +935,11 @@ _SECRET_TAIL_RE = _LazyRx(r"(?:^|_)(?:secret|token|apikey|api_key|access_key|sec
                              r"|auth_token|access_token|refresh_token|session_token|bearer|credentials?|app_secret"
                              r"|consumer_secret|signing_key|encryption_key|master_key|auth_key)$")
 _WEAK_TAIL_RE = _LazyRx(r"(?:^|_)(?:key|auth|salt|seed|otp|totp|cred|cookie|session|hmac|psk)$")
-_WEAK_NEG_WORDS = frozenset({
-    "public", "pub", "primary", "foreign", "sort", "partition", "cache", "idempotency", "row", "map", "lookup",
-    "cursor", "object", "s3", "dedup", "dedupe", "routing", "shard", "group", "sequence", "index", "composite",
-    "unique", "natural", "surrogate", "react", "list", "item", "translation", "i18n", "locale", "storage", "redis",
-    "memcache", "query", "license", "licence", "product", "registry", "gpg", "pgp", "ssh", "host", "known",
-    "fingerprint", "csrf", "xsrf", "anti", "forgery", "verification", "page", "next", "continuation", "pagination",
-    "sync", "lexer", "tokenizer", "parser", "cancellation", "captcha", "recaptcha"})
+_WEAK_NEG_WORDS = _words("passwords/not-a-secret-key-word")
 
 
 # a TOTP or HOTP seed: base32 of 10 to 40 bytes after a one-time-password label (otpauth://… carries it as secret=)
-_OTP_WORDS = frozenset({"totp", "hotp", "otp", "mfa", "2fa", "otpauth", "authenticator"})
+_OTP_WORDS = _words("passwords/one-time-password-cues")
 _OTP_SEED_RE = _LazyRx(r"[A-Z2-7]{16,64}={0,6}")
 
 
@@ -1209,18 +1148,14 @@ def _mail_shaped_id(v: str) -> bool:
     return d in _ID_MAIL_DOMAINS or (d == "google.com" and bool(_ICAL_UID_RE.fullmatch(local)))
 
 
-_SERVICE_MAILBOXES = frozenset({"alerts", "alert", "monitoring", "backup", "ci", "bot", "renovate", "dependabot",
-                                "release", "deploy", "build", "jenkins", "gitlab-runner", "github-actions"})
-_SYSTEM_USERS = frozenset({"git", "root", "ubuntu", "ec2-user", "admin", "noreply", "no-reply", "postmaster",
-                           "hostmaster", "webmaster", "mailer-daemon", "bounce", "bounces"})
+_SERVICE_MAILBOXES = _words("emails/service-mailboxes")
+_SYSTEM_USERS = _words("emails/system-users")
 
 
 # ------------------------------------------------------------- placeholders --
 # a value that is obviously a placeholder is never a secret, whichever rule matched it
-PLACEHOLDER_VALUES = frozenset({"changeme", "change_me", "password", "placeholder", "example", "redacted",
-                                "secret", "your_api_key", "xxxxxxxx", "todo", "none", "null"})
-PLACEHOLDER_PARTS = ("your_", "your-", "bogus", "dummy", "example", "sample", "placeholder", "changeme",
-                     "xxxxxxxx", "test-token", "secure-token", "<redacted", "fake")
+PLACEHOLDER_VALUES = _words("placeholders/values")
+PLACEHOLDER_PARTS = _word_tuple("placeholders/value-parts")
 _TEMPLATE_NAME = _LazyRx(r"^[A-Z]+(?:_[A-Z]+)+$")   # YOUR_PORTKEY_API_KEY: words joined by underscores, no digits
 
 

@@ -1,0 +1,14 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a field that names one part of a name holds one word (| First Name | X |): a record with a person in it says so.
+# (Benchmark V3 Phase C, 2026-10-21: 1,272 first and last names alone in field-value tables of Nemotron dev stayed text)
+# Read as _NAME_PART_COLS in maisecrets/detection/personal.py.
+family_name
+first_name
+firstname
+given_name
+last_name
+lastname
+nachname
+surname
+vorname

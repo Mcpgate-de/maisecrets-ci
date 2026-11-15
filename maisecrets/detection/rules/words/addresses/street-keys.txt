@@ -1,0 +1,14 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# keys whose value is the street line of an address, folded: lower case, without separators.
+address1
+addressline
+addressline1
+billingstreet
+homestreet
+mailingstreet
+shippingstreet
+street
+streetaddress
+streetline
+streetline1

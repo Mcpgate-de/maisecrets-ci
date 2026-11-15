@@ -1,0 +1,24 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a key whose value is an id number of a person (Privy, the Benchmark V3 sample, 2026-11-14)
+# Read as _ID_KEYS in maisecrets/detection/key_values.py.
+driverlicense
+driverlicensenumber
+driverslicense
+driverslicensenumber
+drivinglicense
+healthplanbeneficiarynumber
+identitydocumentnumber
+itin
+medicalrecordnumber
+nationalid
+nationalidentity
+nationalidentitynumber
+nationalidnumber
+passport
+passportno
+passportnumber
+taxid
+taxidentificationnumber
+taxpayerid
+taxpayeridentificationnumber

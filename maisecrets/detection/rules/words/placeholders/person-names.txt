@@ -1,0 +1,18 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# placeholder person names of documentation and tests.
+alice
+bob
+erika mustermann
+jane doe
+jane roe
+jane smith
+joe bloggs
+john doe
+john q. public
+john smith
+maria musterfrau
+max muster
+max mustermann
+otto normalverbraucher
+richard roe

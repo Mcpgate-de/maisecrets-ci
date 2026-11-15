@@ -3,6 +3,7 @@ out of personal.py, which is at the size limit of a release file; it imports per
 from __future__ import annotations
 
 import re
+from .wordlists import words as _words
 
 _RX: dict = {}
 
@@ -26,10 +27,7 @@ def _rx():
 
 
 # the names of products, tools and fillers that a test or a seed writes after an address label (Gate A of #49)
-_NOT_A_STREET_NAME = frozenset({"windows", "ubuntu", "debian", "firefox", "chrome", "safari", "terraform",
-                                "ansible", "docker", "gitlab", "github", "gmail", "outlook", "dashboard", "ingress",
-                                "nightly", "invoice", "ticket", "lorem", "ipsum", "holdings", "cluster", "module",
-                                "inbox", "server", "agent", "jira", "slack"})
+_NOT_A_STREET_NAME = _words("addresses/not-a-street")
 
 
 def street_number_last(text: str, label_start: int, label_end: int, v: str, line: int) -> bool:

@@ -1,0 +1,42 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# words one of which a text must hold before a rule's regex runs (a cheap test on the lowered text)
+# Read as _BIRTH_WORDS in maisecrets/detection/personal.py.
+b-day
+bday
+birth
+born
+d.o.b
+dd den
+delsedatum
+dob
+dselsdato
+geb
+geboorte
+geboren
+naci
+nacimiento
+nací
+naissance
+narozen
+nascid
+nascimento
+nascita
+naster
+nata il
+nato
+naşter
+nașter
+ne le
+nee le
+né
+syntym
+tarih
+urodz
+γέννησης
+народження
+рождения
+ميلاد
+出生日期
+生年月日
+생년월일

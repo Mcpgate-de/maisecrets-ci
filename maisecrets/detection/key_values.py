@@ -4,6 +4,9 @@ these forms. Kept out of core.py and personal.py, which are at the size limit of
 from __future__ import annotations
 
 import re
+from .wordlists import words as _words, word_tuple as _word_tuple
+
+from .lazy_regex import LazyRx as _LazyRx
 
 # the end of a field: a closing quote (also before a space: `last name`='…' LIMIT 3), or the end of the line or a
 # separator of the format
@@ -34,35 +37,32 @@ def fold(key: str) -> str:
 
 # a key whose value is a password (key_store_password, current-password, keypassword, db_pwd); a key that names a rule
 # or a state of one ends in another word (password_policy, password_length) and is no password key
-_PASSWORD_ENDS = ("password", "passwd", "passphrase", "pwd")
+_PASSWORD_ENDS = _word_tuple("passwords/password-key-ends")
 # a key whose value is an id number of a person (Privy, the Benchmark V3 sample, 2026-11-14)
-_ID_KEYS = frozenset({
-    "driverlicense", "driverslicense", "drivinglicense", "driverlicensenumber", "driverslicensenumber",
-    "nationalidentity", "nationalid", "nationalidentitynumber", "nationalidnumber", "identitydocumentnumber",
-    "passport", "passportnumber", "passportno", "taxid", "taxidentificationnumber", "taxpayeridentificationnumber",
-    "taxpayerid", "itin", "medicalrecordnumber", "healthplanbeneficiarynumber"})
+_ID_KEYS = _words("id-numbers/id-keys")
 # a key that an invoice, an order or a journal uses too (DocumentNumber INV-2024-0042, idNumber ORD-1234): an id of a
 # person only in a person's element or next to the type of a person's document. A word near it is no evidence: an
 # invoice has a customerName and an address too (Gate A, round 2)
 _GENERIC_ID_KEYS = frozenset({"documentnumber", "idnumber", "identitydocument"})
-_PERSON_PARENTS = frozenset({"person", "holder", "applicant", "passenger", "traveler", "traveller", "citizen",
-                             "patient", "employee", "guest", "member", "student", "identity", "identification"})
+_PERSON_PARENTS = _words("tables/person-parents-of-an-id")
 _DOCUMENT_TYPE_RE = re.compile(r"(?i)[\"'`<]?document[_ -]?type[\"'`>]?\s{0,3}[:=>]?\s{0,3}[\"'`]?"
                                r"(?:passport|id[ _-]?card|identity[ _-]?card|national[ _-]?id|driv(?:er|ing))")
 _NEAR = 200
 # the words one of the keys of a family holds: a text without any of them is not scanned for that family
 _PASSWORD_WORDS = ("pass", "pwd")
-_ID_WORDS = ("licen", "identit", "passport", "documentnumber", "document_number", "document-number",
-             "document number", "document__number", "idnumber", "id_number", "id-number", "id number", "id__number",
-             "taxid", "tax_id", "tax-id", "tax id", "tax__id", "taxpayer", "taxidentification", "tax_identification",
-             "itin", "medical", "beneficiary", "national")
+_ID_WORDS = _word_tuple("id-numbers/id-key-words")
 _ID_KEY_CHARS = r"[A-Za-z0-9 _'’&#;-]"            # driver's-license, driver&#x27;s-license in a table head
 _COMPARE = r"(?:=>|<>|!=|[:=])"                   # WHEN "keypassword"<>'…' in SQL
 _PASSWORD_VALUE = r"([^\s\"'`<>,;|&]{3,64})"
 # a key that holds a user name (#51): userID, login_name
-_USER_ID_WORDS = ("userid", "user_id", "user-id", "userlogin", "loginname", "login_name", "loginid", "login_id")
+_USER_ID_WORDS = _word_tuple("usernames/user-name-key-words")
 _USER_VALUE = r"([A-Za-z][A-Za-z0-9._-]{1,30}[A-Za-z0-9])"
 _ID_VALUE = r"([A-Za-z0-9](?:[A-Za-z0-9]|[ -](?=[A-Za-z0-9])){3,24})"
+# a key that holds the street line of a postal address (Cloakroom 1.4.0 rules.py:134-138): street, address_line1,
+# addressLine1, billing_street. The value must be a street line (personal._STREET_LINE_RE)
+_STREET_WORDS = _word_tuple("addresses/street-key-words")
+_STREET_KEYS = _words("addresses/street-keys")
+_STREET_VALUE = r"([0-9A-Za-zÀ-ÿ][^\"'`<>\n,;|]{4,60})"
 # a literal that an expression joins with more: password = "…" + os.environ["PW_SUFFIX"] is a part of the value
 _JOINED_RE = re.compile(r"[\"'`][ \t]*(?:\+|\|\||\.[ \t]|~)")
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4}")
@@ -102,10 +102,36 @@ def _a_persons_id(text: str, m, key: str, things, parent) -> bool:
     return True
 
 
+def _street_ok(v: str) -> bool:
+    from .personal import _STREET_LINE_RE
+    return bool(_STREET_LINE_RE.fullmatch(v.strip()))
+
+
+# a test or placeholder record (Musterstraße, Anytown, a fixture) and a well-known public address are no person's
+_PLACEHOLDER_RE = _LazyRx(
+    r"(?i)(?<![a-z])(?:muster\w*|anytown|springfield|test\w*|sample|example|fake|fixture|dummy|lorem|placeholder"
+    r"|1600 amphitheatre|1 infinite loop|one apple park|1 microsoft way|1 hacker way|410 terry ave|10 downing street"
+    r"|1600 pennsylvania|742 evergreen|suite|ste\.?(?= ?\d)|floor)(?![a-z])")
+# a place as the parent of the street: a venue, a store, a location of a business
+_PLACE_PARENT_RE = _LazyRx(r"(?i)[\"']?(?:venue|store|location|place|merchant|branch|site|facility)[\"']?\s*[:=]")
+
+
+def _a_business_near(text: str, a: int, b: int) -> bool:
+    """A company, an office or a public place in the record around a street key, a test or placeholder record, or a
+    well-known public address: its street stays text, as the address rules leave it (the setting business_addresses
+    mask turns the business regexes off; a placeholder stays text either way)."""
+    from .personal import _BUSINESS_RE, _NOT_A_HOME_RE
+    lo, hi = max(0, a - 300), min(len(text), b + 300)
+    if _PLACEHOLDER_RE.search(text, lo, hi):
+        return True
+    return bool(_NOT_A_HOME_RE.search(text, lo, hi) or _BUSINESS_RE.search(text, lo, hi)
+                or _PLACE_PARENT_RE.search(text, lo, a))
+
+
 def hits(text: str) -> list:
     """(start, end, kind, type) of a name (#43), a password and an id number (#45) after a key, and a user name after
     a user-id key or a cue in prose (#51)."""
-    from .personal import ID_NUMBER, NAME, USERNAME, _THING_PARENTS, _xml_parent
+    from .personal import ADDRESS, ID_NUMBER, NAME, USERNAME, _THING_PARENTS, _xml_parent
     from .core import _references
     from .role_names import key_names
     from .user_forms import USER_ID_KEYS, user_id_matches, user_id_ok, user_names
@@ -118,17 +144,21 @@ def hits(text: str) -> list:
             (_ID_WORDS, _ID_VALUE, lambda k: fold(k) in _ID_KEYS or fold(k) in _GENERIC_ID_KEYS, _id_ok,
              "id-number-after-label", ID_NUMBER),
             (_USER_ID_WORDS, _USER_VALUE, lambda k: fold(k) in USER_ID_KEYS, user_id_ok, "username-after-label",
-             USERNAME)):
+             USERNAME),
+            (_STREET_WORDS, _STREET_VALUE, lambda k: fold(k) in _STREET_KEYS, _street_ok, "address-after-key",
+             ADDRESS)):
         if not any(w in low for w in words):
             continue
         found = user_id_matches(text, low, value, _COMPARE, _END) if typ == USERNAME else \
-            (m for rx in forms(value, _ID_KEY_CHARS, _COMPARE) for m in rx.finditer(text))
+            (m for rx in forms(value, _ID_KEY_CHARS, _COMPARE)[:1 if typ == ADDRESS else 3] for m in rx.finditer(text))
         for m in found:
             key = m.group(2) or m.group(3) or ""
             if not is_key(key) or not ok(m.group(4)) or _JOINED_RE.match(text, m.end(4)) \
                     or refs.hit_is_a_reference(text, m.start(4), m.group(4)):
                 continue   # a reference in a form of the detector's sources is no value
             if typ == ID_NUMBER and not _a_persons_id(text, m, key, _THING_PARENTS, _xml_parent):
+                continue
+            if typ == ADDRESS and _a_business_near(text, m.start(), m.end()):
                 continue
             out.append((m.start(4), m.end(4), kind, typ))
     return out

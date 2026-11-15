@@ -1,0 +1,7 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# keys whose value is a user name, folded: lower case, without separators.
+loginid
+loginname
+userid
+userlogin

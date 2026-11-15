@@ -3,11 +3,11 @@ reads only up to 200,000 bytes per file. personal.hits calls one_word_names for 
 from __future__ import annotations
 
 import re
+from .wordlists import words as _words
 
 
 # one word in a role field of an API that is a state or a team, not a person (assignee: Unassigned, assignee: DevOps)
-_ROLE_FIELD_WORDS = frozenset({"unassigned", "nobody", "none", "devops", "devsecops", "sre", "qa", "ops", "infra",
-                               "frontend", "backend", "fullstack", "it", "hr", "helpdesk", "servicedesk"})
+_ROLE_FIELD_WORDS = _words("names/role-field-values")
 _KEY = r"(?<![\w.-])[\"']?([A-Za-z][A-Za-z0-9]{0,30}(?:[_-]{1,3}[A-Za-z0-9]{1,30}){0,4})[\"']?[ \t]{0,3}[:=][ \t]{0,3}"
 _ONE_WORD_KEY_RX: list = []
 
@@ -50,38 +50,18 @@ def one_word_names(text: str) -> list:
 # ------------------------------------------------------------------------- a person-name key in structured data (#43)
 # first_name, family-name-female, "given name", `last name`, full__name__male: the key, folded (lower case, no space,
 # _ or -, no gender word at the end), names one person's name. Not user_name, file_name or app_name: no person
-_PERSON_NAME_KEYS = frozenset({"firstname", "lastname", "givenname", "familyname", "middlename", "fullname",
-                               "surname", "maidenname", "forename"})
+_PERSON_NAME_KEYS = _words("names/person-name-keys")
 _KEY_NAME_RX: list = []
 # the last names of the placeholder names of documentation (personal.PLACEHOLDER_NAMES)
-_PLACEHOLDER_SURNAMES = frozenset({"doe", "mustermann", "musterfrau", "roe", "bloggs", "normalverbraucher"})
+_PLACEHOLDER_SURNAMES = _words("placeholders/surnames")
 # one word in a name field that is the state of the field in a form or a schema, not a name; the word list knows the
 # stem (require, mask) but not every form of it
-_FIELD_STATE_WORDS = frozenset({"required", "mandatory", "optional", "missing", "invalid", "redacted", "masked",
-                                "hidden", "null", "nil", "empty", "blank", "anonymous", "anonymized", "anonymised",
-                                "withheld", "unspecified", "undisclosed", "tbd", "todo", "placeholder", "sample",
-                                # a verb or a function word that starts a message after the key (first_name: Was
-                                # …), which the word list leaves out
-                                "was", "were", "is", "are", "am", "be", "been", "may", "might", "can", "could",
-                                "will", "would", "shall", "should", "must", "has", "have", "had", "does", "did",
-                                "not", "and", "or", "but", "if", "then", "see", "use",
-                                # a validation message in words (Too Short, Can't Be Blank)
-                                "too", "can't",
-                                # a sort order or the key itself as the value (ORDER BY last_name DESC)
-                                "asc", "desc", "firstname", "lastname", "surname", "givenname", "familyname",
-                                # the label itself, translated: an i18n catalog under a name key
-                                "prénom", "prenom", "nom", "nombre", "apellido", "apellidos", "vorname",
-                                "nachname", "cognome", "sobrenome", "voornaam", "achternaam", "imię", "nazwisko",
-                                "förnamn", "efternavn", "fornavn", "efternamn"})
+_FIELD_STATE_WORDS = _words("names/field-states-under-a-name-key")
 
 
 # a role before a person-name key (customer_first_name, billingLastName): the name is still a person's. Not user,
 # company, account, app or file: their name is a login or a thing
-_PERSON_KEY_ROLES = frozenset({"customer", "client", "contact", "employee", "patient", "member", "student", "buyer",
-                               "seller", "recipient", "sender", "applicant", "owner", "holder", "cardholder",
-                               "passenger", "tenant", "guarantor", "beneficiary", "borrower", "parent", "guardian",
-                               "spouse", "child", "emergencycontact", "billing", "shipping", "preferred",
-                               "primary", "secondary", "patient", "physician", "doctor", "author", "reviewer"})
+_PERSON_KEY_ROLES = _words("names/person-roles-before-a-name-key")
 
 
 def person_name_key(key: str) -> bool:

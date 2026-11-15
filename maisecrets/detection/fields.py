@@ -29,35 +29,30 @@ from __future__ import annotations
 import dataclasses
 
 from .lazy_regex import LazyRx as _LazyRx
+from .wordlists import words as _words, word_tuple as _word_tuple
 
 # a word before `token` that makes the field the cursor of a paged list or a sync, not a credential (measured on
 # synthetic cursors: under nextPageToken, pageToken, syncToken and continuationToken each one was a SECRET). Only the
 # word right before `token` counts: NextToken (AWS) is a cursor, PrevAuthToken (Grafana) names an auth token. In text
 # `next` and `prev` alone stay out: Samsung CredData labels 40 AWS NextToken values credentials, and the text scan
 # took them before this release too
-_CURSOR_WORDS = frozenset({"page", "sync", "continuation", "continue", "cursor", "pagination", "resume", "purchase",
-                           "sequence", "delta", "skip", "rewrite"})
+_CURSOR_WORDS = _words("passwords/cursor-token-words")
 _FIELD_CURSOR_WORDS = _CURSOR_WORDS | {"next", "prev", "previous"}
 # the word before `key` in the name of a key that is an identifier: file_key (Figma), partition_key, idempotency_key
-_HANDLE_KEY_WORDS = frozenset({"file", "node", "component", "style", "property", "partition", "sort", "row", "primary",
-                               "foreign", "idempotency"})
-_SECRET_WORDS = frozenset({"secret", "secrets", "password", "passwords", "passwd", "pwd", "token", "tokens", "key",
-                           "keys"})
+_HANDLE_KEY_WORDS = _words("passwords/identifier-key-words")
+_SECRET_WORDS = _words("passwords/secret-key-words")
 # the last word of a label that names a time or a state of a secret: lastPasswordChangeDateTime, password_set
-_TIME_STATE_END = frozenset({"date", "time", "timestamp", "expires", "expiry", "expiration", "set", "changed",
-                             "created", "updated", "enabled", "required", "state", "status", "revoked", "rotated"})
+_TIME_STATE_END = _words("passwords/time-and-state-label-ends")
 # `at` and `on` end such a label only after a verb: token_expires_at, secretCreatedAt; not secret_at or api_key_on
-_AT_ON_AFTER = frozenset({"created", "updated", "changed", "expires", "expired", "revoked", "rotated", "issued",
-                          "used", "set", "modified", "reset"})
+_AT_ON_AFTER = _words("passwords/time-label-verbs")
 # the words of a credential label in generic-api-key and the keyword rules; a label that ends in `id` after one of them
 # names an identifier: accessReviewId, privateKeyMetadataId, vppTokenAppleId (Microsoft 365, App Store Connect)
 _CREDENTIAL_WORDS = _SECRET_WORDS | {"access", "auth", "authentication", "authorization", "api", "credential",
                                      "credentials", "private"}
-_REVISION_END = frozenset({"commit", "sha", "sha1", "sha256", "revision", "rev", "digest", "checksum"})
+_REVISION_END = _words("passwords/revision-label-ends")
 _HEX = _LazyRx(r"(?i)(?:sha256:)?[0-9a-f]{7,64}")
 # parts of a credential word, also glued to another word (mysecret, apikey, passwordhash); maisecrets is a product name
-_CREDENTIAL_PARTS = ("secret", "pass", "pwd", "token", "key", "auth", "cred", "private", "api", "access", "bearer",
-                     "session", "cookie")
+_CREDENTIAL_PARTS = _word_tuple("passwords/credential-parts")
 _TIME_STATE_PAIRS = frozenset({("valid", "from"), ("valid", "until"), ("not", "before"), ("not", "after"),
                                ("last", "used")})
 # a word that is no label alone (`key`); with another word before it, it is one
@@ -194,14 +189,11 @@ def names_no_secret(words) -> bool:
 # a last part that only holds the value of the object above it: {"phone": [{"value": ...}]}, {"phone": {"number": ...}}.
 # The part above it names the value (ai-gateway #1764: Pipedrive, HubSpot and vCard-like contacts)
 # not `text`: it is the content of a message (Slack text and blocks[].text), and the label of a copy must stay the same
-_WRAPPER_WORDS = frozenset({"value", "values", "number", "nummer", "wert", "val"})
+_WRAPPER_WORDS = _words("tables/value-wrappers")
 # a phone word with qualifiers only names a phone: phone_home, telefon_privat, mobileBusiness, phone_cell. A name with
 # another word stays as it is: phone_type, phone_country_code and mobile_app_version name no phone number
-_PHONE_HEADS = frozenset({"phone", "telephone", "tel", "telefon", "mobile", "mobil", "handy", "cell", "fax"})
-_PHONE_QUALIFIERS = frozenset({"home", "work", "business", "office", "private", "privat", "personal", "direct",
-                               "direkt", "main", "primary", "secondary", "alt", "alternate", "other", "mobile", "mobil",
-                               "cell", "cellular", "geschaeftlich", "geschäftlich", "dienstlich", "buero", "büro",
-                               "number", "numbers", "nummer", "nr", "no"})
+_PHONE_HEADS = _words("phones/phone-keys")
+_PHONE_QUALIFIERS = _words("phones/phone-key-qualifiers")
 
 
 def _part_label(part) -> str | None:

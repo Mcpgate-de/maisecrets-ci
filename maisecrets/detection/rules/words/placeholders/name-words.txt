@@ -1,0 +1,21 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# the surnames and given names of documentation, which the name rule finds as a pair.
+# Read as _PLACEHOLDER_NAME_WORDS in maisecrets/detection/personal.py.
+alice
+bar
+baz
+bloggs
+bob
+doe
+erika
+foo
+jane
+john
+max
+muster
+musterfrau
+mustermann
+normalverbraucher
+qux
+roe

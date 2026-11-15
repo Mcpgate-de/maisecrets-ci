@@ -1,0 +1,23 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# the last word of a field, a role or a variable, not of a person's name: ci_actor, database_owner, enum_value.
+# Read as _USERNAME_NOT_A_NAME_END in maisecrets/detection/personal.py.
+_account
+_actor
+_admin
+_bot
+_field
+_group
+_id
+_key
+_name
+_owner
+_reader
+_role
+_service
+_svc
+_type
+_user
+_value
+_writer
+acct

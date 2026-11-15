@@ -1,0 +1,20 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a word near a Swiss AHV number without dots that names it.
+# Read as _CH_AHV_CONTEXT in maisecrets/detection/core.py.
+ahv
+ahv-nr
+ahv-nummer
+ahvn13
+assicurazione sociale
+assurance sociale
+avs
+avs-nr
+no avs
+numero avs
+numéro avs
+n° avs
+sozialversicherung
+sozialversicherungsnummer
+sv-nummer
+versichertennummer

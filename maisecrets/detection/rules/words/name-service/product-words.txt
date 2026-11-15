@@ -1,0 +1,29 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# product and model words that the name service takes for a person when they stand alone.
+anthropic
+chatgpt
+claude
+codex
+confluence
+copilot
+cursor
+docker
+gemini
+github
+gitlab
+grafana
+jenkins
+jira
+kubernetes
+nginx
+notion
+ollama
+openai
+opencms
+postgres
+redis
+sentry
+slack
+tomcat
+windsurf

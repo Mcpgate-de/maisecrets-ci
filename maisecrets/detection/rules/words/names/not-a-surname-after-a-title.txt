@@ -1,0 +1,32 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a word after Mr or Mrs that is a role, not a surname: Mr Chairman.
+# Read as _TITLE_NOT_A_SURNAME in maisecrets/detection/personal.py.
+ambassador
+chairman
+chairwoman
+director
+governor
+lastname
+madam
+mayor
+minister
+miss
+mister
+mr
+mrs
+ms
+mx
+nachname
+name
+null
+ok
+president
+secretary
+senator
+sir
+speaker
+surname
+title
+undefined
+vorname

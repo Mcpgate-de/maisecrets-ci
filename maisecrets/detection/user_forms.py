@@ -4,6 +4,7 @@ of a release file; it imports personal.py only when it runs."""
 from __future__ import annotations
 
 import re
+from .wordlists import words as _words
 
 # a handle: parts joined by . _ or -, or letters with digits at the end; a word alone is no handle
 _HANDLE = r"(?:[A-Za-z][A-Za-z0-9]{0,20}(?:[._-][A-Za-z0-9]{1,20}){1,3}|[A-Za-z]{2,20}\d{1,6})"
@@ -104,16 +105,7 @@ def _at(low: str, word: str) -> list:
 
 
 # a part that names a daemon, a tool or a bot, not a person: `user kibana8`, `codecov-commenter`, `jira-integration2`
-_TOOL_PARTS = frozenset(
-    "bot bots svc service daemon cron cronjob runner deploy deployer integration commenter webhook kibana zabbix "
-    "nagios pgbouncer grafana prometheus elastic elasticsearch logstash redis mongo mongodb mariadb postgres "
-    "mysql jenkins gitlab github bitbucket jira confluence sonar sonarqube nexus artifactory ansible terraform "
-    "docker podman kube kubernetes helm vault consul nomad airflow celery rabbitmq kafka zookeeper hadoop spark "
-    "nginx apache httpd tomcat jetty ubuntu debian centos fedora alpine admin root guest webmaster postmaster "
-    "backup borgbackup rsync rsyncd monitor monitoring codecov dependabot renovate travis circleci magento drupal "
-    "moodle nextcloud minikube "
-    "kubelet traefik telegraf caddy jellyfin pihole polkitd lightdm restic borg rhel linux wordpress joomla "
-    "keycloak".split())
+_TOOL_PARTS = _words("usernames/tool-and-bot-parts")
 
 
 def _handle_ok(v: str, known) -> bool:
@@ -135,7 +127,7 @@ def _handle_ok(v: str, known) -> bool:
 
 # a key whose value is a user name and that personal.py's username label does not read (#51); not `handle` or
 # `screenName`, which name product slugs and app screens as often
-USER_ID_KEYS = frozenset({"userid", "userlogin", "loginname", "loginid"})
+USER_ID_KEYS = _words("usernames/user-name-keys")
 
 
 _USER_ID_KEY = r"(?i:user[_-]?(?:id|login)|login[_-]?(?:name|id))"

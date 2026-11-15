@@ -1,0 +1,51 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# the value of an i18n file or a form schema, not a name: the label in another language (first_name: Vorname) and the.
+# words of a type, a case or an option
+# the translations of a name label: a text whose name fields hold these is an i18n file or a form schema
+# Read as _NAME_LABEL_TRANSLATIONS in maisecrets/detection/personal.py.
+achternaam
+ad
+apellido
+apellidos
+cognome
+efternamn
+efternavn
+etternavn
+etunimi
+familienname
+familyname
+firstname
+forename
+fornamn
+fornavn
+förnamn
+givenname
+imie
+imię
+jmeno
+jméno
+keresztnév
+lastname
+middlename
+nachname
+name
+nazwisko
+nom
+nombre
+nome
+patronymic
+prenom
+prenome
+prijmeni
+prénom
+příjmení
+rufname
+sobrenome
+soyad
+soyadı
+sukunimi
+surname
+vezetéknév
+voornaam
+vorname

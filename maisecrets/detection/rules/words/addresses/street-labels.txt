@@ -1,0 +1,26 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# the text must hold one of these words before the rule for a street after a label runs.
+# Read as _STREET_LABEL_WORDS in maisecrets/detection/personal.py.
+address
+adres
+adress
+adresse
+anschrift
+bosatt
+direcci
+domicil
+domicilio
+endere
+indirizzo
+live
+living
+located
+property
+resid
+residenza
+situated
+strasse
+straße
+wohn
+woon

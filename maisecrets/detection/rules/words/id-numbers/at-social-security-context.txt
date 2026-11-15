@@ -1,0 +1,12 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a word near an Austrian social security number that names it; without one the number stays text.
+# Read as _AT_SV_CONTEXT in maisecrets/detection/core.py.
+e-card
+sozialversicherung
+sozialversicherungsnummer
+sv-nr
+sv-nummer
+svnr
+versicherungsnummer
+vsnr

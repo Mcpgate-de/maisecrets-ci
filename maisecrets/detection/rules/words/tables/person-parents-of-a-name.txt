@@ -1,0 +1,30 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a parent whose name field names a person: its string is read after `<parent>_name` (author_name), a person label of.
+# the core (personal._COMPOUND_PERSON_KEY_RE), not after the weak `name`
+# Read as _PERSON_PARENTS in maisecrets/detection/leaves.py.
+approved_by
+approver
+approvers
+assignee
+assignees
+attendee
+attendees
+author
+authors
+closed_by
+committer
+committers
+creator
+creators
+merge_user
+merged_by
+organizer
+organizers
+reporter
+reporters
+requested_by
+requester
+requesters
+reviewer
+reviewers

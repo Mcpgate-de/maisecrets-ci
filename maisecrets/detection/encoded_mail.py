@@ -9,6 +9,7 @@ import re
 
 from .lazy_regex import LazyRx as _LazyRx
 from .text_index import _line_start
+from .wordlists import words as _words
 
 
 # an encoded address is an address after `=` (email=, to=, login=), after mailto%3A, or after a mail word; elsewhere
@@ -94,19 +95,12 @@ def _in_url_path(text: str, start: int, end: int) -> bool:
 _MAIL_COLUMN_RE = _LazyRx(r"(?i)mail|courriel|correo|e-?post(?![a-z])|s\u00e4hk\u00f6posti")
 # the owner word must be the last word of the header: login_user and user are addresses, end_user_id and
 # contact_asset are an id and a file (review of 0.6.25)
-_OWNER_WORDS = frozenset({"contact", "contacts", "login", "logins", "user", "users", "username", "usernames",
-                          "sender", "recipient", "recipients", "upn", "benutzer", "benutzername", "kontakt",
-                          "empf\u00e4nger", "absender", "destinataire", "exp\u00e9diteur", "utilisateur"})
+_OWNER_WORDS = _words("emails/owner-columns")
 _OWNER_PAIRS = (["user", "name"], ["reply", "to"], ["principal", "name"])
 # an owner word before one of these is the same column: Recipient Address, Login Name, sender_addr
-_OWNER_TAILS = frozenset({"address", "addr", "name", "adresse"})
+_OWNER_TAILS = _words("emails/owner-column-ends")
 # the extension of a file that an asset name ends in: name%402x.png is an image at twice the size
-_FILE_EXTENSIONS = frozenset({"png", "jpg", "jpeg", "gif", "svg", "webp", "avif", "ico", "bmp", "tif", "tiff", "js",
-                              "mjs", "cjs", "ts", "css", "map", "json", "html", "htm", "xml", "txt", "pdf",
-                              "woff", "woff2", "ttf", "otf", "mp3", "mp4", "webm", "wasm", "gz", "tgz", "jar",
-                              "heic", "heif", "lottie", "scss", "sass", "less", "jsx", "tsx", "csv", "yaml", "yml",
-                              "toml", "lock", "wav", "ogg", "mov", "zip", "md", "mdx", "vue", "svelte", "rst",
-                              "adoc", "ipynb"})
+_FILE_EXTENSIONS = _words("emails/file-extensions")
 
 
 def _names_a_mail_column(cell: str) -> bool:

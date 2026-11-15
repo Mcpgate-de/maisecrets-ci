@@ -1,0 +1,33 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a word next to phone in a key: phone_home, mobileBusiness.
+# Read as _PHONE_QUALIFIERS in maisecrets/detection/fields.py.
+alt
+alternate
+buero
+business
+büro
+cell
+cellular
+dienstlich
+direct
+direkt
+geschaeftlich
+geschäftlich
+home
+main
+mobil
+mobile
+no
+nr
+number
+numbers
+nummer
+office
+other
+personal
+primary
+privat
+private
+secondary
+work

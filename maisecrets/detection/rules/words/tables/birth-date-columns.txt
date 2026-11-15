@@ -1,0 +1,9 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a column of a birth date: it makes the table a table of persons.
+# Read as _BIRTH_ANCHOR_COLS in maisecrets/detection/personal.py.
+birth_date
+birthdate
+date_of_birth
+dob
+geburtsdatum

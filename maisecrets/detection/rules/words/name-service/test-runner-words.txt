@@ -1,0 +1,11 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# words of a test runner's or a build's summary line that are no person alone.
+collected
+errors
+failed
+finished
+passed
+ran
+skipped
+warnings

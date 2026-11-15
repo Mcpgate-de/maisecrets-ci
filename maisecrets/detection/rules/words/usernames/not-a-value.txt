@@ -1,0 +1,33 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a value after a user-name label that is no user name: empty, false, my_username.
+# Read as _USERNAME_NOT_A_VALUE in maisecrets/detection/personal.py.
+changeme
+empty
+false
+my_username
+myusername
+na
+nil
+no
+none
+null
+off
+ok
+on
+optional
+placeholder
+required
+string
+tbd
+text
+todo
+true
+undefined
+unknown
+username_here
+value
+varchar
+yes
+your_username
+yourusername

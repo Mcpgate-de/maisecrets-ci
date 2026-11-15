@@ -1,0 +1,21 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a word near a German ID card number that names it.
+# Read as _DE_ID_CARD_CONTEXT in maisecrets/detection/core.py.
+ausweis
+ausweis-nr
+ausweisdokument
+ausweisnr
+ausweisnummer
+bundespersonalausweis
+dokumentennummer
+id card
+id-card
+identity card
+mrz
+national id
+neuer personalausweis
+npa
+personalausweis
+personalausweisnr
+personalausweisnummer
