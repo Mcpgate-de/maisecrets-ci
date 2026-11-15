@@ -25,7 +25,7 @@ ADVANCED = ("ssh_host_groups", "ssh_approval", "resolve_in_files", "ssh_via_sand
             "rewrite_prompts", "scrub_transcript", "strip_hidden_characters", "regions", "ttl_seconds",
             "renew_on_use", "tips", "shortcut", "guard", "pass_agent_reports", "gateway_servers", "client_header",
             "max_keys_per_session", "max_resolves_per_hour", "rule_dirs", "clean_dirs", "value_files",
-            "remote_detector")
+            "remote_detector", "business_addresses")
 INTERNAL = ("backend", "allow_plaintext_store", "report_url", "max_ttl_seconds", "max_new_entries_per_result",
             "keep_purged_days", "audit_max_lines", "pii_regions", "client_vault_cafile")
 
@@ -44,6 +44,7 @@ TITLE = {
     "read_pdf": "PDFs the AI reads", "read_image": "Images the AI reads", "clean_dirs": "Folders with clean files",
     "value_files": "Value files", "remote_detector": "Names from a service", "show_values": "Values on your screen",
     "max_keys_per_session": "Values per session and hour", "max_resolves_per_hour": "Uses per hour",
+    "business_addresses": "Business addresses",
 }
 MEANING = {
     "ssh_consent": "Ask before each ssh command that changes something on a host.",
@@ -61,6 +62,8 @@ MEANING = {
     "scrub_transcript": "Remove a value from the session transcript on disk.",
     "strip_hidden_characters": "Remove invisible characters from tool results.",
     "regions": "Countries for the personal-data rules.",
+    "business_addresses": "The address of a company, an office, a shop or a public place: kept as text by default, "
+                          "as it is public and an agent works with it; mask treats it as personal data.",
     "read_pdf": "maisecrets cannot look inside a PDF. What happens when the AI reads one.",
     "read_image": "maisecrets cannot look inside an image. What happens when the AI reads one.",
     "show_values": "Claude Code with mods, in the fullscreen terminal and the desktop app: the value behind a "
@@ -96,6 +99,8 @@ CHOICE_TEXT = {
                  ("convert", "send only its text, with secrets and personal data masked (needs pdftotext)")),
     "read_image": (("allow", "the image goes to the AI as it is"), ("ask", "ask you before each image"),
                    ("block", "the Read tool does not open an image")),
+    "business_addresses": (("keep", "the address of a company or a public place stays text"),
+                           ("mask", "mask it as any address")),
     "show_values": (("always", "each value stands in the text with a lock; a click copies it"),
                     ("click", "a click on a placeholder shows the values of that reply for 10 seconds"),
                     ("off", "placeholders only")),
@@ -109,7 +114,8 @@ ADVANCED_GROUPS = (("Stored values", ("ttl_seconds", "renew_on_use", "resolve_in
                                       "max_keys_per_session", "max_resolves_per_hour")),
                    ("ssh", ("ssh_host_groups", "ssh_approval", "ssh_via_sandbox")),
                    ("Prompts and tool output", ("block_at_mentions", "rewrite_prompts", "scrub_transcript",
-                                                "strip_hidden_characters", "regions", "rule_dirs",
+                                                "strip_hidden_characters", "regions", "business_addresses",
+                                                "rule_dirs",
                                                 "clean_dirs", "value_files", "pass_agent_reports",
                                                 "remote_detector")),
                    ("Help and updates", ("tips", "shortcut", "guard")))
@@ -118,7 +124,8 @@ ADVANCED_GROUPS = (("Stored values", ("ttl_seconds", "renew_on_use", "resolve_in
 _BOOL_WORDS = {"on": True, "true": True, "off": False, "false": False}
 _CHOICES = {"rehydration": ("automatic", "confirm", "block"), "ssh_approval": ("per-command", "per-session"),
             "secret_destinations": ("observe", "protect", "off"), "read_pdf": ("allow", "ask", "block", "convert"),
-            "read_image": ("allow", "ask", "block"), "show_values": ("always", "click", "off")}
+            "read_image": ("allow", "ask", "block"), "show_values": ("always", "click", "off"),
+            "business_addresses": ("keep", "mask")}
 _BOOL_KEYS = tuple(k for k in DISCOVERABLE + ADVANCED if isinstance(DEFAULT_CONFIG.get(k), bool))
 # a whole number in this range: the limiter (C7). 0 would stop every use; a person who wants that sets rehydration block
 _INT_KEYS = {"max_keys_per_session": (1, 1_000_000), "max_resolves_per_hour": (1, 1_000_000)}
@@ -411,7 +418,9 @@ STRICTER_LAST = {"rehydration": ("automatic", "confirm", "block"), "ssh_approval
                  # convert sends masked text only; ask can send the whole file
                  "read_pdf": ("allow", "ask", "convert", "block"), "read_image": ("allow", "ask", "block"),
                  # always shows each value on the screen; click shows them for a moment
-                 "show_values": ("always", "click", "off")}
+                 "show_values": ("always", "click", "off"),
+                 # mask treats a business address as personal data
+                 "business_addresses": ("keep", "mask")}
 NEUTRAL = ("tips", "shortcut", "rewrite_prompts")
 
 

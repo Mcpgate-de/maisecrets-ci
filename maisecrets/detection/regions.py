@@ -49,6 +49,7 @@ class Active:
     regions: tuple[str, ...]      # country codes, "generic" first
     languages: tuple[str, ...]    # label languages, "en" first
     source: str                   # where the regions came from, for /maisecrets:status
+    business_addresses: bool = False   # mask the address of a company or a public place too (#49)
 
 
 def _macos_locale() -> str | None:
@@ -177,7 +178,7 @@ def resolve(cfg: dict, locale: str | None = None) -> Active:
     languages = ["en"] + ([lang] if lang else []) + [x for r in regions for x in _region_languages(r)] + available
     return Active(regions=("generic", *regions),
                   languages=tuple(x for x in dict.fromkeys(languages) if x in set(available)),
-                  source=source)
+                  source=source, business_addresses=cfg.get("business_addresses") == "mask")
 
 
 @dataclass(frozen=True)

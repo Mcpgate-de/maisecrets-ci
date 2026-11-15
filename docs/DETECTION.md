@@ -54,7 +54,7 @@ for m in d.findings(text, channel="tool", path="notes.txt"):
 | `Sources`, `NO_SOURCES` | What a scan takes besides the built-in rules |
 | `References`, `NO_REFERENCES` | The reference form of the caller |
 | `Host`, `THIS_COMPUTER` | What a scan reads of its computer |
-| `Active`, `resolve_regions` | The regions and label languages, and their resolution from a config (`locale=` to give the locale). A `Detector` given an `Active` with a region or a label language that the JSON entry point does not know raises `ValueError`, which names the known codes (since 0.9.4; before, an unknown region was ignored and an unknown language raised `FileNotFoundError`) |
+| `Active`, `resolve_regions` | The regions and label languages, and their resolution from a config (`locale=` to give the locale). `Active(..., business_addresses=True)` (since 0.9.11, the setting `business_addresses` `mask`) masks the address of a company, an office or a public place too; the default leaves it as text. A `Detector` given an `Active` with a region or a label language that the JSON entry point does not know raises `ValueError`, which names the known codes (since 0.9.4; before, an unknown region was ignored and an unknown language raised `FileNotFoundError`) |
 | `user_rule` | A rule of your own, for `Sources.user_rules` (returns a `Rule`) |
 | `TYPES` | The type vocabulary: each type a `Match` can carry, with its `family` and `class` (`maisecrets/detection/types.json`) |
 | `ScanIncomplete` | Raised by a scan past its `deadline=` (since 0.8.24): `findings`, `reason`, `read`, below |

@@ -1848,6 +1848,10 @@ _BUSINESS_RE = _lazy(r"(?i)(?<![a-z])(?:employer|industries|enterprises?|holding
                      r"|distribution|fulfil?ment"
                      r"|bank(?![ _-]?(?:account|details|statement|transfer|card|code|holiday|balance|info)))(?![a-z])")
 _BANK_ACCOUNT_RE = _lazy(r"(?i)bank[ _-]?(?:account|details|statement|transfer|card|code|holiday|balance|info)")
+# the setting business_addresses mask: these find nothing, so a business address is masked as any address (#49)
+from .business import Unless as _U  # noqa: E402
+_NOT_A_HOME_RE, _BUSINESS_RE, _EU_BUSINESS_RE, _PLACE_OF_A_BUSINESS_RE, _NAMED_PLACE_BEFORE_RE = (
+    _U(_NOT_A_HOME_RE), _U(_BUSINESS_RE), _U(_EU_BUSINESS_RE), _U(_PLACE_OF_A_BUSINESS_RE), _U(_NAMED_PLACE_BEFORE_RE))
 
 
 def _not_a_home(text: str, a: int, b: int) -> bool:
