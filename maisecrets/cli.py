@@ -960,7 +960,13 @@ def cmd_ner(args: list[str]) -> int:
             wait = min(float(args[i + 1]), 300.0)
         except (IndexError, ValueError):
             wait = 0.0
-    code, lines = ner_setup.report(load_config().get("remote_detector"), wait)
+    from . import ner_view, selftest, status_verdict
+    from .vault import HOME
+    try:
+        client = status_verdict.client_of(HOME / "hooks.log", selftest.sessions_of_this_command())
+    except Exception:  # noqa: BLE001 - without a client both forms are right enough
+        client = None
+    code, lines = ner_view.render(load_config().get("remote_detector"), wait, "all" in args, client)
     print("\n".join(lines))
     return code
 

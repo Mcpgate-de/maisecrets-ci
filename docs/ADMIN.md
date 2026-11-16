@@ -863,16 +863,19 @@ a source, with one command typed as your own prompt:
 | `/maisecrets:ner local` | the service on this computer, `http://127.0.0.1:8765/` (`on` is the same) |
 | `/maisecrets:ner url URL` | a service of your team on a private network |
 | `/maisecrets:ner gateway URL` | the gateway of your `/maisecrets:sref login`, when it offers name detection (log in once more after the switch) |
+| `/maisecrets:ner gateway NAME` | the same, by the name of an MCP server of your configuration (the list of `/maisecrets:sref`); the name alone, `/maisecrets:ner NAME`, is the same when it is no word of the command |
 | `/maisecrets:ner off` | the rules alone (the default) |
 | `/maisecrets:ner fallback url URL` | a second service for tool results while the local one is not running (`fallback off` removes it) |
 | `/maisecrets:ner prompts off` | the prompts you type keep the rules alone; tool results still go to the service (`prompts on` turns it back on) |
 | `/maisecrets:ner prompts on` | with a service on the network (`url`, `gateway`): your prompts go there too, with the rules' findings as filler; a new source takes this back |
 | `/maisecrets:ner unavailable withhold` | while the service gives no answer, a tool result is kept from the AI; by default (`unavailable rules`) the rules alone mask it |
 | `/maisecrets:ner updates off` | the image of the local service stays as it is; by default it follows the plugin (`updates on` turns that back on) |
-| `/maisecrets:ner` | which source is set, whether it answers, and its load from `GET /metrics` when the service offers it (workers in use, requests that wait, CPU and memory of its container; numbers only) |
+| `/maisecrets:ner` | one screen: a head line (the source and whether it answers), then one line per check, marked as in `/maisecrets:status` (✓ ok, ! warn, ✗ FAIL, – n/a), with the next command after → for a warn or a FAIL. The checks: the source and what it reads; for `local` the service (and its secret), the image and the load; for `url` whether it is reachable; for `gateway` the login with the name scope and your quota; and today's count from `ner.log` (a warn when the rules alone took at least 10 texts and at least a fifth of all) |
+| `/maisecrets:ner all` | the same, then the details: what the service reads, what a tool result gets while it does not answer, the model and types, the image against the pin, the load from `GET /metrics` (workers in use, requests that wait, CPU and memory of its container; numbers only) and today's counts per service |
 
 In Codex, send `maisecrets: ner local` (or `url URL`, `off`) alone as your
-prompt. One source at a time: a new one replaces the old one. A fallback only
+prompt. An argument the command does not know gets an answer with the valid
+forms, and nothing changes. One source at a time: a new one replaces the old one. A fallback only
 when you add one. Only a prompt you type changes it, with the limits of every
 setting (threat model, C22). `local` means whatever listens on 127.0.0.1:8765;
 maisecrets does not verify that it is `mcpgate/ner`.

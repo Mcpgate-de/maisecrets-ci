@@ -49,15 +49,34 @@ _NER_RE = re.compile(r"\A\s*(?:/maisecrets:ner|maisecrets:\s*ner)\s+(?:(off|loca
                      r"unavailable\s+(rules|withhold))\s*\Z", re.I)
 # the same sentence anywhere in a tool call (settings.IN_A_COMMAND_RE)
 IN_A_COMMAND = (r"(?:/maisecrets:ner|maisecrets:\s*ner)\s+(?:off|local|on|url|gateway|fallback|prompts|updates|"
-                r"unavailable)\b")
+                r"unavailable)\b|"
+                # a server name alone: one word that ends the quoted prompt or the command
+                r"(?:/maisecrets:ner|maisecrets:\s*ner)\s+(?!all\b)[\w.-]+(?=\s*(?:[\"'`]|\Z))")
+
+
+# an argument the hook does not know: the slash form with any text, the Codex form with one word only (a sentence that
+# starts with "maisecrets: ner" is a question to the AI, not a command)
+_OTHER_RE = re.compile(r"\A\s*(?:/maisecrets:ner\s+(\S.{0,400}?)|maisecrets:\s*ner\s+([^\s?!]{1,200}))\s*\Z",
+                       re.I | re.S)
+# the arguments that change nothing: the view with the details (ner_view.py)
+VIEW_WORDS = ("all",)
+# the words of the command: never taken as the name of a server
+KEYWORDS = ("off", "local", "on", "url", "gateway", "fallback", "prompts", "updates", "unavailable",
+            "start") + VIEW_WORDS
 
 
 def parse(prompt) -> str | None:
-    """`off`, `local`, `url:<URL>`, `fallback:off`, `fallback:url:<URL>`, `prompts:on`, `prompts:off`, `updates:on` or
-    `updates:off` when the whole prompt is a change of the setting, else None."""
+    """`off`, `local`, `url:<URL>`, `gateway:<URL or server name>`, `fallback:off`, `fallback:url:<URL>`, `prompts:on`,
+    `prompts:off`, `updates:on`, `updates:off`, `unavailable:<choice>` when the whole prompt is a change of the setting,
+    `other:<text>` for an argument the command does not know (a server name, or an answer with the valid forms), else
+    None (no argument, `all`, or no /maisecrets:ner prompt)."""
     m = _NER_RE.match(prompt) if isinstance(prompt, str) else None
     if not m:
-        return None
+        other = _OTHER_RE.match(prompt) if isinstance(prompt, str) else None
+        if not other:
+            return None
+        text = (other.group(1) or other.group(2)).strip()
+        return None if text.lower() in VIEW_WORDS else "other:" + text
     if m.group(1):
         return "off" if m.group(1).lower() == "off" else "local"
     if m.group(2):
@@ -158,6 +177,51 @@ def updated(current, word: str) -> dict:
     return new
 
 
+FORMS = ("local", "url URL", "gateway URL", "gateway NAME (a server of /maisecrets:sref)", "off", "all",
+         "prompts on|off", "unavailable rules|withhold", "updates on|off", "fallback url URL|off")
+
+
+def _servers() -> dict:
+    """name -> URL of the MCP servers of the person's configuration (the list of /maisecrets:sref), or {}."""
+    from . import vault_refs
+    try:
+        servers = vault_refs.user_servers()
+    except Exception:  # noqa: BLE001 - a configuration that cannot be read has no names
+        return {}
+    return servers if isinstance(servers, dict) else {}
+
+
+def _quoted(text: str) -> str:
+    return '"' + "".join(c if c.isprintable() else "?" for c in text)[:60] + '"'
+
+
+def typed_word(word: str, slash: bool = True) -> tuple:
+    """(the word to write, "") or (None, the answer) for a word of parse. A server name of the person's
+    configuration becomes `gateway:<its URL>`: after `gateway`, or alone when it is no keyword. Any other argument is
+    answered with the valid forms, and nothing changes."""
+    cmd = "/maisecrets:ner" if slash else "maisecrets: ner"
+    sref = "/maisecrets:sref" if slash else "maisecrets: sref"
+    if word.startswith("gateway:") and "://" not in word:
+        name = word[len("gateway:"):]
+        url = _servers().get(name)
+        if url:
+            return "gateway:" + str(url), ""
+        names = sorted(n for n in _servers() if re.fullmatch(r"[\w.-]{1,64}", n))[:10]
+        have = f" (it has: {', '.join(names)})" if names else ""
+        return None, (f"maisecrets: your configuration has no MCP server named {_quoted(name)}{have}; {sref} lists "
+                      f"them, and {cmd} gateway URL takes an address. Nothing was changed.")
+    if word.startswith("other:"):
+        text = word[len("other:"):]
+        if text.lower() not in KEYWORDS and not any(c.isspace() for c in text):
+            url = _servers().get(text)
+            if url:
+                return "gateway:" + str(url), ""
+        forms = ", ".join(f.replace("/maisecrets:sref", sref) for f in FORMS)
+        return None, (f"maisecrets: the command does not know {_quoted(text)}. {cmd} takes: {forms}; without an "
+                      "argument it shows the source. Nothing was changed.")
+    return word, ""
+
+
 def describe(conf) -> str:
     """One line: the source in effect."""
     url = conf.get("url") if isinstance(conf, dict) else None
@@ -221,29 +285,46 @@ def _tag(image: str) -> str:
     return image.split("@", 1)[0].rpartition(":")[2] if ":" in image.split("@", 1)[0] else "latest"
 
 
-def image_line(conf, tool: str) -> str:
-    """One line for /maisecrets:ner: the image of the container `ner` against the one this version pins."""
+def image_state(conf, tool: str) -> tuple:
+    """(kind, the tag of the container's image, the pin as the lines name it) of the container `ner` against the image
+    this version pins. kind: "" (no container of mcpgate/ner), pinned, newer (an older pin: it stays), not_ours (not
+    set up by maisecrets), updates_off, failed (a new one did not start; tried again in a day), behind (the next
+    session start updates it)."""
     from . import ner_secret
     cid, _running, image, image_id = _inspect(tool, "ner")
     if not cid or not _ours_image(image):
-        return ""
+        return "", "", ""
     pinned = _tag(SECRET_IMAGE)
     if image == SECRET_IMAGE:
-        return f"image: {pinned}, the one this version pins"
+        return "pinned", pinned, pinned
     if _tag(image) == pinned:
         pinned += " by its digest"          # the same tag without the pin, or pushed again
     if not _behind(tool, image, image_id):
-        return f"image: {_tag(image)}; this version pins {pinned}, an older one, so it stays"
+        return "newer", _tag(image), pinned
     if cid != ner_secret.container_of(ner_secret.endpoint(LOCAL_URL)):
-        return (f"image: {_tag(image)}; this version pins {pinned}, but the container was not set up by maisecrets, "
-                f"so it is not updated. To change that: {os.path.basename(tool)} rm -f ner, then /maisecrets:ner "
-                "again.")
+        return "not_ours", _tag(image), pinned
     if isinstance(conf, dict) and conf.get("auto_update") is False:
-        return f"image: {_tag(image)}; this version pins {pinned} (updates off: /maisecrets:ner updates on)"
+        return "updates_off", _tag(image), pinned
     if _failed_recently():
-        return (f"image: {_tag(image)}; a container of {pinned} did not start, so the old one runs on. maisecrets "
-                "tries again in a day.")
-    return f"image: {_tag(image)}; this version pins {pinned}, and the next session start updates it"
+        return "failed", _tag(image), pinned
+    return "behind", _tag(image), pinned
+
+
+def image_line(conf, tool: str, state: tuple | None = None) -> str:
+    """One line for /maisecrets:ner all: the image of the container `ner` against the one this version pins."""
+    kind, have, pinned = state if state is not None else image_state(conf, tool)
+    return {
+        "": "",
+        "pinned": f"image: {pinned}, the one this version pins",
+        "newer": f"image: {have}; this version pins {pinned}, an older one, so it stays",
+        "not_ours": (f"image: {have}; this version pins {pinned}, but the container was not set up by maisecrets, so "
+                     f"it is not updated. To change that: {os.path.basename(tool)} rm -f ner, then /maisecrets:ner "
+                     "again."),
+        "updates_off": f"image: {have}; this version pins {pinned} (updates off: /maisecrets:ner updates on)",
+        "failed": (f"image: {have}; a container of {pinned} did not start, so the old one runs on. maisecrets tries "
+                   "again in a day."),
+        "behind": f"image: {have}; this version pins {pinned}, and the next session start updates it",
+    }[kind]
 
 
 def _get(url: str, path: str, timeout: float):
@@ -644,11 +725,13 @@ def _start_local(cfg: dict, tool: str) -> tuple[int, list]:
     return 0, ["started: the container ner with a secret of its own; it proves the secret before each text."]
 
 
-def report(conf, wait: float = 0.0) -> tuple[int, list]:
-    """(exit code, lines) for /maisecrets:ner: the source, whether it answers (waiting up to `wait` seconds), and for
-    the local source that does not answer the command that starts it. The exit code is 0 when the source answers or
-    is off, 3 when the local service needs a start, 4 when the gateway source needs a login with the name scope
-    (commands/ner.md runs it after the person's /maisecrets:ner gateway URL), 1 otherwise."""
+def report(conf, wait: float = 0.0, facts: dict | None = None) -> tuple[int, list]:
+    """(exit code, lines) for /maisecrets:ner all: the source, whether it answers (waiting up to `wait` seconds), and
+    for the local source that does not answer the command that starts it. The exit code is 0 when the source answers
+    or is off, 3 when the local service needs a start, 4 when the gateway source needs a login with the name scope
+    (commands/ner.md runs it after the person's /maisecrets:ner gateway URL), 1 otherwise. `facts` gets what was
+    checked, for the short view (ner_view.py)."""
+    facts = facts if facts is not None else {}
     lines = [describe(conf)]
     url = conf.get("url") if isinstance(conf, dict) else None
     if not url:
@@ -659,38 +742,49 @@ def report(conf, wait: float = 0.0) -> tuple[int, list]:
     lines.append(unavailable_line(conf))
     lines.append(counts_line())
     if conf.get("gateway"):
-        return _gateway_report(conf, lines)
+        return _gateway_report(conf, lines, facts)
+    local = str(url).rstrip("/") == LOCAL_URL.rstrip("/")
+    facts["local"] = local
     deadline = time.monotonic() + wait
     ok, line = probe(conf)
     while not ok and time.monotonic() < deadline:
         time.sleep(1)
         ok, line = probe(conf)
     lines.append(line)
-    if ok and str(url).rstrip("/") == LOCAL_URL.rstrip("/"):
+    facts["answers"], facts["probe"] = ok, line
+    if ok and local:
         from . import ner_secret
         ep = ner_secret.endpoint(LOCAL_URL)
         if not ner_secret.container_of(ep):
+            facts["proof"] = "unchecked"
             lines.append("not checked: the container was not set up by maisecrets (run.sh ner start does that)")
         elif not ner_secret.secret_of(make_backend_for(conf), ep):
+            facts["proof"] = "lost"
             lines.append("the secret maisecrets kept for the container cannot be read, so the container gets no text. "
                          "Remove it (docker rm -f ner) and run /maisecrets:ner again.")
             return 1, lines
         elif not _info(conf).get("client_secret"):
             # an image before the secret check: it gets no text, and the fault is the image, not an impostor
+            facts["proof"] = "old"
             lines.append(f"the container cannot prove its secret: its image is older than {FIRST_SECRET_IMAGE}. "
                          "Remove it (docker rm -f ner) and run /maisecrets:ner again; until then it gets no text.")
             return 1, lines
         elif not _proves(conf):
+            facts["proof"] = "impostor"
             lines.append("the service on 127.0.0.1:8765 is not the container that maisecrets started: it cannot prove "
                          "the secret, so it gets no text. Stop it, and run /maisecrets:ner again.")
             return 1, lines
         else:
+            facts["proof"] = "ok"
             lines.append("checked: the container proved the secret maisecrets gave it, just now and before each text")
         tool = container_tool()
+        facts["tool"] = os.path.basename(tool) if tool else ""
         try:
-            line = image_line(conf, tool) if tool else ""
+            state = image_state(conf, tool) if tool else ("", "", "")
         except (OSError, subprocess.SubprocessError):
-            line = ""
+            state = ("", "", "")
+        facts["image"] = state
+        line = image_line(conf, tool, state) if tool else ""
         if line:
             lines.append(line)
             lines.append(updates_line(conf))
@@ -698,16 +792,19 @@ def report(conf, wait: float = 0.0) -> tuple[int, list]:
         # the load from GET /metrics (ai-gateway #1869): numbers only; a service without it says so, never fails
         from .ner_metrics import bearer_of, load_line
         bearer = ""
-        if str(url).rstrip("/") == LOCAL_URL.rstrip("/"):
+        if local:
             from . import ner_secret
             ep = ner_secret.endpoint(LOCAL_URL)
             secret = ner_secret.secret_of(make_backend_for(conf), ep) if ner_secret.container_of(ep) else ""
             bearer = bearer_of(secret) if secret else ""
-        lines.append(load_line(str(url), bearer=bearer))
+        load = load_line(str(url), bearer=bearer)
+        facts["load"] = load
+        lines.append(load)
         return 0, lines
     lines.append("Until it answers, the rules mask tool results alone, as without the service.")
-    if str(url).rstrip("/") == LOCAL_URL.rstrip("/"):
+    if local:
         tool = container_tool()
+        facts["tool"] = os.path.basename(tool) if tool else ""
         if tool:
             # commands/ner.md runs `run.sh ner start` on exit code 3 (a container with a secret, #1699)
             lines.append(f"start: run.sh ner start (with {os.path.basename(tool)})")
@@ -720,7 +817,7 @@ def report(conf, wait: float = 0.0) -> tuple[int, list]:
     return 1, lines
 
 
-def _gateway_report(conf: dict, lines: list) -> tuple[int, list]:
+def _gateway_report(conf: dict, lines: list, facts: dict) -> tuple[int, list]:
     """The gateway source as a tool result meets it: its discovery, the login with the name scope, one short request.
     /health of the gateway says nothing about the login, so it is not asked."""
     from . import remote_layer
@@ -728,19 +825,25 @@ def _gateway_report(conf: dict, lines: list) -> tuple[int, list]:
     det, why = remote_layer.from_config({**load_config(), "remote_detector": conf})
     if det is None:
         lines.append(f"the gateway: not asked; {why}")
+        facts["why"] = why
         if "login" in why:
             name = gateway_server(conf)
+            facts["login"], facts["server"] = ("scope" if "scope" in why else "none"), name
             lines.append(f"login: run.sh sref login{(' ' + name) if name else ''}")
             return 4, lines
         return 1, lines
+    facts["login"] = "ok"
     _spans, st = det.ask("A check of the name service.", [])
     from . import ner_gateway
     doc, why_none = ner_gateway.status({**load_config(), "remote_detector": conf}, conf)
+    facts["status"], facts["status_why"] = doc, why_none
     load = ner_gateway.status_line(doc) if doc is not None else f"load: no load data ({why_none})"
     if st.available:
+        facts["answers"], facts["ms"] = True, st.ms
         lines.append(f"the gateway: answers ({st.ms:.0f} ms) with your login")
         lines.append(load)
         return 0, lines
+    facts["answers"], facts["why"] = False, st.reason or st.state
     lines.append(load)
     lines.append(f"the gateway: gives no result ({st.reason or st.state}); the rules mask tool results alone until it "
                  "does")
