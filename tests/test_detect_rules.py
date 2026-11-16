@@ -14,6 +14,7 @@ import os
 import random
 import string
 import sys
+import re
 import unittest
 import uuid
 from pathlib import Path
@@ -1106,14 +1107,20 @@ class FalsePositiveCorpusTests(unittest.TestCase):
         entries = [SimpleNamespace(type="SECRET", ref="⟦SECRET_c1⟧"),
                    SimpleNamespace(type="EMAIL", ref="⟦EMAIL_c1:ma•••@•••.de⟧"),
                    SimpleNamespace(type="PHONE", ref="⟦PHONE_c2:+49••••••67⟧")]
+        for e in entries:                              # the key of each reference, for the wrong-hit line
+            e.key, e.kind = e.ref[1:-1].split(":")[0], "k"
         vault = SimpleNamespace(backend=SimpleNamespace())
         out = []
-        for copied in (True, False):
-            for codex in (True, False):
-                for cfg in ({}, {"report_url": "https://example.org/report", "renew_on_use": False,
-                                 "ttl_seconds": {"default": 3600, "EMAIL": 600}}):
-                    out.append("\n".join(hooks.block_notice(entries, "use ⟦SECRET_c1⟧ and ⟦EMAIL_c1:ma•••@•••.de⟧",
-                                                            copied, codex, cfg, vault)))
+        for found in (entries, entries[:1]):           # KEY, and the one key by name
+            for copied in (True, False):
+                for codex in (True, False):
+                    for cfg in ({}, {"report_url": "https://example.org/report", "renew_on_use": False,
+                                     "ttl_seconds": {"default": 3600, "EMAIL": 600}}):
+                        out.append("\n".join(hooks.block_notice(found, "use ⟦SECRET_c1⟧ and ⟦EMAIL_c1:ma•••@•••.de⟧",
+                                                                copied, codex, cfg, vault)))
+        out += ["\n".join(hooks.block_notice(entries, "x", False, False, {}, vault, report=r))
+                for r in ("a subagent's report", "a background command's notice")]
+        out.append("\n".join(hooks.peer_notice(entries, "review-2")))
         return out
 
     def _check(self, texts):
@@ -1136,7 +1143,7 @@ class FalsePositiveCorpusTests(unittest.TestCase):
     def test_the_plugins_own_notices_are_not_a_hit(self):
         notices = self._notices()
         # the first line of every notice since 0.4.2; the check guards the notices themselves
-        self.assertTrue(all("found and kept from the AI" in n for n in notices), notices[:1])
+        self.assertTrue(all(re.search(r"kept .*from the AI", n) for n in notices), notices[:1])
         self._check(notices)
 
     def test_a_test_result_after_pass_is_no_password(self):

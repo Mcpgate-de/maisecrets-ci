@@ -991,7 +991,7 @@ class SessionStartTests(unittest.TestCase):
                                                     "transcript_path": "", "prompt_id": "p1"}))
         out = json.loads(r.stdout)
         self.assertEqual(out.get("decision"), "block", r.stdout + r.stderr)
-        self.assertIn("personal data was found", out.get("reason", "") + out.get("systemMessage", ""))
+        self.assertIn("kept personal data from the AI", out.get("reason", "") + out.get("systemMessage", ""))
         self.assertEqual([m["type"] for m in sb.index()["entries"].values()], ["EMAIL"])
 
     def test_first_start_introduces_later_starts_rotate_a_tip_then_stay_short(self):

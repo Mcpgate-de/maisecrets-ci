@@ -244,10 +244,10 @@ class ClientShapeTests(unittest.TestCase):
             codex = hooks.user_prompt({"prompt": "use " + GLPAT, "session_id": "U2", "turn_id": "t",
                                        "transcript_path": ""})
         self.assertTrue(claude["hookSpecificOutput"]["suppressOriginalPrompt"])
-        self.assertIn("pastes the cleaned prompt. Then send it, or type /maisecrets:send", claude["reason"])
+        self.assertRegex(claude["reason"], r"\n  (/ms|/maisecrets:send) +send the cleaned prompt now\n")
         self.assertNotIn("hookSpecificOutput", codex)
-        self.assertIn("pastes the cleaned prompt. Then send it.", codex["reason"])
-        self.assertIn("maisecrets by mcpgate.de", codex["reason"])
+        self.assertIn("paste the cleaned prompt, then send it", codex["reason"])
+        self.assertNotIn("/maisecrets:send", codex["reason"], "Codex has no /ms")
         for out in (claude, codex):
             self.assertNotIn(GLPAT, json.dumps(out))
         typed = hooks.user_prompt({"prompt": "print " + self.e.ref, "session_id": "U3", "prompt_id": "p"})
@@ -262,13 +262,13 @@ class ClientShapeTests(unittest.TestCase):
             def __init__(self, t, ref):
                 self.type, self.ref = t, ref
         cards = "\n".join(hooks.block_notice([E("CARD", "⟦CARD_c1⟧"), E("ODD", "⟦ODD_c1⟧")], "x", True, False, {}, v))
-        self.assertIn("personal data was found", cards, "every type that is not SECRET is personal data")
+        self.assertIn("maisecrets kept personal data from", cards, "every type that is not SECRET is personal data")
         both = "\n".join(hooks.block_notice([E("SECRET", "⟦SECRET_c1⟧"), E("CARD", "⟦CARD_c1⟧")], "x", True, False,
                                               {}, v))
-        self.assertIn("a secret and personal data were found", both)
+        self.assertIn("maisecrets kept a secret and personal data from", both)
         codex_no_clip = hooks.block_notice([E("SECRET", "⟦SECRET_c1⟧")], "the prompt", False, True,
                                            {"report_url": None}, v)
-        self.assertIn("    Copy the cleaned prompt from here and send it:", codex_no_clip)
+        self.assertIn("  Copy the cleaned prompt from here and send it:", codex_no_clip)
         self.assertIn("    the prompt", codex_no_clip)
         self.assertFalse(any("/maisecrets:" in line or "Something wrong" in line for line in codex_no_clip))
     def test_pre_tool_bash_is_auto_approved_only_on_codex(self):

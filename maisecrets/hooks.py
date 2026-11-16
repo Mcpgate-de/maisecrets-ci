@@ -36,7 +36,7 @@ from .notices import (  # noqa: F401
 )
 from .agent_reports import (  # noqa: F401
     _NOTIFICATION_RE, _AGENT_TOOLS, _notification_tag, _result_span, _plain, _last_answer, _called_an_agent,
-    _one_report_proves_itself, _report_rest,
+    _one_report_proves_itself, _report_rest, report_kind,
 )
 from .shell_commands import (  # noqa: F401
     _STORE_READ_PATTERNS, _STORE_READ_RE, _STORE_READ_RE_I, _store_read_match, _store_dir_spellings, _protected_dirs,
@@ -1097,7 +1097,9 @@ def user_prompt(payload: dict) -> dict:
         return {}
     # a message of another session: nobody here sends it again, so the clipboard and /ms stay the person's own
     peer = settings_mod.peer_sender(prompt) if client_of(payload) == "claude" else None
-    copied = False if peer else _clipboard(rewritten)
+    # a blocked report is passed on with /ms; the person's clipboard stays theirs
+    report = None if peer or client_of(payload) != "claude" else report_kind(prompt)
+    copied = False if peer or report else _clipboard(rewritten)
     if not peer:
         _save_pending(rewritten, session)
     if cfg.get("scrub_transcript", True):
@@ -1107,10 +1109,11 @@ def user_prompt(payload: dict) -> dict:
         _scrub_transcript(payload.get("transcript_path", ""), values, refs)
         _scrub_transcript_later(payload.get("transcript_path", ""), values, refs)
     codex = client_of(payload) == "codex"
-    lines = peer_notice(entries, peer) if peer else block_notice(entries, rewritten, copied, codex, cfg, vault)
-    tip = None if codex or peer else _check_tip(cfg)      # Codex: the session start names it (hooks/dispatch.py)
+    lines = peer_notice(entries, peer) if peer else block_notice(entries, rewritten, copied, codex, cfg, vault,
+                                                                 stored["n"], report)
+    tip = None if codex or peer or report else _check_tip(cfg)      # Codex: the session start names it (dispatch.py)
     if tip:
-        lines[-1:-1] = [tip, ""]
+        lines += ["", tip]
     from . import events
     events.record("UserPromptSubmit", client_of(payload), entries,
                   **({"outcome": "blocked: a message of another session"} if peer else {}))

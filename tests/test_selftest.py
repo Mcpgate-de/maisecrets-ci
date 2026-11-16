@@ -155,7 +155,14 @@ class ToolPathTests(_Clean):
         value = self.arm()
         out = self.post({"stdout": f"password: {value}"})
         self.assertNotIn(value, json.dumps(out, ensure_ascii=False).replace(out.get("systemMessage", ""), ""))
-        self.assertIn("\u27e6SECRET_c", out["hookSpecificOutput"]["updatedToolOutput"]["stdout"])
+        shown = out["hookSpecificOutput"]["updatedToolOutput"]["stdout"]
+        # the random value is a secret to the detector only when it does not read as words: either way the model gets a
+        # placeholder, the detector's when it found the value, else the self-test's
+        from maisecrets import detect
+        if [m for m in detect.scan(f"password: {value}") if m.value == value]:
+            self.assertIn("\u27e6SECRET_c", shown)
+        else:
+            self.assertEqual(shown, "password: \u27e6SELFTEST\u27e7")
         self.assertTrue(selftest.load()["result"]["tool"])
 
     def test_the_value_and_the_rest_of_the_output_are_never_stored(self):

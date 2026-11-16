@@ -68,14 +68,21 @@ You paste a token into the prompt by accident:
 
 ```
 > please check why my GitLab token glpat-… fails in CI
-maisecrets: a secret was found and kept from the AI.
+maisecrets kept a secret from the AI.
 
-    ⌘V  pastes the cleaned prompt. Then send it, or type /maisecrets:send to send it at once.
+  /maisecrets:send   send the cleaned prompt now
+  ⌘V                 paste it to edit it first
 
-Something wrong? /maisecrets:report · maisecrets by mcpgate.de
+A wrong hit? /maisecrets:not-a-secret SECRET_c3
 ```
 
-With `/maisecrets:shortcut` installed, the line names the short `/ms`.
+With `/maisecrets:shortcut` installed, the first step names the short `/ms`.
+Where no clipboard exists (Remote Control, SSH), the notice shows the cleaned
+prompt under the `/ms` line instead of the paste line. The last line names the
+stored value when there is one, else `KEY`; Codex has no `/ms` and names
+`maisecrets: not a secret KEY`. When a subagent's report or a background
+command's notice is blocked, the notice says so, and `/ms` passes it on with
+placeholders.
 Zero requests left the machine for that prompt. The rewritten prompt reads
 `please check why ⟦SECRET_c3⟧ fails in CI`, and Claude can use the
 placeholder in a command as above.

@@ -77,7 +77,10 @@ class PeerMessageTests(unittest.TestCase):
                 self.assertEqual([], self.copied)
                 self.assertIsNone(hooks.take_pending("s1"))
                 self.assertIn("a message from the Claude session akruse-96", out["reason"])
-                self.assertNotIn("pastes", out["reason"])
+                self.assertNotIn("paste", out["reason"])
+                self.assertIn("Ask that session to send placeholders", out["reason"], "the advice stays")
+                self.assertNotIn("/maisecrets:report", out["reason"])
+                self.assertNotIn("mcpgate.de", out["reason"])
 
     def test_the_same_value_typed_by_the_person_still_goes_to_the_clipboard(self):
         out = self.prompt(f"the token is {VALUE} in CI")
