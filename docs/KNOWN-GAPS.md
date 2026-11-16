@@ -88,7 +88,9 @@ a to-do.
   result only when it is written in groups of four with the prefix of a card network; one run of digits needs the
   word (a float, a timestamp and an IMEI pass the Luhn check as often).
 - **A pasted image is invisible to the hooks.** Claude Code gives the prompt
-  hook only the typed text (measured on 2.1.296). An image or a PDF that the
+  hook only the text: `[Image #1]` in the terminal, an empty text for an image
+  alone in `claude -p` (measured on 2.1.325; 2.1.296 gave the typed text). A
+  block of the prompt stops the image too, so the demo mode stops it. An image or a PDF that the
   AI reads is in your hands ("PDFs and images"); maisecrets does not scan or
   clean an image, and does no OCR.
 - **An image in an MCP tool result passes as it is.** `read_image` acts on

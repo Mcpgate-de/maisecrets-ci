@@ -521,6 +521,12 @@ def apply_typed(key: str, word: str, route: str = "typed prompt", cwd: str = "")
             if not (word.isdigit() and len(word) <= 8 and low <= int(word) <= high):
                 return False, f"maisecrets: {key} takes a whole number from {low} to {high:,}, or default."
     note = ""
+    if ner_change:
+        # a server name becomes its URL; an argument the command does not know is answered, never ignored
+        resolved, answer = ner_setup.typed_word(word[4:], slash=route == "slash command")
+        if resolved is None:
+            return False, answer
+        word = "ner:" + resolved
     if ner_change and word.startswith("ner:fallback:url:") and not (cfg.get("remote_detector") or {}).get("url"):
         return False, ("maisecrets: a fallback needs a source first: send /maisecrets:ner on, then the fallback. "
                        "Nothing was changed.")

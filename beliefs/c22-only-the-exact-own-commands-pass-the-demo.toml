@@ -1,0 +1,12 @@
+# c22-only-the-exact-own-commands-pass-the-demo: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c22-only-the-exact-own-commands-pass-the-demo"
+control = "C22"
+statement = "While the demo is on, a prompt passes only in the exact form of the person's own maisecrets command; a slash command with free text, an unknown command, /ms and /maisecrets:send get the demo answer and reach no model."
+runner = ["tests/test_demo.py::ExceptionTests::test_only_the_exact_forms_pass"]
+
+[proof]
+file = "maisecrets/demo.py"
+find = '''FORMS.items()) + r")\s*\Z")
+'''
+replace = '''FORMS.items()) + r"|ms|send)")
+'''

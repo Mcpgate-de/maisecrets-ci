@@ -90,9 +90,10 @@ def secret_rules(detect) -> set:
 _W: dict = {}
 
 
-def _worker_init(enabled) -> None:
+def _worker_init(enabled, mode: str = "") -> None:
     _W["detect"] = load()
     _W["enabled"] = enabled
+    _W["mode"] = mode
 
 
 def worker_scan(job: tuple) -> tuple:
@@ -113,11 +114,11 @@ def worker_scan(job: tuple) -> tuple:
     return tag, out
 
 
-def pool(enabled):
+def pool(enabled, workers: int = 0, mode: str = ""):
     import concurrent.futures
     import os
-    return concurrent.futures.ProcessPoolExecutor(max_workers=os.cpu_count() or 2,
-                                                  initializer=_worker_init, initargs=(enabled,))
+    return concurrent.futures.ProcessPoolExecutor(max_workers=workers or os.cpu_count() or 2,
+                                                  initializer=_worker_init, initargs=(enabled, mode))
 
 
 def parse_log(raw: str):

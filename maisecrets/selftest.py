@@ -336,18 +336,21 @@ def _scrub(payload: dict, value: str, prompt: str) -> None:
 
 # --- /maisecrets:status -------------------------------------------------------------------------------------------
 
-def verdict(now: float | None = None, sessions: list | None = None, version: str | None = None) -> tuple[str, str]:
-    """(state, text) of the self-test line of /maisecrets:status. `ok` only for a pass of this version, in this
-    session or within the last 4 hours."""
-    from .status_verdict import ago
+def verdict(now: float | None = None, sessions: list | None = None, version: str | None = None,
+            client: str | None = None):
+    """The self-test line of /maisecrets:status (a status_verdict.Check). `ok` only for a pass of this version, in
+    this session or within the last 4 hours."""
+    from .status_verdict import Check, ago, reload_next
     now = time.time() if now is None else now
     sessions = sessions_of_this_command() if sessions is None else sessions
     state = load()
     res = _result(state)
     tool, prompt, leak = _num(res.get("tool")), _num(res.get("prompt")), _num(res.get("leak"))
+    test = "/maisecrets:status test"
     if leak:
-        return "FAIL", (f"self-test: the AI wrote the test value into a tool call {ago(now - leak)}, so it had the "
-                        "value. Next: start a new session, then /maisecrets:status test")
+        return Check("FAIL", "self-test", "the AI saw the value", "a new session",
+                     f"the AI wrote the test value into a tool call {ago(now - leak)}, so it had the value; start a "
+                     "new session, then run the self-test again")
     if tool and prompt:
         last = max(tool, prompt)
         current = (version is None or res.get("version") == version) and (
@@ -355,22 +358,22 @@ def verdict(now: float | None = None, sessions: list | None = None, version: str
         what = (f"the tool-result hook masked the test value in the output of the self-test command {ago(now - tool)}, "
                 f"the prompt hook stopped it {ago(now - prompt)}")
         if current:
-            return "ok", f"self-test: passed ({what})"
-        return "warn", (f"self-test: passed {ago(now - last)}, in another session or version ({what}). "
-                        "Next: /maisecrets:status test")
+            return Check("ok", "self-test", f"passed {ago(now - last)}", None, what)
+        return Check("warn", "self-test", "passed elsewhere", test,
+                     f"passed {ago(now - last)}, in another session or version: {what}")
     p = _pending(state, now)
     if tool and p:
-        return "warn", (f"self-test: the tool path passed {ago(now - tool)}; the prompt path is not tested yet. "
-                        "Next: type or paste the test value alone as your next prompt")
+        return Check("warn", "self-test", "prompt path open", "send the test value as a prompt",
+                     f"the tool path passed {ago(now - tool)}; type or paste the test value alone as your next prompt")
     if prompt and not tool:
-        return "FAIL", (f"self-test: the prompt hook stopped the test value {ago(now - prompt)}, but the tool-result "
-                        "hook did not mask it in the self-test command. Next: run /reload-plugins or start a new "
-                        "session, then /maisecrets:status test")
+        return Check("FAIL", "self-test", "tool path failed", reload_next(client),
+                     f"the prompt hook stopped the test value {ago(now - prompt)}, but the tool-result hook did not "
+                     "mask it in the self-test command; then run the self-test again")
     if tool:
-        return "warn", (f"self-test: only the tool path passed ({ago(now - tool)}); the test value expired before "
-                        "a prompt sent it. Next: /maisecrets:status test")
+        return Check("warn", "self-test", "prompt path expired", test,
+                     f"the tool path passed {ago(now - tool)}; the test value expired before a prompt sent it")
     if p:
-        return "FAIL", ("self-test: a test value is pending, and no tool-result hook masked it in the self-test "
-                        "command. If the AI read the value, the hook did not run. Next: run /reload-plugins or start "
-                        "a new session, then /maisecrets:status test")
-    return "warn", "self-test: not run. Next: /maisecrets:status test (Codex: send maisecrets: status test)"
+        return Check("FAIL", "self-test", "value not masked", reload_next(client),
+                     "a test value is pending, and no tool-result hook masked it in the self-test command; if the AI "
+                     "read the value, the hook did not run; then run the self-test again")
+    return Check("warn", "self-test", "not run", test, None)

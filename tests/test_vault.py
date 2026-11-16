@@ -394,7 +394,8 @@ class BackendChoiceTests(unittest.TestCase):
             with self.subTest(type(b).__name__):
                 self.assertNotIn("TEST MODE", vault.describe_backend(b))
                 self.assertNotIn("PLAIN TEXT", vault.intro_line(b))
-                self.assertIn(str(vault.CONFIG), vault.describe_backend(b))
+                self.assertIn(f"folder {vault.HOME} ", vault.describe_backend(b))
+                self.assertIn("docs/HOW-IT-WORKS.md#status", vault.describe_backend(b))
 
 
 # ---------------------------------------------------------------- emulators --

@@ -421,8 +421,9 @@ def cmd_settings(args: list[str]) -> int:
 
 
 def cmd_status(args: list[str]) -> int:
-    """The verdict (status_verdict.py), then what support needs: version, where the plugin runs from, which Python,
-    which store, which settings come from a policy, and what the logs counted. `status test`: the self-test."""
+    """The head line and one line per check (status_verdict.py), then one line of key facts. `status all`: then the
+    longer facts of each check and what support needs: version, where the plugin runs from, which Python, which store,
+    which settings come from a policy, and what the logs counted. `status test`: the self-test."""
     import platform
     from pathlib import Path as _P
     from .vault import HOME, describe_backend
@@ -431,23 +432,33 @@ def cmd_status(args: list[str]) -> int:
         from . import selftest
         print(selftest.command_text())
         return 0
-    from . import status_verdict
-    verdict = status_verdict.lines(root)          # first: a configuration error prints alone
-    print("Is maisecrets protecting this session?")
-    for line in verdict:
+    from . import detect, ner_setup, status_verdict as sv
+    rep = sv.report(root)          # first: a configuration error prints alone
+    checks, client = rep["checks"], rep["client"]
+    print(sv.head_line(rep["version"], checks, client) + "\n")
+    for line in sv.check_lines(checks, client):
         print(line)
+    v = Vault()
+    conf = v.cfg.get("remote_detector")
+    probe = ner_setup.probe(conf) if isinstance(conf, dict) and conf.get("url") else None
+    active = detect.active_regions()
+    print("\n" + sv.summary_line(conf, probe, len(detect.rules()), active))
+    if args[:1] != ["all"]:
+        print(f"all details: {sv.form('status all', client)}")
+        return 0
     print("\nDetails")
+    for line in sv.detail_lines(checks):
+        print(line)
     version = "?"
     try:
         version = json.loads((root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")).get("version", "?")
     except (OSError, ValueError):
         pass
-    print(f"maisecrets {version} at {root}")
+    print(f"maisecrets {version} at {root} (free and open source, by mcpgate.de)")
     cfg_warning = load_config().get("config_warning")
     if cfg_warning:
         print(f"WARNING: {cfg_warning}")
     print(f"python {platform.python_version()} at {sys.executable}; {platform.system()} {platform.release()}")
-    v = Vault()
     live = [e for e in v.list() if not e.purged]
     print(describe_backend(v.backend))
     kept = v.cfg.get("keep_purged_days")
@@ -462,7 +473,6 @@ def cmd_status(args: list[str]) -> int:
     main = pol["bash"]
     other = [f"{path} {p}" for path, p in pol.items() if p != main]
     print(f"stored values in tool calls: {main} ({what[main]})" + (f"; except {', '.join(other)}" if other else ""))
-    from . import detect
     def version(name: str) -> str:
         return (detect.RULES_DIR / f"{name}_VERSION").read_text(encoding="utf-8").strip()
     print(f"rules: {len(detect.rules())} (betterleaks {version('BETTERLEAKS')}, presidio {version('PRESIDIO')}, "
@@ -477,7 +487,6 @@ def cmd_status(args: list[str]) -> int:
     if value_files.present():
         from . import values
         print(values.summary_line())
-    active = detect.active_regions()
     print(f"regions: {', '.join(active.regions)} ({active.source}); "
           f"label languages: {', '.join(active.languages)}")
     for name in ("events.log", "audit.log", "hooks.log"):
@@ -489,24 +498,19 @@ def cmd_status(args: list[str]) -> int:
             n = 0
         print(f"{name}: {n} lines")
     from . import codex_vault, vault_refs
-    for line in vault_refs.status_lines(v.cfg, v.backend):
+    for line in vault_refs.grouped_lines(v.cfg, v.backend):
         print(line)
     if codex_vault.config_path().is_file():
         # the command does not know which client started it: the Codex profile gets its own lines when it exists
         vault_refs.use_client("codex")
         try:
-            for line in vault_refs.status_lines(v.cfg, v.backend):
+            for line in vault_refs.grouped_lines(v.cfg, v.backend):
                 print(line)
         finally:
             vault_refs.use_client("claude")
-    from . import codex_trust
-    for line in codex_trust.status_lines(root, codex_vault.codex_home()):
-        print(line)
-    from . import ner_setup
-    conf = v.cfg.get("remote_detector")
     print(ner_setup.describe(conf))
-    if isinstance(conf, dict) and conf.get("url"):
-        print("  " + ner_setup.probe(conf)[1])
+    if probe:
+        print("  " + probe[1])
         print("  " + ner_setup.counts_line())
     from . import incidents
     groups, damaged = incidents.load()
@@ -956,7 +960,13 @@ def cmd_ner(args: list[str]) -> int:
             wait = min(float(args[i + 1]), 300.0)
         except (IndexError, ValueError):
             wait = 0.0
-    code, lines = ner_setup.report(load_config().get("remote_detector"), wait)
+    from . import ner_view, selftest, status_verdict
+    from .vault import HOME
+    try:
+        client = status_verdict.client_of(HOME / "hooks.log", selftest.sessions_of_this_command())
+    except Exception:  # noqa: BLE001 - without a client both forms are right enough
+        client = None
+    code, lines = ner_view.render(load_config().get("remote_detector"), wait, "all" in args, client)
     print("\n".join(lines))
     return code
 
@@ -1070,7 +1080,7 @@ def _stdin_words() -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if not argv or argv[0] in {"-h", "--help"}:
-        print("maisecrets status | list | get <KEY> | put [--clipboard] [--type=EMAIL] | audit [n]\n"
+        print("maisecrets status [all|test] | list | get <KEY> | put [--clipboard] [--type=EMAIL] | audit [n]\n"
               "           | report [last|n|bug|feature|incident] [text] | expire | scan [text] | config\n"
               "           | settings [--all]"
               " | wipe --yes | repair | shortcut [name] | resolve <KEY> --grant <NONCE> | hook <event>\n"

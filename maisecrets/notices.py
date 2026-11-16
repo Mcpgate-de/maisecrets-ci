@@ -81,34 +81,46 @@ def _paste_key() -> str:
     return "⌘V" if platform.system() == "Darwin" else "Ctrl+V"
 
 
-def block_notice(entries: list, rewritten: str, copied: bool, codex: bool, cfg: dict, vault) -> list[str]:
-    """What a person reads when a prompt is blocked, and nothing more: what kind of thing was
-    found, that the AI did not get it, and the one next step, set apart by blank lines because
-    the clients show plain text. The count, the masked forms and the retention are in
-    /maisecrets:list; the report link is built by /maisecrets:report (review with the product
-    owner, 2026-09-27: the user does not need to know whether it was 1 e-mail or 13)."""
+def _wrong_hit(entries: list, more: int, codex: bool) -> list[str]:
+    """The line that names the command for a wrong hit: the key when exactly one value was stored, else KEY. No line
+    when only a term or an import was found: not_a_secret refuses those."""
+    keys = list(dict.fromkeys(e.key for e in entries if getattr(e, "key", None)
+                              and not str(getattr(e, "kind", "")).startswith(("term:", "import:"))))
+    if not keys and entries and not more:
+        return []
+    key = keys[0] if len(keys) == 1 and not more else "KEY"
+    return ["", f"A wrong hit? {'maisecrets: not a secret' if codex else '/maisecrets:not-a-secret'} {key}"]
+
+
+def block_notice(entries: list, rewritten: str, copied: bool, codex: bool, cfg: dict, vault, more: int = 0,
+                 report: str | None = None) -> list[str]:
+    """What a person reads when a prompt is blocked, and nothing more: what kind of thing was found, that the AI did
+    not get it, the next step first (/ms; Codex has none), then the paste key, and the command for a wrong hit. The
+    clients show plain text, so the steps are two columns. `more` counts the values the store already held (no entry
+    of their own). `report` names a blocked subagent's report or command notice: the person did not write it and
+    passes it on, there is nothing to paste (the maintainer, 2026-11-16: the old text pulled the eye to the report
+    command instead of /ms)."""
     kinds = {e.type for e in entries}
     # a value this session resolved matches without an entry of its own; it was stored as a secret
     secret = "SECRET" in kinds or not kinds
     personal = bool(kinds - {"SECRET"})
     a_secret = type_word("SECRET")      # the word the ms:( check uses for the same thing
-    what = (f"{a_secret} and personal data were" if secret and personal
-            else f"{a_secret} was" if secret else "personal data was")
-    lines = [f"maisecrets: {what} found and kept from the AI.", ""]
-    if copied:
-        tail = " Then send it." if codex else f" Then send it, or type {send_command()} to send it at once."
-        lines.append(f"    {_paste_key()}  pastes the cleaned prompt.{tail}")
+    what = f"{a_secret} and personal data" if secret and personal else a_secret if secret else "personal data"
+    send, paste = send_command(), _paste_key()
+    width = max(len(paste), 0 if codex else len(send)) + 3
+    if report:
+        return [f"maisecrets kept {what} in {report} from the AI.", "",
+                f"  {send:<{width}}pass the {report.split()[-1]} on with placeholders"]
+    lines = [f"maisecrets kept {what} from the AI.", ""]
+    if codex and copied:
+        lines.append(f"  {paste:<{width}}paste the cleaned prompt, then send it")
     elif codex:
-        lines += ["    Copy the cleaned prompt from here and send it:", "", "    " + rewritten]
+        lines += ["  Copy the cleaned prompt from here and send it:", "", "    " + rewritten]
+    elif copied:
+        lines += [f"  {send:<{width}}send the cleaned prompt now", f"  {paste:<{width}}paste it to edit it first"]
     else:
-        lines += [f"    Type {send_command()} to send the cleaned prompt, or copy it from here:", "",
-                  "    " + rewritten]
-    lines.append("")
-    if codex:
-        lines.append("maisecrets by mcpgate.de")
-    else:
-        lines.append("Something wrong? /maisecrets:report · maisecrets by mcpgate.de")
-    return lines
+        lines += [f"  {send:<{width}}send the cleaned prompt now", "", "    " + rewritten]
+    return lines + _wrong_hit(entries, more, codex)
 
 
 def peer_notice(entries: list, sender: str) -> list[str]:
@@ -120,5 +132,4 @@ def peer_notice(entries: list, sender: str) -> list[str]:
     what = ("a secret and personal data" if secret and personal else "a secret" if secret else "personal data")
     return [f"maisecrets: a message from the Claude session {sender} held {what}. It was kept from the AI here, and "
             "the AI did not get the message.", "",
-            "    The values are stored. Ask that session to send placeholders (⟦…⟧) instead of the values.", "",
-            "Something wrong? /maisecrets:report · maisecrets by mcpgate.de"]
+            "    The values are stored. Ask that session to send placeholders (⟦…⟧) instead of the values."]

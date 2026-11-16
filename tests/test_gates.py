@@ -801,16 +801,20 @@ class NoticeTests(unittest.TestCase):
         _hygiene.patch(self, hooks, "_clipboard", lambda t: True)
         mail = hooks.user_prompt({"prompt": "write to anna.schmidt@firma-xyz.de", "session_id": "K1",
                                   "transcript_path": "", "prompt_id": "p"})["reason"].split("\n")
-        self.assertEqual(mail[0], "maisecrets: personal data was found and kept from the AI.")
-        self.assertEqual(mail[1], "", "the step stands apart")
-        self.assertRegex(mail[2], r"^    (⌘V|Ctrl\+V)  pastes the cleaned prompt\.")
-        self.assertEqual(mail[-1], "Something wrong? /maisecrets:report · maisecrets by mcpgate.de")
+        self.assertEqual(mail[0], "maisecrets kept personal data from the AI.")
+        self.assertEqual(mail[1], "", "the steps stand apart")
+        self.assertRegex(mail[2], r"^  (/ms|/maisecrets:send) +send the cleaned prompt now$", "/ms first")
+        self.assertRegex(mail[3], r"^  (⌘V|Ctrl\+V) +paste it to edit it first$")
+        self.assertEqual(mail[4], "")
+        self.assertRegex(mail[-1], r"^A wrong hit\? /maisecrets:not-a-secret EMAIL_c\d+$", "the one key by name")
         self.assertNotIn("github.com", "\n".join(mail))
-        self.assertNotIn("EMAIL_c", "\n".join(mail), "no masked forms without the prompt around them")
+        self.assertNotIn("/maisecrets:report", "\n".join(mail))
+        self.assertNotIn("mcpgate.de", "\n".join(mail))
+        self.assertNotIn("\u2022", "\n".join(mail), "no masked forms without the prompt around them")
         both = hooks.user_prompt({"prompt": "mail anna.schmidt@firma-xyz.de token glpat-" + "Q" * 3
                                   + "abcdefghij1234567890", "session_id": "K2", "transcript_path": "",
                                   "prompt_id": "p"})["reason"]
-        self.assertIn("a secret and personal data were found", both)
+        self.assertIn("maisecrets kept a secret and personal data from the AI.", both)
         for system, key in (("Darwin", "⌘V"), ("Windows", "Ctrl+V"), ("Linux", "Ctrl+V")):
             with mock.patch.object(hooks.platform, "system", return_value=system):
                 self.assertEqual(hooks._paste_key(), key)
@@ -1061,7 +1065,7 @@ class ReportTests(unittest.TestCase):
         from maisecrets import events
         token = "glpat-" + "ReportProbeAbc123456789x"
         out = hooks.user_prompt({"prompt": f"token {token}", "session_id": "S1", "transcript_path": "", **CLAUDE})
-        self.assertIn("/maisecrets:report", out["reason"])
+        self.assertNotIn("/maisecrets:report", out["reason"], "the block notice names /ms, not the report")
         ev = events.load()[-1]
         self.assertEqual(ev["hook"], "UserPromptSubmit")
         self.assertEqual(ev["hits"][0]["kind"], "gitlab-pat")

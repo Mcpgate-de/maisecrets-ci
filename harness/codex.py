@@ -31,6 +31,7 @@ import zlib
 from pathlib import Path
 
 from run import MAIL   # the harness address: masked by maisecrets, not a reserved domain
+from run import tripwire_path  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 MARK = "glpat-" + "CodexHarnessXyz123456789"
@@ -225,6 +226,15 @@ SCENARIOS = {
         "selftest": True,
         "command_home": True,
     },
+    # the demo (maisecrets/demo.py, #57): the person types `maisecrets: demo on`, then sends a prompt with a token and
+    # an address in the same session (`codex exec resume`): blocked, no request, the values stored as for a sent prompt
+    "demo_answers_the_prompt": {
+        "prompt": "maisecrets: demo on",
+        "person": True,
+        "expect_blocked": True,
+        "expect_home_text": [("events.log", '"demo": "on"')],
+        "demo": True,
+    },
     # vault references in Codex, three sessions against harness/vault_server.py (run_vault_refs)
     "vault_refs": {
         "custom": True,
@@ -300,6 +310,10 @@ def run_scenario(name: str, sc: dict) -> list[str]:
     out = work / "out"
     out.mkdir()
     env = dict(os.environ, CODEX_HOME=str(codex_home), MAISECRETS_HOME=str(home))
+    env["PATH"] = tripwire_path(work, env)      # no scenario writes the real clipboard (run.py)
+    if sc.get("person"):
+        # the person at a terminal: no Claude Code entry point of the shell that started the harness (C22)
+        env = {k: v for k, v in env.items() if not k.startswith("CLAUDE_CODE_")}
     # CI containers have no bubblewrap/landlock for Codex's Linux sandbox; the container is disposable,
     # so the job sets MAISECRETS_CODEX_SANDBOX to danger-full-access there
     sandbox = sc.get("sandbox") or os.environ.get("MAISECRETS_CODEX_SANDBOX", "workspace-write")
@@ -482,6 +496,8 @@ def run_scenario(name: str, sc: dict) -> list[str]:
             fails.append(f"expected {sc['expect_text']!r} in the requests, the rollout or the codex output")
     if sc.get("selftest"):
         fails += _selftest_second_prompt(home, bodies + rollouts + final, env, cwd, work)
+    if sc.get("demo"):
+        fails += _demo_second_prompt(home, env, cwd, work)
     print(f"[{'OK ' if not fails else 'FAIL'}] {name}  rc={r.returncode}  work={work}")
     for f in fails:
         print("     -", f)
@@ -542,6 +558,64 @@ def _selftest_second_prompt(home: Path, first: str, env: dict, cwd: Path, work: 
         fails.append("the prompt with the test value reached the upstream")
     if not (state().get("result") or {}).get("prompt"):
         fails.append("the prompt hook recorded no pass")
+    return fails
+
+
+def _demo_second_prompt(home: Path, env: dict, cwd: Path, work: Path) -> list[str]:
+    """The first prompt switched the demo on; `codex exec` ended the session, and the demo ended with it (SessionEnd).
+    The person resumes the session with the demo on (written here: a resume is a new start, and `codex exec` cannot
+    type the switch and then a prompt in one run) and sends a prompt with a token and an address. codex exec prints
+    no block reason, so the maisecrets home says which path answered: the demo stores the values as for a sent prompt
+    (index.json) and writes its detection line with the outcome "demo" (events.log)."""
+    import time
+    import urllib.request
+    if (home / "demo.json").exists() and json.loads((home / "demo.json").read_text()):
+        return ["the demo did not end with its session (SessionEnd)"]
+    log = home / "hooks.log"
+    rows = [r.split("\t") for r in log.read_text().splitlines()] if log.exists() else []
+    sessions = [r[3] for r in rows if len(r) > 3 and r[1] == "user-prompt"]
+    if not sessions:
+        return ["no prompt hook ran for the first prompt"]
+    (home / "demo.json").write_text(json.dumps({sessions[0]: 1.0}))
+    out2 = work / "out2"
+    out2.mkdir()
+    (out2 / "scenario.json").write_text(json.dumps({"turns": [{"text": "unreachable"}]}))
+    srv = subprocess.Popen([sys.executable, str(ROOT / "harness" / "fake_openai.py"), str(out2 / "scenario.json"),
+                            str(out2), str(PORT)])
+    for _ in range(50):
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{PORT}/", timeout=0.2)
+            break
+        except Exception:
+            time.sleep(0.1)
+    try:
+        r = subprocess.run(["codex", "exec", "--dangerously-bypass-hook-trust", "--skip-git-repo-check", "-C",
+                            str(cwd), "resume", sessions[0], f"Please check the token {MARK} and write to {MAIL}"],
+                           env=env, capture_output=True, text=True, timeout=180, stdin=subprocess.DEVNULL)
+    finally:
+        srv.terminate()
+    said = r.stdout + "\n--- stderr ---\n" + r.stderr
+    (work / "codex_out2.txt").write_text(said.replace(MARK, "<MARK>").replace(MAIL, "<MAIL>"))
+    fails = []
+    bodies = "".join(p.read_text(errors="ignore") for p in out2.glob("request_*.json"))
+    rollouts = "".join(p.read_text(errors="ignore") for p in Path(env["CODEX_HOME"]).rglob("*.jsonl"))
+    if MARK in bodies or MAIL in bodies:
+        fails.append("LEAK: a value of the demo prompt reached the upstream")
+    elif bodies:
+        fails.append("the demo prompt reached the upstream")
+    if MARK in rollouts or MAIL in rollouts:
+        fails.append("LEAK: a value of the demo prompt is in the rollout")
+    if "blocked" not in said.lower():
+        fails.append("the demo prompt was not blocked")
+    try:
+        types = {e.get("type") for e in json.loads((home / "index.json").read_text()).get("entries", {}).values()}
+    except (OSError, ValueError, AttributeError):
+        types = set()
+    if types != {"SECRET", "EMAIL"}:
+        fails.append(f"the values were not stored as for a sent prompt (types {sorted(map(str, types))})")
+    log = (home / "events.log").read_text(errors="ignore") if (home / "events.log").exists() else ""
+    if '"outcome": "demo"' not in log:
+        fails.append("events.log has no line of the demo answer: another path answered")
     return fails
 
 

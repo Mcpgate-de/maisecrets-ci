@@ -238,7 +238,7 @@ and it needed the typed-session mark in every mode.
 - Only a hook writes the record and folds markers. A CLI read never writes; `clear` removes the files.
 - `wipe` (`wipe_everything`, `vault.py:1424`) and `clear` remove `incidents.json`, its aside, its lock file, any
   `incidents.json.*.tmp` (`os._exit` can leave one) and the marker directories, with the same name rule and `rmdir`
-  as the fold, never recursive; `/maisecrets:status` shows the number of groups.
+  as the fold, never recursive; `/maisecrets:status all` shows the number of groups.
 
 ## 9. What changes with the removal of the browser and `gh`
 

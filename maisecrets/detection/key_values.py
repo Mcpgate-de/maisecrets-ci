@@ -128,6 +128,11 @@ def _a_business_near(text: str, a: int, b: int) -> bool:
                 or _PLACE_PARENT_RE.search(text, lo, a))
 
 
+# the kinds hits() reports: core._personal_steps runs it only when `enabled` holds one (#59)
+KINDS = ("name-after-label", "username-after-label", "password-after-key", "id-number-after-label",
+         "address-after-key")
+
+
 def hits(text: str) -> list:
     """(start, end, kind, type) of a name (#43), a password and an id number (#45) after a key, and a user name after
     a user-id key or a cue in prose (#51)."""

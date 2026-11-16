@@ -210,12 +210,15 @@ class CompanyNumberTests(unittest.TestCase):
         self.assertNotIn(PLZ, out)
 
     def test_an_address_rule_that_is_off_decides_nothing(self):
+        # with another personal kind on, the personal step runs and finds the company's address; the address rule
+        # is off, so it decides nothing (without one, the step does not run at all since #59)
         for key, value in (("presidio:de-vat-id#0", VAT), ("presidio:de-plz", PLZ)):
-            with self.subTest(key=key):
-                active = regions.Active(regions=("generic", "de"), languages=("de", "en"), source="test")
-                with detect.Detector(regions=active).activate():
-                    found = detect.scan(INVOICE, channel="tool", enabled={key})
-                self.assertIn(value, [INVOICE[m.start:m.end] for m in found])
+            for enabled in ({key}, {key, "name-after-label"}):
+                with self.subTest(enabled=sorted(enabled)):
+                    active = regions.Active(regions=("generic", "de"), languages=("de", "en"), source="test")
+                    with detect.Detector(regions=active).activate():
+                        found = detect.scan(INVOICE, channel="tool", enabled=enabled)
+                    self.assertIn(value, [INVOICE[m.start:m.end] for m in found])
 
     def test_a_name_or_the_senders_label_before_the_vat_id_keeps_it_masked(self):
         for label in ("Max Muster USt-IdNr.: ", "Unsere USt-IdNr.: ", "meine USt-IdNr. "):

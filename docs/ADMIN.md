@@ -132,9 +132,9 @@ For development:
 ```bash
 claude --plugin-dir /path/to/maisecrets                 # one session, straight from the checkout
 python3 -m unittest discover -s tests -v               # about 30 seconds
-python3 harness/run.py                                 # 46 scenarios against a fake upstream (4 for the PowerShell tool of Windows)
-python3 harness/codex.py [--real]                      # 16 scenarios through codex exec (five need --real)
-python3 scripts/replay_can_fail.py                     # 401 proofs: each control's test, and each path of the seven invariants, goes red without its guard
+python3 harness/run.py                                 # 57 scenarios against a fake upstream (4 for the PowerShell tool of Windows)
+python3 harness/codex.py [--real]                      # 17 scenarios through codex exec (five need --real)
+python3 scripts/replay_can_fail.py                     # 403 proofs: each control's test, and each path of the seven invariants, goes red without its guard
 python3 scripts/derived_counts.py                      # the numbers in the docs, measured again
 python3 scripts/lint_plugin.py                         # frontmatter YAML, manifests, hook paths (pre-commit, CI)
 scripts/install-hooks.sh                               # git pre-commit / pre-push
@@ -150,7 +150,10 @@ that lists maisecrets with this repository as its source, or mirror this
 repository into a namespace you control and review each release there before
 your members get it. ChatGPT workspace: Admin > Plugins > Add > Import
 marketplace, with the same `marketplace.json`; the sync runs daily or on
-"Sync now". Codex CLI users trust the hooks in `/hooks`; a change to
+"Sync now". An import in 2026-10 delivered maisecrets with `hooks: []`, which protects
+nothing; an import of 0.9.13 on 2026-11-16 delivered the hooks. Check that Settings > Hooks
+lists the source maisecrets, trust the hooks there, and run `maisecrets: status test`; if
+the hooks are missing, each person installs maisecrets locally (see [Install](#install)). Codex CLI users trust the hooks in `/hooks`; a change to
 `hooks/hooks.json`, and from Codex 0.164 every maisecrets update, asks again, and
 until then Codex runs no maisecrets hook and lets prompts and tool calls through. Managed hooks (`requirements.toml` through MDM) are trusted by
 policy.
@@ -158,7 +161,7 @@ policy.
 **Updates.** A new version reaches a member when `version` in
 `.claude-plugin/plugin.json` changes: at the next session start for an
 org-synced plugin, with `claude plugin update` otherwise. Every session starts
-with one line `maisecrets X.Y.Z active`; its absence means the plugin did not
+with one line `maisecrets X.Y.Z is on`; its absence means the plugin did not
 load. A rollback is a `git revert` on `main`: the pipeline releases it as the
 next patch version.
 
@@ -183,7 +186,7 @@ that looks like a misspelled `rehydration`, `resolve_in_files` or
 Two keys add to what the user has instead of replacing it: `rule_dirs`, rule
 folders that every user reads and cannot remove, and `allow`, lines of the
 allow list (both lists of strings; see "Rules of your own").
-`/maisecrets:status` names the keys that come from the policy. The plaintext
+`/maisecrets:status all` names the keys that come from the policy. The plaintext
 `jsonfile` store is refused unless the policy or the user sets
 `allow_plaintext_store`.
 
@@ -210,9 +213,11 @@ link to `report_url`. It opens no browser and files nothing: you open the link
 and decide in GitHub's form. Set `report_url` to your tracker, or set it to
 `null` to turn reporting off.
 
-**Diagnosis.** `/maisecrets:status` starts with a verdict (`ok`, `warn` or
-`FAIL` per check, with the next command), then prints version, plugin folder, Python,
-store, policy keys and log counts. `/maisecrets:audit` prints the last
+**Diagnosis.** `/maisecrets:status` fits on one screen: a head line that says
+whether this session is protected, one short line per check (`✓` ok, `!` warn,
+`✗` FAIL, with the next command) and one line of key facts.
+`/maisecrets:status all` adds version, plugin folder, Python, store, policy keys
+and log counts (docs/HOW-IT-WORKS.md, "Status", says what each check means). `/maisecrets:audit` prints the last
 resolves. `MAISECRETS_DEBUG_LOG=<file>` in the client's environment records one
 line per hook call (event, client, duration, answer; never a value).
 `bash <plugin folder>/hooks/run.sh wipe --yes` is the offboarding step; a
@@ -723,7 +728,7 @@ How it works (`docs/PROTOCOL.md` section 4):
    Claude Code itself uses: `~/.claude/.config.json` when that file is not
    empty, else `~/.claude.json` (both in `CLAUDE_CONFIG_DIR` when it is set;
    the rule of 2.1.301). The other file is then an old copy, and maisecrets
-   never reads or writes it. `/maisecrets:status` names the file. It
+   never reads or writes it. `/maisecrets:status all` names the file. It
    changes nothing else in the file and keeps a backup beside it. You see a
    notice once, with one step: type `/mcp reconnect <server name>` (or start
    Claude Code again). The reconnect reads the server entry again, its
@@ -742,8 +747,9 @@ How it works (`docs/PROTOCOL.md` section 4):
    values or none. If the server refuses, the call is denied, and the reason
    names the state of the server and your next step (the table below).
 
-`/maisecrets:status` shows the state of each server, with the time of the
-last answer. It asks once per server origin that has a key on this
+`/maisecrets:status all` groups the servers by state ("active: …", "not used
+yet: …"); a server in a state that needs a step of yours keeps its own line,
+with the time of the last answer. It asks once per server origin that has a key on this
 computer (an empty request that can return no value); two entries on one
 origin share the key and the answer. At a session start maisecrets asks the
 same question once per such origin, within 5.5 s for all, and tells you in
@@ -806,7 +812,7 @@ revoke bound that. A value written into a file is plain text there.
 ## Sensitive References
 
 A gateway with Sensitive References (for example mcpgate, where the resolver is
-experimental and on only for accounts its admin enables) can mask a value in
+where every person with an account may use it, unless an administrator blocks them) can mask a value in
 its tool results with a reference such as `⟦sref:email:<id>:ma•••@example.org⟧`.
 The AI sees the reference and its display part, not the value in the call.
 With maisecrets, a command or a file that needs the value gets it on your
@@ -857,16 +863,19 @@ a source, with one command typed as your own prompt:
 | `/maisecrets:ner local` | the service on this computer, `http://127.0.0.1:8765/` (`on` is the same) |
 | `/maisecrets:ner url URL` | a service of your team on a private network |
 | `/maisecrets:ner gateway URL` | the gateway of your `/maisecrets:sref login`, when it offers name detection (log in once more after the switch) |
+| `/maisecrets:ner gateway NAME` | the same, by the name of an MCP server of your configuration (the list of `/maisecrets:sref`); the name alone, `/maisecrets:ner NAME`, is the same when it is no word of the command |
 | `/maisecrets:ner off` | the rules alone (the default) |
 | `/maisecrets:ner fallback url URL` | a second service for tool results while the local one is not running (`fallback off` removes it) |
 | `/maisecrets:ner prompts off` | the prompts you type keep the rules alone; tool results still go to the service (`prompts on` turns it back on) |
 | `/maisecrets:ner prompts on` | with a service on the network (`url`, `gateway`): your prompts go there too, with the rules' findings as filler; a new source takes this back |
 | `/maisecrets:ner unavailable withhold` | while the service gives no answer, a tool result is kept from the AI; by default (`unavailable rules`) the rules alone mask it |
 | `/maisecrets:ner updates off` | the image of the local service stays as it is; by default it follows the plugin (`updates on` turns that back on) |
-| `/maisecrets:ner` | which source is set, whether it answers, and its load from `GET /metrics` when the service offers it (workers in use, requests that wait, CPU and memory of its container; numbers only) |
+| `/maisecrets:ner` | one screen: a head line (the source and whether it answers), then one line per check, marked as in `/maisecrets:status` (✓ ok, ! warn, ✗ FAIL, – n/a), with the next command after → for a warn or a FAIL. The checks: the source and what it reads; for `local` the service (and its secret), the image and the load; for `url` whether it is reachable; for `gateway` the login with the name scope and your quota; and today's count from `ner.log` (a warn when the rules alone took at least 10 texts and at least a fifth of all) |
+| `/maisecrets:ner all` | the same, then the details: what the service reads, what a tool result gets while it does not answer, the model and types, the image against the pin, the load from `GET /metrics` (workers in use, requests that wait, CPU and memory of its container; numbers only) and today's counts per service |
 
 In Codex, send `maisecrets: ner local` (or `url URL`, `off`) alone as your
-prompt. One source at a time: a new one replaces the old one. A fallback only
+prompt. An argument the command does not know gets an answer with the valid
+forms, and nothing changes. One source at a time: a new one replaces the old one. A fallback only
 when you add one. Only a prompt you type changes it, with the limits of every
 setting (threat model, C22). `local` means whatever listens on 127.0.0.1:8765;
 maisecrets does not verify that it is `mcpgate/ner`.
@@ -925,7 +934,7 @@ maisecrets does not verify that it is `mcpgate/ner`.
   2 s (Windows retries it), so with the default `timeout_ms` of 300 it counts
   as slow and the fallback does not take over; a `timeout_ms` of 3000 lets the
   refusal arrive in time.
-- **Which service read what**: `/maisecrets:ner` and `/maisecrets:status`
+- **Which service read what**: `/maisecrets:ner` and `/maisecrets:status all`
   count today's requests per service, from `ner.log` (time, service, tool
   result or prompt, characters, names, plugin version; never text). The counts
   are those of all your sessions on this computer, not of one session, as far

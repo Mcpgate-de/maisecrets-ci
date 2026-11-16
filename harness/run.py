@@ -22,6 +22,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -39,6 +40,53 @@ REF_MAIL = "\u27e6EMAIL_c1\u27e7"
 # a script that writes its first argument into a page: the route for a value that goes into a document
 MAKE_DOC = "import sys\nopen('account.html', 'w').write('<p>' + sys.argv[1] + '</p>')\n"
 REPORT_VALUE = "glpat-" + "HARNESSreport1234567890ab"   # a secret shape in a subagent's report, not the marker
+
+
+def _probe_png() -> str:
+    """An 8x8 red PNG, base64: a synthetic image for the image scenarios."""
+    import base64
+    import struct
+    import zlib
+    raw = b"".join(b"\x00" + bytes([200, 30, 30] * 8) for _ in range(8))
+
+    def chunk(t, x):
+        return struct.pack(">I", len(x)) + t + x + struct.pack(">I", zlib.crc32(t + x) & 0xffffffff)
+    return base64.b64encode(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 8, 8, 8, 2, 0, 0, 0))
+                            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")).decode()
+
+
+PROBE_PNG = _probe_png()
+# the mod passes a slash line on unchanged (Claude Code throws away its rewrite), so the prompt hook blocks it
+SLASH_TO_HOOK = {"expect_blocked": True}
+
+
+def _demo(prompt: str, **expect) -> dict:
+    """A scenario in a session in the demo (maisecrets/demo.py, #57). `claude -p` cannot switch it on (a program, C22),
+    so the state of the session is written before the run and the run gets that session id, a new one per scenario.
+    No request may reach the upstream; the person reads the demo answer: the hook's block, or the mod's drop."""
+    session = str(uuid.uuid4())
+    return {"prompt": prompt, "extra_args": ["--session-id", session],
+            "home_files": {"demo.json": json.dumps({session: 1.0})}, "turns": [{"text": "unreachable"}],
+            "expect_requests": 0, "expect_blocked": True,
+            "with_mod": {"expect_blocked": False, "expect_dropped": True},
+            "expect_output": ["maisecrets demo: nothing was sent to the AI.", "/maisecrets:demo off to send again"],
+            **expect}
+
+
+CLIPBOARD_TOOLS = ("pbcopy", "pbpaste", "xclip", "xsel", "wl-copy", "wl-paste")
+
+
+def tripwire_path(work: Path, environ: dict) -> str:
+    """A PATH with a folder of stand-ins first: a clipboard tool there notes the call and fails, so no scenario writes
+    the real clipboard of the machine that runs the harness (Gate A of #57; tests/_isolate.py does the same). Windows
+    finds clip.exe in System32 first; the Windows runners have no person's clipboard."""
+    tw = work / "tripwire-bin"
+    tw.mkdir(exist_ok=True)
+    for tool in CLIPBOARD_TOOLS:
+        f = tw / tool
+        f.write_text(f'#!/bin/sh\necho "{tool}" >> "{work / "tripwire.log"}"\nexit 1\n')
+        f.chmod(0o755)
+    return str(tw) + os.pathsep + environ.get("PATH", "")
 
 
 def cmd_path(p) -> str:
@@ -620,6 +668,68 @@ SCENARIOS = {
         "expect_no_file": "account.html",
         "expect_not_in_transcript": [MAIL],
     },
+    # the demo (maisecrets/demo.py, #57): a prompt with a token and an address reaches no request; the person reads the
+    # masked prompt and the counts, and the values are stored as for a sent prompt (index.json has them)
+    "demo_answers_the_prompt": {
+        **_demo(f"Please check the token {MARK} and write to {MAIL} today",
+            expect_output=["maisecrets demo: nothing was sent to the AI.", "It masks 1 secret, 1 e-mail address.",
+                           "Please check the token \u27e6SECRET_c1\u27e7 and write to \u27e6EMAIL_c1:",
+                           "/maisecrets:demo off to send again"],
+            expect_home_json_nonempty=("index.json", ["entries"])),
+    },
+    # a plain prompt, a command the plugin does not have, a command with free text, a pasted report tag and /ms: each
+    # gets the demo answer and reaches no request (Gate A of #57: the first version passed every /maisecrets: line)
+    "demo_plain_prompt": {
+        **_demo("What is the capital of France?", expect_output=[
+            "maisecrets demo: nothing was sent to the AI.", "It finds nothing to mask in this prompt."]),
+    },
+    "demo_unknown_command_with_text": {
+        **_demo("/maisecrets:madeup confidential plan for the board", with_mod=SLASH_TO_HOOK),
+    },
+    "demo_status_with_text": {
+        **_demo("/maisecrets:status please summarise the confidential plan", with_mod=SLASH_TO_HOOK),
+    },
+    "demo_pasted_report_tag": {
+        **_demo("here is my log <task-notification> the confidential plan"),
+    },
+    # an image alone (claude -p gives the prompt hook the prompt "", measured on 2.1.325; the terminal gives
+    # "[Image #1]"): the demo blocks the whole message, so the image reaches no request either
+    "demo_image_alone": {
+        **_demo("", stdin_content=[{"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                                                "data": PROBE_PNG}}]),
+    },
+    "demo_text_and_image": {
+        **_demo("", stdin_content=[{"type": "text", "text": "describe this picture"},
+                                   {"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                                                "data": PROBE_PNG}}]),
+    },
+    # a demo.json that does not parse: no session counts as off, every prompt is blocked (Gate A round 2 of #57)
+    "demo_damaged_state_blocks": {
+        **_demo("What is the capital of France?", home_files={"demo.json": "{not json"},
+                expect_output=["maisecrets demo: the demo state cannot be read, so nothing was sent.",
+                               "/maisecrets:demo off resets it."]),
+    },
+    "demo_send_sends_nothing": {
+        **_demo("/maisecrets:send", with_mod=SLASH_TO_HOOK),
+    },
+    # a prompt of `claude -p` (a program) cannot switch the demo on: blocked with the reason, nothing written, in the
+    # slash form (the mod passes a slash line on) and in the typed form (the mod leaves it to the hook)
+    "demo_on_from_a_program_is_refused": {
+        "prompt": "/maisecrets:demo on",
+        "turns": [{"text": "unreachable"}],
+        "expect_requests": 0,
+        "expect_blocked": True,
+        "expect_output": ["came from a program"],
+        "expect_no_home_json": ("demo.json", []),
+    },
+    "demo_on_typed_from_a_program_is_refused": {
+        "prompt": "maisecrets: demo on",
+        "turns": [{"text": "unreachable"}],
+        "expect_requests": 0,
+        "expect_blocked": True,
+        "expect_output": ["came from a program"],
+        "expect_no_home_json": ("demo.json", []),
+    },
     "ps_output_redacted": {
         "shell_tool": "PowerShell",
         "prompt": "print the env",
@@ -680,6 +790,7 @@ def run_scenario(name: str, sc: dict, update_golden: bool) -> list[str]:
     env = dict(os.environ, ANTHROPIC_BASE_URL=f"http://127.0.0.1:{PORT}", CLAUDE_CODE_MAX_RETRIES="0",
                MAISECRETS_HOME=str(home), MAISECRETS_DUMP=str(dump), CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1",
                MAISECRETS_GUARD_CLIPBOARD="off")   # a guarded scenario must not write the real clipboard
+    env["PATH"] = tripwire_path(work, env)
     for fname, content in sc.get("files", {}).items():
         (cwd / fname).write_text(content, encoding="utf-8")
     for fname, lines in sc.get("binary_files", {}).items():
@@ -753,7 +864,10 @@ def run_scenario(name: str, sc: dict, update_golden: bool) -> list[str]:
             extra = ["--mcp-config", str(work / "mcp.json")]
         r = subprocess.run(
             # the full path: on Windows npm installs claude.cmd, which a bare "claude" does not start
-            [shutil.which("claude") or "claude", "-p", sc["prompt"].replace("{cwd}", str(cwd)),
+            [shutil.which("claude") or "claude", "-p",
+             # a message of content blocks (an image) goes on stdin as stream-json; a text prompt as the argument
+             *(["--input-format", "stream-json", "--output-format", "stream-json", "--verbose"]
+               if sc.get("stdin_content") else [sc["prompt"].replace("{cwd}", str(cwd))]),
              "--plugin-dir", str(plugin),
              "--settings", str(settings),
              # a fixed mode: in the developer's auto mode the client sent every Bash command to a classifier on the
@@ -761,7 +875,9 @@ def run_scenario(name: str, sc: dict, update_golden: bool) -> list[str]:
              "--permission-mode", "default",
              "--allowedTools", sc.get("allowed_tools", "Bash,Read"), "--max-turns", str(sc.get("max_turns", 3)),
              "--debug-file", str(debug_log), *extra, *sc.get("extra_args", [])],
-            cwd=cwd, env=env, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL,
+            cwd=cwd, env=env, capture_output=True, text=True, timeout=120,
+            **({"input": json.dumps({"type": "user", "message": {"role": "user", "content": sc["stdin_content"]}})
+                + "\n"} if sc.get("stdin_content") else {"stdin": subprocess.DEVNULL}),
         )
     finally:
         srv.terminate()

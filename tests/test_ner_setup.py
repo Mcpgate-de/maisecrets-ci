@@ -166,7 +166,12 @@ class SetTests(unittest.TestCase):
         self.assertNotIn("prompts", _conf())
         self.assertEqual(_conf()["url"], "http://127.0.0.1:9000/")
         self.assertEqual(len(_weakened()), 1)
-        self.assertIsNone(settings.parse_prompt("/maisecrets:ner prompts maybe"))
+        # an argument the command does not know is answered, and changes nothing
+        self.assertEqual(settings.parse_prompt("/maisecrets:ner prompts maybe"),
+                         ("remote_detector", "ner:other:prompts maybe"))
+        before = CONFIG.read_text()
+        self.assertIn("does not know", json.dumps(_prompt("/maisecrets:ner prompts maybe")))
+        self.assertEqual(CONFIG.read_text(), before)
 
     def test_a_subagent_does_not_turn_the_prompt_part_off(self):
         _prompt("/maisecrets:ner local")
@@ -204,7 +209,7 @@ class ReportTests(unittest.TestCase):
         svc = Service()
         self.addCleanup(svc.close)
         _reset(remote_detector={"url": svc.url, "format": "hf"})
-        code, out = self.run_ner()
+        code, out = self.run_ner("all")
         self.assertEqual(code, 0)
         self.assertIn("model d3 int8, types DATE, LOC, ORG, PER", out)
 
@@ -215,14 +220,15 @@ class ReportTests(unittest.TestCase):
                                   else None):
             code, out = self.run_ner()
         self.assertEqual(code, 3)
-        self.assertIn("start: run.sh ner start (with podman)", out)      # a container with a secret (#1699)
-        self.assertIn("rules mask tool results alone", out)
+        # a container with a secret (#1699)
+        self.assertRegex(out, r"\n \u2717 service +not running +\u2192  run\.sh ner start \(podman\)\n")
+        self.assertIn("rules alone mask a tool result", self.run_ner("all")[1])
 
     def test_without_docker_it_names_the_three_ways(self):
         _reset(remote_detector={"url": ner_setup.LOCAL_URL, "format": "hf"})
         with mock.patch.object(ner_setup, "probe", return_value=(False, "the service: does not answer")), \
                 mock.patch.object(ner_setup.shutil, "which", return_value=None):
-            code, out = self.run_ner()
+            code, out = self.run_ner("all")
         self.assertEqual(code, 1)
         self.assertNotIn("start:", out)
         for words in ("Neither docker nor podman", "/maisecrets:ner url URL", "/maisecrets:ner off"):
@@ -233,7 +239,7 @@ class ReportTests(unittest.TestCase):
         svc = Service({"model": "ok\nstart: touch /tmp/x #", "labels": ["PER\nstart: y"]})
         self.addCleanup(svc.close)
         _reset(remote_detector={"url": svc.url, "format": "hf"})
-        code, out = self.run_ner()
+        code, out = self.run_ner("all")
         self.assertEqual(code, 0)
         self.assertEqual([x for x in out.splitlines() if x.startswith("start:")], [])
         self.assertIn("model ok?start: touch /tmp/x #", out)
@@ -313,9 +319,10 @@ class ReportTests(unittest.TestCase):
         _reset(remote_detector={"url": svc.url, "format": "hf"})
         buf = io.StringIO()
         with redirect_stdout(buf):
-            cli.cmd_status([])
+            cli.cmd_status(["all"])
         self.assertIn(f"names from a service: {svc.url} (on this computer)", buf.getvalue())
         self.assertIn("the service: answers", buf.getvalue())
+        self.assertRegex(buf.getvalue(), r"\nnames: local service \(\d+ ms\) \u00b7 rules: \d+")
 
 
 class RestartTests(unittest.TestCase):

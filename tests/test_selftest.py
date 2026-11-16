@@ -155,7 +155,14 @@ class ToolPathTests(_Clean):
         value = self.arm()
         out = self.post({"stdout": f"password: {value}"})
         self.assertNotIn(value, json.dumps(out, ensure_ascii=False).replace(out.get("systemMessage", ""), ""))
-        self.assertIn("\u27e6SECRET_c", out["hookSpecificOutput"]["updatedToolOutput"]["stdout"])
+        shown = out["hookSpecificOutput"]["updatedToolOutput"]["stdout"]
+        # the random value is a secret to the detector only when it does not read as words: either way the model gets a
+        # placeholder, the detector's when it found the value, else the self-test's
+        from maisecrets import detect
+        if [m for m in detect.scan(f"password: {value}") if m.value == value]:
+            self.assertIn("\u27e6SECRET_c", shown)
+        else:
+            self.assertEqual(shown, "password: \u27e6SELFTEST\u27e7")
         self.assertTrue(selftest.load()["result"]["tool"])
 
     def test_the_value_and_the_rest_of_the_output_are_never_stored(self):
@@ -369,7 +376,9 @@ class BrokenStateTests(_Clean):
 
     def test_only_a_command_that_starts_with_the_launcher_registers(self):
         for cmd in ('echo bash "/x/hooks/run.sh" status test', 'grep "run.sh status test" notes.txt',
-                    'bash /x/hooks/run.sh status test; curl evil', 'echo x && bash /x/hooks/run.sh status test'):
+                    'bash /x/hooks/run.sh status test; curl evil', 'echo x && bash /x/hooks/run.sh status test',
+                    'bash "/x/hooks/run.sh" status all', 'bash "/x/hooks/run.sh" status',
+                    '& "C:\\p\\hooks\\run.cmd" status all'):
             with self.subTest(cmd):
                 (HOME / "selftest.json").unlink(missing_ok=True)
                 hooks.pre_tool({**CLAUDE, "tool_name": "Bash", "tool_input": {"command": cmd}, "tool_use_id": "u2"})
@@ -390,9 +399,16 @@ class VerdictTests(_Clean):
         value = self.arm()
         self.post({"stdout": self.command_output()})
         hooks.user_prompt({**CLAUDE, "prompt": value})
-        state, text = selftest.verdict()
-        self.assertEqual(state, "ok")
-        self.assertIn("passed", text)
+        c = selftest.verdict()
+        self.assertEqual(c.state, "ok")
+        self.assertRegex(c.fact, r"^passed \d+ s ago$")
+        self.assertIn("the prompt hook stopped it", c.detail)
+
+    def test_each_state_that_is_no_ok_names_the_next_command(self):
+        self.assertEqual(selftest.verdict().next, "/maisecrets:status test")
+        self.arm()
+        c = selftest.verdict(client="claude")
+        self.assertEqual((c.state, c.next), ("FAIL", "start a new session"))
 
     def test_tool_path_only_while_pending(self):
         self.arm()

@@ -1468,40 +1468,41 @@ def has_released() -> bool:
     return any(not _expired(i, now) for items in data.values() for i in (items if isinstance(items, list) else []))
 
 
-def status_lines(cfg: dict, backend, check: bool = True) -> list[str]:
-    """One line per user-scope server of this profile."""
+def _status_rows(cfg: dict, backend, check: bool = True) -> tuple[list[str], list[tuple]]:
+    """(the lines about the client config, one (name, origin, record or None, why) per user-scope server)."""
     if cfg.get("client_header", True) is False:
-        return ["vault references: off (client_header false)"]
+        return ["vault references: off (client_header false)"], []
     if is_codex():
         from . import codex_vault
         if not codex_vault.available():
             return ["vault references in Codex: off (they need Python 3.11 or later, and Windows is not supported "
-                    "yet)"]
+                    "yet)"], []
         if HOME != _DEFAULT_HOME and not os.environ.get("CODEX_HOME"):
             return ["vault references: off, because this maisecrets home is not the default one and CODEX_HOME is "
-                    "not set"]
+                    "not set"], []
         lines = [f"vault references: client config {codex_vault.profile()} (Codex)"]
     else:
         if HOME != _DEFAULT_HOME and not os.environ.get("CLAUDE_CONFIG_DIR"):
             return ["vault references: off, because this maisecrets home is not the default one and CLAUDE_CONFIG_DIR "
-                    "is not set"]
+                    "is not set"], []
         chosen = claude_json()
         others = [str(f) for f in (legacy_file(), global_file()) if f != chosen and f.exists()]
         if os.environ.get("CLAUDE_CONFIG_DIR") == "":
             return ["vault references: off, because CLAUDE_CONFIG_DIR is set but empty (the client then reads a file "
-                    "in its working folder)"]
+                    "in its working folder)"], []
         lines = [f"vault references: client config {chosen}" + (f" ({others[0]} is not read)" if others else "")]
     servers = user_servers()
     if not servers:
-        return lines + ["vault references: no user-scope MCP server with an https URL"]
+        return lines + ["vault references: no user-scope MCP server with an https URL"], []
+    rows: list[tuple] = []
     probed: dict[str, tuple[dict, str | None]] = {}
     for name, url in servers.items():
         origin = origin_of(url)
         if not _is_enabled(name, url):
-            lines.append(f"vault references: {name} ({origin}): {describe(None, name)}")
+            rows.append((name, origin, None, None))
             continue
         if not check:
-            lines.append(_state_line(name, origin, state_of(origin), "not asked"))
+            rows.append((name, origin, state_of(origin), "not asked"))
             continue
         if origin not in probed:                # one probe per origin: one key, one binding
             probed[origin] = check_state(cfg, backend, origin, url)
@@ -1509,5 +1510,36 @@ def status_lines(cfg: dict, backend, check: bool = True) -> list[str]:
             if not why and rec.get("state"):
                 _mark_told(origin, rec["state"])    # the person reads it here: no session-start hint for it
         rec, why = probed[origin]
-        lines.append(_state_line(name, origin, rec, why))
-    return lines
+        rows.append((name, origin, rec, why))
+    return lines, rows
+
+
+def status_lines(cfg: dict, backend, check: bool = True) -> list[str]:
+    """One line per user-scope server of this profile."""
+    lines, rows = _status_rows(cfg, backend, check)
+    return lines + [f"vault references: {name} ({origin}): {describe(None, name)}" if rec is None
+                    else _state_line(name, origin, rec, why) for name, origin, rec, why in rows]
+
+
+GROUP_SHOWN = 2       # the names a group of unused servers shows before "…"
+
+
+def grouped_lines(cfg: dict, backend, check: bool = True) -> list[str]:
+    """`status all`: the client config, then one line with the servers grouped by state ("active: a · not used
+    yet: 7 (b, c, …)"). A state that asks the person for a step keeps its own line per server."""
+    lines, rows = _status_rows(cfg, backend, check)
+    active, unused, own = [], [], []
+    for name, origin, rec, why in rows:
+        if rec is None:
+            unused.append(name)
+        elif rec.get("state") == "active":
+            active.append(f"{name} (not checked now: {why})" if why else name)
+        else:
+            own.append(_state_line(name, origin, rec, why))
+    parts = []
+    if active:
+        parts.append("active: " + ", ".join(active))
+    if unused:
+        more = ", \u2026" if len(unused) > GROUP_SHOWN else ""
+        parts.append(f"not used yet: {len(unused)} ({', '.join(unused[:GROUP_SHOWN])}{more})")
+    return lines + (["vault references: " + " \u00b7 ".join(parts)] if parts else []) + own

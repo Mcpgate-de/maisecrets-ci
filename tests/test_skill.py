@@ -60,7 +60,7 @@ class SkillFileTests(unittest.TestCase):
         self.assertTrue(fields["description"] and "\n" not in fields["description"])
         self.assertLessEqual(len(fields["description"]), 1024)
         for rel in ("scripts/scan_secrets.py", "scripts/redact_copy.py", "scripts/audit_transcripts.py",
-                    "scripts/protection_status.py", "references/rotation.md"):
+                    "scripts/audit_approvals.py", "scripts/protection_status.py", "references/rotation.md"):
             self.assertIn(rel, text, rel)
             self.assertTrue((SKILL / rel).is_file(), rel)
 
@@ -534,6 +534,18 @@ class SkillZipTests(unittest.TestCase):
             self.assertIn("config.ini:1", r.stdout)
             self.assertIn("run2.sh:1", r.stdout, "the premise: the line with a value is a finding")
             self.assertNotIn("run.sh:1", r.stdout, "the placeholder is no finding")
+            self.assertNotIn(token, r.stdout + r.stderr)
+            # the approvals audit ships too and runs on the zipped detector (#56)
+            home = work / "home"
+            (home / ".claude").mkdir(parents=True)
+            (home / ".claude" / "settings.json").write_text(
+                json.dumps({"permissions": {"allow": [f"Bash(gh auth login --with-token {token})"]}}), encoding="utf-8")
+            env = {k: v for k, v in _clean_env().items() if not k.startswith(("CLAUDE_", "CODEX_"))}
+            env.update(PYTHONUTF8="1", HOME=str(home), USERPROFILE=str(home))
+            r = subprocess.run([sys.executable, str(work / "x" / "secret-hygiene" / "scripts" / "audit_approvals.py")],
+                               capture_output=True, text=True, encoding="utf-8", env=env, timeout=120)
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn("permissions.allow[0]", r.stdout)
             self.assertNotIn(token, r.stdout + r.stderr)
         finally:
             shutil.rmtree(work, ignore_errors=True)

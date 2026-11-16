@@ -3048,6 +3048,17 @@ def _in_scan_order(every: list) -> tuple:
     return d._order[1]
 
 
+def _personal_steps(enabled, channel: str, kinds, kv_kinds) -> tuple:
+    """Which sub-steps of _personal_hits run: (personal.hits, names_above_bank, key_values.hits). A step whose kinds
+    `enabled` all turns off is not run: its hits were dropped after it (#59, the session audit spent 29 % there). The
+    steps run whole: a key-value hit at a span of a personal hit is dropped, so key_values needs the other two."""
+    def on(ks):
+        return enabled is None or any(k in enabled or "personal:" + k in enabled for k in ks)
+    kv = channel == "tool" and on(kv_kinds)
+    bank = channel == "tool" and (kv or on(("name-after-label",)))
+    return kv or bank or on(kinds), bank, kv
+
+
 def _personal_hits(text: str, enabled, found: list, taken_starts: list, taken_ends: list, overlaps,
                    channel: str = "prompt") -> None:
     """Personal data after a label or in a fixed form (maisecrets/detection/personal.py), after every other rule: a
@@ -3062,10 +3073,13 @@ def _personal_hits(text: str, enabled, found: list, taken_starts: list, taken_en
     company: list = []
     from . import key_values
     from .holder_line import company_follows, names_above_bank   # a name line above a bank block (#40)
+    run, bank, kv = _personal_steps(enabled, channel, personal.RULE_IDS, key_values.KINDS)
+    if not run:
+        return
     every = personal.hits(text, channel, _pii_regions_cached(), company)
-    if channel == "tool" and ":" in text and "\n" in text:
+    if bank and ":" in text and "\n" in text:
         every += [(s, e, "name-after-label", personal.NAME) for s, e in names_above_bank(text)]
-    if channel == "tool":   # a name, a password or an id number after a key in structured data (#43, #45)
+    if kv:   # a name, a password or an id number after a key in structured data (#43, #45)
         old = {h[:2] for h in every}
         every += [h for h in key_values.hits(text) if h[:2] not in old]
     every = sorted(every)

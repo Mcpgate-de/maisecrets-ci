@@ -312,7 +312,7 @@ _ALL1 = {"ok": 1, "index": 1, "config": 1}
 _STORE = {"ok": 0, "index": 1, "config": 1}
 MATRIX: dict[str, list[tuple[list[str], str, dict]]] = {
     "list": [([], "", _STORE)],
-    "status": [([], "", _STORE)],
+    "status": [([], "", _STORE), (["all"], "", _STORE)],
     "audit": [([], "", _ALL0), (["3"], "", _ALL0), (["x"], "", _ALL2)],
     "expire": [([], "", {"ok": {"store-refuses-delete": 1, "*": 0}, "index": 1, "config": 1})],
     "forget": [([_K], "", {"ok": {"empty": 1, "store-refuses-delete": 1, "*": 0}, "index": 1, "config": 1}),
@@ -602,10 +602,14 @@ def transition_problems(state: str, command: str, args: list[str], r: subprocess
                 expect(typ == before.index["entries"][k]["type"], f"{k} row type")
                 expect((ln.split()[5] == "expired") == (k in expired), f"{k} row expiry")
             expect(("TEST MODE" in r.stdout) == (STATES[state][2] == "jsonfile"), "list names the test store")
-    elif command == "status":
+    elif command == "status" and args == ["all"]:
         kept = _KEEP_DAYS.get(state, 30)
         expect(f"\nstored values: {len(live)}, {len(expired)} expired (metadata kept {kept} days)\n" in r.stdout,
                "status counts")
+    elif command == "status":
+        # the default: the checks and one line of facts; the details only under `status all`
+        expect("\nstored values:" not in r.stdout and "all details: /maisecrets:status all" in r.stdout,
+               "status shows no details")
     elif command == "expire":
         expect(r.stdout == f"purged {len(newly)} expired value(s)\n", f"expire should purge {newly}")
         refused = state in REFUSING and bool(expired)
@@ -717,7 +721,7 @@ class StateMatrixTests(unittest.TestCase):
         sb, r = self._run("expired-purged", "list")
         self.assertIn("0 value(s) stored, 1 expired", r.stdout)
         self.assertRegex(r.stdout, r"SECRET_c1\s+SECRET\s+you\s+\S+\s+0\s+expired")
-        sb, r = self._run("expired-purged", "status")
+        sb, r = self._run("expired-purged", "status", "all")
         self.assertIn("stored values: 0, 1 expired (metadata kept 30 days)", r.stdout)
 
     def test_an_expired_entry_before_its_sweep_is_expired_to_every_command(self):
@@ -753,25 +757,25 @@ class StateMatrixTests(unittest.TestCase):
         self.assertEqual(sb.index()["by_fingerprint"], {})
 
     def test_status_names_the_policy_keys_and_the_config_warning(self):
-        _sb, r = self._run("policy", "status")
+        _sb, r = self._run("policy", "status", "all")
         self.assertIn("settings from a machine policy: keep_purged_days, max_keys_per_session", r.stdout)
         self.assertIn("metadata kept 3 days", r.stdout)
-        _sb, r = self._run("config-wrong-type", "status")
+        _sb, r = self._run("config-wrong-type", "status", "all")
         self.assertIn("WARNING: config.json: tips has the wrong type; the file was ignored", r.stdout)
-        _sb, r = self._run("empty", "status")
+        _sb, r = self._run("empty", "status", "all")
         self.assertIn("settings from a machine policy: none", r.stdout)
         self.assertIn("stored values in tool calls: automatic (no ask of maisecrets; the client's permission rules "
                       "decide)\n",
                       r.stdout)
         # a file ignored for a wrong type that set no rehydration: the default stays
-        _sb, r = self._run("config-wrong-type", "status")
+        _sb, r = self._run("config-wrong-type", "status", "all")
         self.assertIn("stored values in tool calls: automatic (", r.stdout)
         self.assertIn("encrypted file", r.stdout)
 
     def test_the_test_store_says_so(self):
         _sb, r = self._run("jsonfile", "list")
         self.assertIn("backend: jsonfile (TEST MODE", r.stdout)
-        _sb, r = self._run("jsonfile", "status")
+        _sb, r = self._run("jsonfile", "status", "all")
         self.assertIn("PLAINTEXT file", r.stdout)
         _sb, r = self._run("live", "list")
         self.assertNotIn("TEST MODE", r.stdout)
@@ -987,7 +991,7 @@ class SessionStartTests(unittest.TestCase):
                                                     "transcript_path": "", "prompt_id": "p1"}))
         out = json.loads(r.stdout)
         self.assertEqual(out.get("decision"), "block", r.stdout + r.stderr)
-        self.assertIn("personal data was found", out.get("reason", "") + out.get("systemMessage", ""))
+        self.assertIn("kept personal data from the AI", out.get("reason", "") + out.get("systemMessage", ""))
         self.assertEqual([m["type"] for m in sb.index()["entries"].values()], ["EMAIL"])
 
     def test_first_start_introduces_later_starts_rotate_a_tip_then_stay_short(self):
@@ -1667,7 +1671,7 @@ class CliUnitTests(unittest.TestCase):
         for argv in ([], ["-h"], ["--help"]):
             rc, out, _ = self.call(cli.main, argv)
             self.assertEqual(rc, 0)
-            self.assertIn("maisecrets status | list", out)
+            self.assertIn("maisecrets status [all|test] | list", out)
         rc, _, err = self.call(cli.main, ["frobnicate"])
         self.assertEqual((rc, err.strip()), (2, "unknown command frobnicate"))
         rc, _, err = self.call(cli.main, ["hook", "bogus"])

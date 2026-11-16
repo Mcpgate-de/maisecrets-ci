@@ -9,6 +9,19 @@ This skill finds secrets that are already in files, in the git history or in a c
 helps to contain them. It does not stop a new prompt from reaching the model. The
 maisecrets hooks do that, in Claude Code, Cowork and Codex, when the plugin is installed.
 
+## What this skill offers
+
+When the user asks what you can do, or asks in general to check for leaked secrets, offer these options, one line
+each, in the user's words:
+
+- Protect my secrets: install maisecrets, so a typed password or key no longer reaches the AI (2 minutes).
+- Check a repository: secrets in its files (seconds) and in its git history (minutes on a large repository).
+- Check my AI history: what went to Claude or Codex in past sessions, the last 30 days by default or all of them
+  (long: see the estimate).
+- Check the saved approvals of my agents: secrets in their settings and rules (seconds).
+- Something leaked: the steps to contain it, rotation first (no scan, a few minutes).
+- Make a file safe to share: a masked copy of a log, config or export (seconds).
+
 ## First: is the protection active?
 
 At the start of a conversation, run `python3 scripts/protection_status.py` (on Windows
@@ -122,16 +135,36 @@ Claude Code and Codex keep every session on this computer. A secret in a prompt,
 or a model answer there was sent to the provider. This is the fastest way to answer "what did
 my agents already leak?".
 
-1. Run `python3 scripts/audit_transcripts.py --out <file>`. Add `--days 30` for a quick look,
-   `--claude` or `--codex` for one agent, `--pii` for personal data. On a machine with many
-   sessions it takes minutes: tell the user, and run it in the background if you can.
-2. Report the values under "REACHED THE PROVIDER" first, `shape` before `guess`: each one was
+1. Ask for the period: the last 30 days (the default) or all sessions. Then get the estimate first:
+   `python3 scripts/audit_transcripts.py --estimate` (the last 30 days; add `--all` for all). It prints the size
+   and the estimated time on stderr and scans only a sample. Tell the user the estimate before the scan, for
+   example "about 12 minutes for 4.2 GB", and run the scan in the background if it is longer than a few minutes.
+2. Run `python3 scripts/audit_transcripts.py --out <file>` (add `--all` for all sessions). Add
+   `--claude` or `--codex` for one agent, `--pii` for personal data. It uses the cores minus one (`--workers N` to
+   change it), and it prints its progress at least every 30 seconds and its time at the end.
+   - It scans each distinct text once. It does not read the bytes of an image: the model gets an image as a
+     picture, and text in the picture or in the image file's metadata is not checked. It leaves out the
+     provider's encrypted thinking signatures too. A PDF or another document in base64 is scanned as before, with
+     every rule; a value in a compressed PDF, or in a PDF attached to a typed prompt, is not found.
+   - By default it is the fast scan: the rules run only near a line with a rule's prefix (such as `ghp_`) or a
+     label that a value can follow (such as `password:` or `--token`). It can miss a value whose label stands more
+     than three lines away from it, and a weak shape that needs a word farther away. `--full` reads each record as
+     one text, as before, with every rule: it is slower, and the user can ask for it after a fast scan. Neither scan finds a random value
+     with no label and no prefix.
+3. Report the values under "REACHED THE PROVIDER" first, `shape` before `guess`: each one was
    sent to Anthropic or OpenAI and must be rotated ("Contain a leak"). Values only in local
    records did not provably reach a provider.
-3. Only when the user asks, offer to clean the local copies: `--scrub` lists the files, and
+4. Only when the user asks, offer to clean the local copies: `--scrub` lists the files, and
    only `--scrub --yes`, after the user's explicit yes, replaces the values. Say every time
    that this cleans only this computer: the provider keeps what it received, so rotation
    comes first.
+5. Next to the transcript audit, check the approvals that the agents saved outside the
+   repository: `python3 scripts/audit_approvals.py --out <file>`. It reads the settings and
+   the client config of Claude Code and the rules and config of Codex, and it names each file
+   it read. Each finding names a file and a place, for example `permissions.allow[3]` or
+   `rules/default.rules line 12`, never the value. For each finding, the credential must be
+   rotated first (`references/rotation.md`), and then the user removes that entry. Change
+   no file of the agents yourself without the user's yes.
 
 ## Contain a leak
 

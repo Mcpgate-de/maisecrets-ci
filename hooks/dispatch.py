@@ -157,13 +157,12 @@ if len(sys.argv) >= 2 and sys.argv[1] in ("report", "put", "status", "list", "au
 if len(sys.argv) == 2 and sys.argv[1] == "session-end":
     # the values a server gave this session leave the store now (a crashed session sends no SessionEnd: then they go
     # at their expiry, at the latest at the next session start). Never an answer: the session is over
+    # and the demo of the session ends; each step on its own (maisecrets/session_end.py)
     import json
     try:
-        payload = json.load(sys.stdin)
-        from maisecrets import vault_refs  # noqa: E402
-        from maisecrets.vault import Vault, load_config  # noqa: E402
-        if isinstance(payload, dict) and isinstance(payload.get("session_id"), str):
-            vault_refs.end_session(Vault(load_config()).backend, payload["session_id"])
+        from maisecrets import session_end  # noqa: E402
+        if not session_end.run(json.load(sys.stdin)):
+            _marker("hook.session-end")
     except Exception:  # noqa: BLE001 - the expiry and the next session start are the backstop
         _marker("hook.session-end")
     sys.exit(0)

@@ -42,6 +42,20 @@ test('a well-formed answer replaces the prompt', async ($, on) => {
   expect(JSON.parse(seen.init.stdin)).toEqual({ prompt: TYPED, session_id: 'sess-1', cwd: '/work', origin: 'composer' })
 })
 
+test('a drop from the launcher drops the prompt: the demo answers it, and nothing is sent (maisecrets/demo.py)',
+  async ($, on) => {
+    const DEMO = 'maisecrets demo: nothing was sent to the AI. It masks 1 secret. /maisecrets:demo off to send again'
+    common(on, () => ({ value: { exitCode: 0, stderr: '', stdout: JSON.stringify({ maisecrets: 'mod-prompt', drop: DEMO }) } }))
+    const r = await submit($)
+    expect(r.drop).toBe(DEMO)
+    expect(r.text).toBeUndefined()
+  })
+
+test('a drop that is no string leaves the prompt to the settings hook', async ($, on) => {
+  common(on, () => ({ value: { exitCode: 0, stderr: '', stdout: JSON.stringify({ maisecrets: 'mod-prompt', drop: 1 }) } }))
+  expect((await submit($)).text).toBe(TYPED)
+})
+
 test('no rewrite from the launcher leaves the prompt unchanged', async ($, on) => {
   common(on, () => ({ value: { exitCode: 0, stderr: '', stdout: JSON.stringify({ maisecrets: 'mod-prompt' }) } }))
   expect((await submit($)).text).toBe(TYPED)

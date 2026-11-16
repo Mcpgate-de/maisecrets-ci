@@ -497,6 +497,8 @@ export function register(on) {
     } catch {
       // the hook decides it
     }
+    // the demo (maisecrets/demo.py): every prompt of the session is answered and dropped, never sent
+    if (answer && typeof answer.drop === 'string') return { drop: answer.drop }
     if (!answer || typeof answer.text !== 'string') return next(e)
     try {
       // count 0: the prompt goes on as typed, with a note (the name service did not check it)

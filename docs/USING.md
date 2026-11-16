@@ -13,6 +13,7 @@ Contents:
 - [Options](#options)
 - [Vault](#vault)
 - [Check a value first: ms:(…)](#check-a-value-first-ms)
+- [Try it with real data: the demo mode](#try-it-with-real-data-the-demo-mode)
 - [Handing a value to Claude on purpose](#handing-a-value-to-claude-on-purpose)
 - [Reporting a wrong detection](#reporting-a-wrong-detection)
 - [Reporting an internal failure](#reporting-an-internal-failure)
@@ -68,14 +69,21 @@ You paste a token into the prompt by accident:
 
 ```
 > please check why my GitLab token glpat-… fails in CI
-maisecrets: a secret was found and kept from the AI.
+maisecrets kept a secret from the AI.
 
-    ⌘V  pastes the cleaned prompt. Then send it, or type /maisecrets:send to send it at once.
+  /maisecrets:send   send the cleaned prompt now
+  ⌘V                 paste it to edit it first
 
-Something wrong? /maisecrets:report · maisecrets by mcpgate.de
+A wrong hit? /maisecrets:not-a-secret SECRET_c3
 ```
 
-With `/maisecrets:shortcut` installed, the line names the short `/ms`.
+With `/maisecrets:shortcut` installed, the first step names the short `/ms`.
+Where no clipboard exists (Remote Control, SSH), the notice shows the cleaned
+prompt under the `/ms` line instead of the paste line. The last line names the
+stored value when there is one, else `KEY`; Codex has no `/ms` and names
+`maisecrets: not a secret KEY`. When a subagent's report or a background
+command's notice is blocked, the notice says so, and `/ms` passes it on with
+placeholders.
 Zero requests left the machine for that prompt. The rewritten prompt reads
 `please check why ⟦SECRET_c3⟧ fails in CI`, and Claude can use the
 placeholder in a command as above.
@@ -97,10 +105,20 @@ values that already leaked. The model loads it when a task fits; in Claude Code 
   Python 3.9 for the hooks. This is how the skill, which a store can list alone, brings the
   hooks along.
 - **Check what the agents already received.** `audit_transcripts.py` reads the local Claude Code
-  and Codex sessions and lists every secret that sat in a prompt, a tool result or a model answer,
-  so it reached Anthropic or OpenAI: by type, rule, dates and sessions, never by value. On request
+  and Codex sessions and lists the secrets it finds in a prompt, a tool result or a model answer,
+  so it reached Anthropic or OpenAI: by type, rule, dates and sessions, never by value. It reads the
+  last 30 days by default (`--all` for all), tells the size and an estimate first (`--estimate` stops
+  there), and shows its progress. The default fast scan runs the rules only near a line with a rule's
+  prefix or label, so it can miss a value whose label stands more than three lines away; `--full`
+  reads each record as one text with every rule, as before, and finds those too. On request
   it replaces the values in the local files (`--scrub`, then `--scrub --yes`), which does not
   take back what the provider received.
+- **Check the saved approvals.** `audit_approvals.py` reads what the agents keep outside the
+  repository: the user and project settings and the `allowedTools` of Claude Code, and the
+  `rules/*.rules` and `config.toml` of Codex (it honours `CLAUDE_CONFIG_DIR` and `CODEX_HOME`).
+  A command that you approved stays there as text, with any token in it. The report names the
+  file and the place (`permissions.allow[3]`, `rules/default.rules line 12`), never the value,
+  and it changes no file.
 - **Contain a leak.** For a value that reached a chat, a commit, a log or a ticket, the skill
   gives the rotation steps per service from `references/rotation.md`: rotate first, clean up
   second. This part needs no shell, so it also works in a chat.
@@ -298,8 +316,8 @@ Polish, Portuguese, Russian, Spanish, Swedish, Thai and Turkish. With Chinese or
 Japanese on, the fullwidth colon (`密码：`, `パスワード：`) and a sentence with no
 space (`密码是…`, `パスワードは…`) count as a label too. Each word comes from
 a reviewed translation of an open-source project, and
-`docs/label-sources.md` names the source of each word. `/maisecrets:status` shows the regions, where
-they came from, and the label languages.
+`docs/label-sources.md` names the source of each word. `/maisecrets:status` shows the regions and
+the number of label languages; `/maisecrets:status all` also shows where they came from and each language.
 
 Every entry has a TTL. Each use renews it, up to `max_ttl_seconds`. On
 expiry the value is deleted and the metadata stays as a record. Commands:
@@ -398,15 +416,63 @@ In Remote Control the block notice is not shown (see "Sending a blocked
 prompt" below), so the verdict is not visible there; the value is still not
 sent.
 
+## Try it with real data: the demo mode
+
+`ms:(…)` checks one value. To see what maisecrets does with a whole text, such
+as a real customer mail, switch the demo mode on. Type it as your own prompt:
+
+```
+/maisecrets:demo on          (Codex: maisecrets: demo on)
+```
+
+While the demo is on, maisecrets answers each prompt of this session itself,
+and no prompt reaches the AI:
+
+```
+maisecrets demo: nothing was sent to the AI.
+It masks 1 secret, 1 e-mail address.
+
+Please check the token ⟦SECRET_c1⟧ and write to ⟦EMAIL_c1:jo•••@•••.de⟧ today
+
+/maisecrets:demo off to send again
+```
+
+- **The values are stored** as when you send a prompt, so the placeholders are
+  the normal ones. Only the sending is replaced by this answer.
+- **A long text** shows its first 20 lines and the count of the rest. When
+  maisecrets masked something, the full masked text goes to the clipboard,
+  where one exists.
+- **Names.** In Claude Code a name service (`/maisecrets:ner`) takes part as
+  for a normal prompt. A service on the network reads a prompt only when you
+  turn its prompts on (`/maisecrets:ner prompts on`).
+- **Only your own commands pass, in their exact form:** `/maisecrets:demo off`,
+  the settings, `ms:(…)`, `/maisecrets:term`, `/maisecrets:not-a-secret`, and
+  for example `/maisecrets:status`, `/maisecrets:status all` or
+  `/maisecrets:list`. A command with other text after it gets the demo answer.
+  `/ms` and `/maisecrets:send` send nothing during the demo.
+  `/maisecrets:status` shows a `!` line while the demo is on.
+- **A pasted image** goes nowhere during the demo: the demo blocks the whole
+  prompt, also an image alone (measured on Claude Code 2.1.325). It does not
+  read the image.
+- **If the demo state cannot be read** (a damaged file), maisecrets sends no
+  prompt of any session until you type `/maisecrets:demo off`, which resets it.
+- **It ends** with `/maisecrets:demo off` or with the session. A new session or
+  `/clear` ends it: `/clear` starts a new session (measured on Claude Code
+  2.1.325). Only your own typed prompt switches it: a subagent, a program
+  (`claude -p`), a scheduled prompt or a tool call changes nothing.
+- In Claude Code the answer comes as one line ("Prompt dropped by a hook"),
+  and a line break of the prompt shows as ↵. The screen shows the placeholders
+  there, also with `show_values` on. In Codex the block shows the answer.
+
 ## Handing a value to Claude on purpose
 
 Paste it. A value with a known shape (a token, a key, an IBAN) is blocked,
 stored, and comes back as a placeholder in your clipboard. A password without
 a shape needs a label or the vault command:
 
-- label it: `password: …`, `passwort: …`, `api_key=…` (English, Spanish and
-  German labels are recognised; the value counts from 8 characters, so
-  `password: yes` is not a hit);
+- label it: `password: …`, `passwort: …`, `api_key=…` (labels in 19 languages are
+  recognised; a value that is no word counts from 4 characters, after the weak label `pass`
+  from 8, so `password: yes` is not a hit);
 - or copy the value and run `/maisecrets:put` in Claude Code; the placeholder
   replaces the value in your clipboard. Paste the placeholder into your next
   message, and Claude uses it in commands and tool calls. Over SSH and in a
@@ -737,10 +803,12 @@ they are large (measured on 2.1.296: an image of about 8 KB or more): the AI
 then reads only a note to run `cat <notebook> | jq '.cells[0].outputs'` in
 Bash, and that output is text, which maisecrets redacts like any output.
 
-**Not covered:** an image you paste into the prompt (Ctrl+V or drag of an
-image into Claude Code) reaches the model without passing any hook; the
-prompt hook sees only your typed text. maisecrets cannot stop or mask it. An
-image in the result of an MCP tool is not covered either.
+**Not covered:** maisecrets cannot read or mask an image you paste into the
+prompt (Ctrl+V or drag of an image into Claude Code). The prompt hook runs for
+that prompt, but it gets only the text: `[Image #1]` in the terminal, an empty
+text for an image alone in `claude -p` (measured on 2.1.325). When the hook
+blocks the prompt, the image does not go either; in the demo mode that is each
+prompt. An image in the result of an MCP tool is not covered either.
 
 ## Terms: names, case numbers, customer names
 

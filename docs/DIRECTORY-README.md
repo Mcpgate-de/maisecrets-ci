@@ -104,11 +104,12 @@ Details: `PRIVACY.md` and `SECURITY.md` in this folder.
 ## Commands
 
 ```
-/maisecrets:status        does it protect this session? one verdict per check, then the details
+/maisecrets:status        does it protect this session? one line per check (all: the details)
 /maisecrets:list          the stored values (placeholders and masked displays, never a secret)
 /maisecrets:settings      the choices you make
 /maisecrets:forget        delete a stored value
 /maisecrets:not-a-secret  a wrong hit: delete it and never mask that exact value again
+/maisecrets:demo          try it with real data: each prompt gets an answer, and no prompt reaches the AI
 /maisecrets:report        an issue text for a problem
 ```
 

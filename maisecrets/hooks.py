@@ -23,7 +23,7 @@ import time
 import sys
 from typing import Any
 
-from . import check_value, detect, incidents, not_a_secret, rehydration, term_files, value_files
+from . import check_value, detect, incidents, demo, not_a_secret, rehydration, term_files, value_files
 from .lazy_regex import LazyRx as _LazyRx
 from .placeholder import KEY_RE, find_refs
 from . import vault as vault_mod
@@ -36,7 +36,7 @@ from .notices import (  # noqa: F401
 )
 from .agent_reports import (  # noqa: F401
     _NOTIFICATION_RE, _AGENT_TOOLS, _notification_tag, _result_span, _plain, _last_answer, _called_an_agent,
-    _one_report_proves_itself, _report_rest,
+    _one_report_proves_itself, _report_rest, report_kind,
 )
 from .shell_commands import (  # noqa: F401
     _STORE_READ_PATTERNS, _STORE_READ_RE, _STORE_READ_RE_I, _store_read_match, _store_dir_spellings, _protected_dirs,
@@ -830,6 +830,9 @@ def rewrite_prompt(payload: dict) -> dict:
     # a minted key resolves only in its session (C4), and the scrub handoff is found by it
     if not isinstance(prompt, str) or not session or not _SESSION_ID_RE.fullmatch(session):
         return {}
+    dm = demo.mod_answer(payload, cfg)          # demo.py: the demo answers and drops the prompt
+    if dm is not None:
+        return dm
     # a subagent's report is the hook's to judge (C19); a model wrote it, so nothing of it is stored
     if "<task-notification>" in prompt:
         return {}
@@ -960,8 +963,9 @@ def user_prompt(payload: dict) -> dict:
         }
 
     # a subagent's report: before the references are admitted (a model wrote them, not the human) and
-    # before anything is stored; the audit line counts it
-    if cfg.get("pass_agent_reports", True) and client_of(payload) == "claude" and agent_report(payload, prompt):
+    # before anything is stored; the audit line counts it. A damaged demo state passes no report (demo.py)
+    if cfg.get("pass_agent_reports", True) and client_of(payload) == "claude" and agent_report(payload, prompt) \
+            and not demo.damaged():
         found = detect.scan(prompt)
         if found:
             from types import SimpleNamespace
@@ -1042,6 +1046,9 @@ def user_prompt(payload: dict) -> dict:
             return {"decision": "block", "reason": reason}
         return {"decision": "block", "reason": reason,
                 "hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "suppressOriginalPrompt": True}}
+    dm = None if grant else demo.gate(payload, cfg, typed)     # demo.py: the demo answers in place of the AI
+    if dm:
+        return dm
     if typed and not payload.get("agent_id"):
         # {{Jan Kowalski}} in a prompt the person typed: the name is masked from now on (terms.take_markers)
         try:
@@ -1097,7 +1104,9 @@ def user_prompt(payload: dict) -> dict:
         return {}
     # a message of another session: nobody here sends it again, so the clipboard and /ms stay the person's own
     peer = settings_mod.peer_sender(prompt) if client_of(payload) == "claude" else None
-    copied = False if peer else _clipboard(rewritten)
+    # a blocked report is passed on with /ms; the person's clipboard stays theirs
+    report = None if peer or client_of(payload) != "claude" else report_kind(prompt)
+    copied = False if peer or report else _clipboard(rewritten)
     if not peer:
         _save_pending(rewritten, session)
     if cfg.get("scrub_transcript", True):
@@ -1107,10 +1116,11 @@ def user_prompt(payload: dict) -> dict:
         _scrub_transcript(payload.get("transcript_path", ""), values, refs)
         _scrub_transcript_later(payload.get("transcript_path", ""), values, refs)
     codex = client_of(payload) == "codex"
-    lines = peer_notice(entries, peer) if peer else block_notice(entries, rewritten, copied, codex, cfg, vault)
-    tip = None if codex or peer else _check_tip(cfg)      # Codex: the session start names it (hooks/dispatch.py)
+    lines = peer_notice(entries, peer) if peer else block_notice(entries, rewritten, copied, codex, cfg, vault,
+                                                                 stored["n"], report)
+    tip = None if codex or peer or report else _check_tip(cfg)      # Codex: the session start names it (dispatch.py)
     if tip:
-        lines[-1:-1] = [tip, ""]
+        lines += ["", tip]
     from . import events
     events.record("UserPromptSubmit", client_of(payload), entries,
                   **({"outcome": "blocked: a message of another session"} if peer else {}))
@@ -1715,6 +1725,8 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
         return _deny(value_files.IN_A_COMMAND)
     if not_a_secret.in_a_command(command):
         return _deny(not_a_secret.IN_A_COMMAND)
+    if demo.in_a_command(command):
+        return _deny(demo.IN_A_COMMAND)
     # ssh consent (#8), before any value is recorded or served: a refusal leaves no audit line
     if cfg.get("ssh_consent") and re.search(r"maisecrets:\s*allow\s+ssh\s+\S|allow\s+ssh\s+\S+\s+\d{6}", command,
                                            re.I):
@@ -2394,6 +2406,8 @@ def _pre_powershell(payload: dict, tool_input: dict, cfg: dict | None = None) ->
         return _deny(value_files.IN_A_COMMAND)
     if not_a_secret.in_a_command(command):
         return _deny(not_a_secret.IN_A_COMMAND)
+    if demo.in_a_command(command):
+        return _deny(demo.IN_A_COMMAND)
     if _HOOK_ENTRY_TEXT_RE.search(command):
         # PowerShell has no word parser here: any mention of a hook entry with its event is refused
         return _deny("maisecrets: this command calls a maisecrets hook directly; only the client calls the hooks. "

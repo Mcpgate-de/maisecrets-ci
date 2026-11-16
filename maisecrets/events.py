@@ -77,8 +77,20 @@ def _append(line: str) -> None:
         f.write("\n".join(lines) + "\n")
 
 
+def record_demo(state: str, route: str) -> None:
+    """One events.log line for a switch of the demo (maisecrets/demo.py): the time, on or off, the route. No
+    prompt, no value. Never raises: the switch is done already."""
+    try:
+        HOME.mkdir(mode=0o700, parents=True, exist_ok=True)
+        _append(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime()),
+                            "demo": "on" if state == "on" else "off",
+                            "route": route if route in ROUTES else "other", "version": plugin_version()}))
+    except (OSError, ValueError):
+        pass
+
+
 def load(n: int = 20) -> list[dict]:
-    """The last n detection events; a line about a loosened protection is not one."""
+    """The last n detection events; a line about a loosened protection or a switch of the demo is not one."""
     try:
         lines = EVENTS.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
@@ -89,7 +101,7 @@ def load(n: int = 20) -> list[dict]:
             obj = json.loads(ln)
         except ValueError:
             continue
-        if isinstance(obj, dict) and "weakened" not in obj:
+        if isinstance(obj, dict) and "weakened" not in obj and "demo" not in obj:
             out.append(obj)
     return out[-n:] if n > 0 else []
 

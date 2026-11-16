@@ -106,8 +106,11 @@ class DetectTests(unittest.TestCase):
         _hygiene.patch(self, hooks, "_clipboard", lambda t: True)
         out = hooks.user_prompt({"prompt": text, "session_id": "s2", "transcript_path": "", **CLAUDE})
         self.assertEqual(out["decision"], "block")
-        self.assertIn("maisecrets: a secret was found and kept from the AI.", out["reason"])
-        self.assertIn("pastes the cleaned prompt", out["reason"], "the one next step, with the clipboard")
+        self.assertIn("maisecrets kept a secret from the AI.", out["reason"])
+        self.assertIn("paste it to edit it first", out["reason"], "the paste key, with the clipboard")
+        # a tip may follow the last line on some platforms; the wrong-hit line itself names no key
+        self.assertIn("A wrong hit? /maisecrets:not-a-secret KEY\n", out["reason"] + "\n",
+                      "two values: the wrong-hit line names no key")
         # the two references exist, the notice does not need to list them
         self.assertEqual(len({e.key for e in Vault().list()} - before), 2)
         self.assertNotIn(GLPAT, out["reason"])
@@ -202,6 +205,7 @@ class DetectTests(unittest.TestCase):
                      "maisecrets: 1 SECRET detected and stored as SECRET_c19. The prompt did not reach the model.",
                      "maisecrets stopped this prompt. The AI did not receive it.",
                      "maisecrets: a secret was found and kept from the AI.",
+                     "maisecrets kept a secret and personal data in a subagent's report from the AI.",
                      "Found: 1 secret (⟦SECRET_c19⟧). To send it: /maisecrets:send (or /ms)."):
             with self.subTest(text[:24]):
                 self.assertEqual(detect.scan(text), [])
