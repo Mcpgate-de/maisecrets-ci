@@ -313,9 +313,10 @@ class ReportTests(unittest.TestCase):
         _reset(remote_detector={"url": svc.url, "format": "hf"})
         buf = io.StringIO()
         with redirect_stdout(buf):
-            cli.cmd_status([])
+            cli.cmd_status(["all"])
         self.assertIn(f"names from a service: {svc.url} (on this computer)", buf.getvalue())
         self.assertIn("the service: answers", buf.getvalue())
+        self.assertRegex(buf.getvalue(), r"\nnames: local service \(\d+ ms\) \u00b7 rules: \d+")
 
 
 class RestartTests(unittest.TestCase):

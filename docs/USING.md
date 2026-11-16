@@ -298,8 +298,8 @@ Polish, Portuguese, Russian, Spanish, Swedish, Thai and Turkish. With Chinese or
 Japanese on, the fullwidth colon (`密码：`, `パスワード：`) and a sentence with no
 space (`密码是…`, `パスワードは…`) count as a label too. Each word comes from
 a reviewed translation of an open-source project, and
-`docs/label-sources.md` names the source of each word. `/maisecrets:status` shows the regions, where
-they came from, and the label languages.
+`docs/label-sources.md` names the source of each word. `/maisecrets:status` shows the regions and
+the number of label languages; `/maisecrets:status all` also shows where they came from and each language.
 
 Every entry has a TTL. Each use renews it, up to `max_ttl_seconds`. On
 expiry the value is deleted and the metadata stays as a record. Commands:

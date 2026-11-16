@@ -118,6 +118,56 @@ push and, with `--real`, against the real model. `docs/TESTING.md` has the
 record. GitHub is a read-only mirror of the primary repository; issues and
 pull requests are welcome there.
 
+### What `/maisecrets:status` says
+
+The command fits on one screen. The head line says whether this session is
+protected: `🔒` when no check failed, `🔓 … is NOT protecting this session`
+when one did. Outside a client session (a terminal) no session can be judged,
+so the head line makes no claim. One line follows per check: `✓` ok, `!` warn,
+`✗` FAIL, `–` does not apply. A warn or FAIL line names the next command after
+`→`. In Codex the commands are typed: `maisecrets: status all`. Each fact
+claims only what the check saw. `/maisecrets:status all` prints the longer
+facts of each check and the details that support needs.
+
+**hooks.** The tool-call hook of this session must have run in the last 2
+minutes, because the command itself is a tool call. The prompt hook must have
+run at all, because each session starts with a prompt. The line names the
+hooks that ran and when (`hooks.log`). If no hook ran, the client does not
+run maisecrets: in Claude Code, run `/reload-plugins` or start a new session;
+in Codex, trust the maisecrets hooks in `/hooks`.
+
+**version.** maisecrets compares its version with the marketplace copy that the
+client fetched itself. It makes no network request. So "the newest" is only as
+new as the last fetch, and without a copy the line says "newest unknown". After
+an update, start a new session; Codex also asks you to trust the hooks again.
+
+**codex.** Codex runs a hook only when you trusted its current contents
+(openai/codex#54619). Each update ends that trust. The line recomputes the
+hashes and says whether Codex runs the hooks of the installed version. `–`
+means Codex did not install maisecrets on this computer.
+
+**store.** maisecrets reads a key that does not exist, and the store must
+answer. If it does not answer, every prompt with a value is blocked until it
+does. The plaintext test file (`jsonfile`) is for tests only. To use another
+store, write `{"backend": "encrypted-file"}` (or `keychain`, `windows-vault`)
+to `config.json` in the maisecrets folder; it takes effect on the next call.
+
+**incidents.** These are faults of maisecrets itself in the last 30 days. A
+fail-closed incident means maisecrets refused a call it could not check: safe,
+but it stopped work. A best-effort incident means a side step failed (a cleanup
+or a record). Act when they repeat or stop your work; `/maisecrets:report
+incident` shows them and makes a report.
+
+**self-test.** `/maisecrets:status test` proves both protection paths in the
+real client. The tool-result hook must mask a test value in the output of the
+command, and the prompt hook must stop it when you send it. A pass counts for
+this version, in this session or for 4 hours. If the AI wrote the test value
+into a tool call, it had the value: start a new session and test again.
+
+**The line of facts.** It names the source of names (off, a local service with
+its answer time, a gateway, or one that does not answer), the number of
+rules, the regions and the number of label languages.
+
 ## What the plugin runs, sends and fetches
 
 - Runs: `bash hooks/run.sh <event>` (or `hooks/run.cmd` for Codex on Windows)

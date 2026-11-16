@@ -42,17 +42,16 @@ SERVICE = "maisecrets" if HOME == _DEFAULT_HOME else "maisecrets@" + hashlib.sha
 
 
 def describe_backend(backend) -> str:
-    """One line for a human: which store, where, and how to change it."""
+    """One line for a human: which store; the maisecrets folder (values of a file store, index.json, config.json)
+    once; how to change the store is in docs/HOW-IT-WORKS.md#status."""
     name = type(backend).__name__
-    where = {
+    what = {
         "KeychainBackend": f"macOS login keychain, service '{SERVICE}' (Keychain Access shows the entries)",
         "WindowsVaultBackend": f"Windows Credential Locker, resource '{SERVICE}' (Settings > Credential Manager)",
-        "EncryptedFileBackend": f"encrypted file {HOME / 'vault.enc.json'} (openssl, key file {HOME / 'key'})",
-        "JsonFileBackend": f"PLAINTEXT file {HOME / 'vault.json'} - TEST MODE, not for real secrets",
+        "EncryptedFileBackend": "encrypted file (openssl, with a key file)",
+        "JsonFileBackend": "PLAINTEXT file (TEST MODE, not for real secrets)",
     }.get(name, name)
-    return (f"Stored values: {where}. Metadata: {INDEX}. "
-            f"To change it: write {{\"backend\": \"encrypted-file\"}} to {CONFIG} (takes effect on the next call). "
-            "Free and open source, by mcpgate.de.")
+    return f"store: {what}; folder {HOME} · how to change it: docs/HOW-IT-WORKS.md#status"
 
 
 def intro_line(backend, names: bool = True, codex: bool = False) -> str:

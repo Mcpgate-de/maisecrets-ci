@@ -185,7 +185,7 @@ that looks like a misspelled `rehydration`, `resolve_in_files` or
 Two keys add to what the user has instead of replacing it: `rule_dirs`, rule
 folders that every user reads and cannot remove, and `allow`, lines of the
 allow list (both lists of strings; see "Rules of your own").
-`/maisecrets:status` names the keys that come from the policy. The plaintext
+`/maisecrets:status all` names the keys that come from the policy. The plaintext
 `jsonfile` store is refused unless the policy or the user sets
 `allow_plaintext_store`.
 
@@ -212,9 +212,11 @@ link to `report_url`. It opens no browser and files nothing: you open the link
 and decide in GitHub's form. Set `report_url` to your tracker, or set it to
 `null` to turn reporting off.
 
-**Diagnosis.** `/maisecrets:status` starts with a verdict (`ok`, `warn` or
-`FAIL` per check, with the next command), then prints version, plugin folder, Python,
-store, policy keys and log counts. `/maisecrets:audit` prints the last
+**Diagnosis.** `/maisecrets:status` fits on one screen: a head line that says
+whether this session is protected, one short line per check (`✓` ok, `!` warn,
+`✗` FAIL, with the next command) and one line of key facts.
+`/maisecrets:status all` adds version, plugin folder, Python, store, policy keys
+and log counts (docs/HOW-IT-WORKS.md, "Status", says what each check means). `/maisecrets:audit` prints the last
 resolves. `MAISECRETS_DEBUG_LOG=<file>` in the client's environment records one
 line per hook call (event, client, duration, answer; never a value).
 `bash <plugin folder>/hooks/run.sh wipe --yes` is the offboarding step; a
@@ -725,7 +727,7 @@ How it works (`docs/PROTOCOL.md` section 4):
    Claude Code itself uses: `~/.claude/.config.json` when that file is not
    empty, else `~/.claude.json` (both in `CLAUDE_CONFIG_DIR` when it is set;
    the rule of 2.1.301). The other file is then an old copy, and maisecrets
-   never reads or writes it. `/maisecrets:status` names the file. It
+   never reads or writes it. `/maisecrets:status all` names the file. It
    changes nothing else in the file and keeps a backup beside it. You see a
    notice once, with one step: type `/mcp reconnect <server name>` (or start
    Claude Code again). The reconnect reads the server entry again, its
@@ -744,8 +746,9 @@ How it works (`docs/PROTOCOL.md` section 4):
    values or none. If the server refuses, the call is denied, and the reason
    names the state of the server and your next step (the table below).
 
-`/maisecrets:status` shows the state of each server, with the time of the
-last answer. It asks once per server origin that has a key on this
+`/maisecrets:status all` groups the servers by state ("active: …", "not used
+yet: …"); a server in a state that needs a step of yours keeps its own line,
+with the time of the last answer. It asks once per server origin that has a key on this
 computer (an empty request that can return no value); two entries on one
 origin share the key and the answer. At a session start maisecrets asks the
 same question once per such origin, within 5.5 s for all, and tells you in
@@ -927,7 +930,7 @@ maisecrets does not verify that it is `mcpgate/ner`.
   2 s (Windows retries it), so with the default `timeout_ms` of 300 it counts
   as slow and the fallback does not take over; a `timeout_ms` of 3000 lets the
   refusal arrive in time.
-- **Which service read what**: `/maisecrets:ner` and `/maisecrets:status`
+- **Which service read what**: `/maisecrets:ner` and `/maisecrets:status all`
   count today's requests per service, from `ner.log` (time, service, tool
   result or prompt, characters, names, plugin version; never text). The counts
   are those of all your sessions on this computer, not of one session, as far

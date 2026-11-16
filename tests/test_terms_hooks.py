@@ -740,10 +740,11 @@ class LeakTests(_Base):
         _prompt(f"/maisecrets:term add {NAME} | Testowsk*")
         _bash("Pan Testowskiego")
         _prompt("see {{Anna Testowska}}")
-        for argv in (("list",), ("status",), ("audit",), ("report",), ("report", "last"), ("terms",), ("rules",)):
+        for argv in (("list",), ("status",), ("status", "all"), ("audit",),
+                     ("report",), ("report", "last"), ("terms",), ("rules",)):
             with self.subTest(argv):
                 self.assertNoTerm(self._cli(*argv), "maisecrets " + " ".join(argv))
-        self.assertIn("terms: 1 of your own, 0 from 0 team file(s), 1 marked in prompts", self._cli("status"))
+        self.assertIn("terms: 1 of your own, 0 from 0 team file(s), 1 marked in prompts", self._cli("status", "all"))
         self.assertNoTerm(_home_text(), "a file of the home")
 
     def test_suggest_never_prints_a_name_and_writes_a_private_proposal(self):

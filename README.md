@@ -98,8 +98,9 @@ the `~/.maisecrets` folder by hand. `wipe` reports when an item refused to go.
 
 Start a new session and run `/maisecrets:status test` (in Codex, send `maisecrets: status test`). It prints a test
 value that the AI only sees as `⟦SELFTEST⟧`; type that value as your next prompt, and maisecrets answers "Self-test
-passed" without sending it. `/maisecrets:status` alone starts with a verdict per check (`ok`, `warn` or `FAIL`, each
-with the next step), then the details.
+passed" without sending it. `/maisecrets:status` alone fits on one screen: a lock in the head line says whether this
+session is protected, then one short line per check (`✓`, `!` or `✗`, with the next step); `/maisecrets:status all`
+adds the details.
 
 ## Where you can use it today
 
@@ -116,7 +117,7 @@ Not yet: Gemini CLI, Cursor, Copilot CLI, OpenCode. Why: [docs/CLIENTS.md](docs/
 
 In Claude Code (Codex has no plugin slash commands; [docs/USING.md](docs/USING.md) names its forms):
 
-- `/maisecrets:status`: does it protect this session? A verdict per check, then the details.
+- `/maisecrets:status`: does it protect this session? One short line per check; `/maisecrets:status all` adds the details.
 - `ms:(your value)`: would this value be caught? Nothing is sent. [More](docs/USING.md#check-a-value-first-ms).
 - `/maisecrets:settings`: the choices you make. [More](docs/USING.md#options).
 - `/maisecrets:list`: the stored values in masked form, never a secret. [More](docs/USING.md#vault).

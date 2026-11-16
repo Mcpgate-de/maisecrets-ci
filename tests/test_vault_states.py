@@ -525,9 +525,11 @@ class States(base.OnlineBase):
     def test_a_cli_status_names_the_state(self):
         self.ready()
         env = {**os.environ, "PYTHONPATH": str(base.ROOT)}
-        r = subprocess.run([shutil.which("python3") or "python3", "-m", "maisecrets.cli", "status"], env=env,
+        r = subprocess.run([shutil.which("python3") or "python3", "-m", "maisecrets.cli", "status", "all"],
+                           env=env,
                            capture_output=True, text=True, timeout=60, cwd=str(base.ROOT))
-        self.assertRegex(r.stdout, r"vault references: demo \(https://127\.0\.0\.1:\d+\): active \(checked ", r.stderr)
+        # `status all` groups the servers by state: the active ones by name
+        self.assertRegex(r.stdout, r"vault references: active: demo\b", r.stderr)
 
 
 if __name__ == "__main__":
