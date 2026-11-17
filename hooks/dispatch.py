@@ -86,6 +86,8 @@ except Exception as exc:  # noqa: BLE001 - a guard that fails open is no guard
         sys.exit(1)       # no traceback: the mod draws the placeholders as they are
     if len(sys.argv) == 2 and sys.argv[1] == "mod-reveal":
         sys.exit(1)       # no traceback: the mod says it could not get the value
+    if len(sys.argv) == 2 and sys.argv[1] == "mod-demo":
+        sys.exit(1)       # no traceback: the mod keeps what it knew of the demo
     raise
 
 if len(sys.argv) == 2 and sys.argv[1] == "mod-prompt":
@@ -105,6 +107,9 @@ if len(sys.argv) == 2 and sys.argv[1] == "mod-prompt":
         if isinstance(payload.get("cwd"), str) and os.path.isdir(payload["cwd"]):
             os.chdir(payload["cwd"])
         answer = rewrite_prompt(payload)
+        # whether this session is in the demo: each model step of the mod reads it (maisecrets/demo.py)
+        from maisecrets.demo import active as _in_demo  # noqa: E402
+        answer = {**answer, "inDemo": bool(_in_demo(payload.get("session_id")))}
     except Exception:  # noqa: BLE001 - no traceback: what passes back goes through other mods
         sys.exit(1)
     # ASCII JSON: ⟦ as \u27e6. A Windows console code page cannot write ⟦, and the answer was a traceback
@@ -135,6 +140,19 @@ if len(sys.argv) == 2 and sys.argv[1] == "mod-reveal":
     except Exception:  # noqa: BLE001 - no traceback, no value in an error text
         sys.exit(1)
     print(json.dumps({"maisecrets": "mod-reveal", **answer}))
+    sys.exit(0)
+
+if len(sys.argv) == 2 and sys.argv[1] == "mod-demo":
+    # the mod's question at a model step: is this session in the demo (maisecrets/demo.py)? Any failure answers
+    # nothing, and the mod keeps what it knew
+    import json
+    try:
+        from maisecrets.demo import mod_demo  # noqa: E402
+        payload = json.load(sys.stdin)
+        answer = mod_demo(payload if isinstance(payload, dict) else {})
+    except Exception:  # noqa: BLE001 - no traceback
+        sys.exit(1)
+    print(json.dumps({"maisecrets": "mod-demo", **answer}))
     sys.exit(0)
 
 if len(sys.argv) >= 2 and sys.argv[1] == "pending":

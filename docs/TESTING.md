@@ -12,6 +12,7 @@ What runs, where, and what makes it fail. The history of each finding is in the 
 | repository scan | `python3 scripts/scan_tree.py` | GitLab `no_secrets_in_tree` |
 | Claude Code harness | `python3 harness/run.py` | GitLab `harness_claude`; locally `scripts/check_all.sh` (needs `claude`) |
 | Codex harness | `python3 harness/codex.py` | GitLab `harness_codex` |
+| the demo mode in the interactive client | `python3 harness/demo_screen.py` (needs pyte) | by hand after a change of `maisecrets/demo.py` or the mod, and on a new Claude Code version: the real client in a pseudo-terminal with its optional traffic on; every model request in a demo session (two prompts, 100 s idle, Tab, /compact) fails it, with its source (a title, the next-prompt guess, a compaction) |
 | Codex harness on the `release-codex` tree | `python3 harness/codex.py --tree=codex` (the tree that `scripts/build_release_tree.py --flavor codex` builds from HEAD, installed as a Git source with `path: plugin`) | GitLab `harness_codex` |
 | vault references, end to end | `python3 harness/vault_refs_e2e.py` | by hand before a release that touches `maisecrets/vault_refs.py` (needs `claude` and `openssl`): the real client, a client profile of its own and the fake server of `harness/vault_server.py`; the resolve and the `client_header: false` run |
 | native store and clipboard | `MAISECRETS_NATIVE_BACKEND_TEST=1`, `MAISECRETS_NATIVE_CLIPBOARD_TEST=1` | GitHub runners only: they use the real keychain and clipboard |

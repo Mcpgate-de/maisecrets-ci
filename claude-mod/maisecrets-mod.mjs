@@ -469,14 +469,115 @@ async function ask($, prompt, session, cwd, origin) {
   if (!r) return null
   const answer = JSON.parse(r.stdout)
   if (!answer || answer.maisecrets !== MARK) return null
+  if (typeof answer.inDemo === 'boolean') demo.set(session, answer.inDemo)     // what each model step reads below
   if (typeof answer.text !== 'string' && typeof answer.drop !== 'string') return null
   return answer
 }
 
+// ---- the demo (maisecrets/demo.py): the prompt enters with its values masked, and no model request goes out
+
+// Each model step of a session in the demo is answered here with one line: no request is made. Whether a session is
+// in the demo comes from Python (mod-prompt says inDemo for each prompt it sees; mod-demo when it saw none since the
+// last prompt), kept in this module's memory per session id. /clear gives a new session id, which asks again
+const DEMO_LINE = 'Demo mode: nothing was sent to the AI. /clear to switch it off.'
+const demo = new Map()     // session id -> in the demo; the demo command clears its entry
+const DEMO_CMD = /^\s*(?:\/maisecrets:demo|maisecrets:\s*demo)\b/i
+
+async function runDemo($, stdin) {
+  // one deadline for all three Pythons: a step waits at most ASK_MS, then answers itself (fail closed)
+  const end = (await $.clock.now()) + ASK_MS
+  for (const argv of [['python3', 'hooks/dispatch.py', 'mod-demo'], ['py', '-3', 'hooks/dispatch.py', 'mod-demo'],
+    ['python', 'hooks/dispatch.py', 'mod-demo']]) {
+    const left = end - (await $.clock.now())
+    if (left <= 0) return null
+    try {
+      const r = await $.process.run(argv, { cwd: $.plugin.root, stdin, timeoutMs: left, env: { PYTHONUTF8: '1' } })
+      if (r.exitCode === 0) return r
+    } catch {
+      // this Python cannot start or timed out: the next one, within the deadline
+    }
+  }
+  return null
+}
+
+// true or false as Python said for this session id, null when Python gave no answer
+async function inDemo($) {
+  const id = await $.session.id()
+  if (demo.has(id)) return demo.get(id)
+  const r = await runDemo($, JSON.stringify({ session_id: id }))
+  let a = null
+  try { a = r ? JSON.parse(r.stdout) : null } catch { a = null }
+  if (a?.maisecrets !== 'mod-demo' || typeof a.demo !== 'boolean') return null
+  demo.set(id, a.demo)
+  return a.demo
+}
+
+// the step's answer without a request: one text block, the end of the turn
+async function * demoAnswer(e) {
+  yield { kind: 'text', index: 0, text: DEMO_LINE }
+  yield { kind: 'stop', stopReason: 'end_turn', usage: null }
+  return { turnId: e.turnId, index: e.index, answer: DEMO_LINE, toolUses: [], stopReason: 'end_turn', usage: null }
+}
+
+const COMPACT_SKIP = 'maisecrets demo: the conversation stays as it is, nothing goes to the AI'
+
+// the client's guess at the next prompt is a model request of its own (a forked agent, source prompt_suggestion,
+// measured on Claude Code 2.1.326), with no hook of the mods API before it: in a session in the demo it is switched off
+// for this process, and back on once a prompt of a session out of the demo comes (only when this module switched it)
+let quieted = false
+async function quietForTheDemo($) {
+  if (quieted) return
+  try {
+    const r = await $.env.set('CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION', 'false')
+    quieted = !r?.deny
+  } catch { /* the suggestion request stays: see docs/USING.md */ }
+}
+async function loudAgain($) {
+  if (!quieted) return
+  try {
+    await $.env.set('CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION', undefined)
+    quieted = false
+  } catch { /* stays off for this process */ }
+}
+
+function registerDemo(on) {
+  // a compaction is a model request of its own (/compact made 2 in a demo session, Claude Code 2.1.326) and no
+  // turn.step: in the demo it is skipped, and the conversation stays as it is
+  on('session.compact', async ($, e, next) => {
+    if (await inDemo($) === false) return next(e)
+    return { skip: COMPACT_SKIP }
+  }).catch(async ($, e, next) => {
+    if (next.called) return next(e)
+    let id = null
+    try { id = await $.session.id() } catch { id = null }
+    if (id !== null && demo.get(id) === false) return next(e)
+    return { skip: COMPACT_SKIP }
+  })
+  // every loop, main's and a subagent's: a step sends its request only for a session Python said is not in the demo.
+  // No answer, a malformed one or a timeout answers the step itself (fail closed, Gate A of the demo turn)
+  on('turn.step', async function * ($, e, next) {
+    if (await inDemo($) === false) return yield * next(e)
+    return yield * demoAnswer(e)
+  }).catch(async function * ($, e, next) {
+    // the hook failed: a request goes out only for a session this module knows is not in the demo
+    if (next.called) return yield * next(e)
+    let id = null
+    try { id = await $.session.id() } catch { id = null }
+    if (id !== null && demo.get(id) === false) return yield * next(e)
+    return yield * demoAnswer(e)
+  })
+}
+
 export function register(on) {
+  registerDemo(on)
   // the values on the person's screen (the part above): one hooks module per plugin, so it registers from here
   registerShowValues(on)
   on('prompt.submit', async ($, e, next) => {
+    // only the demo command changes whether a session is in the demo: the next model step asks again then. A demo
+    // session is left only with /clear, a new session id, which asks anew
+    if (DEMO_CMD.test(e.text ?? '')) {
+      try { demo.delete(await $.session.id()) } catch { /* the step asks */ }
+    }
     if (!PERSON.has(e.origin?.kind)) return next(e)
     afterPrompt($, e.text)
     if (SLASH.test(e.text)) return next(e)
@@ -497,9 +598,16 @@ export function register(on) {
     } catch {
       // the hook decides it
     }
-    // the demo (maisecrets/demo.py): every prompt of the session is answered and dropped, never sent
+    // a prompt of a session out of the demo: the client's next-prompt guess comes back (only if the demo switched it)
+    try { if (demo.get(await $.session.id()) === false) await loudAgain($) } catch { /* it stays off */ }
+    // a drop (a damaged demo state): never sent
     if (answer && typeof answer.drop === 'string') return { drop: answer.drop }
     if (!answer || typeof answer.text !== 'string') return next(e)
+    // the demo: the masked prompt enters as the person's row; its model steps are answered above, none is sent
+    if (answer.demo === true) {
+      await quietForTheDemo($)
+      return next({ ...e, text: answer.text })
+    }
     try {
       // count 0: the prompt goes on as typed, with a note (the name service did not check it)
       if (answer.count > 0) $.ui.log(`maisecrets masked ${answer.count} value(s) before the prompt was sent`)

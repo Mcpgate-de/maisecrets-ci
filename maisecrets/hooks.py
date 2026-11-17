@@ -830,7 +830,7 @@ def rewrite_prompt(payload: dict) -> dict:
     # a minted key resolves only in its session (C4), and the scrub handoff is found by it
     if not isinstance(prompt, str) or not session or not _SESSION_ID_RE.fullmatch(session):
         return {}
-    dm = demo.mod_answer(payload, cfg)          # demo.py: the demo answers and drops the prompt
+    dm = demo.mod_answer(payload, cfg)          # demo.py: a demo prompt enters masked, or goes to the hook
     if dm is not None:
         return dm
     # a subagent's report is the hook's to judge (C19); a model wrote it, so nothing of it is stored
@@ -1046,8 +1046,8 @@ def user_prompt(payload: dict) -> dict:
             return {"decision": "block", "reason": reason}
         return {"decision": "block", "reason": reason,
                 "hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "suppressOriginalPrompt": True}}
-    dm = None if grant else demo.gate(payload, cfg, typed)     # demo.py: the demo answers in place of the AI
-    if dm:
+    dm = None if grant else demo.gate(payload, cfg, typed)     # demo.py: {} lets the mod's demo prompt enter
+    if dm is not None:
         return dm
     if typed and not payload.get("agent_id"):
         # {{Jan Kowalski}} in a prompt the person typed: the name is masked from now on (terms.take_markers)

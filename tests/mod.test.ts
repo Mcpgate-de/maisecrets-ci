@@ -313,3 +313,152 @@ test("a slash command's line goes on unchanged, without a launcher call: the set
   expect((await $.prompt.submit({ text: 'see a/b TOKENWORD', wait: false, origin: { kind: 'composer' } })).text)
     .toBe(REWRITTEN)
 })
+
+// ---- the demo (maisecrets/demo.py): the masked prompt enters, and the mod answers each model step without a request
+const DEMO_LINE = 'Demo mode: nothing was sent to the AI. /clear to switch it off.'
+
+function demoWorld(on, opts: { demo?: boolean | null, sent?: number[], asked?: string[], idThrows?: boolean,
+  logged?: string[] } = {}) {
+  on('clock.now', () => ({ value: clock.t }))
+  on('session.id', () => {
+    if (opts.idThrows) throw new Error('no session')
+    return { value: 'sess-demo' }
+  })
+  on('session.cwd', () => ({ value: '/work' }))
+  on('ui.log', ($, e) => { opts.logged?.push(e.text); return { value: undefined } })
+  on('env.set', ($, e) => { (opts as any).env?.push([e.name, e.value]); return { value: {} } })
+  on('process.run', ($, e) => {
+    opts.asked?.push(e.argv[2])
+    if (e.argv[2] === 'mod-demo') {
+      if (opts.demo === null || opts.demo === undefined) return { value: { exitCode: 1, stdout: '', stderr: '' } }
+      return { value: { exitCode: 0, stderr: '', stdout: JSON.stringify({ maisecrets: 'mod-demo', demo: opts.demo }) } }
+    }
+    const on = (opts as any).inDemo ?? true
+    return { value: { exitCode: 0, stderr: '', stdout: JSON.stringify({ maisecrets: 'mod-prompt', text: REWRITTEN,
+                                                                         count: 1, demo: on, inDemo: on }) } }
+  })
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+  // the engine's request: the bottom of the chain, counted
+  on('turn.step', async function * ($, e) {
+    opts.sent?.push(e.index)
+    yield { kind: 'text', index: 0, text: 'FROM-THE-MODEL' }
+    return { turnId: e.turnId, index: e.index, answer: 'FROM-THE-MODEL', toolUses: [], stopReason: 'end_turn',
+             usage: null }
+  })
+}
+
+async function step($, index = 0, agentId?: string) {
+  const s = $.turn.step({ turnId: 'turn-1', index, model: 'm', messageCount: 1, ...(agentId ? { agentId } : {}) })
+  const chunks: any[] = []
+  let result: any
+  for (;;) {
+    const n = await s.next()
+    if (n.done) { result = n.value; break }
+    chunks.push(n.value)
+  }
+  return { chunks, result }
+}
+
+test('a demo prompt enters with its masked text, and no model step sends a request', async ($, on) => {
+  const sent: number[] = []
+  const asked: string[] = []
+  const logged: string[] = []
+  demoWorld(on, { sent, asked, logged })
+  const r = await $.prompt.submit({ text: TYPED, wait: false, origin: { kind: 'composer' } })
+  expect(r.text).toBe(REWRITTEN)
+  expect(logged).toEqual([])                  // no "masked … before the prompt was sent": nothing is sent
+  for (const [i, agent] of [[0, undefined], [1, 'agent-7']] as const) {
+    const { chunks, result } = await step($, i, agent)
+    expect(result.answer).toBe(DEMO_LINE)
+    expect(result.stopReason).toBe('end_turn')
+    expect(result.toolUses).toEqual([])
+    expect(chunks.some(c => c.kind === 'text' && c.text === DEMO_LINE)).toBe(true)
+  }
+  expect(sent).toEqual([])
+  expect(asked).toEqual(['mod-prompt'])        // the prompt's answer said inDemo: no second question
+})
+
+test('a session the mod has not seen asks at the step: in the demo no request goes out', async ($, on) => {
+  const sent: number[] = []
+  demoWorld(on, { demo: true, sent })
+  expect((await step($)).result.answer).toBe(DEMO_LINE)
+  expect(sent).toEqual([])
+})
+
+test('a session that is not in the demo sends as before', async ($, on) => {
+  const sent: number[] = []
+  demoWorld(on, { demo: false, sent })
+  expect((await step($)).result.answer).toBe('FROM-THE-MODEL')
+  expect(sent).toEqual([0])
+})
+
+test('a hook that fails answers the step itself unless the session is known not to be in the demo', async ($, on) => {
+  const sent: number[] = []
+  demoWorld(on, { demo: true, sent, idThrows: true })
+  expect((await step($)).result.answer).toBe(DEMO_LINE)
+  expect(sent).toEqual([])
+})
+
+test('only the demo command makes the next step ask again; an ordinary slash prompt keeps what is known', async ($, on) => {
+  const sent: number[] = []
+  const asked: string[] = []
+  const opts = { demo: false as boolean | null, sent, asked }
+  demoWorld(on, opts)
+  expect((await step($)).result.answer).toBe('FROM-THE-MODEL')       // asked once: not in the demo, kept
+  await $.prompt.submit({ text: '/maisecrets:status', wait: false, origin: { kind: 'composer' } })
+  expect((await step($, 1)).result.answer).toBe('FROM-THE-MODEL')
+  expect(asked.filter(a => a === 'mod-demo').length).toBe(1)          // the slash prompt kept the known false
+  opts.demo = true
+  await $.prompt.submit({ text: '/maisecrets:demo on', wait: false, origin: { kind: 'composer' } })
+  expect((await step($, 2)).result.answer).toBe(DEMO_LINE)           // the demo command: asked again
+  expect(sent).toEqual([0, 1])
+})
+
+test('no answer from Python after a slash prompt answers the step itself (fail closed)', async ($, on) => {
+  const sent: number[] = []
+  demoWorld(on, { demo: null, sent })
+  await $.prompt.submit({ text: '/maisecrets:demo on', wait: false, origin: { kind: 'composer' } })
+  expect((await step($)).result.answer).toBe(DEMO_LINE)
+  expect(sent).toEqual([])
+})
+
+test('a compaction of a session in the demo is skipped: it would be a model request of its own', async ($, on) => {
+  const opts = { demo: true as boolean | null }
+  demoWorld(on, opts)
+  let compacted = 0
+  on('session.compact', () => { compacted++; return { messages: [{ role: 'user', text: 'summary', toolUses: [] }] } })
+  const r = await $.session.compact({ trigger: 'manual', messages: [{ role: 'user', text: 'hi', toolUses: [] }] } as any)
+  expect((r as any).skip).toContain('maisecrets demo')
+  expect(compacted).toBe(0)
+})
+
+test('a compaction outside the demo runs as before', async ($, on) => {
+  demoWorld(on, { demo: false })
+  let compacted = 0
+  on('session.compact', () => { compacted++; return { messages: [{ role: 'user', text: 'summary', toolUses: [] }] } })
+  await $.session.compact({ trigger: 'manual', messages: [{ role: 'user', text: 'hi', toolUses: [] }] } as any)
+  expect(compacted).toBe(1)
+})
+
+test('a demo prompt switches the next-prompt guess of the client off, once per process', async ($, on) => {
+  const env: any[] = []
+  const opts: any = { env }
+  demoWorld(on, opts)
+  await $.prompt.submit({ text: TYPED, wait: false, origin: { kind: 'composer' } })
+  expect(env).toEqual([['CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION', 'false']])
+  await $.prompt.submit({ text: TYPED, wait: false, origin: { kind: 'composer' } })
+  expect(env.length).toBe(1)                  // once per process
+})
+
+test('a prompt out of the demo switches the next-prompt guess back on, only after the demo switched it off', async ($, on) => {
+  const env: any[] = []
+  const opts: any = { env, inDemo: false }
+  demoWorld(on, opts)
+  await $.prompt.submit({ text: TYPED, wait: false, origin: { kind: 'composer' } })
+  expect(env).toEqual([])                     // never switched: nothing to switch back
+  opts.inDemo = true
+  await $.prompt.submit({ text: TYPED, wait: false, origin: { kind: 'composer' } })
+  opts.inDemo = false
+  await $.prompt.submit({ text: TYPED, wait: false, origin: { kind: 'composer' } })
+  expect(env).toEqual([['CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION', 'false'], ['CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION', undefined]])
+})

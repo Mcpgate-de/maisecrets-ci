@@ -570,21 +570,19 @@ def _selftest_second_prompt(home: Path, first: str, env: dict, cwd: Path, work: 
 
 
 def _demo_second_prompt(home: Path, env: dict, cwd: Path, work: Path) -> list[str]:
-    """The first prompt switched the demo on; `codex exec` ended the session, and the demo ended with it (SessionEnd).
-    The person resumes the session with the demo on (written here: a resume is a new start, and `codex exec` cannot
-    type the switch and then a prompt in one run) and sends a prompt with a token and an address. codex exec prints
-    no block reason, so the maisecrets home says which path answered: the demo stores the values as for a sent prompt
-    (index.json) and writes its detection line with the outcome "demo" (events.log)."""
+    """The first prompt switched the demo on, in a thread with no answer yet. `codex exec` ended the session, and the
+    demo stays on: it ends only with a new session, so a resumed one must still be in it. The person resumes the
+    session and sends a prompt with a token and an address. codex exec prints no block reason, so the maisecrets home
+    says which path answered: the demo stores the values as for a sent prompt (index.json) and writes its detection
+    line with the outcome "demo" (events.log)."""
     import time
     import urllib.request
-    if (home / "demo.json").exists() and json.loads((home / "demo.json").read_text()):
-        return ["the demo did not end with its session (SessionEnd)"]
-    log = home / "hooks.log"
-    rows = [r.split("\t") for r in log.read_text().splitlines()] if log.exists() else []
-    sessions = [r[3] for r in rows if len(r) > 3 and r[1] == "user-prompt"]
+    try:
+        sessions = list(json.loads((home / "demo.json").read_text()))
+    except (OSError, ValueError):
+        sessions = []
     if not sessions:
-        return ["no prompt hook ran for the first prompt"]
-    (home / "demo.json").write_text(json.dumps({sessions[0]: 1.0}))
+        return ["the demo is not on after the first prompt and the end of its session"]
     out2 = work / "out2"
     out2.mkdir()
     (out2 / "scenario.json").write_text(json.dumps({"turns": [{"text": "unreachable"}]}))

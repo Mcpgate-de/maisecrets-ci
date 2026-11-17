@@ -425,49 +425,62 @@ sent.
 ## Try it with real data: the demo mode
 
 `ms:(…)` checks one value. To see what maisecrets does with a whole text, such
-as a real customer mail, switch the demo mode on. Type it as your own prompt:
+as a real customer mail, start a new session (or type `/clear`) and switch the
+demo mode on. Type it as your own prompt:
 
 ```
 /maisecrets:demo on          (Codex: maisecrets: demo on)
 ```
 
-While the demo is on, maisecrets answers each prompt of this session itself,
-and no prompt reaches the AI:
+From then on, what you send stays in this session, and nothing goes to the AI.
+In Claude Code your message shows as you typed it, with each value it masks
+locked, and one line answers it:
 
 ```
-maisecrets demo: nothing was sent to the AI.
-It masks 1 secret, 1 e-mail address.
-
-Please check the token ⟦SECRET_c1⟧ and write to ⟦EMAIL_c1:jo•••@•••.de⟧ today
-
-/maisecrets:demo off to send again
+❯ Please check the token ⟦SECRET_c1⟧ 🔒 and write to jo.demo@example.com 🔒 today
+⏺ Demo mode: nothing was sent to the AI. /clear to switch it off.
 ```
 
 - **The values are stored** as when you send a prompt, so the placeholders are
-  the normal ones. Only the sending is replaced by this answer.
-- **A long text** shows its first 20 lines and the count of the rest. When
-  maisecrets masked something, the full masked text goes to the clipboard,
-  where one exists.
-- **Names.** In Claude Code a name service (`/maisecrets:ner`) takes part as
-  for a normal prompt, also a service on the network.
-- **Only your own commands pass, in their exact form:** `/maisecrets:demo off`,
-  the settings, `ms:(…)`, `/maisecrets:term`, `/maisecrets:not-a-secret`, and
-  for example `/maisecrets:status`, `/maisecrets:status all` or
-  `/maisecrets:list`. A command with other text after it gets the demo answer.
-  `/ms` and `/maisecrets:send` send nothing during the demo.
+  the normal ones. With `show_values` on, the screen shows them as on a sent
+  prompt: a secret stays a placeholder with a lock, other values show in clear
+  with a lock. The model gets nothing: maisecrets answers each step of the turn
+  itself, so no request is made. The session gets the title "maisecrets demo",
+  so Claude Code does not ask the AI for one, `/compact` leaves the
+  conversation as it is (a compaction would be a request of its own), and
+  Claude Code's guess at your next prompt is off while the demo runs (it is a
+  request of its own too; it comes back with the next prompt of a session out
+  of the demo).
+- **Names.** A name service (`/maisecrets:ner`) takes part as for a normal
+  prompt, also a service on the network. A name that no rule and no service
+  finds stays in clear.
+- **It starts only in a new session** (or after `/clear`), so a conversation you
+  had before does not get lost: in a session with a turn the command answers
+  "Start the demo in a new session (or after /clear), so this conversation stays
+  as it is."
+- **It ends only with `/clear`**, which starts a new conversation, so the demo
+  lines never go to the AI. `/maisecrets:demo off` changes nothing and says so.
+  A session you resume (`claude --resume`) is still in the demo: its last
+  answer is the demo line. Only your own typed prompt switches it on: a
+  subagent, a program (`claude -p`), a scheduled prompt or a tool call that
+  names the demo command or its parts changes nothing. A program that runs as
+  you and hides what it does can still change maisecrets' files; maisecrets
+  does not stop that.
+- **Your own commands keep working, in their exact form:** the settings,
+  `ms:(…)`, `/maisecrets:term`, `/maisecrets:not-a-secret`, and for example
+  `/maisecrets:status` or `/maisecrets:list`. A command with other text after it
+  gets the demo line. `/ms` and `/maisecrets:send` send nothing.
   `/maisecrets:status` shows a `!` line while the demo is on.
-- **A pasted image** goes nowhere during the demo: the demo blocks the whole
-  prompt, also an image alone (measured on Claude Code 2.1.325). It does not
-  read the image.
+- **A pasted image** goes nowhere: no request is made (measured on Claude Code
+  2.1.326). maisecrets does not read the image.
 - **If the demo state cannot be read** (a damaged file), maisecrets sends no
   prompt of any session until you type `/maisecrets:demo off`, which resets it.
-- **It ends** with `/maisecrets:demo off` or with the session. A new session or
-  `/clear` ends it: `/clear` starts a new session (measured on Claude Code
-  2.1.325). Only your own typed prompt switches it: a subagent, a program
-  (`claude -p`), a scheduled prompt or a tool call changes nothing.
-- In Claude Code the answer comes as one line ("Prompt dropped by a hook"),
-  and a line break of the prompt shows as ↵. The screen shows the placeholders
-  there, also with `show_values` on. In Codex the block shows the answer.
+  A session whose last answer is the demo line stays in the demo after the
+  reset. A session whose transcript cannot be read counts as in the demo;
+  `/clear` starts a new one.
+- **Codex** has no mods: each prompt is blocked with "Demo mode: nothing was sent
+  to the AI. A new session switches it off."; the values are stored as for a
+  sent prompt.
 
 ## Handing a value to Claude on purpose
 

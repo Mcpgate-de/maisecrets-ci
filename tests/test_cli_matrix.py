@@ -671,7 +671,7 @@ class PopulationTests(unittest.TestCase):
     def test_every_cli_command_is_reachable_and_every_dispatched_one_exists(self):
         # mod-prompt and mod-values are the questions of the mod (claude-mod/), not commands of the CLI
         dispatched = commands_in_dispatch() - {"pending", "session-start", "session-end", "mod-prompt", "mod-values",
-                                               "mod-reveal"}
+                                               "mod-reveal", "mod-demo"}
         self.assertEqual(sorted(dispatched - cli_commands()), [], "dispatch.py sends these to cli.main")
         # resolve is reached through hooks/resolve.py, which the Bash hook writes into a command
         self.assertEqual(sorted(cli_commands() - dispatched), ["resolve"])
@@ -1204,6 +1204,10 @@ class HookEventTests(unittest.TestCase):
         self.assertEqual((r.returncode, out["maisecrets"]), (0, "mod-reveal"))
         self.assertIn("reason", out)
         self.assertNotIn("value", out)
+
+    def test_the_mod_demo_answers_whether_the_session_is_in_the_demo(self):
+        r = self.sb.run("mod-demo", stdin=json.dumps({"session_id": "S1"}))
+        self.assertEqual((r.returncode, json.loads(r.stdout)), (0, {"maisecrets": "mod-demo", "demo": False}))
 
     def test_session_end_answers_nothing_through_the_dispatcher(self):
         r = self.sb.run("session-end", stdin=json.dumps({"session_id": "S1", "reason": "logout"}))
