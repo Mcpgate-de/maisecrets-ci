@@ -489,10 +489,15 @@ class RunTests(unittest.TestCase):
         err, out = io.StringIO(), io.StringIO()
         mod = importlib.reload(at)
         self.addCleanup(importlib.reload, at)
-        with mock.patch.object(mod, "SAMPLE_BYTES", 1), mock.patch.object(mod, "PROGRESS_SECONDS", 0), \
+        with mock.patch.object(mod, "ESTIMATE_SECONDS", 0), mock.patch.object(mod, "PROGRESS_SECONDS", 0), \
                 redirect_stderr(err), mock.patch("sys.stdout", out):
-            code = mod.main(["--claude", *args])
-        return code, out.getvalue(), err.getvalue()
+            code = mod.main(["--claude", "--out", str(self.dir / "report.txt"), *args])
+        report = self.dir / "report.txt"
+        # the summary on stdout, then the full report (the rows the tests read)
+        full = out.getvalue() + (report.read_text(encoding="utf-8") if report.exists() else "")
+        if report.exists():
+            report.unlink()
+        return code, full, err.getvalue()
 
     def test_a_scan_that_never_reaches_its_sample_size_still_gets_an_estimate(self):
         out = io.StringIO()
@@ -515,7 +520,85 @@ class RunTests(unittest.TestCase):
         with mock.patch.object(at, "JOB_BYTES", 10_000):
             jobs = list(at.jobs_for([("claude", f)]))
         self.assertGreater(len(jobs), 4)
-        self.assertEqual(sum(len(j[2]) for j in jobs), 50)
+        # byte ranges that the worker reads: they cover the file, and hold its 50 lines
+        self.assertEqual(sum(j[2][2] for j in jobs), f.stat().st_size)
+        self.assertEqual(sum(len(at._read_range(str(f), j[2][1], j[2][2])) for j in jobs), 50)
+
+    def test_a_huge_line_is_a_job_of_its_own_and_the_sample_leaves_it_out(self):
+        f = self.dir / "projects" / "-x" / "huge.jsonl"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(b'{"a": 1}\n' * 20 + b"h" * 3_000_000 + b"\n" + b'{"b": 2}\n' * 20)
+        ranges = list(at._ranges(f, 100_000))
+        self.assertEqual([b - a for a, b in ranges], [180, 3_000_001, 180])
+        rnd = __import__("random").Random(59)
+        for n in range(30):     # the ranges cover each file, end after a line feed or at its end, and only a
+            g = self.dir / f"r{n}.jsonl"   # single line is longer than a job
+            parts = [rnd.choice([b"x" * rnd.randint(0, 3000), b"\r", b""]) + rnd.choice([b"\n", b"\r\n"])
+                     for _ in range(rnd.randint(0, 40))]
+            g.write_bytes(b"".join(parts) + rnd.choice([b"", b"tail without a line feed"]))
+            data = g.read_bytes()
+            got = list(at._ranges(g, 2000))
+            self.assertEqual([a for a, _b in got], ([0] + [b for _a, b in got][:-1]) if got else [])
+            self.assertEqual(got[-1][1] if got else 0, len(data))
+            for a, b in got:
+                self.assertTrue(b == len(data) or data[b - 1:b] == b"\n")
+                self.assertTrue(b - a <= 2000 or data[a:b - 1].count(b"\n") == 0)
+        skipped: list = []
+        with mock.patch.object(at, "SAMPLE_BYTES", 1_000_000):
+            jobs = list(at._sample_jobs([("claude", f)], skipped))
+        # the search stops once the line is longer than the sample: the rest of that file leaves the sample
+        self.assertEqual(skipped, [1_000_000])
+        self.assertEqual([s for _j, s in jobs], [[180]])
+
+    def test_the_sample_reads_little_of_a_line_without_end_and_stops_at_its_deadline(self):
+        """Round 3 of Gate A: a line of gigabytes had to be read to its end before the 15 s were checked."""
+        f = self.dir / "projects" / "-x" / "endless.jsonl"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(b'{"a": 1}\n' + b"e" * 5_000_000)
+        read = []
+        real_open = open
+
+        class Counting:
+            def __init__(self, fh):
+                self.fh = fh
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                self.fh.close()
+
+            def seek(self, n):
+                return self.fh.seek(n)
+
+            def read(self, n=-1):
+                data = self.fh.read(n)
+                read.append(len(data))
+                return data
+        with mock.patch.object(at, "SAMPLE_BYTES", 200_000), mock.patch.object(at, "SAMPLE_JOB_BYTES", 50_000), \
+                mock.patch.object(at, "open", lambda *a, **k: Counting(real_open(*a, **k)), create=True):
+            jobs = list(at._sample_jobs([("claude", f)], []))
+        self.assertEqual([s for _j, s in jobs], [[9]])
+        self.assertLess(sum(read), 200_000 + 3 * 65_536, "the search read on to the end of the line")
+        read.clear()
+        calls = []
+        with mock.patch.object(at, "SAMPLE_JOB_BYTES", 50_000), \
+                mock.patch.object(at, "open", lambda *a, **k: Counting(real_open(*a, **k)), create=True):
+            # the sample's own limit (64 MB) is far away; the deadline after two questions ends the search
+            jobs = list(at._sample_jobs([("claude", f)], [], lambda: calls.append(1) or len(calls) > 2))
+        self.assertEqual([s for _j, s in jobs], [[9]])
+        self.assertLess(sum(read), 4 * 65_536, "the search read on after its deadline")
+
+    def test_the_sample_stays_within_its_size(self):
+        files = []
+        for n in range(3):
+            g = self.dir / f"q{n}" / "s.jsonl"
+            g.parent.mkdir()
+            g.write_bytes((b"w" * 999 + b"\n") * 300)
+            files.append(("claude", g))
+        with mock.patch.object(at, "SAMPLE_BYTES", 250_000), mock.patch.object(at, "SAMPLE_JOB_BYTES", 100_000):
+            sizes = [sum(s) for _j, s in at._sample_jobs(files, [])]
+        self.assertEqual(sizes, [100_000, 100_000])
 
     def test_the_progress_names_size_estimate_and_time_and_no_value(self):
         code, out, err = self.run_main("--workers", "1")
@@ -586,8 +669,14 @@ class ScrubTests(unittest.TestCase):
     def audit(self, *args):
         env = dict(os.environ, PYTHONUTF8="1", CLAUDE_CONFIG_DIR=str(self.dir / "claude"),
                    CODEX_HOME=str(self.dir / "codex"))
-        return subprocess.run([sys.executable, str(SCRIPTS / "audit_transcripts.py"), "--claude", *args],
-                              capture_output=True, text=True, encoding="utf-8", env=env, timeout=120)
+        report = self.dir / "report.txt"
+        if report.exists():
+            report.unlink()
+        r = subprocess.run([sys.executable, str(SCRIPTS / "audit_transcripts.py"), "--claude", "--out", str(report),
+                            *args], capture_output=True, text=True, encoding="utf-8", env=env, timeout=120)
+        if report.exists():   # the rows of the full report, after the summary
+            r.stdout += report.read_text(encoding="utf-8")
+        return r
 
     def test_a_value_in_a_text_document_and_a_key_with_line_breaks_are_removed(self):
         doc = base64.b64encode(("notes\nGITHUB_TOKEN=" + self.token + "\n").encode()).decode()
@@ -632,6 +721,215 @@ class ScrubTests(unittest.TestCase):
         self.assertEqual(list(f.parent.glob("*.tmp")), [], "no copy is left")
 
 
+class FakeClock:
+    def __init__(self, step: float = 0.0):
+        self.now, self.step = 1000.0, step
+
+    def __call__(self) -> float:
+        self.now += self.step
+        return self.now
+
+
+class EstimateLogicTests(unittest.TestCase):
+    """The estimate comes from the real speed of the scan (a fake clock here), not from one process times a factor:
+    the maintainer's Mac had one process at 1.55 MB/s and a pool of 9 at 2.6 MB/s, and the old estimate said 11 min
+    for 40."""
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp(prefix="maisecrets-estimate-logic-"))
+        self.addCleanup(shutil.rmtree, self.dir, True)
+
+    def files(self, sizes) -> list:
+        out = []
+        for n, size in enumerate(sizes):
+            f = self.dir / f"p{n % 3}" / f"s{n}.jsonl"
+            f.parent.mkdir(exist_ok=True)
+            f.write_bytes(b"x" * size)
+            out.append(("claude", f))
+        return out
+
+    def progress(self, files, clock):
+        out = io.StringIO()
+        with mock.patch.object(at, "busy_load", return_value=None):
+            p = at.Progress(files, 9, out=out, clock=clock)
+        return p, out
+
+    def test_the_scan_estimates_after_its_first_seconds_from_its_real_speed(self):
+        clock = FakeClock()
+        p, out = self.progress(self.files([100_000_000]), clock)
+        clock.now += 10
+        p.step(30_000_000, 0)                  # 30 MB in 10 s: far more than the old 2 MB, still no estimate
+        self.assertNotIn("Estimate", out.getvalue())
+        clock.now += 15
+        p.step(20_000_000, 0)                  # 50 MB in 25 s: 2 MB/s, 50 MB left
+        self.assertIn("Estimate: about 50 s for 100 MB, 25 s left (2.00 MB/s in the first 25 s).", out.getvalue())
+        clock.now += 30
+        p.step(10_000_000, 0)                  # slower now: the progress line uses the running rate
+        self.assertIn("Progress: 0/1 files, 60 %, 1.09 MB/s, about 37 s left.", out.getvalue())
+
+    def test_a_busy_computer_is_named_once_at_the_start(self):
+        files = self.files([1000])
+        for load, said in ((20.0, True), (1.0, False)):
+            with self.subTest(load=load), mock.patch.object(os, "getloadavg", return_value=(load, 0, 0), create=True), \
+                    mock.patch.object(os, "cpu_count", return_value=10):
+                out = io.StringIO()
+                at.Progress(files, 9, out=out, clock=FakeClock())
+                self.assertEqual("Other work on this computer slows the scan (load 20 on 10 cores)."
+                                 in out.getvalue(), said)
+        with mock.patch.object(os, "getloadavg", side_effect=OSError, create=True):
+            self.assertIsNone(at.busy_load())
+
+    def test_the_files_are_read_in_a_spread_order(self):
+        files = self.files([1000] * 12)
+        by_path = sorted(files, key=lambda x: str(x[1]))
+        first = at.spread(by_path)
+        self.assertEqual(at.spread(list(reversed(by_path))), first, "the same order every time")
+        self.assertNotEqual(first, by_path)
+        self.assertEqual(len({f.parent.name for _c, f in first[:4]}), 3, "the first files come from every project")
+
+    def test_the_sample_takes_bounded_jobs_of_each_project_in_turn(self):
+        """One large file no longer fills the sample alone (Gate A of #59)."""
+        files = []
+        for name, size in (("big", 3_000_000), ("a", 300_000), ("b", 300_000)):
+            f = self.dir / name / "s.jsonl"
+            f.parent.mkdir()
+            f.write_bytes((b"y" * 999 + b"\n") * (size // 1000))
+            files.append(("claude", f))
+        with mock.patch.object(at, "SAMPLE_BYTES", 1_000_000), mock.patch.object(at, "SAMPLE_JOB_BYTES", 100_000):
+            jobs = list(at._sample_jobs(at.spread(files)))
+        sizes = [sum(s) for _j, s in jobs]
+        self.assertLessEqual(sum(sizes), 1_000_000)
+        self.assertEqual({Path(j[0][0]).parent.name for j, _s in jobs[:3]}, {"big", "a", "b"})
+        self.assertLessEqual(sum(n for (j, _s), n in zip(jobs, sizes) if Path(j[0][0]).parent.name == "big"),
+                             500_000)
+
+    def test_the_estimate_line_is_the_time_at_the_measured_speed(self):
+        self.assertEqual(at.estimate_line(900_000, 750_000, 15.0, 4, 2),
+                         "Estimate: about 18 s for 1 MB with 4 process(es) "
+                         "(0.05 MB/s on a sample of 0.8 MB from 2 file(s) in 15 s).")
+
+    def test_estimate_runs_the_sample_in_a_pool_also_with_one_worker(self):
+        files = []
+        for n in range(3):
+            f = self.dir / f"p{n}" / "s.jsonl"
+            f.parent.mkdir()
+            f.write_text("".join(json.dumps({"type": "user", "message": {"content": f"step {i} done"}}) + "\n"
+                                 for i in range(200)), encoding="utf-8")
+            files.append(("claude", f))
+        for workers in (1, 2):
+            with self.subTest(workers=workers):
+                pools = []
+                real = _detector.pool
+
+                def pool(*a, **k):
+                    pools.append(a)
+                    return real(*a, **k)
+                p, out = self.progress(files, FakeClock())
+                with mock.patch.object(at._detector, "pool", pool):
+                    self.assertEqual(at.estimate(files, None, workers, p), 0)
+                self.assertEqual(len(pools), 1, "the sample runs in child processes that can be stopped")
+                self.assertRegex(out.getvalue(), r"Estimate: about .* from 3 file\(s\)")
+
+    def test_no_estimate_before_any_work_ended(self):
+        clock = FakeClock()
+        p, out = self.progress(self.files([100_000_000]), clock)
+        clock.now += 40
+        p.tick(0)
+        self.assertNotIn("Estimate", out.getvalue())
+        self.assertIn("no part finished yet", out.getvalue())
+        p.finished(10_000_000)
+        p.tick(0)
+        self.assertIn("Estimate: about 7 min for 100 MB, 6 min left (0.25 MB/s in the first 40 s).", out.getvalue())
+        q, out2 = self.progress(self.files([1000]), clock)
+        q.end()
+        self.assertNotIn("Estimate", out2.getvalue())
+
+    def test_a_sample_with_no_finished_job_gives_no_estimate_yet_and_exit_code_2(self):
+        import concurrent.futures
+        import threading
+        f = self.dir / "p" / "s.jsonl"
+        f.parent.mkdir()
+        f.write_text('{"type": "user"}\n' * 50, encoding="utf-8")
+        release = threading.Event()
+        self.addCleanup(release.set)
+        p, out = self.progress([("claude", f)], time.monotonic)
+
+        def stuck(job):
+            release.wait(10)
+            return job[0], [], {}
+        with mock.patch.object(at._detector, "pool", lambda *a, **k: concurrent.futures.ThreadPoolExecutor(1)), \
+                mock.patch.object(at, "worker_jsonl", stuck), mock.patch.object(at, "SAMPLE_SECONDS", 1), \
+                mock.patch.object(at, "_stop", lambda ex: (release.set(), ex.shutdown(wait=True))):
+            self.assertEqual(at.estimate([("claude", f)], None, 1, p), 2)
+        self.assertIn("No estimate yet: no part of the sample finished in 1 s.", out.getvalue())
+        self.assertNotIn("Estimate: about", out.getvalue())
+
+    def test_the_sample_time_ends_before_the_pool_stops(self):
+        import concurrent.futures
+        f = self.dir / "p" / "s.jsonl"
+        f.parent.mkdir()
+        f.write_text('{"type": "user"}\n' * 50, encoding="utf-8")
+        clock = FakeClock()
+        p, out = self.progress([("claude", f)], clock)
+
+        def slow_stop(ex):
+            clock.now += 100            # ending the workers takes long: no part of the sample's speed
+            ex.shutdown(wait=True)
+        with mock.patch.object(at._detector, "pool", lambda *a, **k: concurrent.futures.ThreadPoolExecutor(1)), \
+                mock.patch.object(at, "worker_jsonl", lambda job: (job[0], [], {})), \
+                mock.patch.object(at, "_stop", slow_stop):
+            self.assertEqual(at.estimate([("claude", f)], None, 1, p), 0)
+        self.assertRegex(out.getvalue(), r"in 0 s\)\.")
+
+    def test_a_failed_sample_job_gives_no_estimate_and_exit_code_2(self):
+        import concurrent.futures
+        f = self.dir / "p" / "s.jsonl"
+        f.parent.mkdir()
+        f.write_text('{"type": "user"}\n' * 50, encoding="utf-8")
+        p, out = self.progress([("claude", f)], FakeClock())
+
+        def broken(job):
+            raise MemoryError("synthetic")
+        with mock.patch.object(at._detector, "pool", lambda *a, **k: concurrent.futures.ThreadPoolExecutor(2)), \
+                mock.patch.object(at, "worker_jsonl", broken):
+            self.assertEqual(at.estimate([("claude", f)], None, 2, p), 2)
+        self.assertIn("No estimate: a part of the sample could not be scanned (MemoryError).", out.getvalue())
+        self.assertNotIn("Estimate: about", out.getvalue())
+
+    def test_a_slow_first_job_does_not_hold_back_the_estimate(self):
+        """The scan takes its results in order; the progress counts every job when it ends, and ticks while the scan
+        waits for a slow first job (Gate A of #59)."""
+        import concurrent.futures
+        import threading
+        files = []
+        for n in range(6):
+            f = self.dir / f"p{n}" / "s.jsonl"
+            f.parent.mkdir()
+            f.write_bytes((b"z" * 999 + b"\n") * 300)
+            files.append(("claude", f))
+        release = threading.Event()
+        self.addCleanup(release.set)
+        first = str(files[0][1])
+
+        def worker(job):
+            if job[0][0] == first:
+                release.wait(10)
+            return job[0], [], {}
+        p, out = self.progress(files, time.monotonic)
+        seen = []
+        say = p.say
+        p.say = lambda text: (seen.append((text, p.done, release.is_set())), say(text))
+        with mock.patch.object(at._detector, "pool", lambda *a, **k: concurrent.futures.ThreadPoolExecutor(3)), \
+                mock.patch.object(at, "worker_jsonl", worker), mock.patch.object(at, "ESTIMATE_SECONDS", 1):
+            scan = at.run(files, None, 3, p)
+            threading.Timer(4, release.set).start()
+            list(scan)
+        estimate = [x for x in seen if x[0].startswith("Estimate")]
+        self.assertTrue(estimate, out.getvalue())
+        self.assertFalse(estimate[0][2], "the estimate waited for the slow first job")
+        self.assertGreater(estimate[0][1], 0, "the estimate counted none of the jobs that ended")
+
+
 class EstimateProcessTests(unittest.TestCase):
     """The script as the skill runs it, in a child process (round 3 of Gate A)."""
 
@@ -674,29 +972,36 @@ class EstimateProcessTests(unittest.TestCase):
             f.write_bytes("\r\n".join(rows).encode("utf-8") + b"\r\n")
             old = time.time() - 3600
             os.utime(f, (old, old))
+        files = [("claude", f) for f in sorted(proj.glob("*.jsonl"))]
+        # the scan counts what the files hold on disk, CRLF and the letters of two bytes included
+        self.assertEqual(sum(sum(sizes) for _job, sizes in at._jobs(files)), sum(f.stat().st_size for _c, f in files))
         r, _took = self.run_script(SCRIPTS, self.dir / "claude", "--workers", "1")
-        self.assertRegex(r.stderr, r"Estimate: about .*on the first", r.stdout + r.stderr)
+        self.assertIn("Estimate: about", r.stderr, r.stdout + r.stderr)
         self.assertLess(r.stderr.index("Estimate:"), r.stderr.index("Scanned "))
 
-    @unittest.skipIf(os.name == "nt", "the slow copy links the detector package")
-    def test_estimate_ends_after_its_sample_and_starts_no_pool(self):
+    def test_estimate_ends_after_its_sample_and_leaves_no_worker_running(self):
         """A copy of the scripts whose scan of a text takes 50 ms: the full scan would take minutes. --estimate
-        samples 2 s in one process and ends; a pool that it started would keep the process alive for its jobs."""
+        samples 2 s with the pool and ends at once: a worker that still ran kept the process alive (Gate A)."""
         tree = self.dir / "tree" / "skills" / "secret-hygiene"
         shutil.copytree(SCRIPTS, tree / "scripts", ignore=shutil.ignore_patterns("__pycache__"))
-        (self.dir / "tree" / "maisecrets").symlink_to(ROOT / "maisecrets", target_is_directory=True)
+        shutil.copytree(ROOT / "maisecrets", self.dir / "tree" / "maisecrets",
+                        ignore=shutil.ignore_patterns("__pycache__"))
         fast = tree / "scripts" / "_fast.py"
         fast.write_text(fast.read_text(encoding="utf-8") + "\n\n_scan = scan\n\n\ndef scan(*a):\n"
                         "    import time\n    time.sleep(0.05)\n    return _scan(*a)\n", encoding="utf-8")
         script = tree / "scripts" / "audit_transcripts.py"
         text = script.read_text(encoding="utf-8")
-        self.assertIn("SAMPLE_SECONDS = 20", text)
-        script.write_text(text.replace("SAMPLE_SECONDS = 20", "SAMPLE_SECONDS = 2"), encoding="utf-8")
+        self.assertIn("SAMPLE_SECONDS = 15", text)
+        script.write_text(text.replace("SAMPLE_SECONDS = 15", "SAMPLE_SECONDS = 2"), encoding="utf-8")
         home = self.corpus(30, 60)
-        r, took = self.run_script(tree / "scripts", home, "--estimate", "--workers", "2")
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("Estimate: about", r.stderr)
-        self.assertLess(took, 12, "the estimate ran on after its sample")
+        for workers in ("2", "1"):   # one worker: a slow record ran on in the main process before (Gate A)
+            with self.subTest(workers=workers):
+                r, took = self.run_script(tree / "scripts", home, "--estimate", "--workers", workers)
+                # a scan of 50 ms per text finishes no job of 256 KB in 2 s: no estimate yet, and that is honest
+                self.assertIn(r.returncode, (0, 2), r.stdout + r.stderr)
+                self.assertRegex(r.stderr, r"Estimate: about|No estimate yet: no part of the sample finished in 2 s")
+                # the 2 s sample, the start of Python and of the detector, and the stop: no worker runs on
+                self.assertLess(took, 2 + 5, "the estimate ran on after its sample")
 
 
 class CliTests(unittest.TestCase):

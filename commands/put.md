@@ -1,5 +1,5 @@
 ---
-description: Store the value in your clipboard and get a placeholder back (for a password maisecrets does not find by itself). The value never reaches the AI.
+description: "Store the clipboard value and get a placeholder. The AI never sees it"
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" put *), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" put *)
 ---
 

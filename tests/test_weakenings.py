@@ -124,7 +124,7 @@ class SettingsThatLoosen(unittest.TestCase):
     def test_every_setting_a_prompt_changes_has_a_direction(self):
         keys = set(settings._BOOL_KEYS) | set(settings._CHOICES) | set(settings._INT_KEYS) | {"ssh_autonomous_hosts"}
         known = set(settings.PROTECTIVE_BOOL) | set(settings.STRICTER_LAST) | set(settings._INT_KEYS) | \
-            set(settings.NEUTRAL) | {"ssh_autonomous_hosts"}
+            set(settings.NEUTRAL) | set(settings.OWN_DIRECTION) | {"ssh_autonomous_hosts"}
         self.assertEqual(sorted(keys - known), [], "a new setting needs a direction (settings.PROTECTIVE_BOOL, …)")
         self.assertEqual(sorted(set(settings.PROTECTIVE_BOOL) - set(settings._BOOL_KEYS)), [])
 

@@ -468,7 +468,7 @@ class RemoteDetector:
             s, e = words.widen(s, e)
             if s >= e:
                 continue                          # white space only: no word to take
-            if type_ == "NAME" and (is_no_person(text[s:e]) or is_company_name(text, s, e)):
+            if type_ == "NAME" and is_no_person_in(text, s, e):
                 continue                          # a product, a greeting, a UI label word or a company is no person
             if _overlaps(occ, ends, s, e):
                 continue
@@ -506,6 +506,23 @@ RUNNER_WORDS = _words("name-service/test-runner-words")
 # the words after a product word in a product name ("Claude Code", "GitHub Actions", "Docker Desktop"): the model
 # takes the whole name for a person. Never a word that is also a first name (no "max", no "pro")
 PRODUCT_TAILS = _words("name-service/product-name-tails")
+# the words of PRODUCT_TAILS that are also a given name or a surname: after a product word they stay a name ("Server"
+# is a Turkish given name). "Code" is a rare surname, but "Claude Code" is in nearly every session: it stays a tail
+TAILS_THAT_ARE_NAMES = _words("name-service/product-tails-that-are-names")
+# words that are never a name in any language: no person alone, and never stored (is_never_stored_name). A word that
+# is a name somewhere ("Bash", "Edit", "Home", "Code") is freed only where the text shows its context. None is in a
+# person span of DialogPII dev (2026-11-17)
+NEVER_A_NAME = _words("name-service/never-a-name")
+# the tool names and the hook events of Claude Code and Codex: "PostToolUse:Bash" in a hook's notice was taken for a
+# person, and "Bash" then masked in every text (2026-11-17)
+TOOL_NAMES = _words("name-service/tool-names")
+HOOK_EVENTS = _words("name-service/hook-events")
+# the folder names of a file path: "Users" of /Users/x was taken for a person (2026-11-17). A login name in a home
+# path is personal data and stays a name
+PATH_WORDS = _words("name-service/path-words")
+_PATH_SPLIT_RE = re.compile(r"[/\\]+")
+# the words before a tool name that show a tool: "ran Bash", "via Bash"
+_TOOL_VERBS = frozenset({"ran", "run", "runs", "via"})
 
 
 # a JSON escape, also escaped again (`\\n` in a JSON text inside a JSON string): the backslashes and what they stand for
@@ -569,17 +586,130 @@ def is_product_name(span: str) -> bool:
     """Whether a name span is a product word alone, or a product word followed only by product words and
     PRODUCT_TAILS ("Claude Code"). Public since 0.8.15: a caller that applies the spans itself drops these."""
     words = span.strip().lower().split()
-    return bool(words) and words[0] in PRODUCT_WORDS and all(w in PRODUCT_WORDS or w in PRODUCT_TAILS
-                                                             for w in words[1:])
+    return bool(words) and words[0] in PRODUCT_WORDS and all(
+        w in PRODUCT_WORDS or (w in PRODUCT_TAILS and w not in TAILS_THAT_ARE_NAMES) for w in words[1:])
 
 
 def is_no_person(span: str) -> bool:
-    """Whether a NAME span is no person: a product name (is_product_name), or a word of GREETING_WORDS, of
-    UI_LABEL_WORDS or of RUNNER_WORDS alone. Public since 0.9.8: a caller that applies the spans itself drops
-    these, the same rule as the remote path here (#41)."""
+    """Whether a NAME span is no person: a product name (is_product_name), a word of GREETING_WORDS, of
+    UI_LABEL_WORDS, of RUNNER_WORDS or of NEVER_A_NAME alone, a hook label (is_hook_label) or a path of folder names
+    (is_path_words). Public since 0.9.8: a caller that applies the spans itself drops these, the same rule as the
+    remote path here (#41)."""
     word = span.strip().lower()
     return (is_product_name(span) or word in GREETING_WORDS or word in UI_LABEL_WORDS
-            or word in RUNNER_WORDS)
+            or word in RUNNER_WORDS or word in NEVER_A_NAME or is_hook_label(span) or is_path_words(span))
+
+
+def is_hook_label(span: str) -> bool:
+    """Whether a NAME span is a hook label: a hook event, a colon and a tool name ("PostToolUse:Bash"). Public since
+    0.9.15."""
+    head, _sep, tail = span.strip().lower().partition(":")
+    return head in HOOK_EVENTS and tail in TOOL_NAMES
+
+
+def is_path_words(span: str) -> bool:
+    """Whether a NAME span is a path of only folder names and product words, with a separator in it
+    ("Users/Shared", "AppData\\Roaming"). A path with any other part ("Users/" and a login name) stays a name.
+    Public since 0.9.15."""
+    parts = [p for p in _PATH_SPLIT_RE.split(span.strip().lower()) if p]
+    return (_PATH_SPLIT_RE.search(span) is not None and bool(parts)
+            and all(p in PATH_WORDS or p in PRODUCT_WORDS for p in parts)
+            and not any(p in ("users", "home") for p in parts[:-1]))     # "Users/Home": the login stays a name
+
+
+def is_product_tail(text: str, start: int, end: int) -> bool:
+    """Whether the NAME span text[start:end] holds only PRODUCT_TAILS and stands right after a product name, with
+    only spaces between ("Code" in "Claude Code", "Actions" in "GitHub Actions"): the service cut the product name.
+    Public since 0.9.15."""
+    words = text[start:end].lower().split()
+    if not words or not all(w in PRODUCT_TAILS and w not in TAILS_THAT_ARE_NAMES for w in words):
+        return False
+    i = start
+    while True:
+        j = i
+        while j > 0 and text[j - 1] in " \t":
+            j -= 1
+        k = j
+        while k > 0 and text[k - 1].isalnum():
+            k -= 1
+        if j == i:
+            return False                 # no space before the span
+        word = text[k:j].lower()
+        if word in PRODUCT_WORDS:
+            return True
+        if word not in PRODUCT_TAILS:
+            return False
+        i = k                            # "Claude Code Desktop": go back over the tails to the product word
+
+
+def _word_before(text: str, start: int) -> tuple:
+    """(the word before text[start], the characters between it and start)."""
+    j = start
+    while j > 0 and text[j - 1] in " \t":
+        j -= 1
+    k = j
+    while k > 0 and text[k - 1].isalnum():
+        k -= 1
+    return text[k:j], text[j:start]
+
+
+def is_hook_label_tail(text: str, start: int, end: int) -> bool:
+    """Whether the NAME span text[start:end] is a tool name right after a hook event and a colon ("Edit" in
+    "PostToolUse:Edit"). Public since 0.9.15."""
+    word, gap = _word_before(text, start - 1) if text[start - 1:start] == ":" else ("", "")
+    return not gap and word.lower() in HOOK_EVENTS and text[start:end].lower() in TOOL_NAMES
+
+
+def is_tool_in_context(text: str, start: int, end: int) -> bool:
+    """Whether the NAME span text[start:end] is a tool name that the text shows as a tool: "Bash(git status)",
+    "the Bash tool", "ran Bash", "via Bash". Public since 0.9.15."""
+    if text[start:end].lower() not in TOOL_NAMES:
+        return False
+    if text[end:end + 1] == "(" or re.match(r"[ \t]+tools?\b", text[end:end + 7]):
+        return True
+    word, gap = _word_before(text, start)
+    return bool(gap) and word.lower() in _TOOL_VERBS
+
+
+def _after_home_root(text: str, i: int) -> bool:
+    """Whether text[i:] starts the segment after a home root (/Users/x, /home/x, C:\\Users\\x): the login, a name.
+    Repeated and escaped separators count as one ("/Users//x", "C:\\\\Users\\\\x" in JSON)."""
+    j = i
+    while j > 0 and text[j - 1] in "/\\":
+        j -= 1
+    k = j
+    while k > 0 and text[k - 1].isalnum():
+        k -= 1
+    return j < i and text[k:j].lower() in ("users", "home") and (k == 0 or text[k - 1] in "/\\")
+
+
+def is_path_segment(text: str, start: int, end: int) -> bool:
+    """Whether the NAME span text[start:end] is one folder name or product word with a path separator right before
+    or after it ("Library" in /Users/x/Library/, "home" in /home/x). Public since 0.9.15."""
+    word = text[start:end].lstrip(".").lower()
+    i = start - 1 if text[start - 1:start] == "." else start     # ".claude" with the dot outside the span
+    before = text[i - 1:i] if i > 0 else ""
+    if _after_home_root(text, i):
+        return False                     # /Users/Home/: the login stays a name, also when it is a folder name
+    return ((word in PATH_WORDS or word in PRODUCT_WORDS)
+            and (before in ("/", "\\") or text[end:end + 1] in ("/", "\\")))
+
+
+def is_never_stored_name(value: str) -> bool:
+    """Whether a NAME value of the name service is only words of NEVER_A_NAME (one word, or a hook label or a path
+    of them): never stored, whatever the filters before let through. A stored value is masked in every text.
+    Public since 0.9.15."""
+    parts = [p for p in re.split(r"[:/\\]+", value.strip().lower()) if p]
+    return bool(parts) and all(p in NEVER_A_NAME for p in parts)
+
+
+def is_no_person_in(text: str, start: int, end: int) -> bool:
+    """The whole rule of the remote path for the NAME span text[start:end]: is_no_person, or a context the text
+    shows (is_company_name, is_product_tail, is_hook_label_tail, is_tool_in_context, is_path_segment). Public since
+    0.9.15: a caller that applies the spans itself calls this one."""
+    return (is_no_person(text[start:end]) or is_company_name(text, start, end)
+            or is_product_tail(text, start, end) or is_hook_label_tail(text, start, end)
+            or is_tool_in_context(text, start, end) or is_path_segment(text, start, end))
 
 
 # a legal form that is never a job title, an initial or a short word of another meaning, in its usual spelling, as

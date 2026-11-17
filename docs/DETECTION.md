@@ -437,8 +437,26 @@ response = contract.result_response(detector, result)    # the same as JSON (mai
   accepts is dropped: a product name (`remote.is_product_name(span)`: a word of `PRODUCT_WORDS` alone, or one followed
   only by words of `PRODUCT_WORDS` and `PRODUCT_TAILS`, as "Claude Code"), a word of `GREETING_WORDS` alone, and a word
   of `UI_LABEL_WORDS` alone ("Allow", "Deny", "Submit") and a word of a test runner's summary alone (`RUNNER_WORDS`:
-  "Ran", "Passed", "Skipped"). A caller that applies the spans itself calls the same
-  function (`is_no_person` since 0.9.8, `is_product_name` since 0.8.15).
+  "Ran", "Passed", "Skipped") and a word of `NEVER_A_NAME` alone ("WebFetch", "PostToolUse", "Users"). That list
+  holds only words that are never a name in any language.
+- **A word that is a name somewhere is freed only by its context in the text.** "Code", "Bash", "Edit" and "Home"
+  are also surnames or given names. `remote.is_no_person_in(text, start, end)` frees them only in these contexts:
+  - a product tail right after a product word, with only spaces between (`is_product_tail`: "Code" in "Claude
+    Code", "Actions" in "GitHub Actions"). A tail that is a name (`TAILS_THAT_ARE_NAMES`: "Server") stays a name.
+    "Code" stays a tail: "Claude Code" is in nearly every session, so a person named "Claude Code" is masked only
+    by the rules;
+  - a tool name in a hook label (`is_hook_label`, `is_hook_label_tail`: "PostToolUse:Bash"), before "(" or
+    " tool", or after "ran", "run", "runs" or "via" (`is_tool_in_context`: "Bash(ls)", "the Edit tool", "ran
+    Bash");
+  - a folder name or a product word next to a `/` or a `\` (`is_path_segment`: "home" in /home/x), or a path of
+    only such words (`is_path_words`: "Users/Shared"). A login name in a home path is personal data and stays a
+    name, also as "Users/" and the login name, and also when it is a folder name ("Home" in /Users/Home/).
+  A caller that applies the spans itself calls `remote.is_no_person_in(text, start, end)`, the whole rule of the
+  remote path (since 0.9.15; `is_no_person` since 0.9.8, `is_product_name` since 0.8.15).
+- **A word that is never a name is never stored.** A NAME of the service made only of `NEVER_A_NAME` words (one
+  word, a hook label or a path, `remote.is_never_stored_name`) is masked where it stands, as `⟦NAME⟧`, and never
+  goes into the store (`Vault.put_many`), whatever the filters before let through. A word that is a name somewhere
+  is stored when the filter keeps it.
 - **A company is no person.** A name span that `remote.is_company_name(text, start, end)` accepts is dropped: it ends
   in a legal form that is never a title or an initial, in its usual spelling (GmbH, mbH, LLC, LLP, Ltd, Inc, Corp,
   Limited, PLC), or one follows it without a comma. Public since 0.9.11 (#46). Known limits: "X, Y and Z", "X-Y" and

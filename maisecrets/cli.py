@@ -21,8 +21,11 @@ def _age(ts: float) -> str:
     return f"{int(d // 86400)}d"
 
 
-def cmd_list(_: list[str]) -> int:
-    """What is stored, masked: the same view a person gets from /maisecrets:list. No value."""
+def cmd_list(args: list[str]) -> int:
+    """What is stored, masked: the same view a person gets from /maisecrets:list. No value.
+    `list uses [n]`: the last uses of stored values (the same as `audit`)."""
+    if args and args[0].lower() == "uses":
+        return cmd_audit(args[1:])
     rc = _list_values()
     from .not_a_secret import list_lines
     allowed = list_lines()       # the values the person said are no secret: masked form and date (C22)
@@ -399,25 +402,40 @@ def cmd_config(_: list[str]) -> int:
 
 
 def cmd_settings(args: list[str]) -> int:
-    """Show the settings a person decides, with their state. It changes nothing: a setting changes only from a
-    prompt the person typed (maisecrets/settings.py), never from a command the model runs."""
+    """Show the settings a person decides, with their state: the table (`all`: the advanced ones too) or the card of
+    one key. It changes nothing: a setting changes only from a prompt the person typed (maisecrets/settings.py) or
+    a press in the /maisecrets panel (maisecrets/hub.py), never from a command the model runs."""
     from . import settings
+    show_all = bool(args) and args[0].lower() in ("--all", "all") or "--all" in args
     rest = [a for a in args if a != "--all"]
+    if rest and rest[0].lower() == "all":
+        rest = rest[1:]
+    codex = _client_now() == "codex"
     # KEY, KEY VALUE, or for the host list KEY add|remove HOST (field report on 0.6.6: the list's own form exited 1)
     folder = rest[0].lower() in ("rule_dirs", "clean_dirs", "value_files") if rest else False   # a path holds spaces
     list_form = (len(rest) >= 3 and (folder or rest[0].lower() == "ssh_autonomous_hosts")
                  and rest[1].lower() in ("add", "remove") and (len(rest) == 3 or folder))
     if rest and (len(rest) <= 2 or list_form) and rest[0].lower() in settings.TITLE:
         # after a typed change the prompt hook already wrote it: show the card with the new state
-        print(settings.render(only=rest[0].lower()))
+        print(settings.render(only=rest[0].lower(), codex=codex))
         return 0
     if rest and rest[0].lower() == "hints":
         print("\n".join(settings._hint_lines()))
         return 0
     if rest:
         print(f"maisecrets settings: {rest[0]!r} is no setting this command shows.\n")
-    print(settings.render(show_all="--all" in args))
+    print(settings.render(show_all=show_all, codex=codex))
     return 1 if rest else 0
+
+
+def _client_now() -> str | None:
+    """The client of the session that runs this command (claude, codex), or None outside a client session."""
+    from . import selftest, status_verdict
+    from .vault import HOME
+    try:
+        return status_verdict.client_of(HOME / "hooks.log", selftest.sessions_of_this_command())
+    except Exception:  # noqa: BLE001 - without a client the Claude Code form is right enough
+        return None
 
 
 def cmd_status(args: list[str]) -> int:

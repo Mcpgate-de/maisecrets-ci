@@ -1,4 +1,5 @@
-"""One short tip per day at session start, rotating. Off with {"tips": false} in config.json."""
+"""The session start's words for the person: the welcome of the first start, and one short tip per day at most.
+Off with {"tips": false} in config.json. Each line fits one terminal row."""
 from __future__ import annotations
 
 import time
@@ -6,38 +7,31 @@ import time
 from .vault import HOME, load_config
 
 TIPS = [
-    "maisecrets: write `password: <value>` (or passwort:, api_key=; 8+ characters) and the value is stored on "
-    "this computer; the AI gets a placeholder and can still use it in commands.",
-    "maisecrets: copy a value, then /maisecrets:put stores it and puts its placeholder in your clipboard.",
-    "maisecrets: /maisecrets:list shows what is stored, masked; /maisecrets:forget <key> deletes one.",
-    "maisecrets: a placeholder works only in a session where you typed or pasted it. Paste it into a prompt to use "
-    "it here.",
-    "maisecrets: /maisecrets:report prepares a report from the last detection, without the value.",
-    "maisecrets: /maisecrets:audit lists every use of a stored value: when, which placeholder, which command.",
-    "maisecrets: a bare password in a normal sentence is not detected. Write password: in front of it, test it "
-    "with ms:(…), or use /maisecrets:put.",
-    "maisecrets: add detection rules for the tokens of your own services in ~/.maisecrets/rules.d or a team "
-    "folder; /maisecrets:rules shows them, README \"Rules of your own\" says how.",
-    "maisecrets: secrets that leaked before maisecrets ran stay valid until you rotate them. "
-    "/maisecrets:secret-hygiene checks a repository, its git history and your earlier sessions.",
+    "Tip: write password: before a value, and maisecrets stores it.",
+    "Tip: /maisecrets:put stores the value in your clipboard.",
+    "Tip: /maisecrets opens your settings, stored values and the name service.",
+    "Tip: /maisecrets:list uses shows where stored values went.",
+    "Tip: /maisecrets:report sends a false alarm to the maintainers, without the value.",
+    "Tip: /maisecrets:term add NAME masks a word of your own.",
+    "Tip: /maisecrets:shortcut adds /ms for /maisecrets:send.",
+    'Tip: rules for the tokens of your own services: /maisecrets:rules (README "Rules of your own").',
+    "Tip: secrets that leaked before stay valid until you rotate them: /maisecrets:secret-hygiene.",
 ]
 # Codex has no slash commands for plugins: its tips name only what works there
 TIPS_CODEX = [
-    "maisecrets: write `password: <value>` (or passwort:, api_key=; 8+ characters) and the value is stored on "
-    "this computer; the AI gets a placeholder and can still use it in commands.",
-    "maisecrets: a placeholder works only in a session where you typed or pasted it. Paste it into a prompt to use "
-    "it here.",
-    "maisecrets: a bare password in a normal sentence is not detected. Write password: in front of it, or test it "
-    "with ms:(…) alone as your prompt.",
-    "maisecrets: add detection rules for the tokens of your own services in ~/.maisecrets/rules.d or a team "
-    "folder (`maisecrets: set rule_dirs add DIR` as your own prompt); README \"Rules of your own\" says how.",
-    "maisecrets: secrets that leaked before maisecrets ran stay valid until you rotate them. Ask the AI to check "
-    "this repository, its git history and your earlier sessions with the secret-hygiene skill.",
+    "Tip: write password: before a value, and maisecrets stores it.",
+    "Tip: maisecrets: term add NAME (alone as your prompt) masks a word of your own.",
+    'Tip: rules for the tokens of your own services: maisecrets: set rule_dirs add DIR (README "Rules of your own").',
+    "Tip: secrets that leaked before stay valid until you rotate them: ask for the secret-hygiene skill.",
 ]
+SHORTCUT = "/maisecrets:shortcut"
 
 
 def tip_of_the_day(codex: bool = False) -> str | None:
-    if load_config().get("tips", True) is False:
+    """The next tip of the client's pool, once per calendar day; None on a day that had one. `shortcut: false` keeps
+    the /ms tip out."""
+    cfg = load_config()
+    if cfg.get("tips", True) is False:
         return None
     state = HOME / ".tip"
     today = time.strftime("%Y-%m-%d")
@@ -50,6 +44,8 @@ def tip_of_the_day(codex: bool = False) -> str | None:
         return None
     pool = TIPS_CODEX if codex else TIPS
     idx = (idx + 1) % len(pool)
+    if cfg.get("shortcut", True) is False and SHORTCUT in pool[idx]:
+        idx = (idx + 1) % len(pool)
     try:
         HOME.mkdir(mode=0o700, parents=True, exist_ok=True)
         state.write_text(f"{today} {idx}\n", encoding="utf-8")
@@ -58,19 +54,19 @@ def tip_of_the_day(codex: bool = False) -> str | None:
     return pool[idx]
 
 
-# the first session start says how to see maisecrets work. The example must be one the detector
-# finds (a@b.c is not: its top-level domain is one letter); a test holds it to that
-TRY_IT_EXAMPLE = "max.muster@firma-xyz.de"   # not example.com: a reserved domain is no hit
+def welcome_lines(codex: bool = False, lock: bool = False) -> list[str]:
+    """The first start in a home: what maisecrets does, how to try and check it, and the two next steps (names, old
+    leaks). `lock`: the values show on the screen with a lock (show_values, Claude Code only)."""
+    first = ("maisecrets is on: passwords, keys and personal data reach the AI only as \u27e6\u2026\u27e7; the value "
+             "stays on this computer.")
+    if codex:
+        return [first,
+                "Try it: maisecrets: demo on (alone as your prompt, in a new session) \u00b7 Check: maisecrets: status",
+                "Names too: maisecrets: ner local \u00b7 Old leaks: ask for the secret-hygiene skill"]
+    return [first + (" \U0001F512 marks such a value." if lock else ""),
+            "Try it: /maisecrets:demo on in a new session \u00b7 Check: /maisecrets:status",
+            "Names too: /maisecrets:ner local \u00b7 Old leaks: /maisecrets:secret-hygiene"]
 
 
-def try_it_line() -> str:
-    return f"Try it: send ms:({TRY_IT_EXAMPLE}) alone. maisecrets says what it would mask, and nothing reaches the AI."
-
-
-def before_line(codex: bool = False) -> str:
-    """The first session start: maisecrets protects from now on, and the skill finds what leaked before (a token in a
-    committed settings file, in the git history or in an earlier session stays valid until someone rotates it)."""
-    how = ("ask the AI to check this repository, its git history and your earlier sessions with the secret-hygiene "
-           "skill" if codex else "/maisecrets:secret-hygiene checks a repository, its git history and your earlier "
-           "sessions")
-    return f"It protects from now on. For secrets that leaked before, {how}, and rotate what it finds."
+NOT_PROTECTED = "\u26a0\ufe0f maisecrets is NOT protecting this session \u2192 {cmd}"
+TEST_STORE = "\u26a0\ufe0f maisecrets: test store, values are kept as plain text (backend in config.json)."

@@ -43,11 +43,9 @@ def _kind(conf: dict) -> str:
 
 def _source_fact(conf: dict) -> str:
     """The source and what it reads, short."""
-    url = str(conf.get("url") or "")
-    network = bool(conf.get("gateway")) or not ner_setup.remote.is_local(url)
-    prompts_too = conf.get("prompts") is not False and (not network or conf.get("prompts") is True)
-    fact = f"{_kind(conf)} (" + ("tool results and prompts" if prompts_too else "tool results; prompts: rules alone")
-    fact += ")"
+    # a set source reads prompts too; "prompts": false is left only by a machine policy (home.load_config)
+    fact = f"{_kind(conf)} (" + ("tool results; prompts: policy" if conf.get("prompts") is False
+                                 else "tool results and prompts") + ")"
     fb = conf.get("fallback") if isinstance(conf.get("fallback"), dict) else {}
     if fb.get("url"):
         fact += f"; fallback {_host(str(fb['url']))}"

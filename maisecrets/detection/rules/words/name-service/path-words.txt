@@ -1,0 +1,27 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# the folder names of a file path (/Users/x/Library): no person next to a / or a \ only.
+appdata
+applications
+desktop
+documents
+downloads
+etc
+home
+lib
+library
+local
+movies
+music
+opt
+pictures
+private
+programdata
+public
+roaming
+shared
+tmp
+users
+usr
+var
+volumes

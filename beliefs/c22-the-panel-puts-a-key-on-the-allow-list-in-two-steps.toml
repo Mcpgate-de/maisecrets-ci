@@ -1,0 +1,10 @@
+# c22-the-panel-puts-a-key-on-the-allow-list-in-two-steps: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c22-the-panel-puts-a-key-on-the-allow-list-in-two-steps"
+control = "C22"
+statement = "A key type goes on the allow list from the panel only after both steps of one session: the press of \"not a secret\" and the yes, as a typed command twice."
+runner = ["tests/test_hub.py::ValuesTests::test_a_key_type_on_the_allow_list_needs_both_steps_of_this_session"]
+
+[proof]
+file = "maisecrets/hub.py"
+find = "    from . import not_a_secret\n    return not_a_secret."
+replace = "    from . import not_a_secret\n    not_a_secret._confirmed(key, _pane_session(session))\n    return not_a_secret."

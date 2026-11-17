@@ -63,14 +63,17 @@ SLASH_TO_HOOK = {"expect_blocked": True}
 def _demo(prompt: str, **expect) -> dict:
     """A scenario in a session in the demo (maisecrets/demo.py, #57). `claude -p` cannot switch it on (a program, C22),
     so the state of the session is written before the run and the run gets that session id, a new one per scenario.
-    No request may reach the upstream; the person reads the demo answer: the hook's block, or the mod's drop."""
+    No request may reach the upstream; the person reads the demo line: the answer of the turn when the mod let the
+    masked prompt enter (it answers each model step itself), the hook's block otherwise."""
     session = str(uuid.uuid4())
     return {"prompt": prompt, "extra_args": ["--session-id", session],
-            "home_files": {"demo.json": json.dumps({session: 1.0})}, "turns": [{"text": "unreachable"}],
+            "home_files": {"demo.json": json.dumps({session: time.time()})}, "turns": [{"text": "unreachable"}],
             "expect_requests": 0, "expect_blocked": True,
-            "with_mod": {"expect_blocked": False, "expect_dropped": True},
-            "expect_output": ["maisecrets demo: nothing was sent to the AI.", "/maisecrets:demo off to send again"],
-            **expect}
+            "with_mod": {"expect_blocked": False},
+            "expect_output": [DEMO_LINE], **expect}
+
+
+DEMO_LINE = "Demo mode: nothing was sent to the AI. /clear to switch it off."
 
 
 CLIPBOARD_TOOLS = ("pbcopy", "pbpaste", "xclip", "xsel", "wl-copy", "wl-paste")
@@ -440,16 +443,40 @@ SCENARIOS = {
         "expect_blocked": True,
         "expect_no_home_json": ("config.json", ["ssh_consent"]),
     },
-    # the person has not decided ssh_consent: the first ssh write gives the model the hint, once. `|| true`: a
-    # command that fails gets PostToolUseFailure from Claude Code (2.1.292), not PostToolUse, and so no hint
-    "ssh_consent_hint_once": {
+    # claude -p places no panel: /maisecrets:settings stays the command file, and the model runs its text view, a
+    # Markdown table with the Claude Code forms (the panel itself is tests/hub.test.ts and a pseudo-terminal by hand)
+    "settings_text_view": {
+        "prompt": "/maisecrets:settings",
+        "with_mod": {},
+        "turns": [{"tool": "Bash", "input": {"command": 'bash "{plugin}/hooks/run.sh" settings --args-stdin '
+                                                        "<<'MAISECRETS_ARGS_END'\n\nMAISECRETS_ARGS_END"}},
+                  {"text": "done"}],
+        "expect_requests": 2,
+        "expect_in_requests": ["| Setting | Now | Other choices | Key |", "`rehydration`",
+                               "Change: `/maisecrets:settings KEY VALUE`"],
+    },
+    # `claude -p` runs its hooks under the entry point sdk-cli and shows no systemMessage: a one-time hint is neither
+    # given nor claimed there, so it is not used up unseen (Gate A of 30fb8d30), and the model gets nothing of it
+    # (field report 2026-11-17). The line on the person's screen: harness/hint_screen.py. `|| true`: a command that
+    # fails gets PostToolUseFailure from Claude Code (2.1.292), not PostToolUse
+    "ssh_consent_hint_not_in_a_headless_run": {
         "prompt": "restart the web service",
         "turns": [{"tool": "Bash", "input": {"command": "ssh -o BatchMode=yes -o ConnectTimeout=2 nohost.invalid "
                                                         "'sudo systemctl restart nginx' || true"}},
                   {"text": "done"}],
         "expect_requests": 2,
-        "expect_in_requests": ["/maisecrets:settings ssh_consent on"],
-        "expect_home_json": ("hints.json", ["ssh_consent", "revision"]),
+        "expect_not_in_requests": ["the AI just ran an ssh command", "Mention this once"],
+        "expect_no_home_json": ("hints.json", ["ssh_consent"]),
+    },
+    # read_pdf not decided (allow): the PDF goes as it is; the hint waits for a run where a person sees it
+    "read_pdf_hint_not_in_a_headless_run": {
+        "prompt": "Read notes.pdf and tell me what it says.",
+        "binary_files": {"notes.pdf": ("Notes 2026", "nothing secret here")},
+        "turns": [{"tool": "Read", "input": {"file_path": "{cwd}/notes.pdf"}}, {"text": "done"}],
+        "expect_requests": 2,
+        "expect_in_requests": ["JVBERi0"],          # the premise: the PDF reached the model as it is (allow)
+        "expect_not_in_requests": ["cannot mask inside", "Mention this once"],
+        "expect_no_home_json": ("hints.json", ["read_pdf"]),
     },
     # a command that fails: Claude Code answers PostToolUseFailure, whose answer cannot replace the output, so the
     # value reaches the model (a known gap). What maisecrets still does: the model is told not to use the value, it is
@@ -668,20 +695,18 @@ SCENARIOS = {
         "expect_no_file": "account.html",
         "expect_not_in_transcript": [MAIL],
     },
-    # the demo (maisecrets/demo.py, #57): a prompt with a token and an address reaches no request; the person reads the
-    # masked prompt and the counts, and the values are stored as for a sent prompt (index.json has them)
+    # the demo (maisecrets/demo.py, #57): a prompt with a token and an address reaches no request; with the mod it
+    # enters masked (the hook sees the placeholder) and the turn's answer is the demo line; the values are stored as for
+    # a sent prompt (index.json has them)
     "demo_answers_the_prompt": {
         **_demo(f"Please check the token {MARK} and write to {MAIL} today",
-            expect_output=["maisecrets demo: nothing was sent to the AI.", "It masks 1 secret, 1 e-mail address.",
-                           "Please check the token \u27e6SECRET_c1\u27e7 and write to \u27e6EMAIL_c1:",
-                           "/maisecrets:demo off to send again"],
-            expect_home_json_nonempty=("index.json", ["entries"])),
+                expect_home_json_nonempty=("index.json", ["entries"]),
+                with_mod={"expect_blocked": False, "expect_hook_prompt": "\u27e6SECRET_c1\u27e7"}),
     },
     # a plain prompt, a command the plugin does not have, a command with free text, a pasted report tag and /ms: each
     # gets the demo answer and reaches no request (Gate A of #57: the first version passed every /maisecrets: line)
     "demo_plain_prompt": {
-        **_demo("What is the capital of France?", expect_output=[
-            "maisecrets demo: nothing was sent to the AI.", "It finds nothing to mask in this prompt."]),
+        **_demo("What is the capital of France?"),
     },
     "demo_unknown_command_with_text": {
         **_demo("/maisecrets:madeup confidential plan for the board", with_mod=SLASH_TO_HOOK),
@@ -706,7 +731,8 @@ SCENARIOS = {
     # a demo.json that does not parse: no session counts as off, every prompt is blocked (Gate A round 2 of #57)
     "demo_damaged_state_blocks": {
         **_demo("What is the capital of France?", home_files={"demo.json": "{not json"},
-                expect_output=["maisecrets demo: the demo state cannot be read, so nothing was sent.",
+                with_mod={"expect_blocked": False, "expect_dropped": True},
+                expect_output=["Demo mode: the demo state cannot be read, so nothing was sent.",
                                "/maisecrets:demo off resets it."]),
     },
     "demo_send_sends_nothing": {

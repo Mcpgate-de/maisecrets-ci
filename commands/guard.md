@@ -1,5 +1,5 @@
 ---
-description: Install a guard outside the plugin folder that blocks the session when an update left maisecrets not running.
+description: "Setup: block the session when an update stops maisecrets"
 argument-hint: "[install | remove | status]"
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" guard *), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" guard *)
 ---

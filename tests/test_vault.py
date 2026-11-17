@@ -1134,6 +1134,17 @@ class LifeCycleTests(unittest.TestCase):
         self.assertEqual(self.v().status(known.key, "B"), "ok")
         self.assertEqual(len(JsonFileBackend().keys()), 1 + 1 + 3)   # the fingerprint key too
 
+    def test_a_word_that_is_never_a_name_is_never_stored_from_the_name_service(self):
+        # 2026-11-17: tool and path words went into the store as names, and each was then masked in every text. The
+        # gate holds only words that are never a name; a word that is a name somewhere is the filter's call
+        words = ["PostToolUse", "WebFetch", "Users", "GitLab", "PostToolUse:WebFetch"]
+        out = self.v().put_many([(w, "NAME", "remote:hf") for w in words] + [
+            ("Edit", "NAME", "remote:hf"), ("Server", "NAME", "remote:hf"), ("Users", "SECRET", "manual"),
+            ("WebFetch", "NAME", "name-rule"), ("Codex Bashful", "NAME", "remote:hf"),
+            ("Users", "ADDRESS", "remote:hf")], session="A")
+        self.assertEqual(out[:len(words)], [None] * len(words))
+        self.assertTrue(all(out[len(words):]), "a name, another type, another rule, or more than one word is stored")
+
     def test_put_many_saves_every_ten_new_values(self):
         saves = []
         real = Vault._save_index

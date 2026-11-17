@@ -1351,7 +1351,9 @@ def hint(payload: dict, cfg: dict, codex: bool) -> str | None:
         return None
     from . import settings
     key = SETTING[kind]
-    if not settings.hint_due(key, cfg) or not settings.claim_hint(key):
+    if not settings.hint_due(key, cfg) or not settings.person_sees_hook_lines(payload, codex):
+        return None
+    if not settings.claim_hint(key):
         return None
     return settings.HINTS[key]["codex" if codex else "claude"]
 

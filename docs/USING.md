@@ -137,26 +137,93 @@ All options live in `~/.maisecrets/config.json` (next section) and take
 effect on the next hook call. The manifest declares no `userConfig` on
 purpose: Claude Code 2.1.223 rejects a manifest with that key and then loads
 no hook at all, silently. A guard that vanishes on an older client is worse
-than one without a settings dialog. At the first session start, and at every
-start in test mode, a notice names the active store, its path and where to
-change it. `python3 -m maisecrets.cli status` prints the same at any time.
+than one without a settings dialog. `python3 -m maisecrets.cli status` names
+the active store and its path at any time.
+
+### The session start
+
+The first session start in a maisecrets folder shows three lines:
+
+```
+maisecrets is on: passwords, keys and personal data reach the AI only as ⟦…⟧; the value stays on this computer. 🔒 marks such a value.
+Try it: /maisecrets:demo on in a new session · Check: /maisecrets:status
+Names too: /maisecrets:ner local · Old leaks: /maisecrets:secret-hygiene
+```
+
+Codex shows the same with its sentence forms (`maisecrets: status`). After
+that, a start says nothing while all is well. It shows at most one short tip a
+day (`"tips": false` turns them off), and one line for each warning: the
+protection is not active (`⚠️ maisecrets is NOT protecting this session →
+/maisecrets:status`), the test store keeps values as plain text, a
+configuration problem, a rule folder that is missing, or a protection that
+was loosened since the last start. The AI's instructions about placeholders
+come at every start; only the lines for you changed.
+
+### The /maisecrets panel (Claude Code)
+
+`/maisecrets`, typed alone, opens a panel in Claude Code (with the mod, in the
+terminal and the desktop app); `/maisecrets:settings` opens the same panel. It
+opens at once: no model turn, nothing goes to the AI. From top to bottom:
+
+- **The status line.** It starts as `maisecrets: checking…` and becomes the
+  first line of `/maisecrets:status` for this session: 🔒 protects, or ⚠️ NOT
+  protecting with the names of the failed checks. `[ 3 notes ]` opens the
+  notes of the check (name, fact, next step); a second press closes them.
+- **Stored values.** The stored values, the newest 20 first, in their masked
+  form with age, uses and expiry; `[ more ]` shows the next 20. Each row has
+  `[ forget ]` and `[ not a secret ]`; each asks `[ yes ] [ no ]` first.
+  `[ forget all… ]` deletes every stored value after its own question; the logs
+  and records stay (the full wipe is `run.sh wipe --yes` in a terminal). The
+  panel never shows a value.
+- **Name service.** The source as buttons: `off`, `local` (it asks first: the
+  image is about 690 MB and runs on 127.0.0.1 only; then it starts it and
+  shows `starting…`), `url…` (puts `/maisecrets:ner url ` into the prompt box
+  for you to complete) and `gateway…` (the MCP servers of your configuration
+  that have an https address; after a pick, `[ log in ]` puts
+  `/maisecrets:sref login NAME` into the prompt box). Under them, the checks
+  of `/maisecrets:ner`.
+- **Check old leaks.** Closes the panel and puts `/maisecrets:secret-hygiene`
+  into the prompt box; press Enter to start it.
+- **Your settings**, in groups, each with its choices as buttons: the current
+  one marked `●`, `✎` when you changed it, `⚙` when your administrator's
+  policy sets it (no buttons then). A press applies at once and shows
+  `Saved. …`. The folders, hosts and value files have `[ add… ]` (and
+  `[ remove… ]` when the list has entries), which put the typed command into
+  the prompt box for you to complete. The countries are the last group:
+  `[ choose… ]` opens one button per country code, and `auto` (the country of
+  this computer) clears the others.
+
+Tab or the arrow keys move, Enter or a click picks, Esc closes. A press in the
+panel is your own act: the model cannot press a button, and a tool call that
+names the panel's entry is refused. Each change goes through the same checks
+as the typed command (the policy, the allowed values, the two steps of
+`not a secret` for a key), and a loosened protection is named at the next
+start with the route `settings pane`. In Codex, in `claude -p` and without the
+mod, `/maisecrets:settings` shows the text view below.
 
 ### Settings you decide
 
-`/maisecrets:settings` shows the settings that are yours to decide, grouped
-(Protection, Using stored values, PDFs and images, Your screen), one card each: the value, its state (`not
-decided`, `set by you`, `set by a policy`), what it does, and the command for
-the next step:
+Without the panel (Codex, `claude -p`, a client without the mod),
+`/maisecrets:settings` shows the settings that are yours to decide as a table,
+one row each: the setting, its value (`✎` when you changed it, `⚙` when a
+policy sets it), the other choices and the key. `all` (or `--all`) adds the
+advanced ones. `/maisecrets:settings KEY` shows the card of one setting: the
+value, its state (`(default)`, `set by you`, `set by a policy`), what it does,
+and the command for the next step:
 
 ```
-Protection
-  SSH consent · off · not decided
+  SSH consent (ssh_consent) · off · (default)
     Ask before each ssh command that changes something on a host.
     Turn on: /maisecrets:settings ssh_consent on
 ```
 
-A key that is missing from `config.json` is not decided; `false` written there
-is a decision, with the same effect. `--all` shows the advanced settings too.
+A key that is missing from `config.json` reads the default; `false` written
+there is a decision, with the same effect. Settings that only weaken a
+protection when changed (`scrub_transcript`, `strip_hidden_characters`,
+`block_at_mentions`, `client_header`, `ssh_via_sandbox`,
+`pass_agent_reports`, `max_keys_per_session`, `max_resolves_per_hour`) are
+not in the panel or the table; their card and the typed command still work,
+and `config.json` or a policy sets them (docs/ADMIN.md).
 
 To change one, send the change as your own prompt, alone:
 
@@ -196,16 +263,22 @@ A program that runs as you can also change that file; the line makes an
 ordinary agent's action visible, it does not stop one that evades.
 
 **Hints.** maisecrets stays quiet until a case comes up that one of these
-settings is about. Then the AI gets one sentence about it, and mentions it
-once. For `ssh_consent` that case is the first ssh command that changes
+settings is about. Then you get one fixed line from maisecrets, such as
+`maisecrets: images go to the AI as they are; maisecrets cannot mask inside
+them. /maisecrets:settings read_image ask asks you each time; block stops
+them.` The line goes to you only, not to the AI, so the AI does not word it
+again or repeat it later. Codex shows it as a hook message in its terminal
+UI. A run without a screen for it (`claude -p`, an Agent SDK program, `codex
+exec`) gets no hint, and the hint waits for your next interactive session. For
+`ssh_consent` that case is the first ssh command that changes
 something on a host (`ssh web1 'sudo systemctl restart nginx'`; not `ssh web1
 uptime`; and only when the command succeeds: Claude Code reports a failed one
 through another event). A hint comes once, also when hooks run at the same
 time; if maisecrets cannot record it, it does not come at all. It does not come again after you decided, and
 it does not come again because time passed: only a real change of the
 feature brings it back, once. `"tips": false` turns hints off with the tips.
-The settings list shows each hint as `not shown yet` or `shown` with its date;
-`/maisecrets:settings hints reset` (or `maisecrets: reset hints`) lets them
+`/maisecrets:settings hints` shows each hint as `not shown yet` or `shown`
+with its date; `/maisecrets:settings hints reset` (or `maisecrets: reset hints`) lets them
 come once more and changes no protection setting.
 
 ### Where your secrets went
@@ -419,50 +492,62 @@ sent.
 ## Try it with real data: the demo mode
 
 `ms:(…)` checks one value. To see what maisecrets does with a whole text, such
-as a real customer mail, switch the demo mode on. Type it as your own prompt:
+as a real customer mail, start a new session (or type `/clear`) and switch the
+demo mode on. Type it as your own prompt:
 
 ```
 /maisecrets:demo on          (Codex: maisecrets: demo on)
 ```
 
-While the demo is on, maisecrets answers each prompt of this session itself,
-and no prompt reaches the AI:
+From then on, what you send stays in this session, and nothing goes to the AI.
+In Claude Code your message shows as you typed it, with each value it masks
+locked, and one line answers it:
 
 ```
-maisecrets demo: nothing was sent to the AI.
-It masks 1 secret, 1 e-mail address.
-
-Please check the token ⟦SECRET_c1⟧ and write to ⟦EMAIL_c1:jo•••@•••.de⟧ today
-
-/maisecrets:demo off to send again
+❯ Please check the token ⟦SECRET_c1⟧ 🔒 and write to jo.demo@example.com 🔒 today
+⏺ Demo mode: nothing was sent to the AI. /clear to switch it off.
 ```
 
 - **The values are stored** as when you send a prompt, so the placeholders are
-  the normal ones. Only the sending is replaced by this answer.
-- **A long text** shows its first 20 lines and the count of the rest. When
-  maisecrets masked something, the full masked text goes to the clipboard,
-  where one exists.
-- **Names.** In Claude Code a name service (`/maisecrets:ner`) takes part as
-  for a normal prompt. A service on the network reads a prompt only when you
-  turn its prompts on (`/maisecrets:ner prompts on`).
-- **Only your own commands pass, in their exact form:** `/maisecrets:demo off`,
-  the settings, `ms:(…)`, `/maisecrets:term`, `/maisecrets:not-a-secret`, and
-  for example `/maisecrets:status`, `/maisecrets:status all` or
-  `/maisecrets:list`. A command with other text after it gets the demo answer.
-  `/ms` and `/maisecrets:send` send nothing during the demo.
+  the normal ones. With `show_values` on, the screen shows them as on a sent
+  prompt: a secret stays a placeholder with a lock, other values show in clear
+  with a lock. The model gets nothing: maisecrets answers each step of the turn
+  itself, so no request is made. The session gets the title "maisecrets demo",
+  so Claude Code does not ask the AI for one, `/compact` leaves the
+  conversation as it is (a compaction would be a request of its own), and
+  Claude Code's guess at your next prompt is off while the demo runs (it is a
+  request of its own too; it comes back with the next prompt of a session out
+  of the demo).
+- **Names.** A name service (`/maisecrets:ner`) takes part as for a normal
+  prompt, also a service on the network. A name that no rule and no service
+  finds stays in clear.
+- **It starts only in a new session** (or after `/clear`), so a conversation you
+  had before does not get lost: in a session with a turn the command answers
+  "Start the demo in a new session (or after /clear), so this conversation stays
+  as it is."
+- **It ends only with `/clear`**, which starts a new conversation, so the demo
+  lines never go to the AI. `/maisecrets:demo off` changes nothing and says so.
+  A session you resume (`claude --resume`) is still in the demo: its last
+  answer is the demo line. Only your own typed prompt switches it on: a
+  subagent, a program (`claude -p`), a scheduled prompt or a tool call that
+  names the demo command or its parts changes nothing. A program that runs as
+  you and hides what it does can still change maisecrets' files; maisecrets
+  does not stop that.
+- **Your own commands keep working, in their exact form:** the settings,
+  `ms:(…)`, `/maisecrets:term`, `/maisecrets:not-a-secret`, and for example
+  `/maisecrets:status` or `/maisecrets:list`. A command with other text after it
+  gets the demo line. `/ms` and `/maisecrets:send` send nothing.
   `/maisecrets:status` shows a `!` line while the demo is on.
-- **A pasted image** goes nowhere during the demo: the demo blocks the whole
-  prompt, also an image alone (measured on Claude Code 2.1.325). It does not
-  read the image.
+- **A pasted image** goes nowhere: no request is made (measured on Claude Code
+  2.1.326). maisecrets does not read the image.
 - **If the demo state cannot be read** (a damaged file), maisecrets sends no
   prompt of any session until you type `/maisecrets:demo off`, which resets it.
-- **It ends** with `/maisecrets:demo off` or with the session. A new session or
-  `/clear` ends it: `/clear` starts a new session (measured on Claude Code
-  2.1.325). Only your own typed prompt switches it: a subagent, a program
-  (`claude -p`), a scheduled prompt or a tool call changes nothing.
-- In Claude Code the answer comes as one line ("Prompt dropped by a hook"),
-  and a line break of the prompt shows as ↵. The screen shows the placeholders
-  there, also with `show_values` on. In Codex the block shows the answer.
+  A session whose last answer is the demo line stays in the demo after the
+  reset. A session whose transcript cannot be read counts as in the demo;
+  `/clear` starts a new one.
+- **Codex** has no mods: each prompt is blocked with "Demo mode: nothing was sent
+  to the AI. A new session switches it off."; the values are stored as for a
+  sent prompt.
 
 ## Handing a value to Claude on purpose
 

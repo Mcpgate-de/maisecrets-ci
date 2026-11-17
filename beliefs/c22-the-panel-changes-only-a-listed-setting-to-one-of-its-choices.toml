@@ -1,0 +1,10 @@
+# c22-the-panel-changes-only-a-listed-setting-to-one-of-its-choices: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c22-the-panel-changes-only-a-listed-setting-to-one-of-its-choices"
+control = "C22"
+statement = "The panel changes a setting only when it lists the key and the value is one of the key's choices; a setting that only weakens protection, an internal key and a bad value change nothing."
+runner = ["tests/test_hub.py::SetTests::test_a_key_off_the_panel_a_value_off_the_list_and_a_bad_key_change_nothing"]
+
+[proof]
+file = "maisecrets/hub.py"
+find = "        if not listed or word not in _pane_choices(key, cfg):"
+replace = "        if False:"

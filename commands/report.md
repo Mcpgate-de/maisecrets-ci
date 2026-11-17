@@ -1,5 +1,5 @@
 ---
-description: Report to the maisecrets maintainers - a false positive (last detection), a bug, a feature request, or the incident record. Prints the issue text and a prefilled link; the person opens the link and decides in GitHub's form. Carries no value.
+description: "Report a false alarm, a bug or an idea"
 argument-hint: "[last | bug <text> | feature <text> | incident [code/cause]]"
 disable-model-invocation: true
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" report *), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" report *)

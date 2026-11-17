@@ -1,0 +1,10 @@
+# c22-the-panel-sets-no-name-service-address: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c22-the-panel-sets-no-name-service-address"
+control = "C22"
+statement = "The panel sets the name service only to off, local or a server of the person's configuration by name; an address is typed, never sent by the panel."
+runner = ["tests/test_hub.py::NameServiceTests::test_only_off_local_and_a_named_server_are_set_here"]
+
+[proof]
+file = "maisecrets/hub.py"
+find = "    if value not in (\"off\", \"local\") and not (name and _SERVER_RE.fullmatch(name)):"
+replace = "    if False:"

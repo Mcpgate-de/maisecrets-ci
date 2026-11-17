@@ -300,14 +300,15 @@ class DispatchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as cwd:
             Path(cwd, "notes.env").write_text("X=1")
             r = self.run_dispatch({"prompt": f"see @notes.env and {GLPAT}", "session_id": "s9", "cwd": cwd})
-            self.assertEqual(json.loads(r.stdout), {"maisecrets": "mod-prompt"})        # left to the hook
+            # left to the hook
+            self.assertEqual(json.loads(r.stdout), {"maisecrets": "mod-prompt", "inDemo": False})
             # `hooks` is a folder of the plugin, not of the session: the prompt is rewritten
             r = self.run_dispatch({"prompt": f"see @hooks and {GLPAT}", "session_id": "s9", "cwd": cwd})
             self.assertIn("text", json.loads(r.stdout))
 
     def test_a_clean_prompt_answers_without_a_text(self):
         r = self.run_dispatch({"prompt": "say hi", "session_id": "s9"})
-        self.assertEqual(json.loads(r.stdout), {"maisecrets": "mod-prompt"})
+        self.assertEqual(json.loads(r.stdout), {"maisecrets": "mod-prompt", "inDemo": False})
 
     def test_a_plugin_folder_whose_code_cannot_load_answers_nothing_and_no_traceback(self):
         import shutil

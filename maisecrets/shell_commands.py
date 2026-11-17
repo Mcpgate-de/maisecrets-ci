@@ -34,7 +34,8 @@ _STORE_READ_PATTERNS: list[tuple[str, str]] = [
     # the mod's question stores values and scrubs a transcript by session id: for the mod, not the agent
     ("the mod's question", r"(?<![\w-])(?:dispatch\.py|run\.sh|run\.cmd)[\"']?\s+[\"']?mod-prompt\b"),
     # the values for the person's screen (show_values.py): for the mod's drawing, never for the agent
-    ("the mod's values", r"(?<![\w-])(?:dispatch\.py|run\.sh|run\.cmd)[\"']?\s+[\"']?mod-(?:values|reveal)\b"),
+    ("the mod's values", r"(?<![\w-])(?:dispatch\.py|run\.sh|run\.cmd)[\"']?\s+[\"']?"
+                         r"mod-(?:values|reveal|settings|demo)\b"),
     # the guard outside the plugin folder: `--off` in its refusal is for the person, not the agent
     ("the maisecrets guard", r"maisecrets-guard\.py"),     # guard.json sits in the home, covered above
     ("a value delivery path", r"maisecrets[/\\]run[/\\]|maisecrets-\d+[/\\]|maisecrets[/\\](?:v-|sealed)|__ms_\d+\b"
@@ -902,22 +903,115 @@ def _ssh_route(command: str, ctxs: list[str], refs: list[tuple[str, int, int]]) 
 
 
 _HOOK_ENTRIES = {"session-start", "user-prompt", "pre-tool", "post-tool", "post-tool-failure", "mod-prompt",
-                 "mod-values", "mod-reveal"}
+                 "mod-values", "mod-reveal", "mod-settings", "mod-demo"}
+
+
+_ANSI_ESCAPES = {"a": "\a", "b": "\b", "e": "\x1b", "E": "\x1b", "f": "\f", "n": "\n", "r": "\r", "t": "\t",
+                 "v": "\v", "\\": "\\", "'": "'", '"': '"', "?": "?"}
+
+
+def _ansi_c(body: str) -> str:
+    """The text of a $'…' word as bash decodes it: the letter escapes, x, octal, u and U code points."""
+    out, i = [], 0
+    while i < len(body):
+        c = body[i]
+        if c != "\\" or i + 1 == len(body):
+            out.append(c)
+            i += 1
+            continue
+        n = body[i + 1]
+        if n in _ANSI_ESCAPES:
+            out.append(_ANSI_ESCAPES[n])
+            i += 2
+            continue
+        m = (re.match(r"x([0-9A-Fa-f]{1,2})", body[i + 1:]) or re.match(r"u([0-9A-Fa-f]{1,4})", body[i + 1:])
+             or re.match(r"U([0-9A-Fa-f]{1,8})", body[i + 1:]))
+        if m:
+            try:
+                out.append(chr(int(m.group(1), 16)))
+            except (ValueError, OverflowError):
+                pass
+            i += 1 + len(m.group(0))
+            continue
+        m = re.match(r"[0-7]{1,3}", body[i + 1:])
+        if m:
+            out.append(chr(int(m.group(0), 8) & 0xFF))
+            i += 1 + len(m.group(0))
+            continue
+        out.append(c + n)
+        i += 2
+    return "".join(out)
+
+
+def _bash_words(text: str) -> list[str]:
+    """The words of one simple command as bash hands them to the program: $'…' decoded (ANSI-C quoting) and $"…"
+    read as "…" (locale quoting), both only outside quotes (inside "…" bash keeps them as text), then quotes, adjacent
+    quoted pieces and backslashes removed by shlex."""
+    import shlex
+    out, i, quote = [], 0, ""
+    while i < len(text):
+        c = text[i]
+        if quote:
+            if c == "\\" and quote == '"' and i + 1 < len(text):
+                out.append(text[i:i + 2])
+                i += 2
+                continue
+            if c == quote:
+                quote = ""
+            out.append(c)
+            i += 1
+            continue
+        if c == "\\" and i + 1 < len(text):
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        if c == "$" and text[i + 1:i + 2] == "'":
+            j, body = i + 2, []
+            while j < len(text) and text[j] != "'":
+                body.append(text[j:j + 2] if text[j] == "\\" else text[j])
+                j += 2 if text[j] == "\\" else 1
+            out.append(shlex.quote(_ansi_c("".join(body))))
+            i = j + 1
+            continue
+        if c == "$" and text[i + 1:i + 2] == '"':
+            i += 1              # the $ goes; the "…" that follows is read as a double-quoted string
+            continue
+        if c in "'\"":
+            quote = c
+        out.append(c)
+        i += 1
+    try:
+        return shlex.split("".join(out))
+    except ValueError:
+        return "".join(out).split()
+
+
+def _names_an_entry(words: list[str], broad: bool) -> bool:
+    for k, w in enumerate(words[:-1]):
+        # an event in a variable counts only with consent on: `./run.sh $ENV` of another project (opus round 3)
+        if os.path.basename(w) in ("run.sh", "run.cmd", "dispatch.py") and (
+                words[k + 1] in _HOOK_ENTRIES or (broad and words[k + 1].startswith("$"))):
+            return True
+    return False
 
 
 def _calls_a_hook_entry(command: str, broad: bool = False) -> bool:
     """A command word that runs a maisecrets hook entry with an event: the agent would hand the hook a payload it
     wrote, a forged PostToolUse or prompt (plan review of #8, 2026-10-06). Read from the parsed words, so a mention
-    in quotes (`echo "… run.sh post-tool"`) is no call (Codex review)."""
+    in quotes (`echo "… run.sh post-tool"`) is no call (Codex review).
+
+    It covers the name as an ordinary agent writes it: plain, quoted, $'…' (with its escapes), $"…", split quotes
+    and backslash escapes. A word split on purpose (a backslash-newline inside it, brace or glob tricks, the
+    PowerShell backtick, a name built at run time) is the same-user limit of C22: as for C21 since #15, the check
+    guards an agent that does not try to evade, and an evading one needs a sandbox, not a better parser."""
     ctxs = _shell_contexts(command)
     segs = _segments(command, ctxs)
     for sg in segs:
-        words = sg.get("words") or []
-        for k, w in enumerate(words[:-1]):
-            # an event in a variable counts only with consent on: `./run.sh $ENV` of another project (opus round 3)
-            if os.path.basename(w) in ("run.sh", "run.cmd", "dispatch.py") and (
-                    words[k + 1] in _HOOK_ENTRIES or (broad and words[k + 1].startswith("$"))):
-                return True
+        # the parsed words, and the words as bash hands them over: `dispatch.py $'mod-settings'` and `$"…"` were read
+        # as `$mod-settings` and passed (Gate A of the hub, also for the released mod-values and mod-reveal)
+        if _names_an_entry(sg.get("words") or [], broad) or \
+                _names_an_entry(_bash_words(command[sg["start"]:sg["end"]]), broad):
+            return True
     # inside a nested shell or an interpreter (`bash -c '…run.sh user-prompt …'`, `python3 -c 'os.system(…)'`,
     # `find -exec sh -c`) the words are one string: the text decides. Always for a shell; with ssh consent on
     # (`broad`), for any command that does not only print the text (Gate B of #8, two rounds): a Codex consent has
@@ -926,7 +1020,7 @@ def _calls_a_hook_entry(command: str, broad: bool = False) -> bool:
     printers = {"echo", "printf", "grep", "egrep", "rg", "cat", "head", "tail", "less", "git"}
     for m in re.finditer(r"(?:run\.sh|run\.cmd|dispatch\.py)[\"']?\s+[\"']?"
                          r"(?:session-start|user-prompt|pre-tool|post-tool(?:-failure)?|mod-prompt|mod-values|"
-                         r"mod-reveal)\b", command):
+                         r"mod-reveal|mod-settings|mod-demo)\b", command):
         seg = next((sg for sg in segs if sg["start"] <= m.start() < sg["end"]), None)
         if seg and seg.get("cmd") in shells:
             return True

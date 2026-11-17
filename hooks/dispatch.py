@@ -86,6 +86,10 @@ except Exception as exc:  # noqa: BLE001 - a guard that fails open is no guard
         sys.exit(1)       # no traceback: the mod draws the placeholders as they are
     if len(sys.argv) == 2 and sys.argv[1] == "mod-reveal":
         sys.exit(1)       # no traceback: the mod says it could not get the value
+    if len(sys.argv) == 2 and sys.argv[1] == "mod-demo":
+        sys.exit(1)       # no traceback: the mod keeps what it knew of the demo
+    if len(sys.argv) == 2 and sys.argv[1] == "mod-settings":
+        sys.exit(1)       # no traceback: the pane says the settings cannot be read
     raise
 
 if len(sys.argv) == 2 and sys.argv[1] == "mod-prompt":
@@ -105,6 +109,9 @@ if len(sys.argv) == 2 and sys.argv[1] == "mod-prompt":
         if isinstance(payload.get("cwd"), str) and os.path.isdir(payload["cwd"]):
             os.chdir(payload["cwd"])
         answer = rewrite_prompt(payload)
+        # whether this session is in the demo: each model step of the mod reads it (maisecrets/demo.py)
+        from maisecrets.demo import active as _in_demo  # noqa: E402
+        answer = {**answer, "inDemo": bool(_in_demo(payload.get("session_id")))}
     except Exception:  # noqa: BLE001 - no traceback: what passes back goes through other mods
         sys.exit(1)
     # ASCII JSON: ⟦ as \u27e6. A Windows console code page cannot write ⟦, and the answer was a traceback
@@ -125,6 +132,19 @@ if len(sys.argv) == 2 and sys.argv[1] == "mod-values":
     print(json.dumps({"maisecrets": "mod-values", **answer}))
     sys.exit(0)
 
+if len(sys.argv) == 2 and sys.argv[1] == "mod-settings":
+    # the settings pane of the mod (maisecrets/settings.py mod_answer): the rows, and a change the person picked there.
+    # A tool call that names this entry is refused (shell_commands.py), so only the mod starts it
+    import json
+    try:
+        from maisecrets.hub import mod_answer  # noqa: E402
+        payload = json.load(sys.stdin)
+        answer = mod_answer(payload if isinstance(payload, dict) else {})
+    except Exception:  # noqa: BLE001 - no traceback
+        sys.exit(1)
+    print(json.dumps({"maisecrets": "mod-settings", **answer}))
+    sys.exit(0)
+
 if len(sys.argv) == 2 and sys.argv[1] == "mod-reveal":
     # a click on a gateway's reference (maisecrets/show_values.py reveal). Any failure answers nothing
     import json
@@ -135,6 +155,19 @@ if len(sys.argv) == 2 and sys.argv[1] == "mod-reveal":
     except Exception:  # noqa: BLE001 - no traceback, no value in an error text
         sys.exit(1)
     print(json.dumps({"maisecrets": "mod-reveal", **answer}))
+    sys.exit(0)
+
+if len(sys.argv) == 2 and sys.argv[1] == "mod-demo":
+    # the mod's question at a model step: is this session in the demo (maisecrets/demo.py)? Any failure answers
+    # nothing, and the mod keeps what it knew
+    import json
+    try:
+        from maisecrets.demo import mod_demo  # noqa: E402
+        payload = json.load(sys.stdin)
+        answer = mod_demo(payload if isinstance(payload, dict) else {})
+    except Exception:  # noqa: BLE001 - no traceback
+        sys.exit(1)
+    print(json.dumps({"maisecrets": "mod-demo", **answer}))
     sys.exit(0)
 
 if len(sys.argv) >= 2 and sys.argv[1] == "pending":
@@ -193,7 +226,6 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
             return False
         return any(k.startswith("CODEX_") for k in os.environ)
     codex = _is_codex()
-    from maisecrets.vault import intro_line  # noqa: E402
     import time
     from maisecrets.hooks import primer  # noqa: E402
     from maisecrets.vault import ConfigError, load_config  # noqa: E402
@@ -248,6 +280,10 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
             except OSError:
                 pass
     out = {}
+
+    def _sep(o: dict) -> str:
+        """The message so far and a line break: each note stands on its own line."""
+        return o["systemMessage"] + "\n" if o.get("systemMessage") else ""
     version = "?"
     try:
         manifest = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -256,39 +292,42 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
             version = json.load(f).get("version", "?")
     except (OSError, ValueError):
         pass
-    # the start line names the active rules of your own, and a folder of rule_dirs that does not load
+    # a folder of rule_dirs that does not load: a warning at each start
     try:
-        from maisecrets.user_rules import active_phrase, broken_folders_note  # noqa: E402
-        own_rules, broken = active_phrase(), broken_folders_note()
+        from maisecrets.user_rules import broken_folders_note  # noqa: E402
+        broken = broken_folders_note()
     except Exception:  # noqa: BLE001 - rules of your own never stop a session start
-        own_rules, broken = "", None
+        broken = None
     marker = HOME / ".announced"
-
-    def _names_on() -> bool:
-        try:
-            ner = load_config().get("remote_detector")
-            return isinstance(ner, dict) and bool(ner.get("url"))
-        except Exception:  # noqa: BLE001 - no NER tip rather than no start line
-            return True
     tried = False
-    # the values on the person's screen (show_values, C32): the lock says which text only the person sees. Claude
-    # Code only (Codex has no mods); a systemMessage reaches the person, not the model (measured 2026-11-07)
-    screen = ""
+    # the values on the person's screen (show_values, C32): the welcome says that a lock marks them. Claude Code only
+    # (Codex has no mods); a systemMessage reaches the person, not the model (measured 2026-11-07)
+    screen = False
     if not codex:
         try:
             from maisecrets.show_values import mode as show_mode  # noqa: E402
-            from maisecrets.vault import load_config  # noqa: E402
-            if show_mode(load_config()) != "off":
-                screen = " \U0001F512 marks a value Claude got only as a placeholder."
+            screen = show_mode(load_config()) != "off"
         except Exception:  # noqa: BLE001 - a line for the person only
-            screen = ""
-    if v.backend.test_mode or not marker.exists():
-        tried = True        # the try-it line names ms:(…): the Codex tip below would say it twice
-        from maisecrets.tips import before_line, try_it_line  # noqa: E402
-        more = "" if codex else " /maisecrets:status shows the details, /maisecrets:list what is stored."
-        out["systemMessage"] = (f"maisecrets {version} is on{own_rules}.{screen} "
-                                + intro_line(v.backend, _names_on(), codex) + more + " "
-                                + try_it_line() + " " + before_line(codex))
+            screen = False
+
+    def _not_protected() -> bool:
+        """The fast part of the /maisecrets:status verdict: the store gives no answer, or Codex does not trust the
+        hooks. Both mean NOT protected. The self-test and the hook log are /maisecrets:status's (and the panel's)."""
+        try:
+            from pathlib import Path  # noqa: E402
+            from maisecrets import status_verdict as sv  # noqa: E402
+            from maisecrets.codex_vault import codex_home  # noqa: E402
+            checks = [sv.store_verdict()]
+            if codex:
+                checks.append(sv.codex_verdict(Path(__file__).resolve().parent.parent, codex_home()))
+            return any(c.state == "FAIL" for c in checks)
+        except Exception:  # noqa: BLE001 - no verdict: no claim either way
+            return False
+    lines = []
+    if not marker.exists():
+        tried = True        # the Codex ms:(…) tip below would come on top of the welcome
+        from maisecrets.tips import welcome_lines  # noqa: E402
+        lines = welcome_lines(codex, lock=screen)
         try:
             marker.write_text(type(v.backend).__name__ + "\n")
         except OSError:
@@ -296,9 +335,15 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
     else:
         from maisecrets.tips import tip_of_the_day  # noqa: E402
         tip = tip_of_the_day(codex=codex)
-        # one short line every session, so a lost hook registration is visible by its absence
-        # (operator review, 2026-09-26); the tip rotates, the version does not
-        out["systemMessage"] = f"maisecrets {version} is on{own_rules}.{screen}" + (f" {tip}" if tip else "")
+        if tip:
+            lines.append(tip)
+    from maisecrets.tips import NOT_PROTECTED, TEST_STORE  # noqa: E402
+    if _not_protected():
+        lines.insert(0, NOT_PROTECTED.format(cmd="maisecrets: status" if codex else "/maisecrets:status"))
+    if v.backend.test_mode:
+        lines.append(TEST_STORE)
+    if lines:
+        out["systemMessage"] = "\n".join(lines)
     # a newer version in the marketplace copy the client fetched (no network request; maisecrets/status_verdict.py)
     try:
         from pathlib import Path  # noqa: E402
@@ -309,14 +354,23 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
     except Exception:  # noqa: BLE001 - the session start must not fail on it
         note = None
     if note:
-        out["systemMessage"] = out.get("systemMessage", "") + " " + note
+        out["systemMessage"] = _sep(out) + note
+    if not codex:
+        # once per home: a url or gateway source set before prompts went there too (Codex prompts keep the rules)
+        try:
+            from maisecrets import ner_setup  # noqa: E402
+            ner_note = ner_setup.prompts_note(cfg.get("remote_detector"))
+        except Exception:  # noqa: BLE001 - the session start must not fail on it
+            ner_note = None
+        if ner_note:
+            out["systemMessage"] = _sep(out) + ner_note
     if quieted:
-        out["systemMessage"] = (out.get("systemMessage", "") +
-                                f" {len(quieted)} stored word(s) are program code, not secrets "
+        out["systemMessage"] = (_sep(out) +
+                                f"{len(quieted)} stored word(s) are program code, not secrets "
                                 f"({', '.join(quieted)}): maisecrets no longer masks them in other texts. "
                                 "/maisecrets:forget deletes them.")
     if cfg.get("config_warning"):
-        out["systemMessage"] = (out.get("systemMessage", "") + f" Warning: {cfg['config_warning']}."
+        out["systemMessage"] = (_sep(out) + f"\u26a0\ufe0f maisecrets: {cfg['config_warning']}."
                                 + (" Until it is fixed, no stored value goes into a tool call."
                                    if cfg.get("rehydration_fallback") else ""))
     # each protection loosened since the last start (a setting, a forget), once, to the person (C22)
@@ -326,11 +380,11 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
     except Exception:  # noqa: BLE001 - the session start must not fail on it
         loosened = None
     if loosened:
-        out["systemMessage"] = (out.get("systemMessage", "") + " " + loosened).strip()
+        out["systemMessage"] = (_sep(out) + loosened).strip()
     if broken:
-        out["systemMessage"] = out.get("systemMessage", "") + " " + broken
+        out["systemMessage"] = _sep(out) + broken
     if _clean_note:
-        out["systemMessage"] = out.get("systemMessage", "") + " " + _clean_note
+        out["systemMessage"] = _sep(out) + _clean_note
     # a rule of your own that fails a check is left out; the person hears it once, when the set changes
     try:
         from maisecrets.user_rules import session_note  # noqa: E402
@@ -338,7 +392,7 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
     except Exception:  # noqa: BLE001 - rules of your own never stop a session start
         note = None
     if note:
-        out["systemMessage"] = out.get("systemMessage", "") + " " + note
+        out["systemMessage"] = _sep(out) + note
     # the terms (maisecrets/terms.py): a changed team list, or a terms.txt that stops the hooks
     try:
         from maisecrets import term_files  # noqa: E402
@@ -349,7 +403,7 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
     except Exception:  # noqa: BLE001 - terms never stop a session start; a bad terms.txt stops the next hook
         note = None
     if note:
-        out["systemMessage"] = out.get("systemMessage", "") + " " + note
+        out["systemMessage"] = _sep(out) + note
     # the imported values (maisecrets/values.py): the value files that changed are imported, and a new import is named
     try:
         from maisecrets import value_files  # noqa: E402
@@ -360,25 +414,19 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
     except Exception:  # noqa: BLE001 - an import never stops a session start; a damaged one stops the next hook
         note = None
     if note:
-        out["systemMessage"] = out.get("systemMessage", "") + " " + note
+        out["systemMessage"] = _sep(out) + note
     # ms:(…) in Codex: named once here, not in a block notice, where the person must only read paste and send
     # (Claude Code names it under the first blocked or rewritten prompt with a value, hooks._check_tip)
     if codex:
         try:
             from maisecrets import settings as _settings  # noqa: E402
             from maisecrets.check_value import TIP_CODEX  # noqa: E402
-            if _settings.hint_due("check_value", cfg) and _settings.claim_hint("check_value") and not tried:
-                out["systemMessage"] = out.get("systemMessage", "") + " " + TIP_CODEX
+            # claimed only where a person sees the start line, not in `codex exec` (Gate A of 30fb8d30), and not at
+            # the first start, whose welcome stands alone (the hint comes at the next start)
+            if (not tried and _settings.hint_due("check_value", cfg) and _settings.person_sees_hook_lines(payload, True)
+                    and _settings.claim_hint("check_value")):
+                out["systemMessage"] = _sep(out) + TIP_CODEX
         except Exception:  # noqa: BLE001 - a tip never stops a session start
-            pass
-    # /ms is offered once, not installed: writing ~/.claude/commands without a question was a
-    # change behind the user's back, and Codex cannot use it (UX review, 2026-09-27)
-    if not codex and cfg.get("shortcut", True) and not (HOME / ".shortcut").exists():
-        out["systemMessage"] = (out.get("systemMessage", "") +
-                                " Tip: /maisecrets:shortcut adds /ms as a short form of /maisecrets:send.")
-        try:
-            (HOME / ".shortcut").write_text("offered\n", encoding="utf-8")
-        except OSError:
             pass
     # a synced install: keep the guard script outside the plugin folder current and register it once
     # (the guard of README "Updates and open sessions"); "guard": false or `guard remove` keep it off,
@@ -392,7 +440,7 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
             if cfg.get("guard", True):
                 note = register_guard_for_a_synced_install()
                 if note:
-                    out["systemMessage"] = out.get("systemMessage", "") + " " + note
+                    out["systemMessage"] = _sep(out) + note
             else:
                 guard_off_by_policy()
     # vault references: the key header on the user-scope MCP servers of this profile (maisecrets/vault_refs.py); in
@@ -411,7 +459,7 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
     except Exception:  # noqa: BLE001 - never stops a session start; without the header no value comes back
         note = None
     if note:
-        out["systemMessage"] = out.get("systemMessage", "") + " " + note
+        out["systemMessage"] = _sep(out) + note
     # the state of each server with a header: one status probe per origin (no value, no token), all inside one
     # budget, and a line once when the state changed since the person last heard it
     try:
@@ -420,10 +468,16 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
     except Exception:  # noqa: BLE001 - a state check never stops a session start
         note = None
     if note:
-        out["systemMessage"] = out.get("systemMessage", "") + " " + note
+        out["systemMessage"] = _sep(out) + note
     # the model reads what a placeholder is once per session, before it meets one
     out["hookSpecificOutput"] = {"hookEventName": "SessionStart",
                                  "additionalContext": primer(cfg, "codex" if codex else "claude")}
+    try:
+        # a row in hooks.log: the hub's status (settings.pane_status) sees that a hook of this session ran
+        from maisecrets.hooks import _run_log  # noqa: E402
+        _run_log("session" + "-start", payload, "answer", "pass", 0)
+    except Exception:  # noqa: BLE001 - a log row never stops a session start
+        pass
     print(json.dumps(out))
     sys.exit(0)
 sys.exit(main(["hook", sys.argv[1] if len(sys.argv) == 2 else ""]))

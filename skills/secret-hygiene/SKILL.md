@@ -1,6 +1,6 @@
 ---
 name: secret-hygiene
-description: Protect secrets from the AI and clean up those that already leaked. Use when the user wants to protect passwords, keys or personal data from the AI or to install maisecrets; when the user asks whether a repository, its git history, a file or their past AI agent sessions contain passwords, API keys, tokens or private keys; when the user says a key or password was pasted into a chat, committed, pushed, logged or shared; when the user wants a log, config or stack trace made safe to post in an issue, ticket or chat; or when you are about to read a file full of secrets, such as a password export, a .har recording, a .vcf or an .ics file; or when a placeholder such as ⟦EMAIL_c1⟧ must go into a document or a file. Never shows a secret value.
+description: "Find secrets that already leaked: in a repository, in git history, in past AI sessions. Use when the user wants to protect passwords, keys or personal data from the AI or to install maisecrets; when the user asks whether a repository, its git history, a file or their past AI agent sessions contain passwords, API keys, tokens or private keys; when the user says a key or password was pasted into a chat, committed, pushed, logged or shared; when the user wants a log, config or stack trace made safe to post in an issue, ticket or chat; or when you are about to read a file full of secrets, such as a password export, a .har recording, a .vcf or an .ics file; or when a placeholder such as ⟦EMAIL_c1⟧ must go into a document or a file. Never shows a secret value."
 ---
 
 # Secret hygiene
@@ -11,16 +11,26 @@ maisecrets hooks do that, in Claude Code, Cowork and Codex, when the plugin is i
 
 ## What this skill offers
 
-When the user asks what you can do, or asks in general to check for leaked secrets, offer these options, one line
-each, in the user's words:
+When the user asks what you can do, or asks in general to check for leaked secrets, offer these four options,
+one line each, in this order (the urgent one first), in the user's words:
 
-- Protect my secrets: install maisecrets, so a typed password or key no longer reaches the AI (2 minutes).
-- Check a repository: secrets in its files (seconds) and in its git history (minutes on a large repository).
-- Check my AI history: what went to Claude or Codex in past sessions, the last 30 days by default or all of them
-  (long: see the estimate).
-- Check the saved approvals of my agents: secrets in their settings and rules (seconds).
-- Something leaked: the steps to contain it, rotation first (no scan, a few minutes).
-- Make a file safe to share: a masked copy of a log, config or export (seconds).
+- Something leaked just now: the steps to contain it (a few minutes, no scan).
+- Check my AI history: what went to Claude or Codex, and what your agents saved in their settings (30 days;
+  estimate first).
+- Check a repository: files (seconds) and git history (minutes).
+- Make a file safe to share: a masked copy (seconds).
+
+Offer the install ("Protect my secrets: install maisecrets, so a typed password or key no longer reaches the AI,
+2 minutes") as a fifth line only when `protection_status.py` says NOT ACTIVE.
+
+Run only the task the user chose. After that task reports its result, you can offer one other check, in one line.
+The protection check below is not a side check: it says whether this chat is protected. Before the chosen task,
+say only its verdict or its offer, and no other result.
+
+When a scan runs in the background, your message says only what runs, the estimate, and that you report when it
+ends. Write nothing that reads like a result or an end, such as "found nothing" or "done".
+
+When the scan ends, the first line of your answer is the result of the task the user chose.
 
 ## First: is the protection active?
 
@@ -100,12 +110,15 @@ you read the file again.
 
 ## Check a repository
 
-1. Scan the files first: `python3 scripts/scan_secrets.py <repo>`. Add `--pii` when the user
-   also asks about personal data such as e-mail addresses or IBANs.
+1. Scan the files, with all output to a file: `python3 scripts/scan_secrets.py <repo> > <files-file> 2>&1`.
+   Add `--pii` when the user also asks about personal data such as e-mail addresses or IBANs.
+   Do not read that file yet.
 2. Then scan the history: `python3 scripts/scan_secrets.py <repo> --history --out <file>`.
    `--out` writes the full report to a file the user can keep and prints only the summary.
    On a large repository the history scan can take many minutes: tell the user, and run it
-   in the background if your tools allow that.
+   in the background if your tools allow that. While it runs, say only that the scan runs and
+   its estimate. When the history scan ends, read both files and report the files and the
+   history in one answer.
 3. Read the result:
    - `shape` means the value has a provider's token format, `guess` means a keyword such as
      `password =` stands next to it and it can be noise.
@@ -137,8 +150,11 @@ my agents already leak?".
 
 1. Ask for the period: the last 30 days (the default) or all sessions. Then get the estimate first:
    `python3 scripts/audit_transcripts.py --estimate` (the last 30 days; add `--all` for all). It prints the size
-   and the estimated time on stderr and scans only a sample. Tell the user the estimate before the scan, for
-   example "about 12 minutes for 4.2 GB", and run the scan in the background if it is longer than a few minutes.
+   and the estimated time on stderr; it scans a sample of files for 15 seconds at the speed of this computer
+   (if it says that other work slows the scan, say so too). The estimate is no result: it shows no finding. Tell
+   the user the estimate before the scan, for example "about 12 minutes for 4.2 GB", and run the scan in the
+   background if it is longer than a few minutes. While it runs, say only: "The scan of your AI history runs (about
+   <estimate>). I report when it ends." Start no other check; the approvals of step 5 are part of this task.
 2. Run `python3 scripts/audit_transcripts.py --out <file>` (add `--all` for all sessions). Add
    `--claude` or `--codex` for one agent, `--pii` for personal data. It uses the cores minus one (`--workers N` to
    change it), and it prints its progress at least every 30 seconds and its time at the end.
@@ -151,15 +167,35 @@ my agents already leak?".
      than three lines away from it, and a weak shape that needs a word farther away. `--full` reads each record as
      one text, as before, with every rule: it is slower, and the user can ask for it after a fast scan. Neither scan finds a random value
      with no label and no prefix.
-3. Report the values under "REACHED THE PROVIDER" first, `shape` before `guess`: each one was
-   sent to Anthropic or OpenAI and must be rotated ("Contain a leak"). Values only in local
-   records did not provably reach a provider.
-4. Only when the user asks, offer to clean the local copies: `--scrub` lists the files, and
-   only `--scrub --yes`, after the user's explicit yes, replaces the values. Say every time
-   that this cleans only this computer: the provider keeps what it received, so rotation
-   comes first.
-5. Next to the transcript audit, check the approvals that the agents saved outside the
-   repository: `python3 scripts/audit_approvals.py --out <file>`. It reads the settings and
+3. When the scan ends, show its stdout AS IS, in a code block: the verdict line, at most 10 real tokens (type,
+   sessions, last date, the page to revoke it), an "Also check" line when a token in a provider's format was seen
+   only in test files, and one "Not shown" line with the full report. Add
+   nothing before it, and do not restate, sort or explain it. Do not add counts, ids or rules from the report.
+   - The script sorts each value into a class: REAL (it is in the person's maisecrets store, or it has a
+     provider's token format and was sent in a prompt or a tool result: rotate it), TEST (it names itself a test
+     value, vendor docs publish it, only the model wrote it, or a keyword guess stands only in test code) and
+     UNKNOWN (the rest; a provider format seen only in test files is UNKNOWN with the reason "provider format,
+     only in test code"). It compares with the store in its own process by keyed fingerprint and prints no value.
+   - Never offer to write a script that compares the findings with the person's real tokens: the audit did that.
+4. Then offer the choices. In Claude Code, use your question tool (AskUserQuestion) with these options; in Codex,
+   a numbered list, and wait for the answer:
+   - "Show me how to rotate them" (only when there is a real token): walk through the real tokens one at a time.
+     For each one, give the page from the summary and the steps from `references/rotation.md`, and wait until the
+     person says it is done or skips it.
+   - "Clean the local copies": run `--scrub` (with the same `--all`, `--claude` or `--codex` as the scan). It lists
+     the files. Then ask for an explicit yes, and only then run `--scrub --yes`. Say every time that this cleans
+     only this computer: the provider keeps what it received, so rotation comes first.
+   - "Show details": read the "BY RULE" part of the report file and give, per rule, the counts of TEST and
+     UNKNOWN with their reasons, at most 15 lines. Name the rows of "provider format, only in test code" first:
+     those are the "Also check" tokens, and the person decides whether each one is a fixture or a real token. No
+     value is in the report.
+   - "Done".
+5. The approvals are part of this task. While the scan runs, run them with all output to files:
+   `python3 scripts/audit_approvals.py --out <file> > <summary-file> 2>&1`. Do not read either file until the
+   scan ends. Then report the approvals in the same answer as the scan, after the scan's summary and before the
+   choices, in one or two lines. When the user
+   asks only for the approvals, run `python3 scripts/audit_approvals.py --out <file>` and report it at once. It
+   reads the settings and
    the client config of Claude Code and the rules and config of Codex, and it names each file
    it read. Each finding names a file and a place, for example `permissions.allow[3]` or
    `rules/default.rules line 12`, never the value. For each finding, the credential must be

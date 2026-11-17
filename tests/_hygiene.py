@@ -11,6 +11,7 @@ Import this after maisecrets.hooks can be imported (after the config.json of the
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -165,6 +166,17 @@ def assert_children_ended(seconds: float = 3.0) -> None:
 # from the environment, so a helper that omits it tests the machine it runs on.
 CLAUDE = {"prompt_id": "p"}
 CODEX = {"turn_id": "t"}
+
+
+def codex_rollout(source="cli") -> dict:
+    """The transcript_path of a Codex payload whose rollout starts with session_meta and this source (cli: the
+    terminal UI, vscode: the app server, exec: `codex exec`); the shape of codex-rs protocol SessionMetaLine."""
+    fd, path = tempfile.mkstemp(prefix="rollout-", suffix=".jsonl")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(json.dumps({"timestamp": "2026-11-17T00:00:00Z", "type": "session_meta",
+                            "payload": {"id": "t", "cwd": "/tmp", "originator": "x", "source": source}}) + "\n")
+        f.write(json.dumps({"type": "response_item", "payload": {}}) + "\n")
+    return {"transcript_path": path}
 
 
 def patch(case: unittest.TestCase, target: object, attribute: str, value: object) -> None:

@@ -1,0 +1,10 @@
+# c22-a-tool-call-cannot-run-the-panel-entry: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c22-a-tool-call-cannot-run-the-panel-entry"
+control = "C22"
+statement = "A Bash or PowerShell call that names the panel's entry (dispatch.py mod-settings, run.sh, run.cmd) is refused for every action the panel sends; only the mod starts it."
+runner = ["tests/test_hub.py::ToolCallTests::test_each_action_of_the_panel_is_refused_from_a_tool_call"]
+
+[proof]
+file = "maisecrets/shell_commands.py"
+find = '''r"mod-(?:values|reveal|settings|demo)\b"),'''
+replace = '''r"mod-(?:values|reveal|demo)\b"),'''

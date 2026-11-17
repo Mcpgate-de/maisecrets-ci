@@ -4,6 +4,11 @@ Rotate first. A leaked value stays valid until the issuer revokes it; deleting a
 commit does not revoke it. For every service: create the new credential, put it where the
 old one was used, revoke the old one, then read the audit log for the time since the leak.
 
+The session audit (`scripts/audit_transcripts.py`) names the page for each real token from
+`scripts/rotation.json`: the same providers as below, each with the documentation page that names the
+place, per token kind where the detector tells the kinds apart. A rule that covers several token kinds,
+or a kind whose page the docs do not name, gets "see the provider's settings".
+
 Menu paths change over time. If a path below is not there, search the service's
 documentation for "revoke token" or "rotate key".
 
@@ -11,6 +16,9 @@ documentation for "revoke token" or "rotate key".
 
 - Personal access token: Settings, Developer settings, Personal access tokens. Delete the
   token, create a new one with the smallest scope that works.
+- OAuth app token: Settings, Applications, Authorized OAuth Apps; Revoke the app.
+- GitHub App user token or refresh token: Settings, Applications, Authorized GitHub Apps;
+  Revoke the app.
 - Deploy key or SSH key: repository Settings, Deploy keys, or account Settings, SSH keys.
   Delete the key, generate a new key pair.
 - GitHub App private key: the app's settings, Private keys. Generate a new key, then delete
@@ -20,8 +28,10 @@ documentation for "revoke token" or "rotate key".
 
 ## GitLab
 
-- Personal, project or group access token: User settings (or the project's or group's
-  settings), Access tokens. Revoke, then create a new one.
+- Personal access token: your avatar, Edit profile, Access, Personal access tokens
+  (https://gitlab.com/-/user_settings/personal_access_tokens, on your own GitLab the same path on
+  its host); Rotate or Revoke. A project or group token: the project's or group's settings,
+  Access tokens.
 - CI/CD variable that leaked in a job log: change the value in Settings, CI/CD, Variables,
   mark it masked and protected, and delete the job log.
 - Audit: the audit events of the project or group, if the plan has them.
@@ -37,7 +47,8 @@ documentation for "revoke token" or "rotate key".
 
 - Service account key: IAM and Admin, Service accounts, the account, Keys. Delete the key,
   create a new one, or better switch to workload identity.
-- API key: APIs and Services, Credentials. Regenerate or delete the key, and restrict it.
+- API key: https://console.cloud.google.com/apis/credentials. Regenerate or delete the key, and
+  restrict it.
 - Audit: Cloud Audit Logs for the service account.
 
 ## Microsoft Azure / Entra ID
@@ -49,27 +60,57 @@ documentation for "revoke token" or "rotate key".
 
 ## Stripe
 
-- Secret or restricted key: Dashboard, Developers, API keys. Roll the key; Stripe lets you
-  keep the old key valid for a short time while you switch over.
+- Secret or restricted key: https://dashboard.stripe.com/apikeys. Rotate the key; Stripe lets you
+  keep the old key valid for up to 7 days while you switch over.
 - Webhook signing secret: Developers, Webhooks, the endpoint, Roll secret.
 - Audit: the request logs in the dashboard.
 
 ## OpenAI
 
-- API key: platform.openai.com, API keys. Delete the key, create a new one.
+- API key: https://platform.openai.com/api-keys. Delete the key, create a new one.
 - Audit: the usage page, for usage you do not expect.
 
 ## Anthropic
 
-- API key: console.anthropic.com, Settings, API keys. Delete the key, create a new one.
+- API key: https://platform.claude.com/settings/keys (the Claude Console). Delete the key, create a new one.
 - Audit: the usage and cost pages.
 
 ## Slack
 
-- Bot or user token: api.slack.com, Your apps, the app, OAuth and Permissions. Rotate or
+- Bot or user token: https://api.slack.com/apps, the app, OAuth and Permissions. Rotate or
   revoke the tokens, reinstall the app if Slack asks for it.
 - Incoming webhook URL: the app's Incoming Webhooks page. Remove the URL, add a new one.
 - Audit: the workspace access logs and the app's activity.
+
+## Atlassian (Jira, Confluence) and Bitbucket
+
+- An Atlassian API token is revoked on the API tokens page of your Atlassian account
+  (https://id.atlassian.com/manage-profile/security/api-tokens). Then create a new one.
+- Bitbucket API token: your profile, Account settings, Security, Create and manage API tokens.
+  Select the token, Revoke.
+
+## Cloudflare
+
+- API token: https://dash.cloudflare.com/profile/api-tokens, the token's menu, Roll.
+
+## Hugging Face
+
+- Access token: https://huggingface.co/settings/tokens, Manage, then delete or refresh it.
+
+## npm
+
+- Access token: npmjs.com, your profile picture, Access Tokens, the x next to the token; or
+  `npm token delete <token id>`.
+
+## Postmark
+
+- Server API token: Servers, the server, API Tokens. Account API token: Account, API Tokens.
+
+## Storyblok
+
+- Personal access token: My account, Account settings, Personal access tokens
+  (https://app.storyblok.com/#/me/account?tab=token). A space access token: the space,
+  Settings, Access Tokens.
 
 ## Database password
 

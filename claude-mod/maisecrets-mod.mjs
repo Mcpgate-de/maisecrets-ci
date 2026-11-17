@@ -350,6 +350,12 @@ function registerShowValues(on) {
     try {
       if (await askValues($, [])) $.ui.invalidate('ui.render')
     } catch { /* off until an answer */ }
+    // the settings pane's rows, so the first /maisecrets:settings draws at once
+    void askSettings($, { action: 'list' }).catch(() => {})
+    try {
+      void $.command.register({ name: 'maisecrets', description: 'The maisecrets menu: status, settings, stored values',
+        immediate: true }).catch(() => {})
+    } catch { /* no command: /maisecrets:settings opens the same pane */ }
     return next(e)
   })
 
@@ -469,16 +475,536 @@ async function ask($, prompt, session, cwd, origin) {
   if (!r) return null
   const answer = JSON.parse(r.stdout)
   if (!answer || answer.maisecrets !== MARK) return null
+  if (typeof answer.inDemo === 'boolean') demo.set(session, answer.inDemo)     // what each model step reads below
   if (typeof answer.text !== 'string' && typeof answer.drop !== 'string') return null
   return answer
 }
 
+// ---- the demo (maisecrets/demo.py): the prompt enters with its values masked, and no model request goes out
+
+// Each model step of a session in the demo is answered here with one line: no request is made. Whether a session is
+// in the demo comes from Python (mod-prompt says inDemo for each prompt it sees; mod-demo when it saw none since the
+// last prompt), kept in this module's memory per session id. /clear gives a new session id, which asks again
+const DEMO_LINE = 'Demo mode: nothing was sent to the AI. /clear to switch it off.'
+const demo = new Map()     // session id -> in the demo; the demo command clears its entry
+const DEMO_CMD = /^\s*(?:\/maisecrets:demo|maisecrets:\s*demo)\b/i
+
+async function runDemo($, stdin) {
+  // one deadline for all three Pythons: a step waits at most ASK_MS, then answers itself (fail closed)
+  const end = (await $.clock.now()) + ASK_MS
+  for (const argv of [['python3', 'hooks/dispatch.py', 'mod-demo'], ['py', '-3', 'hooks/dispatch.py', 'mod-demo'],
+    ['python', 'hooks/dispatch.py', 'mod-demo']]) {
+    const left = end - (await $.clock.now())
+    if (left <= 0) return null
+    try {
+      const r = await $.process.run(argv, { cwd: $.plugin.root, stdin, timeoutMs: left, env: { PYTHONUTF8: '1' } })
+      if (r.exitCode === 0) return r
+    } catch {
+      // this Python cannot start or timed out: the next one, within the deadline
+    }
+  }
+  return null
+}
+
+// true or false as Python said for this session id, null when Python gave no answer
+async function inDemo($) {
+  const id = await $.session.id()
+  if (demo.has(id)) return demo.get(id)
+  const r = await runDemo($, JSON.stringify({ session_id: id }))
+  let a = null
+  try { a = r ? JSON.parse(r.stdout) : null } catch { a = null }
+  if (a?.maisecrets !== 'mod-demo' || typeof a.demo !== 'boolean') return null
+  demo.set(id, a.demo)
+  return a.demo
+}
+
+// the step's answer without a request: one text block, the end of the turn
+async function * demoAnswer(e) {
+  yield { kind: 'text', index: 0, text: DEMO_LINE }
+  yield { kind: 'stop', stopReason: 'end_turn', usage: null }
+  return { turnId: e.turnId, index: e.index, answer: DEMO_LINE, toolUses: [], stopReason: 'end_turn', usage: null }
+}
+
+const COMPACT_SKIP = 'maisecrets demo: the conversation stays as it is, nothing goes to the AI'
+
+// the client's guess at the next prompt is a model request of its own (a forked agent, source prompt_suggestion,
+// measured on Claude Code 2.1.326), with no hook of the mods API before it: in a session in the demo it is switched off
+// for this process, and back on once a prompt of a session out of the demo comes (only when this module switched it)
+let quieted = false
+async function quietForTheDemo($) {
+  if (quieted) return
+  try {
+    const r = await $.env.set('CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION', 'false')
+    quieted = !r?.deny
+  } catch { /* the suggestion request stays: see docs/USING.md */ }
+}
+async function loudAgain($) {
+  if (!quieted) return
+  try {
+    await $.env.set('CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION', undefined)
+    quieted = false
+  } catch { /* stays off for this process */ }
+}
+
+function registerDemo(on) {
+  // a compaction is a model request of its own (/compact made 2 in a demo session, Claude Code 2.1.326) and no
+  // turn.step: in the demo it is skipped, and the conversation stays as it is
+  on('session.compact', async ($, e, next) => {
+    if (await inDemo($) === false) return next(e)
+    return { skip: COMPACT_SKIP }
+  }).catch(async ($, e, next) => {
+    if (next.called) return next(e)
+    let id = null
+    try { id = await $.session.id() } catch { id = null }
+    if (id !== null && demo.get(id) === false) return next(e)
+    return { skip: COMPACT_SKIP }
+  })
+  // every loop, main's and a subagent's: a step sends its request only for a session Python said is not in the demo.
+  // No answer, a malformed one or a timeout answers the step itself (fail closed, Gate A of the demo turn)
+  on('turn.step', async function * ($, e, next) {
+    if (await inDemo($) === false) return yield * next(e)
+    return yield * demoAnswer(e)
+  }).catch(async function * ($, e, next) {
+    // the hook failed: a request goes out only for a session this module knows is not in the demo
+    if (next.called) return yield * next(e)
+    let id = null
+    try { id = await $.session.id() } catch { id = null }
+    if (id !== null && demo.get(id) === false) return yield * next(e)
+    return yield * demoAnswer(e)
+  })
+}
+
+// ---- the /maisecrets panel
+// /maisecrets (a command of this mod) and /maisecrets:settings typed by the person open a panel: the settings, the
+// stored values, the name service. /maisecrets:settings is dropped before its command file renders and /maisecrets
+// answers with no text, so the model gets no turn. Each press is the person's act: the mod hands it to
+// `hooks/dispatch.py mod-settings` (maisecrets/hub.py), which changes it through the writer of the typed path. A tool
+// call that names that entry is refused (shell_commands.py). Codex and claude -p keep the text view: no panel is placed
+// there.
+const SETTINGS_PANE = 'maisecrets-settings'
+const SETTINGS_CMD = /^\s*\/maisecrets:settings(?:\s+(?:all|--all))?\s*$/i
+const NARROW = 90       // below this many columns the choices go under the name
+const pane = { sub: null, groups: [], note: null, status: null, statusSession: null, notes: [],
+  showNotes: false, error: null, view: null }
+
+async function runSettings($, stdin) {
+  const init = { cwd: $.plugin.root, stdin, timeoutMs: ASK_MS, env: { PYTHONUTF8: '1' } }
+  for (const argv of [['python3', 'hooks/dispatch.py', 'mod-settings'], ['py', '-3', 'hooks/dispatch.py', 'mod-settings'],
+    ['python', 'hooks/dispatch.py', 'mod-settings']]) {
+    try {
+      const r = await $.process.run(argv, init)
+      if (r.exitCode === 0) return r
+    } catch {
+      // this Python cannot start or timed out: the next one
+    }
+  }
+  return null
+}
+
+async function askEntry($, question) {
+  const r = await runSettings($, JSON.stringify(question))
+  try {
+    const a = r ? JSON.parse(r.stdout) : null
+    return a && a.maisecrets === 'mod-settings' ? a : null
+  } catch {
+    return null
+  }
+}
+
+async function askSettings($, question) {
+  const a = await askEntry($, question)
+  if (!a || !Array.isArray(a.groups)) {
+    pane.error = 'maisecrets could not read its settings. /maisecrets:status shows why.'
+    return false
+  }
+  pane.groups = a.groups
+  if (question.action !== 'list') pane.note = typeof a.note === 'string' ? a.note : null
+  pane.error = null
+  return true
+}
+
+const paneRows = () => pane.groups.reduce((n, g) => n + 1 + 2 * g.items.length, 0) + 8
+
+const openArgs = () => ({ id: SETTINGS_PANE, title: 'maisecrets', focus: true, closeOnEscape: true,
+  rows: paneRows(), columns: 100 })
+
+// the verdict /maisecrets:status prints first, for this session: "checking…" until it comes, then its head line.
+// Kept per session: a new open shows the last line at once and asks again in the background
+async function refreshStatus($) {
+  let id = null
+  try { id = await $.session.id() } catch { id = null }
+  if (pane.statusSession !== id) {
+    pane.status = 'maisecrets: checking…'; pane.statusSession = id; pane.notes = []
+    pane.showNotes = false
+  }
+  const t0 = await $.clock.now()
+  const a = await askEntry($, { action: 'status', session_id: id })
+  if (pane.statusSession !== id) return
+  pane.status = a && typeof a.line === 'string' ? a.line : 'maisecrets: the status is unknown → /maisecrets:status'
+  pane.notes = a && Array.isArray(a.notes) ? a.notes.filter(n => n && typeof n.name === 'string') : []
+  if (!pane.notes.length) pane.showNotes = false
+  pane.statusMs = Math.round((await $.clock.now()) - t0)
+  try { $.ui.log(`maisecrets hub: status in ${pane.statusMs} ms`, { to: 'debug' }) } catch { /* no log */ }
+  $.ui.invalidate('ui.render')
+}
+
+async function openSettings($) {
+  // the rows of the last answer draw at once; a fresh answer follows in the background (a change made by a typed
+  // prompt or another session shows a moment later)
+  const cached = pane.groups.length > 0
+  pane.note = null
+  pane.view = null
+  pane.sub = null
+  if (!cached && !(await askSettings($, { action: 'list' }))) return false
+  if (cached) void askSettings($, { action: 'list' }).then(() => $.ui.invalidate('ui.render')).catch(() => {})
+  void refreshStatus($).catch(() => {})
+  const opened = await $.ui.open(openArgs())
+  if (!opened?.isPlaced) {
+    try { await $.ui.close({ id: SETTINGS_PANE }) } catch { /* not open */ }
+    return false
+  }
+  $.ui.invalidate('ui.render')
+  return true
+}
+
+async function pick($, key, value) {
+  const t0 = await $.clock.now()
+  await askSettings($, { action: 'set', key, value })
+  try { $.ui.log(`maisecrets hub: ${key} saved in ${Math.round((await $.clock.now()) - t0)} ms`, { to: 'debug' }) }
+  catch { /* no log */ }
+  if (key === 'show_values') {
+    try { await askValues($, []) } catch { /* the mode stays */ }
+  }
+  $.ui.invalidate('ui.render')
+}
+
+// ---- the views of the hub: stored values, name service (each change goes through the pane entry: the person's press)
+async function showValues($, offset = 0) {
+  pane.view = 'values'
+  pane.confirm = null
+  const a = await askEntry($, { action: 'values', offset })
+  pane.values = a && Array.isArray(a.rows) ? a : { rows: [], total: 0, offset: 0, error: true }
+  pane.viewNote = null
+  $.ui.invalidate('ui.render')
+}
+
+// the sentence the entry wants with a wipe (maisecrets/hub.py WIPE_CONFIRM), sent only after the person's yes
+const WIPE_CONFIRM = 'forget every stored value'
+
+async function valuesAction($, action, key) {
+  const question = { action, key, session_id: await $.session.id().catch(() => null) }
+  if (action === 'forget_all') question.confirm = WIPE_CONFIRM
+  const a = await askEntry($, question)
+  pane.confirm = null
+  if (a && Array.isArray(a.rows)) pane.values = a
+  pane.viewNote = a && typeof a.note === 'string' ? a.note : 'maisecrets could not do that.'
+  $.ui.invalidate('ui.render')
+}
+
+async function showNer($) {
+  pane.view = 'ner'
+  pane.nerSub = null
+  pane.viewNote = null
+  await loadNer($)
+}
+
+async function loadNer($, question = { action: 'ner' }) {
+  const a = await askEntry($, question)
+  if (a && typeof a.source === 'string') pane.ner = a
+  if (a && typeof a.note === 'string') pane.viewNote = a.note
+  pane.login = a && typeof a.login === 'string' ? a.login : null
+  $.ui.invalidate('ui.render')
+  return a
+}
+
+function pollNer($, left) {
+  // the container downloads and loads its model: look again every 5 s, for about two minutes
+  if (left <= 0 || pane.view !== 'ner') { pane.starting = false; $.ui.invalidate('ui.render'); return }
+  try {
+    $.clock.after(5000, () => { void loadNer($).then(() => pollNer($, left - 1)).catch(() => {}) })
+  } catch { pane.starting = false }
+}
+
+async function setNer($, value) {
+  pane.nerSub = null
+  const a = await loadNer($, { action: 'ner_set', value })
+  if (a && a.starting) { pane.starting = true; pollNer($, 24) }
+}
+
+async function fillPrompt($, text) {
+  try { await $.ui.close({ id: SETTINGS_PANE }) } catch { /* closed already */ }
+  try { await $.prompt.fill({ text }) } catch { /* the box stays as it is */ }
+}
+
+function drawCountries($, e, Box, Text, Button) {
+  const it = pane.groups.flatMap(g => g.items).find(i => i.key === 'regions')
+  if (!it) { pane.sub = null; return null }
+  const toggles = it.choices.map(c => {
+    const on = Array.isArray(it.values) && it.values.includes(c)
+    return h(Box, { marginRight: 1, flexShrink: 0, key: `b:${c}` }, h(Button, { key: `set:regions:${c}`,
+      label: on ? `● ${c}` : c, variant: on ? 'primary' : undefined, dimColor: !on,
+      onPress: () => pick($, 'regions', c) }))
+  })
+  return h(Box, { flexDirection: 'column' },
+    h(Text, { bold: true, key: 't' }, 'Countries for personal data'),
+    h(Text, { dimColor: true, key: 'd' }, 'auto = the country of this computer. Pick one or more; auto clears them.'),
+    pane.note ? h(Text, { color: 'green', key: 'note' }, pane.note) : h(Text, { key: 'sp' }, ' '),
+    h(Box, { flexDirection: 'row', flexWrap: 'wrap', key: 'c' }, ...toggles),
+    h(Box, { flexDirection: 'row', marginTop: 1, key: 'f' },
+      h(Box, { marginRight: 2, key: 'back' }, h(Button, { key: 'back', label: 'Back', autoFocus: true,
+        onPress: () => { pane.sub = null; $.ui.invalidate('ui.render') } })),
+      h(Button, { key: 'close', label: 'Close', role: 'dismiss', onPress: () => $.ui.close({ id: SETTINGS_PANE }) })))
+}
+
+async function checkOldLeaks($) {
+  try { await $.ui.close({ id: SETTINGS_PANE }) } catch { /* closed already */ }
+  try { await $.prompt.fill({ text: '/maisecrets:secret-hygiene' }) } catch { /* the box stays as it is */ }
+}
+
+function viewFoot($, Box, Button, extra = []) {
+  return h(Box, { flexDirection: 'row', flexWrap: 'wrap', marginTop: 1, key: 'vfoot' }, ...extra,
+    h(Box, { marginRight: 1, key: 'back' }, h(Button, { key: 'back', label: 'Back',
+      onPress: () => { pane.view = null; $.ui.invalidate('ui.render') } })),
+    h(Button, { key: 'close', label: 'Close', role: 'dismiss', onPress: () => $.ui.close({ id: SETTINGS_PANE }) }))
+}
+
+const btn = (Box, Button, key, label, onPress, extra = {}) =>
+  h(Box, { marginRight: 1, flexShrink: 0, key: `b:${key}` }, h(Button, { key, label, onPress, ...extra }))
+
+function drawValues($, e, Box, Text, Button) {
+  const v = pane.values || { rows: [], total: 0, offset: 0 }
+  const rows = [h(Text, { bold: true, key: 't' }, `Stored values (${v.total})`)]
+  rows.push(h(Text, { dimColor: true, key: 'd' }, 'Newest first. Only the masked form is shown, never a value.'))
+  if (pane.viewNote) rows.push(h(Text, { color: 'green', key: 'note' }, pane.viewNote))
+  if (v.error) rows.push(h(Text, { color: 'red', key: 'err' }, 'maisecrets could not read the store.'))
+  if (!v.rows.length && !v.error) rows.push(h(Text, { key: 'none' }, 'Nothing is stored.'))
+  for (const r of v.rows) {
+    rows.push(h(Box, { marginTop: 1, key: `r:${r.key}` },
+      h(Text, { bold: true }, `${r.key}`), h(Text, {}, `  ${r.shown}`),
+      h(Text, { dimColor: true }, `  ${r.age} · ${r.uses} use${r.uses === 1 ? '' : 's'} · ${r.expires}`)))
+    const c = pane.confirm
+    if (c && c.key === r.key) {
+      const q = c.action === 'forget' ? `Forget ${r.key}?` : `${r.key} is no secret, never mask it again?`
+      rows.push(h(Box, { flexDirection: 'row', marginLeft: 2, key: `c:${r.key}` },
+        h(Box, { marginRight: 1, key: 'q' }, h(Text, { color: 'yellow' }, q)),
+        btn(Box, Button, `yes:${r.key}`, 'yes', () => valuesAction($, c.action, r.key), { autoFocus: true }),
+        btn(Box, Button, `no:${r.key}`, 'no', () => { pane.confirm = null; $.ui.invalidate('ui.render') })))
+    } else if (r.live) {
+      rows.push(h(Box, { flexDirection: 'row', marginLeft: 2, key: `a:${r.key}` },
+        btn(Box, Button, `forget:${r.key}`, 'forget', () => {
+          pane.confirm = { action: 'forget', key: r.key }; $.ui.invalidate('ui.render') }, { dimColor: true }),
+        btn(Box, Button, `allow:${r.key}`, 'not a secret', async () => {
+          // the first of the two steps a typed prompt takes; the yes below is the second
+          await askEntry($, { action: 'allow_ask', key: r.key, session_id: await $.session.id().catch(() => null) })
+          pane.confirm = { action: 'allow', key: r.key }; $.ui.invalidate('ui.render') }, { dimColor: true })))
+    }
+  }
+  const extra = []
+  if (v.offset > 0) extra.push(btn(Box, Button, 'newer', 'newer', () => showValues($, Math.max(0, v.offset - 20))))
+  if (v.offset + v.rows.length < v.total) extra.push(btn(Box, Button, 'more', 'more', () => showValues($, v.offset + 20)))
+  if (v.total > 0) {
+    if (pane.confirm && pane.confirm.action === 'all') {
+      extra.push(h(Box, { marginRight: 1, key: 'qa' }, h(Text, { color: 'yellow' }, 'Forget every stored value? The logs and records stay.')))
+      extra.push(btn(Box, Button, 'yes:all', 'yes', () => valuesAction($, 'forget_all', ''), { autoFocus: true }))
+      extra.push(btn(Box, Button, 'no:all', 'no', () => { pane.confirm = null; $.ui.invalidate('ui.render') }))
+    } else {
+      extra.push(btn(Box, Button, 'forget-all', 'forget all…', () => {
+        pane.confirm = { action: 'all' }; $.ui.invalidate('ui.render') }, { dimColor: true }))
+    }
+  }
+  rows.push(viewFoot($, Box, Button, extra))
+  return h(Box, { flexDirection: 'column' }, ...rows)
+}
+
+function drawNer($, e, Box, Text, Button) {
+  const n = pane.ner || { source: 'off', lines: [], servers: [] }
+  const rows = [h(Text, { bold: true, key: 't' }, 'Name service'),
+    h(Text, { dimColor: true, key: 'd' }, 'A service that finds names in tool results, after the rules.')]
+  if (n.locked) {
+    rows.push(h(Text, { bold: true, key: 'lk' }, `${n.source} ⚙  set by your admin`))
+  } else if (pane.nerSub === 'local') {
+    rows.push(h(Box, { marginTop: 1, key: 'lq' }, h(Text, { color: 'yellow' },
+      'local downloads the image mcpgate/ner (about 690 MB) and runs it on 127.0.0.1 only.')))
+    rows.push(h(Box, { flexDirection: 'row', key: 'lb' },
+      btn(Box, Button, 'start', 'start', () => setNer($, 'local'), { autoFocus: true, variant: 'primary' }),
+      btn(Box, Button, 'cancel', 'cancel', () => { pane.nerSub = null; $.ui.invalidate('ui.render') })))
+  } else if (pane.nerSub === 'gateway') {
+    rows.push(h(Box, { marginTop: 1, key: 'gq' }, h(Text, {}, 'The gateway of which MCP server?')))
+    if (!n.servers.length) {
+      rows.push(h(Text, { dimColor: true, key: 'gn' },
+        'Your configuration has no MCP server with an https address. /maisecrets:ner gateway URL takes one.'))
+    }
+    rows.push(h(Box, { flexDirection: 'row', flexWrap: 'wrap', key: 'gs' },
+      ...n.servers.map(s => btn(Box, Button, `gw:${s}`, s, () => setNer($, 'gateway:' + s))),
+      btn(Box, Button, 'cancel', 'cancel', () => { pane.nerSub = null; $.ui.invalidate('ui.render') })))
+  } else {
+    const choice = (key, label, onPress) => btn(Box, Button, `ner:${key}`, n.source === key ? `● ${label}` : label,
+      onPress, n.source === key ? { variant: 'primary' } : { dimColor: true })
+    rows.push(h(Box, { flexDirection: 'row', flexWrap: 'wrap', marginTop: 1, key: 'src' },
+      choice('off', 'off', () => setNer($, 'off')),
+      choice('local', 'local', () => { pane.nerSub = 'local'; $.ui.invalidate('ui.render') }),
+      choice('url', 'url…', () => fillPrompt($, '/maisecrets:ner url ')),
+      choice('gateway', n.source === 'gateway' && n.gateway_name ? `gateway: ${n.gateway_name}` : 'gateway…',
+        () => { pane.nerSub = 'gateway'; $.ui.invalidate('ui.render') })))
+  }
+  if (pane.viewNote) rows.push(h(Text, { color: 'green', key: 'note' }, pane.viewNote))
+  if (pane.login) {
+    rows.push(h(Box, { flexDirection: 'row', key: 'login' },
+      h(Box, { marginRight: 1, key: 'lt' }, h(Text, {}, 'The gateway may need a login:')),
+      btn(Box, Button, 'login', 'log in', () => fillPrompt($, `/maisecrets:sref login ${pane.login}`))))
+  }
+  if (pane.starting) rows.push(h(Text, { color: 'yellow', key: 'st' }, 'starting… (the download can take minutes)'))
+  rows.push(h(Box, { flexDirection: 'column', marginTop: 1, key: 'lines' },
+    ...n.lines.map((l, i) => h(Text, { key: `l${i}` }, l || ' '))))
+  rows.push(viewFoot($, Box, Button))
+  return h(Box, { flexDirection: 'column' }, ...rows)
+}
+
+function drawSettings($, e) {
+  const { Box, Text, Button } = $.ui.resolve(e)
+  if (pane.view === 'values') return drawValues($, e, Box, Text, Button)
+  if (pane.view === 'ner') return drawNer($, e, Box, Text, Button)
+  if (pane.sub === 'regions') { const t = drawCountries($, e, Box, Text, Button); if (t) return t }
+  const narrow = (e.props?.bodyColumns ?? 100) < NARROW
+  const rows = []
+  // the top stays in view on a short terminal: the status, the last change, the buttons
+  if (pane.status) {
+    const line = [h(Text, { bold: true, key: 'status' }, pane.status)]
+    if (pane.notes.length) {
+      line.push(h(Box, { marginLeft: 1, flexShrink: 0, key: 'nb' }, h(Button, { key: 'notes',
+        label: `${pane.notes.length} note${pane.notes.length === 1 ? '' : 's'}`,
+        onPress: () => { pane.showNotes = !pane.showNotes; $.ui.invalidate('ui.render') } })))
+    }
+    rows.push(h(Box, { flexDirection: 'row', flexWrap: 'wrap', key: 'sl' }, ...line))
+    if (pane.showNotes) {
+      for (const n of pane.notes) {
+        rows.push(h(Text, { key: `n:${n.name}` }, `  ! ${n.name}: ${n.fact}` + (n.next ? ` → ${n.next}` : '')))
+      }
+    }
+  }
+  if (pane.error) rows.push(h(Text, { color: 'red', key: 'err' }, pane.error))
+  else if (pane.note) rows.push(h(Text, { color: 'green', key: 'note' }, pane.note))
+  const foot = [['stored', 'Stored values', () => showValues($, 0)],
+    ['names', 'Name service', () => showNer($)],
+    ['leaks', 'Check old leaks', () => checkOldLeaks($)]]
+    .map(([key, label, onPress]) => h(Box, { marginRight: 1, flexShrink: 0, key }, h(Button, { key, label, onPress })))
+  foot.push(h(Button, { key: 'close', label: 'Close', role: 'dismiss', onPress: () => $.ui.close({ id: SETTINGS_PANE }) }))
+  rows.push(h(Box, { flexDirection: 'row', flexWrap: 'wrap', marginTop: 1, key: 'foot' }, ...foot))
+  let focus = true
+  for (const g of pane.groups) {
+    rows.push(h(Box, { marginTop: 1, key: `g:${g.title}` }, h(Text, { bold: true }, g.title)))
+    for (const it of g.items) {
+      const cells = []
+      if (it.locked) {
+        cells.push(h(Text, { bold: true, key: 'v' }, `${it.value} ⚙`))
+        cells.push(h(Text, { dimColor: true, key: 'why' }, '  set by your admin'))
+      } else if (it.list) {
+        // a list: its entries, and the prompt box for a change (the person types the folder, host or file)
+        cells.push(h(Box, { marginRight: 1, flexShrink: 1, key: 'v' },
+          h(Text, { bold: true, wrap: 'truncate-end' }, it.value + (it.mark ? ` ${it.mark}` : ''))))
+        cells.push(h(Box, { marginRight: 1, flexShrink: 0, key: 'add' }, h(Button, { key: `add:${it.key}`,
+          label: 'add…', onPress: () => fillPrompt($, `/maisecrets:settings ${it.key} add `) })))
+        if (it.count > 0) {
+          cells.push(h(Box, { flexShrink: 0, key: 'rm' }, h(Button, { key: `remove:${it.key}`, label: 'remove…',
+            onPress: () => fillPrompt($, `/maisecrets:settings ${it.key} remove `) })))
+        }
+      } else if (it.multi) {
+        // the countries: compact here, the toggles in their own view
+        const isAuto = Array.isArray(it.values) && it.values.length === 1 && it.values[0] === 'auto'
+        if (isAuto) {
+          cells.push(h(Box, { marginRight: 1, flexShrink: 0, key: 'auto' }, h(Button, { key: 'set:regions:auto',
+            label: `● auto${it.mark ? ' ' + it.mark : ''}`, variant: 'primary', onPress: () => pick($, 'regions', 'auto') })))
+        } else {
+          cells.push(h(Box, { marginRight: 1, key: 'v' }, h(Text, { bold: true }, it.value + (it.mark ? ` ${it.mark}` : ''))))
+        }
+        cells.push(h(Box, { flexShrink: 0, key: 'choose' }, h(Button, { key: 'regions:choose',
+          label: isAuto ? 'choose…' : 'change…', onPress: () => { pane.sub = 'regions'; $.ui.invalidate('ui.render') } })))
+      } else if (!it.choices.length) {
+        cells.push(h(Text, { bold: true, key: 'v' }, it.value + (it.mark ? ` ${it.mark}` : '')))
+      } else {
+        for (const c of it.choices) {
+          // several countries: a toggle per code; one value: the current one
+          const now = it.multi && Array.isArray(it.values) ? it.values.includes(c) : c === it.value
+          const shown = (it.labels && it.labels[c]) || c
+          const props = { key: `set:${it.key}:${c}`, label: now ? `● ${shown}${it.mark ? ' ' + it.mark : ''}` : shown,
+            onPress: () => pick($, it.key, c) }
+          if (now) props.variant = 'primary'
+          else props.dimColor = true
+          if (now && focus) { props.autoFocus = true; focus = false }
+          cells.push(h(Box, { marginRight: 1, flexShrink: 0, key: `b:${c}` }, h(Button, props)))
+        }
+      }
+      const label = h(Text, { key: 'label', wrap: 'truncate-end' }, '  ' + it.label)
+      if (narrow) {
+        rows.push(h(Box, { flexDirection: 'column', key: `r:${it.key}` }, label,
+          h(Box, { flexDirection: 'row', flexWrap: 'wrap', marginLeft: 4, key: 'c' }, ...cells)))
+      } else {
+        rows.push(h(Box, { flexDirection: 'row', key: `r:${it.key}` },
+          h(Box, { width: 44, flexShrink: 0, key: 'l' }, label), h(Box, { flexDirection: 'row', key: 'c' }, ...cells)))
+      }
+    }
+  }
+  rows.push(h(Box, { marginTop: 1, key: 'help' }, h(Text, { dimColor: true },
+    'Tab or arrows move · Enter picks · Esc closes')))
+  return h(Box, { flexDirection: 'column' }, ...rows)
+}
+
+// the engine puts a dropped prompt back into the box, and a pane takes the keys only over an empty composer: empty it
+// once the drop landed, then ask for the keys again
+function takeKeysSoon($) {
+  try {
+    $.clock.after(60, () => {
+      void (async () => {
+        try { await $.prompt.fill({ text: '' }) } catch { /* the text stays */ }
+        try { await $.ui.open(openArgs()) } catch { /* open without the keys */ }
+      })()
+    })
+  } catch { /* no timer: the pane is open without the keys */ }
+}
+
+function registerSettingsPane(on) {
+  on('ui.render', { component: 'Pane', requestId: SETTINGS_PANE }, async ($, e) => drawSettings($, e))
+  // /maisecrets: the menu. A mod's own command, served here with no model turn (a typed /maisecrets alone is no
+  // command file: the typeahead would turn it into the first /maisecrets:… command on Enter)
+  on('command.run', { command: 'maisecrets' }, async ($) => {
+    const t0 = await $.clock.now()
+    let opened = false
+    try { opened = await openSettings($) } catch { opened = false }
+    if (!opened) return { text: '/maisecrets:status shows the protection, /maisecrets:settings the settings.' }
+    takeKeysSoon($)
+    // no text: a plugin command's text goes into the next request; the time goes to the pane's own line
+    try { $.ui.log(`maisecrets hub: opened in ${Math.round((await $.clock.now()) - t0)} ms`, { to: 'debug' }) }
+    catch { /* no log */ }
+    return {}
+  })
+}
+
 export function register(on) {
+  registerDemo(on)
   // the values on the person's screen (the part above): one hooks module per plugin, so it registers from here
   registerShowValues(on)
+  registerSettingsPane(on)
   on('prompt.submit', async ($, e, next) => {
+    // only the demo command changes whether a session is in the demo: the next model step asks again then. A demo
+    // session is left only with /clear, a new session id, which asks anew
+    if (DEMO_CMD.test(e.text ?? '')) {
+      try { demo.delete(await $.session.id()) } catch { /* the step asks */ }
+    }
     if (!PERSON.has(e.origin?.kind)) return next(e)
     afterPrompt($, e.text)
+    const asked = SETTINGS_CMD.exec(e.text)
+    if (asked) {
+      // the panel in place of the text view; the command never renders, so the model gets no turn
+      let opened = false
+      const t0 = await $.clock.now()
+      try { opened = await openSettings($) } catch { opened = false }
+      if (opened) {
+        takeKeysSoon($)
+        try { $.ui.log(`maisecrets hub: opened in ${Math.round((await $.clock.now()) - t0)} ms`, { to: 'debug' }) }
+        catch { /* no log */ }
+        return { drop: 'maisecrets: the panel is open above. Esc closes it.' }
+      }
+    }
     if (SLASH.test(e.text)) return next(e)
     if (CHECK.test(e.text)) {
       // a check of a value is never passed on: the verdict, or this sentence when Python gives none in time
@@ -497,9 +1023,16 @@ export function register(on) {
     } catch {
       // the hook decides it
     }
-    // the demo (maisecrets/demo.py): every prompt of the session is answered and dropped, never sent
+    // a prompt of a session out of the demo: the client's next-prompt guess comes back (only if the demo switched it)
+    try { if (demo.get(await $.session.id()) === false) await loudAgain($) } catch { /* it stays off */ }
+    // a drop (a damaged demo state): never sent
     if (answer && typeof answer.drop === 'string') return { drop: answer.drop }
     if (!answer || typeof answer.text !== 'string') return next(e)
+    // the demo: the masked prompt enters as the person's row; its model steps are answered above, none is sent
+    if (answer.demo === true) {
+      await quietForTheDemo($)
+      return next({ ...e, text: answer.text })
+    }
     try {
       // count 0: the prompt goes on as typed, with a note (the name service did not check it)
       if (answer.count > 0) $.ui.log(`maisecrets masked ${answer.count} value(s) before the prompt was sent`)

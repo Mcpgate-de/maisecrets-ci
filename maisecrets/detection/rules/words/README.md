@@ -79,9 +79,14 @@ Words that the name service (NER) takes for a person when they stand alone.
 | File | Effect | What it holds |
 |---|---|---|
 | `name-service/greetings.txt` | less | greetings and salutations that are no person alone. |
+| `name-service/hook-events.txt` | less | the hook events of Claude Code and Codex: a tool name after PostToolUse: is no person. |
+| `name-service/never-a-name.txt` | less | words that are never a name in any language: no person alone, and never stored. |
+| `name-service/path-words.txt` | less | the folder names of a file path: no person next to a / or a \\. |
 | `name-service/product-name-tails.txt` | less | words after a product word in a product name: Claude Code, GitHub Actions. |
+| `name-service/product-tails-that-are-names.txt` | more | words of product-name-tails that stay a name after a product word: Server. |
 | `name-service/product-words.txt` | less | product and model words that the name service takes for a person when they stand alone. |
 | `name-service/test-runner-words.txt` | less | words of a test runner's or a build's summary line that are no person alone. |
+| `name-service/tool-names.txt` | less | the tool names of Claude Code and Codex: no person in a hook label or a tool context. |
 | `name-service/ui-labels.txt` | less | button and UI label words that are no person alone. |
 
 ## names/

@@ -498,7 +498,7 @@ class SyncedInstallTests(_Env):
         (self.claude / "settings.json").write_text(json.dumps({"model": "x"}))
         self.account("org-1", "acc-1", synced=False)
         msg = self.start(copy)
-        self.assertIn("is on", msg)
+        self.assertIn("test store", msg)
         self.assertIn("registered its guard", msg)
         written = json.loads(Path(HOME, "guard.json").read_text())
         self.assertEqual((written["accounts"], written["root"]), (["org-1_acc-1"], str(copy.resolve())))
@@ -566,7 +566,7 @@ class SyncedInstallTests(_Env):
         for text in ("[]", json.dumps({"hooks": "x"}), json.dumps({"hooks": {"PreToolUse": ["x", 3]}})):
             with self.subTest(text):
                 (self.claude / "settings.json").write_text(text)
-                self.assertIn("is on", self.start(copy))
+                self.assertIn("test store", self.start(copy))
                 self.assertEqual((self.claude / "settings.json").read_text(), text)
 
     def test_off_from_a_terminal_survives_the_next_session_start(self):
@@ -636,7 +636,7 @@ class SyncedInstallTests(_Env):
         copy = self.synced_copy()
         (self.claude / "settings.json").write_text("{not json")
         msg = self.start(copy)
-        self.assertIn("is on", msg)
+        self.assertIn("test store", msg)
         self.assertEqual((self.claude / "settings.json").read_text(), "{not json")
 
     def test_the_managed_settings_use_the_plugins_matchers_and_answer_without_the_script(self):

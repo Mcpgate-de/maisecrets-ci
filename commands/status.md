@@ -1,5 +1,5 @@
 ---
-description: Show on one screen whether maisecrets protects this session - one short line per check, with the next step. /maisecrets:status all adds the details (version, plugin folder, Python, store, policy, counts); /maisecrets:status test proves both protection paths. No stored value is printed.
+description: "Show whether maisecrets protects this session now"
 argument-hint: "[all | test]"
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" status), Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" status all), Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" status test), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" status), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" status all), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" status test)
 ---

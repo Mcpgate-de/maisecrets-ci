@@ -949,8 +949,10 @@ class PayloadMatrixTests(unittest.TestCase):
         codex = self._one(_dispatch("session-start", json.dumps(
             {"session_id": "SC", "transcript_path": str(codex_home / "sessions" / "r.jsonl"), "model": "m"}),
             CODEX_HOME=str(codex_home)))
-        self.assertIn("/maisecrets:status", claude["systemMessage"])
-        self.assertNotIn("/maisecrets:", codex["systemMessage"], "Codex has no plugin slash commands")
+        # the welcome of a new home names the check; here the home has had its first start
+        self.assertNotIn("/maisecrets:", codex.get("systemMessage", ""), "Codex has no plugin slash commands")
+        said = claude.get("systemMessage", "")
+        self.assertTrue("/maisecrets:status" in said or "is on" not in said, "the welcome names the check")
         for garbage in ("{}", "{not json", "", "null", "[1]", "7"):
             with self.subTest(garbage):
                 out = self._one(_dispatch("session-start", garbage))

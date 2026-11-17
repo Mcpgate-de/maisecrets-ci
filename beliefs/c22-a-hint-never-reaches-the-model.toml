@@ -1,0 +1,10 @@
+# c22-a-hint-never-reaches-the-model: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c22-a-hint-never-reaches-the-model"
+control = "C22"
+statement = "A hint is one fixed line for the person (the hook's systemMessage); the model gets nothing of it, so it cannot word it again or repeat it (field report 2026-11-17)."
+runner = ["tests/test_settings.py::Hint::test_the_first_ssh_write_gives_the_hint_once"]
+
+[proof]
+file = "maisecrets/hooks.py"
+find = "    return _with_notice(result, hint) if hint else result\n\n\ndef _post_tool_guarded"
+replace = "    if hint:\n        result = _with_notice(result, hint)\n        result[\"hookSpecificOutput\"] = {\"hookEventName\": \"PostToolUse\", \"additionalContext\": hint}\n    return result\n\n\ndef _post_tool_guarded"

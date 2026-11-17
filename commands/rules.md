@@ -1,5 +1,5 @@
 ---
-description: Show the detection rules of your own - each rule folder, how many rules it loaded, its hash, and each rule that was left out with the check it failed. No value is printed.
+description: "Show your own detection rules and what each loaded"
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" rules), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" rules)
 ---
 

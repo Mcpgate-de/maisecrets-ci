@@ -1,5 +1,5 @@
 ---
-description: Your term lists - names, case numbers and customer names that maisecrets masks. Add one with /maisecrets:term add NAME, remove one with /maisecrets:term remove NAME (as your own prompt). No term is printed.
+description: "Mask your own words: names, case numbers, customers. Type add/remove yourself"
 argument-hint: "[add NAME | remove NAME]"
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" terms), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" terms)
 ---

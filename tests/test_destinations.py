@@ -1,5 +1,5 @@
 """Secret destinations, observe mode (Mcpgate-de/maisecrets#13, maisecrets/destinations.py): maisecrets notes where
-each stored secret goes, never stops a call for it, keeps `seen` apart from `allowed`, and gives the AI one hint at
+each stored secret goes, never stops a call for it, keeps `seen` apart from `allowed`, and gives the person one hint at
 the first pattern break on a network destination."""
 from __future__ import annotations
 
@@ -20,11 +20,12 @@ import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
 from maisecrets import destinations, hooks, settings  # noqa: E402
 from maisecrets.vault import HOME, Vault, load_config  # noqa: E402
 import _hygiene  # noqa: E402
-from _hygiene import CLAUDE, CODEX  # noqa: E402
+from _hygiene import CLAUDE, CODEX, codex_rollout  # noqa: E402
 
 CONFIG = Path(HOME, "config.json")
 STORE = Path(HOME, "destinations.json")
 HINTS = Path(HOME, "hints.json")
+MARK = "a host it was not used with before"   # in the hint line, in both clients
 OPEN, CLOSE = "⟦", "⟧"        # the placeholder brackets, built so this file holds no placeholder
 _SERVED: list[str] = []
 
@@ -431,11 +432,12 @@ class Hint(unittest.TestCase):
         _typed()
         ref = _secret()
         self._establish(ref)
-        self.assertNotIn("maisecrets notes", json.dumps(_post()), "an established destination alone is no break")
+        self.assertNotIn(MARK, json.dumps(_post()), "an established destination alone is no break")
         _ran("Bash", {"command": _curl(ref, "other.example.net")})
         out = _post()
-        text = out["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("named a host that this secret was not used with before", text)
+        text = out["systemMessage"]
+        self.assertEqual(text, settings.HINTS["secret_destinations"]["claude"], "one fixed line for the person")
+        self.assertNotIn(MARK, json.dumps(out.get("hookSpecificOutput") or {}), "nothing of it for the model")
         self.assertIn("/maisecrets:list", text)
         self.assertNotIn("other.example.net", text, "the hint names no destination")
         self.assertNotIn(_key(ref), text, "and no secret")
@@ -443,14 +445,36 @@ class Hint(unittest.TestCase):
         ref2 = _secret("dest-probe-value-other-99")
         self._establish(ref2, "b.example.org")
         _ran("Bash", {"command": _curl(ref2, "c.example.org")})
-        self.assertNotIn("maisecrets notes", json.dumps(_post()))
+        self.assertNotIn(MARK, json.dumps(_post()))
 
     def test_one_use_short_of_the_threshold_is_no_break(self):
         _typed()
         ref = _secret()
         self._establish(ref, n=destinations.ESTABLISHED_USES - 1)
         _ran("Bash", {"command": _curl(ref, "other.example.net")})
-        self.assertNotIn("maisecrets notes", json.dumps(_post()))
+        self.assertNotIn(MARK, json.dumps(_post()))
+
+    def test_a_headless_run_neither_shows_nor_claims_the_hint(self):
+        _typed()
+        ref = _secret()
+        self._establish(ref)
+        _ran("Bash", {"command": _curl(ref, "other.example.net")})
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_ENTRYPOINT": "sdk-cli"}):
+            self.assertNotIn(MARK, json.dumps(_post()), "claude -p shows no systemMessage")
+        self.assertFalse(HINTS.exists(), "so the hint is not claimed")
+
+    def test_codex_exec_keeps_the_waiting_break_for_an_interactive_run_of_the_session(self):
+        # Gate A of 58af1883: the break was taken before the check, so codex exec used it up unseen
+        _typed()
+        ref = _secret()
+        self._establish(ref)
+        _ran("Bash", {"command": _curl(ref, "other.example.net")})
+        self.assertNotIn(MARK, json.dumps(_post(client={**CODEX, **codex_rollout("exec")})), "codex exec: no line")
+        self.assertIn("S1", json.loads(STORE.read_text())["pending_hint"], "the break still waits")
+        self.assertFalse(HINTS.exists(), "and the hint is not claimed")
+        out = _post(client={**CODEX, **codex_rollout("cli")})
+        self.assertEqual(out["systemMessage"], settings.HINTS["secret_destinations"]["codex"], "the terminal UI")
+        self.assertNotIn("S1", json.loads(STORE.read_text())["pending_hint"])
 
     def test_a_local_use_never_gives_the_hint(self):
         _typed()
@@ -458,7 +482,7 @@ class Hint(unittest.TestCase):
         self._establish(ref)
         _ran("Write", {"file_path": "/tmp/dest-probe/.env", "content": f"T={ref}\n"})
         _ran("Bash", {"command": f"printf '%s' {ref} > /tmp/dest-probe.txt"})
-        self.assertNotIn("maisecrets notes", json.dumps(_post()))
+        self.assertNotIn(MARK, json.dumps(_post()))
         self.assertNotIn("S1", json.loads(STORE.read_text())["pending_hint"])
 
     def test_a_prompt_in_a_subagent_does_not_make_the_session_interactive(self):
@@ -479,11 +503,11 @@ class Hint(unittest.TestCase):
                     real = destinations.note
                     with mock.patch.object(destinations, "note", lambda k, s, a, d: real(k, s, None, d)):
                         _ran("Bash", {"command": _curl(ref, "other.example.net")}, agent_id="sub1")
-                    self.assertNotIn("maisecrets notes", json.dumps(_post(agent_id="sub1")))
+                    self.assertNotIn(MARK, json.dumps(_post(agent_id="sub1")))
                 else:
                     _ran("Bash", {"command": _curl(ref, "other.example.net")}, agent_id="sub1")
                     with mock.patch.object(destinations, "take_pending", return_value=True):
-                        self.assertNotIn("maisecrets notes", json.dumps(_post(agent_id="sub1")))
+                        self.assertNotIn(MARK, json.dumps(_post(agent_id="sub1")))
 
     def test_off_takes_no_lock_after_a_call(self):
         _reset(secret_destinations="off")
@@ -502,17 +526,18 @@ class Hint(unittest.TestCase):
                 ref = _secret()
                 self._establish(ref)
                 _ran("Bash", {"command": _curl(ref, "other.example.net")}, **extra)
-                self.assertNotIn("maisecrets notes", json.dumps(_post(**extra)))
+                self.assertNotIn(MARK, json.dumps(_post(**extra)))
 
-    def test_codex_gets_the_hint_in_its_block_answer(self):
+    def test_codex_shows_the_hint_to_the_person_and_its_block_answer_keeps_the_output(self):
         _typed()
         ref = _secret()
         self._establish(ref)
         _ran("Bash", {"command": _curl(ref, "other.example.net")})
         result = {"decision": "block", "reason": "[maisecrets: the command ran and finished]\n\nok"}
         with mock.patch.object(hooks, "post_tool", return_value=result):
-            out = _post(client=CODEX)
-        self.assertIn("maisecrets: set secret_destinations observe", out["reason"])
+            out = _post(client={**CODEX, **codex_rollout("cli")})
+        self.assertEqual(out["reason"], result["reason"], "the reason is what the model reads: no hint in it")
+        self.assertEqual(out["systemMessage"], settings.HINTS["secret_destinations"]["codex"])
 
 
 def _reset_keep(**user) -> None:
@@ -571,8 +596,8 @@ class Shown(unittest.TestCase):
     def test_the_settings_card_names_the_mode_and_what_was_seen(self):
         ref = _secret()
         _ran("Bash", {"command": _curl(ref, "api.example.com")})
-        text = settings.render()
-        self.assertIn("Where secrets were sent · observe · not decided", text)
+        text = settings.render(only="secret_destinations")
+        self.assertIn("Where secrets were sent (secret_destinations) · observe · (default)", text)
         self.assertIn("Seen so far: 1 secret(s), 1 destination(s), 0 with more than one.", text)
         self.assertIn("protect would have asked about 0 time(s) in the last 1 day(s), for 0 secret(s): an "
                       "estimate", text)
@@ -580,8 +605,8 @@ class Shown(unittest.TestCase):
         self.assertEqual(settings.parse_prompt("/maisecrets:settings secret_destinations protect"),
                          ("secret_destinations", "protect"))
         self.assertTrue(settings.apply_typed("secret_destinations", "protect")[0])
-        text = settings.render()
-        self.assertIn("Where secrets were sent · protect · set by you", text)
+        text = settings.render(only="secret_destinations")
+        self.assertIn("Where secrets were sent (secret_destinations) · protect · set by you", text)
         self.assertIn("protect would have asked about 0 time(s)", text)
         self.assertNotIn("Ask before a new host:", text)
         self.assertIn("takes observe, protect, off", settings.apply_typed("secret_destinations", "ask")[1])
@@ -1001,10 +1026,9 @@ class SeenOnlyAfterTheCall(unittest.TestCase):
             self._ran(ref, "api.example.com", f"E{i}")
         _pre("Bash", {"command": _curl(ref, "other.example.net")}, tool_use_id="B1")
         self.assertEqual(json.loads(STORE.read_text())["pending_hint"], {}, "a declined break gives no hint")
-        self.assertNotIn("maisecrets notes", json.dumps(_post(tool_use_id="X9")))
+        self.assertNotIn(MARK, json.dumps(_post(tool_use_id="X9")))
         out = _post(tool_use_id="B1")
-        self.assertIn("named a host that this secret was not used with before",
-                      out["hookSpecificOutput"]["additionalContext"], "the break of the call that ran, in its answer")
+        self.assertIn(MARK, out["systemMessage"], "the break of the call that ran, in its answer")
 
     def _age(self, seconds: float) -> None:
         data = json.loads(STORE.read_text())
@@ -1047,10 +1071,9 @@ class SeenOnlyAfterTheCall(unittest.TestCase):
         out = hooks.HANDLERS["post-tool-failure"]({"hook_event_name": "PostToolUseFailure", "tool_name": "Bash",
                                                    "session_id": "S1", "tool_use_id": "B1", **CLAUDE,
                                                    "tool_input": {}, "error": "exit 1"})
-        self.assertEqual(out["hookSpecificOutput"]["hookEventName"], "PostToolUseFailure")
-        self.assertIn("named a host that this secret was not used with before",
-                      out["hookSpecificOutput"]["additionalContext"])
-        self.assertNotIn("maisecrets notes", json.dumps(_post(tool_use_id="X9")), "and not again on the next call")
+        self.assertIn(MARK, out["systemMessage"])
+        self.assertNotIn(MARK, json.dumps(out.get("hookSpecificOutput") or {}), "nothing of it for the model")
+        self.assertNotIn(MARK, json.dumps(_post(tool_use_id="X9")), "and not again on the next call")
 
     def test_a_pending_call_keeps_at_most_the_bound_of_destinations(self):
         _reset(max_resolves_per_hour=1000)
@@ -1068,7 +1091,8 @@ class SeenOnlyAfterTheCall(unittest.TestCase):
         with mock.patch.object(hooks, "_ssh_hint", return_value="SSH-HINT"), \
                 mock.patch.object(hooks, "_destination_hint", return_value="DEST-HINT"):
             out = hooks._with_hint({"session_id": "S1", **CLAUDE}, {})
-        text = out["hookSpecificOutput"]["additionalContext"]
+        self.assertNotIn("hookSpecificOutput", out, "a hint is no context for the model")
+        text = out["systemMessage"]
         self.assertIn("SSH-HINT", text)
         self.assertIn("DEST-HINT", text)
 

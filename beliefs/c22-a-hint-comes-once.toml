@@ -1,7 +1,7 @@
 # c22-a-hint-comes-once: the test owns the rule; this file names it and the mutation that must turn it red.
 belief = "c22-a-hint-comes-once"
 control = "C22"
-statement = "A hint goes to the model once per revision: of hooks that run at the same time only the one that recorded it gives it, and a record that cannot be written gives none."
+statement = "A hint goes to the person once per revision: of hooks that run at the same time only the one that recorded it gives it, and a record that cannot be written gives none."
 runner = ["tests/test_settings.py::Hint::test_an_unwritable_record_gives_no_hint_and_parallel_hooks_give_it_once"]
 
 [proof]

@@ -9,6 +9,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import platform
 import sys
 import threading
 import time
@@ -23,7 +24,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
 
-from maisecrets import cli, events, hooks, ner_setup, remote_layer, settings  # noqa: E402
+from maisecrets import cli, events, hooks, ner_setup, remote_layer, settings, vault  # noqa: E402
 from maisecrets.vault import HOME, load_config  # noqa: E402
 import _hygiene  # noqa: E402
 from _hygiene import CLAUDE, CODEX  # noqa: E402
@@ -152,20 +153,22 @@ class SetTests(unittest.TestCase):
     def test_a_sentence_inside_a_longer_prompt_is_text(self):
         self.assertIsNone(settings.parse_prompt("please run /maisecrets:ner local for me"))
 
-    def test_prompts_off_and_on_keep_the_source_and_off_is_a_weakening(self):
+    def test_the_old_prompts_switch_gets_the_valid_forms_and_changes_nothing(self):
         _prompt("/maisecrets:ner local")
-        out = _prompt("/maisecrets:ner prompts off")
-        self.assertIs(_conf()["prompts"], False)
-        self.assertIn("Your prompts keep the rules alone", json.dumps(out))
-        self.assertEqual(len(_weakened()), 1)
-        _prompt("/maisecrets:ner prompts off")
-        self.assertEqual(len(_weakened()), 1)              # already off: no second weakening
+        before = CONFIG.read_text()
+        for text in ("/maisecrets:ner prompts off", "/maisecrets:ner PROMPTS on"):
+            with self.subTest(text=text):
+                self.assertEqual(settings.parse_prompt(text), ("remote_detector", "ner:other:" + text[16:]))
+                out = json.dumps(_prompt(text))
+                self.assertIn("does not know", out)
+                self.assertNotIn("prompts on|off", out)
+                self.assertEqual(CONFIG.read_text(), before)
+        self.assertEqual(_weakened(), [])
+        # a new source drops the key an older version wrote
+        old = {"url": ner_setup.LOCAL_URL, "prompts": False}
+        CONFIG.write_text(json.dumps({**TEST_CONFIG, "remote_detector": old}))
         _prompt("/maisecrets:ner url http://127.0.0.1:9000/")
-        self.assertIs(_conf()["prompts"], False)            # a new source keeps the choice
-        out = _prompt("maisecrets: ner PROMPTS on", CODEX)
-        self.assertNotIn("prompts", _conf())
-        self.assertEqual(_conf()["url"], "http://127.0.0.1:9000/")
-        self.assertEqual(len(_weakened()), 1)
+        self.assertNotIn("prompts", json.loads(CONFIG.read_text())["remote_detector"])    # the file, not the read
         # an argument the command does not know is answered, and changes nothing
         self.assertEqual(settings.parse_prompt("/maisecrets:ner prompts maybe"),
                          ("remote_detector", "ner:other:prompts maybe"))
@@ -173,13 +176,20 @@ class SetTests(unittest.TestCase):
         self.assertIn("does not know", json.dumps(_prompt("/maisecrets:ner prompts maybe")))
         self.assertEqual(CONFIG.read_text(), before)
 
-    def test_a_subagent_does_not_turn_the_prompt_part_off(self):
-        _prompt("/maisecrets:ner local")
-        _prompt("/maisecrets:ner prompts off", {**CLAUDE, "source": "user"}, agent_id="sub")
-        self.assertNotIn("prompts", _conf())
-        out = hooks.pre_tool({"tool_name": "Bash", "session_id": "S1", **CLAUDE,
-                              "tool_input": {"command": "claude -p '/maisecrets:ner prompts off'"}})
-        self.assertEqual(json.dumps(out).count('"deny"'), 1, out)
+    def test_the_answer_of_each_source_says_that_prompts_go_there_too(self):
+        for text, want in (
+                ("/maisecrets:ner local", ner_setup.LOCAL_NOTE),
+                ("/maisecrets:ner url http://127.0.0.1:9000/", ner_setup.LOCAL_NOTE),
+                ("/maisecrets:ner url http://10.0.0.5:8765/",
+                 ner_setup.SENT_NOTE.format(where="that service")),
+                ("/maisecrets:ner gateway https://gw.example.com/mcp",
+                 ner_setup.SENT_NOTE.format(where="this gateway"))):
+            with self.subTest(text=text):
+                out = json.dumps(_prompt(text), ensure_ascii=False)
+                self.assertIn(want, out)
+                self.assertNotIn("does not", out)
+        self.assertIn("each prompt you type goes to", ner_setup.SENT_NOTE)
+        self.assertIn("stored values replaced by filler", ner_setup.SENT_NOTE)
 
     def test_turning_it_off_or_a_service_on_the_network_is_recorded_as_a_weakening(self):
         _prompt("/maisecrets:ner local")
@@ -269,10 +279,13 @@ class ReportTests(unittest.TestCase):
 
     def test_the_report_says_what_the_service_reads(self):
         self.assertIn("in your prompts in Claude Code. In Codex", ner_setup.scope({"url": ner_setup.LOCAL_URL}))
-        self.assertIn("Your prompts keep the rules alone",
+        self.assertIn("Your prompts go to http://10.0.0.5:8765/ for this, with the rules' findings as filler",
                       ner_setup.scope({"url": "http://10.0.0.5:8765/", "allow_network": True}))
-        self.assertIn("Your prompts keep the rules alone",
+        self.assertIn("Your prompts keep the rules alone: the machine policy",
                       ner_setup.scope({"url": ner_setup.LOCAL_URL, "prompts": False}))
+        net = {"url": "http://10.0.0.5:8765/", "allow_network": True}
+        self.assertIn("(on the network; tool results and your prompts;", ner_setup.describe(net))
+        self.assertIn("tool results only; prompts: the policy", ner_setup.describe({**net, "prompts": False}))
 
     def test_a_plain_http_setting_to_a_public_host_is_not_shown_as_answering(self):
         # a 0.8.6 setting with plain http to a public address: the detector refuses it at each connection, so the
@@ -415,8 +428,8 @@ class DownNoteTests(unittest.TestCase):
 
 class PromptNameTests(unittest.TestCase):
     """With a service on this computer, the mod's rewrite (Claude Code) turns the names of a prompt into placeholders;
-    nothing is blocked for a name. A service on the network and `"prompts": false` leave the prompt to the rules: the
-    home page promises that no prompt goes to a server by default."""
+    nothing is blocked for a name. Any source that is set reads a typed prompt; only a machine policy's
+    `"prompts": false` leaves it to the rules."""
 
     NAME = "Thomasina Weinbergerova"            # synthetic, no rule finds it
 
@@ -455,8 +468,22 @@ class PromptNameTests(unittest.TestCase):
         self.assertRegex(out.get("text", ""), r"\A⟦NAME_c\d+⟧ is a colleague of mine\Z")
         self.assertEqual(len(self.received), 1)
 
-    def test_prompts_false_leaves_the_prompt_to_the_rules(self):
-        self.assertEqual(self.rewrite(prompts=False), {})
+    def test_an_old_prompts_false_in_the_persons_file_no_longer_stops_the_service(self):
+        out = self.rewrite(prompts=False)
+        self.assertNotIn(self.NAME, out.get("text", ""))
+        self.assertEqual(out.get("count"), 1)
+        self.assertEqual(len(self.received), 1)
+
+    def test_only_a_machine_policy_keeps_prompts_from_the_service(self):
+        policy = Path(HOME, "policy-ner.json")
+        policy.write_text(json.dumps({"remote_detector": {"url": self.url, "format": "hf", "prompts": False}}))
+        self.addCleanup(policy.unlink)
+        _reset()
+        with mock.patch.dict(vault.POLICY_PATHS, {platform.system(): policy}):
+            out = hooks.rewrite_prompt({"prompt": f"{self.NAME} is a colleague of mine", "session_id": "S1",
+                                        "origin": "composer"})
+            self.assertIn("the machine policy says so", ner_setup.scope(load_config()["remote_detector"]))
+        self.assertEqual(out, {})
         self.assertEqual(self.received, [])
 
     def test_a_service_on_the_network_never_reads_a_prompt(self):
@@ -717,6 +744,45 @@ class LogVersionTests(unittest.TestCase):
         ner_setup.log("gateway", "tool", 10, 1, ms=5)
         ner_setup.log("gateway", "prompt", 10, 0, ms=5)
         self.assertIn("(ner.log): gateway 2", ner_setup.counts_line())
+
+
+class PromptsNoteTests(unittest.TestCase):
+    """The note at the first session start after the update: a url or gateway source now reads prompts too."""
+
+    MARK = Path(HOME, ner_setup.PROMPTS_NOTE_MARK)
+    NET = {"url": "http://10.0.0.5:8765/", "format": "hf", "allow_network": True}
+
+    def setUp(self):
+        self.MARK.unlink(missing_ok=True)
+        self.addCleanup(self.MARK.unlink, missing_ok=True)
+        self.addCleanup(_reset)
+
+    def test_once_per_home_and_only_for_a_source_on_the_network(self):
+        self.assertIsNone(ner_setup.prompts_note({"url": ner_setup.LOCAL_URL}))
+        self.assertIsNone(ner_setup.prompts_note({**self.NET, "prompts": False}), "a policy keeps prompts from it")
+        self.assertIsNone(ner_setup.prompts_note({}))
+        self.assertFalse(self.MARK.exists())
+        self.assertEqual(ner_setup.prompts_note(self.NET), ner_setup.PROMPTS_NOTE)
+        self.assertIsNone(ner_setup.prompts_note(self.NET))
+        self.assertIsNone(ner_setup.prompts_note({"url": "https://gw.example.com", "gateway": "https://gw.example.com"}))
+
+    def test_setting_a_source_claims_it(self):
+        _prompt("/maisecrets:ner url http://10.0.0.5:8765/")
+        self.assertTrue(self.MARK.exists())
+
+    def test_the_session_start_shows_it_once(self):
+        import subprocess
+        _reset(remote_detector=self.NET)
+        env = {k: v for k, v in os.environ.items() if not k.startswith("CODEX_")}
+        env.update({"CLAUDE_PLUGIN_ROOT": str(ROOT), "CLAUDECODE": "1"})
+        event = "session" + "-start"
+
+        def start() -> str:
+            r = subprocess.run([sys.executable, str(ROOT / "hooks" / "dispatch.py"), event], input="{}",
+                               capture_output=True, text=True, env=env, timeout=60)
+            return json.loads(r.stdout or "{}").get("systemMessage", "")
+        self.assertIn(ner_setup.PROMPTS_NOTE, start())
+        self.assertNotIn(ner_setup.PROMPTS_NOTE, start())
 
 
 if __name__ == "__main__":

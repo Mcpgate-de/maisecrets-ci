@@ -285,6 +285,8 @@ harness_claude:
     # the values on the person's screen: the interactive client in a pty (show_values, harness/screen.py)
     - apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends python3-pyte >/dev/null
     - python3 harness/screen.py
+    # a one-time hint: one line on the person's screen, once, and in no model request (harness/hint_screen.py)
+    - python3 harness/hint_screen.py
 
 harness_codex:
   stage: test

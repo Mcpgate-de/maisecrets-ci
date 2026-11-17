@@ -502,6 +502,10 @@ def load_config() -> dict:
         cfg["policy_keys"] = policy_keys
         if "regions" in policy:
             cfg["regions_from"] = "machine policy"
+    ner = cfg.get("remote_detector")
+    if isinstance(ner, dict) and "prompts" in ner and "remote_detector" not in cfg["policy_keys"]:
+        # a set name service checks prompts too; only a policy keeps them from it (`"prompts": false`)
+        cfg["remote_detector"] = {k: v for k, v in ner.items() if k != "prompts"}
     cfg["max_ttl_seconds"] = min(int(cfg.get("max_ttl_seconds", 30 * 86400)), 30 * 86400)
     if cfg.get("backend") == "jsonfile" and not cfg.get("allow_plaintext_store", False):
         # the plaintext store is for tests and the harness, which say so in their own config

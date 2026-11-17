@@ -132,9 +132,9 @@ For development:
 ```bash
 claude --plugin-dir /path/to/maisecrets                 # one session, straight from the checkout
 python3 -m unittest discover -s tests -v               # about 30 seconds
-python3 harness/run.py                                 # 57 scenarios against a fake upstream (4 for the PowerShell tool of Windows)
-python3 harness/codex.py [--real]                      # 17 scenarios through codex exec (five need --real)
-python3 scripts/replay_can_fail.py                     # 403 proofs: each control's test, and each path of the seven invariants, goes red without its guard
+python3 harness/run.py                                 # 59 scenarios against a fake upstream (4 for the PowerShell tool of Windows)
+python3 harness/codex.py [--real]                      # 19 scenarios through codex exec (five need --real)
+python3 scripts/replay_can_fail.py                     # 411 proofs: each control's test, and each path of the seven invariants, goes red without its guard
 python3 scripts/derived_counts.py                      # the numbers in the docs, measured again
 python3 scripts/lint_plugin.py                         # frontmatter YAML, manifests, hook paths (pre-commit, CI)
 scripts/install-hooks.sh                               # git pre-commit / pre-push
@@ -160,9 +160,11 @@ policy.
 
 **Updates.** A new version reaches a member when `version` in
 `.claude-plugin/plugin.json` changes: at the next session start for an
-org-synced plugin, with `claude plugin update` otherwise. Every session starts
-with one line `maisecrets X.Y.Z is on`; its absence means the plugin did not
-load. A rollback is a `git revert` on `main`: the pipeline releases it as the
+org-synced plugin, with `claude plugin update` otherwise. A session start says
+nothing while all is well (only the first start in a maisecrets folder shows a
+welcome), so its silence proves nothing. To check that the plugin loaded, run
+`/maisecrets:status` (Codex: `maisecrets: status`) in the session, or look for
+the `session-start` row of that session in `~/.maisecrets/hooks.log`. A rollback is a `git revert` on `main`: the pipeline releases it as the
 next patch version.
 
 **The guard for synced installs.** An update of an org-synced plugin can leave a
@@ -226,6 +228,19 @@ deleted, the counters continue). `hooks.log` in `~/.maisecrets` records every
 hook run (time, event, client, session, tool, decision, duration; no value and
 no command), so "the plugin did nothing" can be told from "the hook did not
 run".
+
+### Settings in config.json only
+
+- `gateway_servers`: the MCP servers that resolve placeholders themselves (a list of server names).
+- `ssh_host_groups`: hosts that one typed ssh window covers together (`{"web": ["web1", "web2"]}`).
+
+### Settings the panel does not offer
+
+The `/maisecrets` panel and the `/maisecrets:settings` table leave out the settings that only weaken a protection
+when a person changes them: `strip_hidden_characters`, `scrub_transcript`, `block_at_mentions`, `client_header`,
+`ssh_via_sandbox`, `pass_agent_reports`, `max_keys_per_session`, `max_resolves_per_hour`. Set them in
+`config.json` or in the machine policy; a policy value cannot be changed by the person. The typed command still
+changes one, with the checks of C22, so that a person who meets the limiter can raise it.
 
 ## SSH consent (optional)
 
@@ -866,8 +881,6 @@ a source, with one command typed as your own prompt:
 | `/maisecrets:ner gateway NAME` | the same, by the name of an MCP server of your configuration (the list of `/maisecrets:sref`); the name alone, `/maisecrets:ner NAME`, is the same when it is no word of the command |
 | `/maisecrets:ner off` | the rules alone (the default) |
 | `/maisecrets:ner fallback url URL` | a second service for tool results while the local one is not running (`fallback off` removes it) |
-| `/maisecrets:ner prompts off` | the prompts you type keep the rules alone; tool results still go to the service (`prompts on` turns it back on) |
-| `/maisecrets:ner prompts on` | with a service on the network (`url`, `gateway`): your prompts go there too, with the rules' findings as filler; a new source takes this back |
 | `/maisecrets:ner unavailable withhold` | while the service gives no answer, a tool result is kept from the AI; by default (`unavailable rules`) the rules alone mask it |
 | `/maisecrets:ner updates off` | the image of the local service stays as it is; by default it follows the plugin (`updates on` turns that back on) |
 | `/maisecrets:ner` | one screen: a head line (the source and whether it answers), then one line per check, marked as in `/maisecrets:status` (✓ ok, ! warn, ✗ FAIL, – n/a), with the next command after → for a warn or a FAIL. The checks: the source and what it reads; for `local` the service (and its secret), the image and the load; for `url` whether it is reachable; for `gateway` the login with the name scope and your quota; and today's count from `ner.log` (a warn when the rules alone took at least 10 texts and at least a fifth of all) |
@@ -981,18 +994,25 @@ and keeps its other keys. Written by hand, the setting looks like this:
 - `url` must be a loopback address or a Unix socket (`unix:/path/to.sock`).
   Another host needs `"allow_network": true` in the setting, and then your tool
   results go there (PRIVACY.md).
-- Tool results, and the prompts you type in Claude Code (with the mod) when the service is on this computer: a
-  name in a prompt becomes a placeholder and never blocks it. `/maisecrets:ner prompts off` turns the prompt part off (the setting `"prompts": false`). A
-  service on the network gets a prompt only after `/maisecrets:ner prompts on`, typed while that source is set; a
-  new source takes it back (threat model, C30a). Codex prompts keep the rules alone (Codex cannot rewrite a
-  prompt). One request per tool call or prompt. A tool result waits `timeout_ms`
+- Tool results, and the prompts you type in Claude Code (with the mod), for every source: a
+  name in a prompt becomes a placeholder and never blocks it. A service on the network (`url`, `gateway`) gets
+  the prompt with the rules' findings and your stored values as filler (threat model, C30a). Codex prompts keep
+  the rules alone (Codex cannot rewrite a prompt, so it can only block one). A prompt of a program (`claude -p`,
+  the Agent SDK) never goes to a service on the network, and a fallback never gets a prompt. Until 0.9.14,
+  `/maisecrets:ner prompts on|off` turned the prompt part on or off; that form now gets the list of valid forms,
+  and a `"prompts"` key in `~/.maisecrets/config.json` is ignored. Only an administrator can keep prompts from
+  the service: a `remote_detector` in the machine policy with `"prompts": false` (the whole setting then comes
+  from the policy). `/maisecrets:ner` shows `prompts: policy` then. A person who had a `url` or `gateway` source before this
+  change sees one note at the next session start in Claude Code: the name service now checks prompts too.
+  One request per tool call or prompt. A tool result waits `timeout_ms`
   (300 by default, at most 5000; the name lookup and a slow answer count too), plus a share
   that grows with its length: 1.5 times the rate of this computer (ms per 1,000 characters,
   from its last answers; 60 until it has five, the rate of the reference setup) per 1,000
   characters, at most `max_timeout_ms` (3000 by default, at most 5000). `"timeout_scales": false`
   keeps the fixed `timeout_ms`. `ner.log` names the reason of each result that the rules took
   alone (timeout, too_long, refused …), and `/maisecrets:ner` counts the reasons. A prompt waits
-  `prompt_timeout_ms` (1000 by default, at most 5000, never less than `timeout_ms`): you wait for
+  `prompt_timeout_ms` (1000 by default for a service on this computer, never less than its `timeout_ms`;
+  2000 in total for a service on the network, the gateway's discovery and token included, plus at most about 0.1 s that a thread needs to end; at most 5000): you wait for
   your prompt anyway. If the service gives no answer in time, the prompt goes on with the rules alone,
   and maisecrets says once per session that its names were not checked, and why. On the reference setup
   (`mcpgate/ner` with the production limits of 4 cores and 1.5 GB, an AMD EPYC 9645, 4 requests at

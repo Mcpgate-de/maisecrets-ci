@@ -1,0 +1,8 @@
+# Effect: a word here makes maisecrets find MORE. Add one when a value is missed.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# words of product-name-tails that are also a given name or a surname: after a product word alone they stay a name.
+api
+cloud
+pages
+runner
+server

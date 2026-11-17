@@ -1,0 +1,64 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# words that are never a name, in no language: no person alone, and never stored. When in doubt, leave a word out.
+# product words.
+anthropic
+chatgpt
+codex
+copilot
+github
+gitlab
+kubernetes
+nginx
+openai
+opencms
+postgres
+# words of a product name after a product word.
+actions
+registry
+workspace
+# tool names of Claude Code and Codex.
+apply_patch
+askuserquestion
+bashoutput
+enterplanmode
+exec_command
+exitplanmode
+grep
+killshell
+local_shell
+multiedit
+notebookedit
+notebookread
+slashcommand
+taskoutput
+taskstop
+todoread
+todowrite
+toolsearch
+update_plan
+view_image
+webfetch
+websearch
+write_stdin
+# hook events of Claude Code and Codex.
+permissionrequest
+postcompact
+posttooluse
+posttoolusefailure
+precompact
+pretooluse
+sessionend
+sessionstart
+subagentstart
+subagentstop
+userpromptsubmit
+# folder names of a file path.
+appdata
+applications
+documents
+downloads
+programdata
+tmp
+users
+usr

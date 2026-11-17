@@ -1,5 +1,5 @@
 ---
-description: Sensitive References of your gateway - status (the default) shows which MCP server offers them and whether maisecrets is logged in, login [NAME] logs in once in the browser, logout [NAME] forgets the login. No value is printed.
+description: "Setup: log in to the Sensitive References of your gateway"
 argument-hint: "[status | login [NAME] | logout [NAME]]"
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" sref:*), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" sref:*)
 ---

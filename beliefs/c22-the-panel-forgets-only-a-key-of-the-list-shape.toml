@@ -1,0 +1,10 @@
+# c22-the-panel-forgets-only-a-key-of-the-list-shape: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c22-the-panel-forgets-only-a-key-of-the-list-shape"
+control = "C22"
+statement = "The panel forgets or allows only a key of the shape /maisecrets:list shows; any other text is no key."
+runner = ["tests/test_hub.py::ValuesTests::test_forget_takes_a_key_of_the_shape_list_shows"]
+
+[proof]
+file = "maisecrets/hub.py"
+find = "        if not _KEY_RE.fullmatch(key):"
+replace = "        if False:"

@@ -1,5 +1,5 @@
 ---
-description: Install a short personal /ms command for /maisecrets:send (works over SSH and in Remote Control).
+description: "Setup: a short /ms command for /maisecrets:send"
 argument-hint: "[name | --remove]"
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" shortcut *), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" shortcut *)
 ---

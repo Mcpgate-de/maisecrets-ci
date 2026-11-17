@@ -1,5 +1,5 @@
 ---
-description: Send the last blocked prompt as maisecrets rewrote it (placeholders instead of values). No copying, works over SSH and in Remote Control.
+description: "Send the last blocked prompt with placeholders"
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" pending)
 ---
 

@@ -1,5 +1,5 @@
 ---
-description: A stored value is no secret - /maisecrets:not-a-secret KEY (as your own prompt) deletes it and keeps that exact value unmasked from now on; /maisecrets:not-a-secret undo KEY takes it back. No value is printed.
+description: "Stop masking a value that is no secret. KEY is the name in the brackets, e.g. SECRET_c3"
 argument-hint: "KEY | undo KEY"
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" list), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" list)
 ---

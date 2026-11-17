@@ -1,6 +1,6 @@
 """The remote detector in the plugin (setting `remote_detector`; docs/DETECTION.md, "A remote detector"). Off
-unless the setting names a URL. Tool results here; a typed prompt only through the mod's rewrite in Claude Code and
-only to a service on this computer (hooks._prompt_names): a name never blocks a prompt.
+unless the setting names a URL. Tool results here, and a typed prompt through the mod's rewrite in Claude Code
+(hooks._prompt_names): a name never blocks a prompt.
 
 One request per hook call. A tool result is many strings (a JSON result is walked leaf by leaf), and a request per
 string let one call wait 1.6 s against a budget of 0.3 s in the NER experiment (docs/NER-EXPERIMENT.md, B5). So
@@ -31,10 +31,10 @@ MAX_TIMEOUT_MS = 3000    # the default cap; the setting may raise it to 5,000 (t
 RATE_SAMPLES, RATE_MIN, RATE_MIN_CHARS = 40, 5, 500
 
 
-def from_config(cfg: dict, fallback: bool = False) -> tuple:
+def from_config(cfg: dict, fallback: bool = False, deadline: float | None = None) -> tuple:
     """(RemoteDetector or None, the reason it is not used, or ""). A setting it cannot use leaves the rules alone.
     fallback: the detector of the setting's `fallback` (/maisecrets:ner fallback url URL), with the tuning keys of the
-    setting itself."""
+    setting itself. `deadline`: the end of a prompt's whole wait, which the gateway's discovery and token share."""
     conf = cfg.get("remote_detector") or {}
     if not isinstance(conf, dict) or not conf.get("url"):
         return None, ""
@@ -73,7 +73,7 @@ def from_config(cfg: dict, fallback: bool = False) -> tuple:
                 ask_labels=conf.get("ask_labels") is True, private_http_only=True, token=token,
                 cafile=str(cfg.get("client_vault_cafile") or ""))
         try:
-            return ner_gateway.detector(cfg, conf, make)
+            return ner_gateway.detector(cfg, conf, make, deadline)
         except (ValueError, TypeError, AttributeError, OSError) as exc:
             return None, str(exc)
     try:
@@ -175,15 +175,16 @@ def note_rate(chars: int, status) -> None:
 
 
 def prepare(cfg: dict, strings: list, scan, protect=None, use_fallback: bool = True,
-            kind: str = "tool") -> Layer | None:
+            kind: str = "tool", deadline: float | None = None) -> Layer | None:
     """One request for all strings of a tool result. `scan(text)` gives the rules' findings of a string; `protect(text)`
     the (start, end) of the stored values in it, which go out as filler like the findings and take no name. None when
     no remote detector is set. A service that fails leaves each string with the rules' findings. When the service
     refuses the connection (not running) and the setting has a fallback, the fallback is asked once instead; a
     timeout, an HTTP error or a broken answer never switches (a busy laptop must not send text over the network).
     A prompt never goes to the fallback (use_fallback False). Each call adds a line to the NER log (ner_setup.log):
-    time, source, kind, characters, names; never text."""
-    ner, why = from_config(cfg)
+    time, source, kind, characters, names; never text. `deadline` (a prompt): one end for the setup of the source and
+    the request; without it the request gets its own `timeout_ms` after the setup."""
+    ner, why = from_config(cfg, deadline=deadline)
     if ner is None:
         if not why:
             return None                    # no source set: the rules alone, nothing to say
@@ -191,8 +192,10 @@ def prepare(cfg: dict, strings: list, scan, protect=None, use_fallback: bool = T
         # it cannot use): the names are unchecked, as when the service gives no answer (Gate A of #33)
         from . import ner_setup
         found = {s: list(scan(s)) for s in dict.fromkeys(strings)}
-        ner_setup.log("rules", kind, sum(len(s) for s in found), 0, why="setup", ms=0.0)
-        return Layer(found, remote.RemoteStatus(state="unavailable", reason="setup"))
+        # a prompt whose wait ended during the discovery or the token: no answer in time, as for a slow service
+        late = "timeout" if deadline is not None and time.monotonic() >= deadline else "setup"
+        ner_setup.log("rules", kind, sum(len(s) for s in found), 0, why=late, ms=0.0)
+        return Layer(found, remote.RemoteStatus(state="unavailable", reason=late))
     from .detection.core import Match
     found: dict = {}
     pieces: list = []          # (text, offset in the joined text)
@@ -213,7 +216,7 @@ def prepare(cfg: dict, strings: list, scan, protect=None, use_fallback: bool = T
               and not conf_of(cfg).get("gateway"))
     if scaled:
         ner.timeout = wait_ms(conf_of(cfg), len(joined)) / 1000
-    spans, status = ner.ask(joined, occupied, time.monotonic() + ner.timeout)
+    spans, status = ner.ask(joined, occupied, deadline if deadline is not None else time.monotonic() + ner.timeout)
     if scaled:
         note_rate(len(joined), status)
     source = "gateway" if conf_of(cfg).get("gateway") else ("local" if remote.is_local(ner.url) else "url")
@@ -260,32 +263,35 @@ def prompt_names(cfg: dict, prompt: str, matches: list, protect_of, typed: bool 
     become placeholders like the rules' findings (`matches`), and nothing is blocked for a name. `why` is "" when the
     service answered or was not asked, else why it did not check the prompt (the reason or the state of its status:
     timeout, too_long, refused, unauthorized …): the prompt keeps the rules alone, and the person is told.
-    By default only a service on this computer reads a prompt (C30): the home page promises that no prompt goes to a
-    server unless the person chose one. A service on the network (url, gateway) reads a prompt only with
-    `"prompts": true`, which only `/maisecrets:ner prompts on` typed while that source is set writes, and which a
-    change of the source takes away (C30a, ner_setup.updated). A fallback never reads one, and `"prompts": false`
-    leaves every prompt to the rules. The rules' findings and the stored values (`protect_of()`) go out as filler.
-    A prompt waits up to `prompt_timeout_ms` (1,000 by default, 2,000 for a service on the network, at most 5,000),
-    never less than `timeout_ms`. `typed`: the person typed the prompt (the mod's origin composer or bridge); a
+    Any source that is set reads a typed prompt, as it reads tool results (C30, C30a): the person chose it with
+    /maisecrets:ner. Only a machine policy's `"prompts": false` keeps prompts from it (home.load_config drops the
+    key from the person's own file). A fallback never reads a prompt, and a prompt of a program never goes to a
+    service on the network.
+    The rules' findings and the stored values (`protect_of()`) go out as filler.
+    A prompt waits up to `prompt_timeout_ms` (1,000 by default, 2,000 for a service on the network, at most 5,000).
+    For a service on this computer it is never less than `timeout_ms`; for one on the network it is the whole wait,
+    the gateway's discovery and token included (the gateway's `timeout_ms` of 3,000 is for tool results).
+    `typed`: the person typed the prompt (the mod's origin composer or bridge); a
     prompt of a program (claude -p, the Agent SDK) never goes to a service on the network (Gate A of #33)."""
     conf = cfg.get("remote_detector")
     if not (isinstance(conf, dict) and conf.get("url")) or conf.get("prompts") is False:
         return [], ""
     local = remote.is_local(str(conf["url"])) and not conf.get("gateway")
-    if not local and (conf.get("prompts") is not True or not typed):
+    if not local and not typed:
         return [], ""
     default = PROMPT_TIMEOUT_MS if local else NETWORK_PROMPT_TIMEOUT_MS
     wait = conf.get("prompt_timeout_ms", default)
     if not isinstance(wait, (int, float)) or isinstance(wait, bool) or not 0 < wait <= 5000:
         wait = default
     own = conf.get("timeout_ms", 300)
-    if isinstance(own, (int, float)) and not isinstance(own, bool) and own > wait:
+    if local and isinstance(own, (int, float)) and not isinstance(own, bool) and own > wait:
         wait = own
+    end = time.monotonic() + wait / 1000          # one end for the discovery, the token and the request
     # a service on this computer: the network stays shut for a prompt whatever the setting says, so a "localhost" that
     # resolves to another host is refused when it connects (codex review of 0.8.7)
     asked = {**conf, "timeout_ms": wait, **({"allow_network": False} if local else {})}
     layer = prepare({**cfg, "remote_detector": asked}, [prompt], lambda s: list(matches), protect_of(),
-                    use_fallback=False, kind="prompt")
+                    use_fallback=False, kind="prompt", deadline=end)
     if layer is None:
         return [], ""
     st = layer.status
@@ -391,19 +397,27 @@ def note_result(layer) -> None:
         NER_DOWN["fallback"] = ner_setup.LAST["source"] == "fallback"
 
 
-def hint(payload: dict):
+def hint(payload: dict, codex: bool = False):
     """Once per session, when the service of /maisecrets:ner did not answer: the person learns that names went
-    unmasked by it. Not in a subagent: it has no conversation with the person."""
-    from . import ner_setup
+    unmasked by it. Not in a subagent: it has no conversation with the person. A line for the person, so only where a
+    person sees it (settings.person_sees_hook_lines); elsewhere it is not claimed."""
+    from . import ner_setup, settings
     from .vault import HOME
-    if NER_DOWN.pop("fallback", False) and not payload.get("agent_id"):
+    if payload.get("agent_id") or not (NER_DOWN.get("fallback") or NER_DOWN["v"]):
+        return None
+    if not settings.person_sees_hook_lines(payload, codex):
+        return None
+    if NER_DOWN.pop("fallback", False):
         # the first tool result of the session that the fallback checked: where text goes now (akruse-7a, G)
         if ner_setup.claim_down_note(HOME, str(payload.get("session_id")) + ":fallback"):
-            return ner_setup.FALLBACK_NOTE
-    if not NER_DOWN["v"] or payload.get("agent_id"):
+            return ner_setup.FALLBACK_NOTE_CODEX if codex else ner_setup.FALLBACK_NOTE
+    if not NER_DOWN["v"]:
         return None
     NER_DOWN["v"] = False
     # the reason in the note: "did not answer" sent the person looking for a stopped service that ran (2026-11-08)
     why = _TOOL_WHY.get(NER_DOWN.get("why") or "", "no usable answer")
-    note = ner_setup.NOT_OURS_NOTE if NER_DOWN.pop("not_ours", False) else ner_setup.DOWN_NOTE.format(why=why)
+    if NER_DOWN.pop("not_ours", False):
+        note = ner_setup.NOT_OURS_NOTE_CODEX if codex else ner_setup.NOT_OURS_NOTE
+    else:
+        note = (ner_setup.DOWN_NOTE_CODEX if codex else ner_setup.DOWN_NOTE).format(why=why)
     return note if ner_setup.claim_down_note(HOME, payload.get("session_id")) else None

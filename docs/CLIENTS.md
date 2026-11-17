@@ -158,7 +158,11 @@ repeats it on each pipeline.
   character outside `[A-Za-z0-9_]` as `_`; there is no server name, URL or scope. maisecrets maps the name to a user
   entry and notes nothing when two entries could make it.
 - **A hook's `systemMessage`** becomes a warning of the hook run. `codex exec` prints neither it nor the start line
-  of maisecrets, in its text or its `--json` output.
+  of maisecrets, in its text or its `--json` output. The terminal UI shows it under the hook run
+  (`tui/src/history_cell/hook_cell.rs`), and Codex does not send it to the model: `core/src/hook_runtime.rs` sends
+  it as a warning event, and only `additionalContext` goes to the model (read on `openai/codex` main on 2026-11-17,
+  not measured; the ChatGPT app is not measured). The PostToolUse output schema allows it next to `decision` and
+  `reason`. The one-time hints of maisecrets go there.
 - **One answer per process.** Codex keeps the server URLs of the folder a session began in and runs the helper
   again after a change of the folder or a 401 or 403 (`core/src/session/turn_context.rs`,
   `rmcp-client/src/http_headers.rs`). So the first run of a Codex process decides for each entry, and only within
@@ -202,5 +206,10 @@ Measured on 2026-11-15 with Claude Code 2.1.325 and codex-cli 0.169.0 (harness s
   `.claude-plugin/marketplace.json`; `codex plugin add maisecrets@<name>` installs a newer version next to the old
   one. Each copy is as new as the client's last fetch: `/maisecrets:status` says "newest unknown" without one.
 - **A `systemMessage` of PostToolUse** reaches the person in Claude Code and not the model (no request body held
-  the test value). Claude Code writes it into its local transcript (a `hook_system_message` record), so the test
+  the test value). The one-time hints of maisecrets use it: `harness/hint_screen.py` (a pseudo-terminal) shows
+  the line on the screen once and in no request body. `claude -p` shows no `systemMessage`; its hooks run under the
+  entry point `sdk-cli`, and maisecrets gives no hint there and does not record one as given (harness scenarios
+  `ssh_consent_hint_not_in_a_headless_run` and `read_pdf_hint_not_in_a_headless_run`). A Codex hook reads the session
+  source from the first line of the rollout (`session_meta`, `source`): `cli` (terminal UI) and `vscode` (app
+  server) get the hint, `exec`, `mcp`, a subagent and an unreadable rollout do not. Claude Code writes it into its local transcript (a `hook_system_message` record), so the test
   value stands there.

@@ -1,0 +1,37 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# the tool names of Claude Code: no person in a hook label (PostToolUse:Bash) or a tool context (ran Bash, Bash().
+agent
+askuserquestion
+bash
+bashoutput
+edit
+enterplanmode
+exitplanmode
+glob
+grep
+killshell
+ls
+multiedit
+notebookedit
+notebookread
+read
+skill
+slashcommand
+task
+taskoutput
+taskstop
+todoread
+todowrite
+toolsearch
+webfetch
+websearch
+write
+# the tool names of Codex.
+apply_patch
+exec_command
+local_shell
+shell
+update_plan
+view_image
+write_stdin

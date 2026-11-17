@@ -1,0 +1,10 @@
+# c22-the-panel-forgets-every-value-only-with-its-sentence: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c22-the-panel-forgets-every-value-only-with-its-sentence"
+control = "C22"
+statement = "The panel's entry forgets every stored value only when the question carries the panel's confirm sentence."
+runner = ["tests/test_hub.py::ValuesTests::test_forget_all_needs_the_panels_sentence"]
+
+[proof]
+file = "maisecrets/hub.py"
+find = "        if payload.get(\"confirm\") != WIPE_CONFIRM:"
+replace = "        if False:"

@@ -253,13 +253,16 @@ class Allow(_Work):
             first = self.post()
             second = self.post()
         self.assertIsNone(output(first), "the PDF passes as it is")
-        ctx = first["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("/maisecrets:settings read_pdf MODE", ctx)
-        self.assertIn("convert", ctx)
-        self.assertNotIn("hello.pdf", ctx, "nothing of the file is in the hint")
+        self.assertEqual(set(first), {"systemMessage"}, "a line for the person; the model gets nothing of the hint")
+        line = first["systemMessage"]
+        self.assertEqual(line, settings.HINTS["read_pdf"]["claude"])
+        self.assertIn("/maisecrets:settings read_pdf convert", line)
+        self.assertNotIn("hello.pdf", line, "nothing of the file is in the hint")
         self.assertEqual(second, {}, "once")
         img = self.post("PostToolUse_Read_png", file_path=self.png)
-        self.assertIn("read_image", img["hookSpecificOutput"]["additionalContext"], "the image has its own hint")
+        self.assertEqual(img["systemMessage"], settings.HINTS["read_image"]["claude"], "the image has its own hint")
+        self.assertIn("/maisecrets:settings read_image ask", img["systemMessage"])
+        self.assertEqual(self.post("PostToolUse_Read_png", file_path=self.png), {}, "once for images too")
 
     def test_no_hint_when_decided_silenced_or_in_a_subagent(self):
         for user, extra in (({"read_pdf": "allow"}, {}), ({"tips": False}, {}), ({}, {"agent_id": "a1"})):
@@ -267,12 +270,26 @@ class Allow(_Work):
                 _reset(**user)
                 self.assertEqual(self.post(**extra), {})
 
+    def test_a_headless_run_neither_shows_nor_claims_the_hint(self):
+        # `claude -p` shows no systemMessage: the hint waits for a run where a person sees it
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_ENTRYPOINT": "sdk-cli"}):
+            self.assertEqual(self.post(), {}, "the PDF passes as it is, and no line")
+        self.assertFalse(HINTS.exists(), "not claimed")
+        p = golden("PostToolUse_Read_pdf", self.cwd)
+        p.pop("prompt_id")
+        p.update({"turn_id": "t1", **_hygiene.codex_rollout("exec")})
+        self.assertEqual(run_hook("post-tool", p), {}, "codex exec: no line")
+        self.assertFalse(HINTS.exists(), "not claimed")
+        self.assertEqual(self.post(), {"systemMessage": settings.HINTS["read_pdf"]["claude"]}, "then once")
+
     def test_codex_hint_names_the_codex_form(self):
         p = golden("PostToolUse_Read_pdf", self.cwd)
         p.pop("prompt_id")
         p["turn_id"] = "t1"
-        ctx = run_hook("post-tool", p)["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("maisecrets: set read_pdf MODE", ctx)
+        p.update(_hygiene.codex_rollout("cli"))
+        out = run_hook("post-tool", p)
+        self.assertEqual(out, {"systemMessage": settings.HINTS["read_pdf"]["codex"]}, "a hook warning")
+        self.assertIn("`maisecrets: set read_pdf convert`", out["systemMessage"])
 
     def test_pre_tool_lets_it_run(self):
         self.assertEqual(self.pre(), {})
@@ -899,7 +916,7 @@ class BashDataUri(_Work):
     def test_allow_passes_it_and_gives_the_image_hint(self):
         out = self.post("PostToolUse_Bash_datauri")
         self.assertIsNone(output(out))
-        self.assertIn("read_image", out["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(out, {"systemMessage": settings.HINTS["read_image"]["claude"]})
 
     def test_plain_base64_text_is_no_image(self):
         p = golden("PostToolUse_Bash_base64", self.cwd)
@@ -1102,8 +1119,8 @@ class TypedSettings(_Work):
                          "codex review of block 4: any wrong type in the file ignores it, so both block")
 
     def test_the_card_names_the_modes(self):
-        text = settings.render()
-        self.assertIn("PDFs the AI reads · allow · not decided", text)
+        text = settings.render(only="read_pdf")
+        self.assertIn("PDFs the AI reads (read_pdf) · allow · (default)", text)
         self.assertIn("convert     send only its text", text)
         self.assertIn("/maisecrets:settings read_pdf convert", text)
 

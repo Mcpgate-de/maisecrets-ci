@@ -45,10 +45,10 @@ SOURCE_KEYS = ("url", "format", "model", "allow_network", "mask", "ask_labels", 
 
 _NER_RE = re.compile(r"\A\s*(?:/maisecrets:ner|maisecrets:\s*ner)\s+(?:(off|local|on)|url\s+(\S+)|"
                      r"gateway\s+(\S+)|"
-                     r"fallback\s+(?:(off)|url\s+(\S+))|prompts\s+(on|off)|updates\s+(on|off)|"
+                     r"fallback\s+(?:(off)|url\s+(\S+))|updates\s+(on|off)|"
                      r"unavailable\s+(rules|withhold))\s*\Z", re.I)
 # the same sentence anywhere in a tool call (settings.IN_A_COMMAND_RE)
-IN_A_COMMAND = (r"(?:/maisecrets:ner|maisecrets:\s*ner)\s+(?:off|local|on|url|gateway|fallback|prompts|updates|"
+IN_A_COMMAND = (r"(?:/maisecrets:ner|maisecrets:\s*ner)\s+(?:off|local|on|url|gateway|fallback|updates|"
                 r"unavailable)\b|"
                 # a server name alone: one word that ends the quoted prompt or the command
                 r"(?:/maisecrets:ner|maisecrets:\s*ner)\s+(?!all\b)[\w.-]+(?=\s*(?:[\"'`]|\Z))")
@@ -60,14 +60,15 @@ _OTHER_RE = re.compile(r"\A\s*(?:/maisecrets:ner\s+(\S.{0,400}?)|maisecrets:\s*n
                        re.I | re.S)
 # the arguments that change nothing: the view with the details (ner_view.py)
 VIEW_WORDS = ("all",)
-# the words of the command: never taken as the name of a server
+# the words of the command: never taken as the name of a server (`prompts`: a form of older versions, now answered
+# with the valid forms)
 KEYWORDS = ("off", "local", "on", "url", "gateway", "fallback", "prompts", "updates", "unavailable",
             "start") + VIEW_WORDS
 
 
 def parse(prompt) -> str | None:
-    """`off`, `local`, `url:<URL>`, `gateway:<URL or server name>`, `fallback:off`, `fallback:url:<URL>`, `prompts:on`,
-    `prompts:off`, `updates:on`, `updates:off`, `unavailable:<choice>` when the whole prompt is a change of the setting,
+    """`off`, `local`, `url:<URL>`, `gateway:<URL or server name>`, `fallback:off`, `fallback:url:<URL>`, `updates:on`,
+    `updates:off`, `unavailable:<choice>` when the whole prompt is a change of the setting,
     `other:<text>` for an argument the command does not know (a server name, or an answer with the valid forms), else
     None (no argument, `all`, or no /maisecrets:ner prompt)."""
     m = _NER_RE.match(prompt) if isinstance(prompt, str) else None
@@ -84,11 +85,9 @@ def parse(prompt) -> str | None:
     if m.group(3):
         return "gateway:" + m.group(3)
     if m.group(6):
-        return "prompts:" + m.group(6).lower()
+        return "updates:" + m.group(6).lower()
     if m.group(7):
-        return "updates:" + m.group(7).lower()
-    if m.group(8):
-        return "unavailable:" + m.group(8).lower()
+        return "unavailable:" + m.group(7).lower()
     return "fallback:off" if m.group(4) else "fallback:url:" + m.group(5)
 
 
@@ -124,16 +123,6 @@ def check_url(url: str) -> str:
 def updated(current, word: str) -> dict:
     """The new value of the setting for `word` (from parse), the tuning keys of `current` kept."""
     current = dict(current) if isinstance(current, dict) else {}
-    if word.startswith("prompts:"):
-        # off is not a source key: it stays when the source changes. On for a service on the network is a choice for
-        # that source alone (C30a): a change of the source takes it away below
-        if word == "prompts:off":
-            current["prompts"] = False
-        elif current.get("url") and (current.get("gateway") or not remote.is_local(str(current["url"]))):
-            current["prompts"] = True
-        else:
-            current.pop("prompts", None)
-        return current
     if word.startswith("unavailable:"):
         # what a tool result gets while the service gives no answer: the rules alone (the default) or nothing
         if word == "unavailable:withhold":
@@ -157,8 +146,7 @@ def updated(current, word: str) -> dict:
                                **({} if remote.is_local(url) else {"allow_network": True})}
         return current
     keep = {k: v for k, v in current.items() if k not in SOURCE_KEYS}
-    if keep.get("prompts") is True:
-        del keep["prompts"]                 # prompts on was a choice for the old source (C30a)
+    keep.pop("prompts", None)               # the switch of older versions: a set source reads prompts too
     if word == "off":
         keep.pop("fallback", None)          # off is off: no fallback answers either
         return keep
@@ -178,7 +166,7 @@ def updated(current, word: str) -> dict:
 
 
 FORMS = ("local", "url URL", "gateway URL", "gateway NAME (a server of /maisecrets:sref)", "off", "all",
-         "prompts on|off", "unavailable rules|withhold", "updates on|off", "fallback url URL|off")
+         "unavailable rules|withhold", "updates on|off", "fallback url URL|off")
 
 
 def _servers() -> dict:
@@ -227,7 +215,9 @@ def describe(conf) -> str:
     url = conf.get("url") if isinstance(conf, dict) else None
     if not url:
         return "names from a service: off (the rules alone)"
-    prompts = "tool results and your prompts" if conf.get("prompts") is True else "tool results only"
+    # "prompts": false is left only by a machine policy (home.load_config)
+    prompts = ("tool results only; prompts: the policy" if conf.get("prompts") is False
+               else "tool results and your prompts")
     if conf.get("gateway"):
         return (f"names from a service: the gateway {conf['gateway']} (its login; {prompts}; the findings of "
                 "the rules go there as filler)")
@@ -248,18 +238,16 @@ _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedire
 
 
 def scope(conf) -> str:
-    """One line: what the service reads. A prompt only on this computer and only where the client rewrites it."""
+    """One line: what the service reads. A prompt only where the client rewrites it (Claude Code with the mod)."""
     url = str(conf.get("url") or "") if isinstance(conf, dict) else ""
     network = bool(url) and (bool(conf.get("gateway")) or not remote.is_local(url))
-    if url and conf.get("prompts") is not False and (not network or conf.get("prompts") is True):
-        where = (f" Your prompts go to {conf.get('gateway') or url} for this, with the rules' findings as filler."
-                 if network else "")
-        return ("It masks person names in what the AI reads (files, command output, tool results) and in your prompts "
-                f"in Claude Code.{where} In Codex it covers what the AI reads only. It may mask a few extra words.")
-    more = (" /maisecrets:ner prompts on sends your prompts there too, with the rules' findings as filler."
-            if network and conf.get("prompts") is not False else "")
-    return ("It masks person names in what the AI reads (files, command output, tool results). Your prompts keep the "
-            f"rules alone.{more} It may mask a few extra words.")
+    if url and conf.get("prompts") is False:
+        return ("It masks person names in what the AI reads (files, command output, tool results). Your prompts keep "
+                "the rules alone: the machine policy says so. It may mask a few extra words.")
+    where = (f" Your prompts go to {conf.get('gateway') or url} for this, with the rules' findings as filler."
+             if network else "")
+    return ("It masks person names in what the AI reads (files, command output, tool results) and in your prompts "
+            f"in Claude Code.{where} In Codex it covers what the AI reads only. It may mask a few extra words.")
 
 
 def unavailable_line(conf) -> str:
@@ -863,20 +851,56 @@ def gateway_server(conf: dict) -> str:
     return names[0] if len(names) == 1 and re.fullmatch(r"[\w.-]{1,64}", names[0]) else ""
 
 
+# ------------------------------------------------- what a source reads --
+SENT_NOTE = ("The text of each tool result and of each prompt you type goes to {where}, with the findings of the "
+             "rules and your stored values replaced by filler.")
+LOCAL_NOTE = "It checks each tool result and each prompt you type, on this computer."
+PROMPTS_NOTE = ("maisecrets: the name service you set now checks your prompts too (the findings of the rules "
+                "and your stored values replaced). /maisecrets:ner shows it.")
+PROMPTS_NOTE_MARK = "ner-prompts-note"
+
+
+def claim_prompts_note(home=None) -> bool:
+    """True once per home: the marker file is new. Written when the note is shown, and when the person sets a source
+    (the answer to the command says the same)."""
+    from .vault import HOME
+    try:
+        fd = os.open(os.path.join(str(home or HOME), PROMPTS_NOTE_MARK), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except OSError:
+        return False                     # there already, or not writable: no note rather than one each start
+    os.close(fd)
+    return True
+
+
+def prompts_note(conf, home=None) -> str | None:
+    """The note for the first session start after the update that sends prompts to a source on the network (url or
+    gateway, not a policy's "prompts": false), once per home; None otherwise."""
+    url = str(conf.get("url") or "") if isinstance(conf, dict) else ""
+    network = bool(url) and (bool(conf.get("gateway")) or not remote.is_local(url))
+    if not network or conf.get("prompts") is False:
+        return None
+    return PROMPTS_NOTE if claim_prompts_note(home) else None
+
+
 # --------------------------------------------------------- the down note --
-DOWN_NOTE = ("maisecrets: the name service set with /maisecrets:ner gave no result ({why}), so the rules alone "
-             "masked this tool result; names that only the service finds were not masked. Mention this once, in one "
-             "sentence, with that reason, after your answer, and tell the user that /maisecrets:ner shows the "
-             "service. Do not start or change the service or the setting yourself.")
-NOT_OURS_NOTE = ("maisecrets: the service on 127.0.0.1:8765 is not the container that maisecrets started (it could not "
-                 "prove the secret maisecrets gave that container), so no text went to it and the rules alone masked "
-                 "this tool result. Mention this once, in one sentence, after your answer, and tell the user to run "
-                 "/maisecrets:ner, which starts the right container. Do not start or stop a service yourself.")
+# a line for the person (the hook's systemMessage), once per session; the model gets nothing of it
+DOWN_NOTE = ("maisecrets: the name service of /maisecrets:ner gave no result ({why}), so the rules alone masked this "
+             "tool result; names that only the service finds stand in it as they are.")
+NOT_OURS_NOTE = ("maisecrets: the service on 127.0.0.1:8765 is not the container maisecrets started, so no text went "
+                 "to it and the rules alone masked this tool result. /maisecrets:ner starts the right container.")
 FALLBACK_NOTE = ("maisecrets: the name service of this computer did not answer, so the fallback set with "
-                 "/maisecrets:ner checked this tool result; the tool results of this session go there while the "
-                 "local one is down, your prompts never do. Mention this once, in one sentence, after your answer, and "
-                 "tell the user that /maisecrets:ner shows the counts per service. Do not change the setting "
-                 "yourself.")
+                 "/maisecrets:ner checked this tool result. Tool results of this session go there while the local one "
+                 "is down; your prompts never do.")
+# Codex has no slash commands for plugins: the same notes with the prompt form, sent alone as the person's prompt
+DOWN_NOTE_CODEX = ("maisecrets: the name service gave no result ({why}), so the rules alone masked this tool result; "
+                   "names that only the service finds stand in it as they are. `maisecrets: ner all`, alone as your "
+                   "prompt, shows the service.")
+NOT_OURS_NOTE_CODEX = ("maisecrets: the service on 127.0.0.1:8765 is not the container maisecrets started, so no text "
+                       "went to it and the rules alone masked this tool result. `maisecrets: ner local`, alone as your "
+                       "prompt, starts the right container.")
+FALLBACK_NOTE_CODEX = ("maisecrets: the name service of this computer did not answer, so the fallback checked this "
+                       "tool result. Tool results of this session go there while the local one is down; your prompts "
+                       "never do.")
 _NOTES_MAX = 1000          # sessions; an older one may get the note once more
 
 

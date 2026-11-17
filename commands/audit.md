@@ -1,5 +1,5 @@
 ---
-description: The last uses of your stored values - when, in which session, which placeholder, which tool and command. No value is shown.
+description: "Same as /maisecrets:list uses: the last uses of stored values"
 argument-hint: "[n]"
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" audit *), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" audit *)
 ---

@@ -60,7 +60,8 @@ a to-do.
   hook blocks them when the path exists; ask Claude to read the file instead.
 - **A name without a label is not detected, unless it is on a term list** (Terms). Regex only, by design: "Emma Johansson" alone looks like any two
   capitalised words. A name after a name label, before an e-mail address or in a CSV name column is masked
-  in a tool result (0.6.21); in a typed prompt no name is detected. A name in a non-Latin script is masked only after
+  in a tool result (0.6.21); in a typed prompt the rules detect no name (a name service you set checks it in
+  Claude Code with the mod). A name in a non-Latin script is masked only after
   a person label (`full name`, `native name`, `patient_name`, vCard `FN:`, also with parameters such as
   `FN;CHARSET=UTF-8:`; 0.6.24), not after `name:` or `owner:`,
   which also name products and languages. A street address without a postcode or an address label, or in a form of a

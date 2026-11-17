@@ -92,7 +92,7 @@ def fake_value(prefix: str = "Fk") -> str:
 
 
 # the lock sentence of the session start in Claude Code (show_values, C32)
-SCREEN = " \U0001F512 marks a value Claude got only as a placeholder."
+SCREEN = " \U0001F512 marks such a value."
 
 class Sandbox:
     """One temp world: vault home, user home, tmp, fake tools, optional policy file."""
@@ -671,7 +671,8 @@ class PopulationTests(unittest.TestCase):
     def test_every_cli_command_is_reachable_and_every_dispatched_one_exists(self):
         # mod-prompt and mod-values are the questions of the mod (claude-mod/), not commands of the CLI
         dispatched = commands_in_dispatch() - {"pending", "session-start", "session-end", "mod-prompt", "mod-values",
-                                               "mod-reveal"}
+                                               "mod-reveal", "mod-demo",
+                                               "mod-settings"}
         self.assertEqual(sorted(dispatched - cli_commands()), [], "dispatch.py sends these to cli.main")
         # resolve is reached through hooks/resolve.py, which the Bash hook writes into a command
         self.assertEqual(sorted(cli_commands() - dispatched), ["resolve"])
@@ -983,39 +984,31 @@ class SessionStartTests(unittest.TestCase):
         self.addCleanup(sb.remove)
         return sb
 
-    def test_the_try_it_example_is_one_the_prompt_hook_stops(self):
+    def test_the_welcome_names_only_commands_and_forms_that_exist(self):
         from maisecrets import tips
-        self.assertIn(tips.TRY_IT_EXAMPLE, tips.try_it_line())
-        sb = self.sandbox()
-        r = sb.run("user-prompt", stdin=json.dumps({"prompt": tips.TRY_IT_EXAMPLE, "session_id": "S1",
-                                                    "transcript_path": "", "prompt_id": "p1"}))
-        out = json.loads(r.stdout)
-        self.assertEqual(out.get("decision"), "block", r.stdout + r.stderr)
-        self.assertIn("kept personal data from the AI", out.get("reason", "") + out.get("systemMessage", ""))
-        self.assertEqual([m["type"] for m in sb.index()["entries"].values()], ["EMAIL"])
-
-    def test_first_start_introduces_later_starts_rotate_a_tip_then_stay_short(self):
+        names = {p.stem for p in (ROOT / "commands").glob("*.md")} | {"secret-hygiene"}
+        for line in tips.welcome_lines(False, True):
+            for cmd in re.findall(r"/maisecrets:([\w-]+)", line):
+                self.assertIn(cmd, names, line)
+        for line in tips.welcome_lines(True):
+            self.assertNotIn("/maisecrets:", line, "Codex has no slash commands for plugins")
+        self.assertEqual(len(tips.welcome_lines(False, True)), 3, "the welcome is three lines")
+    def test_first_start_welcomes_later_starts_show_one_tip_a_day_then_nothing(self):
         from maisecrets import hooks, tips
         sb = self.sandbox()
         out = _start(self, sb, CLAUDECODE="1")
-        msg = out["systemMessage"]
-        self.assertTrue(msg.startswith(f"maisecrets {VERSION} is on.{SCREEN} It replaces the passwords"), msg)
-        self.assertIn("in an encrypted file", msg)
-        self.assertIn("/maisecrets:status shows the details", msg)
-        self.assertIn(" " + tips.try_it_line() + " ", msg, "the first start says how to see it work")
-        self.assertIn(" " + tips.before_line() + " ", msg, "the first start names the skill for what leaked before")
-        self.assertTrue(msg.endswith(" Tip: /maisecrets:shortcut adds /ms as a short form of /maisecrets:send."))
+        self.assertEqual(out["systemMessage"], "\n".join(tips.welcome_lines(False, lock=True)))
+        self.assertTrue(out["systemMessage"].splitlines()[0].endswith(SCREEN))
         self.assertEqual(out["hookSpecificOutput"], {"hookEventName": "SessionStart",
                                                      "additionalContext": hooks.primer()})
         self.assertEqual((sb.home / ".announced").read_text().strip(), "EncryptedFileBackend")
-        self.assertEqual((sb.home / ".shortcut").read_text().strip(), "offered")
-        self.assertFalse((sb.user_home / ".claude" / "commands").exists(), "the offer installs nothing")
-        second = _start(self, sb, CLAUDECODE="1")["systemMessage"]
-        self.assertEqual(second, f"maisecrets {VERSION} is on.{SCREEN} {tips.TIPS[0]}")
+        self.assertFalse((sb.user_home / ".claude" / "commands").exists(), "the start installs nothing")
+        second = _start(self, sb, CLAUDECODE="1")
+        self.assertEqual(second["systemMessage"], tips.TIPS[0])
         third = _start(self, sb, CLAUDECODE="1")
-        self.assertEqual(third["systemMessage"], f"maisecrets {VERSION} is on.{SCREEN}")
-        self.assertEqual(third["hookSpecificOutput"]["additionalContext"], hooks.primer())
-
+        self.assertNotIn("systemMessage", third, "a start with nothing to say says nothing")
+        self.assertEqual(third["hookSpecificOutput"]["additionalContext"], hooks.primer(),
+                         "the model's instructions stay at every start")
     def test_the_tip_comes_from_the_pool_of_the_client(self):
         from maisecrets import tips
         for client, env, pool in (("claude", {"CLAUDECODE": "1"}, tips.TIPS),
@@ -1023,36 +1016,22 @@ class SessionStartTests(unittest.TestCase):
             with self.subTest(client):
                 sb = self.sandbox()
                 (sb.home / ".announced").write_text("EncryptedFileBackend\n")
-                (sb.home / ".shortcut").write_text("offered\n")
                 (sb.home / ".tip").write_text("2000-01-01 1\n")
                 # the ms:(…) hint of Codex is given already (tests/test_check_value.py has its own case)
                 (sb.home / "hints.json").write_text('{"check_value": {"revision": 99, "given": "2000-01-01"}}')
-                msg = _start(self, sb, **env)["systemMessage"]
-                screen = SCREEN if client == "claude" else ""     # Codex has no mods: no lock to explain
-                self.assertEqual(msg, f"maisecrets {VERSION} is on.{screen} {pool[2]}")
+                self.assertEqual(_start(self, sb, **env)["systemMessage"], pool[2])
         self.assertNotEqual(tips.TIPS[2], tips.TIPS_CODEX[2], "the case above must tell the pools apart")
-
-    def test_the_start_line_names_the_rules_of_your_own_and_warns_of_a_missing_rule_folder(self):
+    def test_a_missing_rule_folder_is_a_warning_at_every_start(self):
         sb = self.sandbox()
         gone = str(sb.root / "team-rules")
         # no tips: the tip is one per calendar day, so two starts around midnight differed by a tip (CI, 00:00 UTC)
         (sb.home / "config.json").write_text(json.dumps({**ENC, "rule_dirs": [gone], "tips": False}),
                                              encoding="utf-8")
         (sb.home / ".announced").write_text("EncryptedFileBackend\n")
-        (sb.home / ".shortcut").write_text("offered\n")
-        (sb.home / "rules.d").mkdir()
-        (sb.home / "rules.d" / "own.json").write_text(json.dumps({"rules": [
-            {"id": "one", "regex": r"tkx_[A-Za-z0-9]{24}", "keywords": ["tkx_"]},
-            {"id": "two", "regex": r"tky_[A-Za-z0-9]{24}", "keywords": ["tky_"]}]}), encoding="utf-8")
         warning = f"Warning: the rule folder {gone} (setting) is missing, so its rules of your own do not run."
-        first = _start(self, sb, CLAUDECODE="1")["systemMessage"]
-        line = f"maisecrets {VERSION} is on, with 2 rules of your own from 1 folder.{SCREEN}"
-        self.assertTrue(first.startswith(line + " "), first)
-        self.assertTrue(first.endswith(" " + warning), first)
-        again = _start(self, sb, CLAUDECODE="1")["systemMessage"]
-        self.assertEqual(again, f"{line} {warning}",
-                         "the warning comes at every start while the folder is missing")
-
+        for _ in range(2):
+            self.assertEqual(_start(self, sb, CLAUDECODE="1")["systemMessage"], warning,
+                             "the warning comes at every start while the folder is missing")
     def test_codex_is_told_from_claude_code_by_transcript_then_claudecode_then_codex_vars(self):
         cases = [
             # (name, transcript path under the sandbox root or None, env, codex?)
@@ -1074,7 +1053,6 @@ class SessionStartTests(unittest.TestCase):
                 payload = {"transcript_path": str(sb.root / transcript)} if transcript else {}
                 msg = _start(self, sb, payload, **env)["systemMessage"]
                 self.assertEqual("/maisecrets:" not in msg, codex, msg)
-                self.assertEqual((sb.home / ".shortcut").exists(), not codex)
 
     def test_the_start_quiets_a_statement_keyword_an_old_detector_stored(self):
         # an entry of a version before 0.5.15: the current detector stores no such value, so it is seeded directly
@@ -1088,7 +1066,6 @@ class SessionStartTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         old, real = r.stdout.split()
         (sb.home / ".announced").write_text("EncryptedFileBackend\n")
-        (sb.home / ".shortcut").write_text("offered\n")
         (sb.home / ".tip").write_text("2000-01-01 1\n")
         msg = _start(self, sb, CLAUDECODE="1")["systemMessage"]
         self.assertIn(f"1 stored word(s) are program code, not secrets ({old})", msg)
@@ -1096,7 +1073,7 @@ class SessionStartTests(unittest.TestCase):
         entries = sb.index()["entries"]
         self.assertEqual(sorted(entries), sorted([old, real]), "nothing is deleted")
         self.assertIs(entries[old].get("weak"), True)
-        self.assertNotIn("program code", _start(self, sb, CLAUDECODE="1")["systemMessage"], "said once")
+        self.assertNotIn("program code", _start(self, sb, CLAUDECODE="1").get("systemMessage", ""), "said once")
 
     def test_the_start_marks_a_word_an_older_version_stored_so_it_is_not_hunted(self):
         sb = self.sandbox()
@@ -1112,21 +1089,26 @@ class SessionStartTests(unittest.TestCase):
         _start(self, sb, CLAUDECODE="1")
         self.assertIs(sb.index()["entries"][key].get("weak"), True)
 
-    def test_the_test_store_introduces_itself_at_every_start(self):
+    def test_the_test_store_is_a_warning_at_every_start(self):
+        from maisecrets import tips
         sb = self.sandbox(JSONFILE, backend="jsonfile")
         for _ in range(2):
-            self.assertIn("in a PLAIN TEXT test file", _start(self, sb, CLAUDECODE="1")["systemMessage"])
-
-    def test_shortcut_false_in_the_config_means_no_offer(self):
+            self.assertIn(tips.TEST_STORE, _start(self, sb, CLAUDECODE="1")["systemMessage"].splitlines())
+    def test_shortcut_false_in_the_config_means_no_shortcut_tip(self):
+        from maisecrets import tips
         sb = self.sandbox({"backend": "encrypted-file", "shortcut": False})
+        (sb.home / ".announced").write_text("EncryptedFileBackend\n")
+        at = tips.TIPS.index(next(t for t in tips.TIPS if tips.SHORTCUT in t))
+        (sb.home / ".tip").write_text(f"2000-01-01 {at - 1}\n")
         msg = _start(self, sb, CLAUDECODE="1")["systemMessage"]
         self.assertNotIn("/maisecrets:shortcut", msg)
+        self.assertEqual(msg, tips.TIPS[(at + 1) % len(tips.TIPS)])
         self.assertFalse((sb.home / ".shortcut").exists())
-
     def test_a_config_warning_is_shown_and_a_config_error_blocks(self):
         sb = self.sandbox({"backend": "encrypted-file", "shortcutt": 1, "shortcut": False})
         msg = _start(self, sb, CLAUDECODE="1")["systemMessage"]
-        self.assertTrue(msg.endswith(" Warning: config.json: unknown key(s) shortcutt ignored."), msg)
+        self.assertEqual(msg.splitlines()[-1],
+                         "\u26a0\ufe0f maisecrets: config.json: unknown key(s) shortcutt ignored.")
         sb = self.sandbox(policy={"keep_purged_days": "thirty"})
         out = _start(self, sb, CLAUDECODE="1")
         self.assertEqual(out, {"systemMessage": "maisecrets: configuration error: policy.json: keep_purged_days "
@@ -1142,12 +1124,12 @@ class SessionStartTests(unittest.TestCase):
         self.assertEqual((sb.home / "index.json").read_text(), '{"entries": {', "the damaged file stays")
 
     def test_a_payload_that_is_not_an_object_counts_as_empty(self):
+        from maisecrets import tips
         for text in ("not json", "[1, 2]"):
             with self.subTest(text):
                 sb = self.sandbox()
-                self.assertIn(f"is on.{SCREEN} It replaces",
-                                _start(self, sb, stdin=text, CLAUDECODE="1")["systemMessage"])
-
+                self.assertEqual(_start(self, sb, stdin=text, CLAUDECODE="1")["systemMessage"],
+                                 "\n".join(tips.welcome_lines(False, lock=True)))
     def test_session_start_purges_every_expired_value(self):
         sb = self.sandbox()
         keys = [sb.put() for _ in range(3)]
@@ -1204,6 +1186,21 @@ class HookEventTests(unittest.TestCase):
         self.assertEqual((r.returncode, out["maisecrets"]), (0, "mod-reveal"))
         self.assertIn("reason", out)
         self.assertNotIn("value", out)
+
+    def test_the_mod_demo_answers_whether_the_session_is_in_the_demo(self):
+        r = self.sb.run("mod-demo", stdin=json.dumps({"session_id": "S1"}))
+        self.assertEqual((r.returncode, json.loads(r.stdout)), (0, {"maisecrets": "mod-demo", "demo": False}))
+
+    def test_the_panel_entry_answers_the_rows_through_the_dispatcher_and_no_value(self):
+        value = fake_value("Hb")
+        self.sb.run("mod-prompt", stdin=json.dumps({"prompt": f"password: {value}", "session_id": "S1"}))
+        for question in ({"action": "list"}, {"action": "values"}, {"action": "status", "session_id": "S1"}):
+            with self.subTest(question["action"]):
+                r = self.sb.run("mod-settings", stdin=json.dumps(question))
+                out = json.loads(r.stdout)
+                self.assertEqual((r.returncode, out["maisecrets"]), (0, "mod-settings"))
+                self.assertNotIn(value, r.stdout + r.stderr)
+        self.assertEqual(self.sb.run("mod-settings", stdin="not json").returncode, 1, "a broken question: nothing")
 
     def test_session_end_answers_nothing_through_the_dispatcher(self):
         r = self.sb.run("session-end", stdin=json.dumps({"session_id": "S1", "reason": "logout"}))
@@ -1615,6 +1612,12 @@ class TipsTests(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
+    def test_each_tip_is_one_short_line(self):
+        for tip in self.tips.TIPS + self.tips.TIPS_CODEX:
+            self.assertLessEqual(len(tip), 120, tip)
+            self.assertNotIn("\n", tip)
+            self.assertTrue(tip.startswith("Tip: "), tip)
+
     def test_codex_gets_a_tip_from_its_own_pool_and_no_slash_command(self):
         (self.dir / ".tip").write_text("2000-01-01 1\n")
         self.assertEqual(self.tips.tip_of_the_day(codex=True), self.tips.TIPS_CODEX[2])
@@ -1634,11 +1637,12 @@ class TipsTests(unittest.TestCase):
 
     def test_each_pool_and_the_first_start_name_the_skill_for_what_leaked_before_in_a_form_of_its_client(self):
         for pool, codex, step in ((self.tips.TIPS, False, "/maisecrets:secret-hygiene"),
-                                  (self.tips.TIPS_CODEX, True, "with the secret-hygiene skill")):
+                                  (self.tips.TIPS_CODEX, True, "the secret-hygiene skill")):
             (tip,) = [t for t in pool if "leaked before" in t]
             self.assertIn(step, tip)
-            self.assertIn(step, self.tips.before_line(codex))
             self.assertIn("rotate", tip)
+            welcome = "\n".join(self.tips.welcome_lines(codex))
+            self.assertIn("secret-hygiene", welcome, "the first start names the skill too")
         self.assertTrue((ROOT / "skills" / "secret-hygiene" / "SKILL.md").is_file(),
                         "the tip names a skill that exists")
 

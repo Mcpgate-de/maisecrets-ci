@@ -1,6 +1,6 @@
 ---
-description: Delete stored values by key, for example /maisecrets:forget SECRET_c3, or an import of values with /maisecrets:forget import:ID as your own prompt. A placeholder for a deleted key no longer resolves.
-argument-hint: <key> [key ...]
+description: "Delete stored values by key. Type it yourself, e.g. SECRET_c3"
+argument-hint: "KEY [KEY ...] | import:ID"
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" forget:*), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" forget:*)
 ---
 

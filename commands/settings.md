@@ -1,10 +1,10 @@
 ---
-description: Show the maisecrets settings you decide - value, state (not decided, set by you, set by a policy) and meaning. To change one, send /maisecrets:settings KEY VALUE as your own prompt.
-argument-hint: "[--all | KEY on|off|default | hints reset]"
+description: "Show and change the maisecrets settings, one line each"
+argument-hint: "[all | KEY | KEY VALUE | KEY default]"
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" settings *), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" settings *)
 ---
 
-Run exactly this command and show the user its output, then stop:
+Run exactly this command, then stop. Show the user its output AS IS, as your whole answer: it is Markdown (a table) and must render as one. Do not put it in a code block, do not reword, shorten or summarise it, and add nothing before or after it:
 
 ```
 bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" settings --args-stdin <<'MAISECRETS_ARGS_END'

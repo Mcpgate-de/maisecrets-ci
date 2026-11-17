@@ -549,20 +549,33 @@ class TipTests(_Base):
             (home / "store" / "config.json").write_text(CONFIG)
             env = {k: v for k, v in os.environ.items() if not k.startswith(("CLAUDE", "CODEX_"))}
             env.update({"HOME": str(home), "MAISECRETS_" + "HOME": str(home / "store"), "PYTHONDONTWRITEBYTECODE": "1"})
+            rollout = home / ".codex" / "sessions" / "r.jsonl"
+            rollout.parent.mkdir(parents=True)
             payload = {"session_id": "S2", "source": "startup", "hook_event_name": "SessionStart",
-                       "transcript_path": str(home / ".codex" / "sessions" / "r.jsonl")}
+                       "transcript_path": str(rollout)}
 
-            def start() -> str:
+            def start(source="cli") -> str:
+                # the first line of a Codex rollout names the session source (cli: the terminal UI; exec: codex exec)
+                rollout.write_text(json.dumps({"type": "session_meta", "payload": {"source": source}}) + "\n")
                 r = subprocess.run(["bash", str(ROOT / "hooks" / "run.sh"), "session-start"],
                                    input=json.dumps(payload), capture_output=True, text=True, env=env, timeout=60)
                 self.assertEqual(r.returncode, 0, r.stderr)
                 return json.loads(r.stdout).get("systemMessage", "")
-            # the first start names ms:(…) in its try-it line; the Codex tip would say it twice, and its hint is used
+            # the first start is the three-line welcome alone; the next start names ms:(…) once
             first = start()
-            self.assertIn("Try it: send ms:(", first)
             self.assertNotIn(check_value.TIP_CODEX, first)
+            self.assertEqual(len(first.splitlines()), 3 + first.count("test store"), first)
+            self.assertIn(check_value.TIP_CODEX, start())
             self.assertIn("check_value", (home / "store" / "hints.json").read_text())
             self.assertNotIn(check_value.TIP_CODEX, start())
+            # codex exec prints no start line: the tip is neither shown nor used up there (Gate A of 30fb8d30)
+            (home / "store" / "hints.json").unlink()
+            self.assertNotIn(check_value.TIP_CODEX, start("exec"))
+            self.assertNotIn("check_value", (home / "store" / "hints.json").read_text()
+                             if (home / "store" / "hints.json").exists() else "")
+            # the test store's start repeats the try-it line, so the tip is claimed beside it, as on the first start
+            start("cli")
+            self.assertIn("check_value", (home / "store" / "hints.json").read_text(), "the next interactive start")
             payload["transcript_path"] = str(home / ".claude" / "projects" / "p" / "r.jsonl")
             (home / "store" / "hints.json").unlink()
             self.assertNotIn(check_value.TIP_CLAUDE, start(), "Claude Code names it under a blocked prompt")

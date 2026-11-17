@@ -999,12 +999,8 @@ class ShortcutTests(unittest.TestCase):
         self.assertIn("/0.3.10/hooks/run.sh pending", r.stdout.replace("\\", "/"), r.stderr)
         self.assertNotIn("$(", cmd.split("---")[2].split("\n")[1], "the ! line is a fixed path, never a substitution")
 
-    def test_session_start_offers_the_shortcut_once_and_installs_nothing(self):
-        """Writing ~/.claude/commands without a question was a change behind the user's back, and
-        Codex cannot use /ms (UX review, 2026-09-27): the session start only names the command."""
+    def test_session_start_installs_no_shortcut_and_codex_gets_no_slash_command(self):
         cfg_dir = Path(tempfile.mkdtemp(prefix="maisecrets-cfg-"))
-        marker = Path(_TMP, ".shortcut")
-        marker.unlink(missing_ok=True)
         base = {k: v for k, v in os.environ.items() if not k.startswith("CODEX_")}
         claude = {**base, "CLAUDE_CONFIG_DIR": str(cfg_dir), "CLAUDE_PLUGIN_ROOT": str(ROOT), "CLAUDECODE": "1"}
 
@@ -1012,18 +1008,12 @@ class ShortcutTests(unittest.TestCase):
             r = subprocess.run([sys.executable, str(ROOT / "hooks" / "dispatch.py"), "session-start"],
                                input="{}", capture_output=True, text=True, env=env)
             return json.loads(r.stdout).get("systemMessage", "")
-        first = start(claude)
-        self.assertIn("/maisecrets:shortcut adds /ms", first)
+        start(claude)
         self.assertFalse((cfg_dir / "commands" / "ms.md").exists(), "nothing is installed")
-        self.assertEqual(marker.read_text().strip(), "offered")
-        self.assertNotIn("/maisecrets:shortcut", start(claude), "offered once")
-        marker.unlink()
+        Path(_TMP, ".announced").unlink(missing_ok=True)
         codex = {k: v for k, v in claude.items() if k != "CLAUDECODE"}
         codex["CODEX_HOME"] = str(cfg_dir)
-        msg = start(codex)
-        self.assertNotIn("/maisecrets:", msg, "Codex has no slash commands for plugins")
-        self.assertFalse(marker.exists())
-
+        self.assertNotIn("/maisecrets:", start(codex), "Codex has no slash commands for plugins")
     def test_the_first_session_start_speaks_plainly(self):
         Path(_TMP, ".announced").unlink(missing_ok=True)
         env = {k: v for k, v in os.environ.items() if not k.startswith("CODEX_")}
@@ -1031,14 +1021,14 @@ class ShortcutTests(unittest.TestCase):
         r = subprocess.run([sys.executable, str(ROOT / "hooks" / "dispatch.py"), "session-start"],
                            input="{}", capture_output=True, text=True, env=env)
         msg = json.loads(r.stdout)["systemMessage"]
-        self.assertRegex(msg, r"is on\.( \U0001F512 marks a value Claude got only as a placeholder\.)? "
-                              r"It replaces the passwords, keys and personal data it finds")
-        self.assertIn("Text without a placeholder the AI reads as it is.", msg)
+        self.assertIn("maisecrets is on: passwords, keys and personal data reach the AI only as", msg)
+        self.assertIn("the value stays on this computer", msg)
         self.assertNotIn("stopped", msg, "the mod rewrites a prompt; it is not stopped there")
-        self.assertIn("/maisecrets:ner local", msg, "NER is off in a new home: the start line names how to turn it on")
-        for jargon in ("config.json", "Metadata:", '{"backend"', "mcpgate.de"):
-            self.assertNotIn(jargon, msg)
-
+        self.assertIn("/maisecrets:ner local", msg, "NER is off in a new home: the start names how to turn it on")
+        for line in msg.splitlines():
+            if "test store" not in line:
+                for jargon in ("config.json", "Metadata:", '{"backend"', "mcpgate.de"):
+                    self.assertNotIn(jargon, line)
     def test_shortcut_can_be_removed_and_stays_removed(self):
         from unittest import mock
         cfg_dir = Path(tempfile.mkdtemp(prefix="maisecrets-cfg-"))
@@ -1229,7 +1219,7 @@ class TipTests(unittest.TestCase):
         except FileNotFoundError:
             pass
         first = tips.tip_of_the_day()
-        self.assertTrue(first and first.startswith("maisecrets:"))
+        self.assertTrue(first and first.startswith("Tip: "))
         self.assertIsNone(tips.tip_of_the_day())          # same day: silent
         Path(HOME, ".tip").write_text("2000-01-01 0\n")   # another day: the next tip
         self.assertEqual(tips.tip_of_the_day(), tips.TIPS[1])

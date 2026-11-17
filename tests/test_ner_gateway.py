@@ -1,7 +1,7 @@
 """The gateway of /maisecrets:sref login as the source of names (#33) against a fake gateway (harness/sref_server.py
 with the name endpoint of ai-gateway #1819): the command, discovery, the login that asks for the name scope only while
 the source is set, the token at each tool result, the gateway's refusals by name, its own wait, and a prompt only
-after `/maisecrets:ner prompts on` for this source, with the rules' findings as filler (C30a). Synthetic values
+as from any source that is set, with the rules' findings as filler (C30a). Synthetic values
 only.
 
 Run: python3 -m unittest tests.test_ner_gateway -v
@@ -14,10 +14,12 @@ import shutil
 import ssl
 import sys
 import tempfile
+import time
 import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -62,10 +64,10 @@ class CommandTests(unittest.TestCase):
         # another source takes the gateway keys away
         self.assertNotIn("gateway", ner_setup.updated(new, "local"))
 
-    def test_prompts_on_for_a_network_source_and_withhold_off_are_weakenings(self):
+    def test_the_gateway_source_and_withhold_off_are_weakenings(self):
         from maisecrets import settings
         gw = ner_setup.updated({}, "gateway:https://gw.example.com/mcp")
-        self.assertTrue(settings.loosens("remote_detector", gw, ner_setup.updated(gw, "prompts:on")))
+        self.assertTrue(settings.loosens("remote_detector", ner_setup.updated({}, "local"), gw))
         held = ner_setup.updated(gw, "unavailable:withhold")
         self.assertFalse(settings.loosens("remote_detector", gw, held))
         self.assertTrue(settings.loosens("remote_detector", held, ner_setup.updated(held, "unavailable:rules")))
@@ -168,9 +170,7 @@ class GatewaySourceTests(unittest.TestCase):
 
     def test_a_prompt_of_a_program_never_goes_to_a_service_on_the_network(self):
         self.login(self.cfg)
-        on = ner_setup.updated(self.cfg["remote_detector"], "prompts:on")
-        names, why = remote_layer.prompt_names({**self.cfg, "remote_detector": on}, TEXT, [], lambda: None,
-                                               typed=False)
+        names, why = remote_layer.prompt_names(self.cfg, TEXT, [], lambda: None, typed=False)
         self.assertEqual((names, why, self.srv.ner_texts), ([], "", []))
 
     def test_the_mod_sends_only_a_typed_prompt_to_the_gateway(self):
@@ -181,8 +181,7 @@ class GatewaySourceTests(unittest.TestCase):
         old = CONFIG.read_text(encoding="utf-8") if CONFIG.exists() else None
         self.addCleanup(lambda: CONFIG.write_text(old, encoding="utf-8") if old is not None
                         else CONFIG.unlink(missing_ok=True))
-        on = ner_setup.updated(self.cfg["remote_detector"], "prompts:on")
-        CONFIG.write_text(_json.dumps({**self.cfg, "remote_detector": on}), encoding="utf-8")
+        CONFIG.write_text(_json.dumps(self.cfg), encoding="utf-8")
         for origin, sent in (("sdk", 0), ("composer", 1)):
             with self.subTest(origin=origin):
                 hooks.rewrite_prompt({"prompt": TEXT, "origin": origin, "session_id": "s-ner-gw",
@@ -259,31 +258,58 @@ class GatewaySourceTests(unittest.TestCase):
         names, why = remote_layer.prompt_names({**self.cfg, "remote_detector": conf}, text, [secret], lambda: None)
         return text, start, [text[m.start:m.end] for m in names], why
 
-    def test_a_prompt_goes_to_the_gateway_only_after_prompts_on_for_this_source(self):
+    def test_a_prompt_goes_to_the_gateway_with_no_switch(self):
         self.login(self.cfg)
         conf = self.cfg["remote_detector"]
-        _text, _start, names, why = self.prompt(conf)
-        self.assertEqual((names, why, self.srv.ner_texts), ([], "", []), "no prompts on: the rules alone")
-        on = ner_setup.updated(conf, "prompts:on")
-        self.assertIs(on["prompts"], True)
-        text, start, names, why = self.prompt(on)
+        text, start, names, why = self.prompt(conf)
         self.assertEqual((names, why), (["Okafor"], ""))
         self.assertEqual(len(self.srv.ner_texts), 1)
         sent = self.srv.ner_texts[0]
         self.assertNotIn("testpass", sent, "the rules' finding goes out as filler")
         self.assertEqual(sent[:start], text[:start])
-        # the choice belongs to this source: another source and back, and the prompt stays here again
-        again = ner_setup.updated(ner_setup.updated(on, "local"), "gateway:" + self.srv.url + "/mcp")
-        self.assertNotIn("prompts", again)
-        self.assertEqual(self.prompt(again)[2], [])
+        # a policy's "prompts": false (the only place it is still read) leaves the prompt to the rules
+        self.assertEqual(self.prompt({**conf, "prompts": False})[2], [])
         self.assertEqual(len(self.srv.ner_texts), 1)
-        # off stays off across a change of the source
-        off = ner_setup.updated(ner_setup.updated(on, "prompts:off"), "gateway:" + self.srv.url + "/mcp")
-        self.assertIs(off["prompts"], False)
 
-    def test_a_prompt_to_a_local_service_needs_no_switch_and_never_opens_the_network(self):
-        on = ner_setup.updated(ner_setup.updated({}, "local"), "prompts:on")
-        self.assertNotIn("prompts", on, "on this computer prompts are on by default; nothing to record")
+    def test_a_prompt_waits_two_seconds_in_total_discovery_and_token_included(self):
+        # Gate A of the prompt change: a slow discovery or token took its own 2 s, and then the request got a fresh
+        # full wait. One end, set before the discovery, bounds all three
+        self.login(self.cfg)
+        self.srv.ner_delay = 2.5
+        real = S.discover
+
+        def slow(seconds):
+            def discover(*a, **k):
+                time.sleep(seconds)
+                return real(*a, **k)
+            return discover
+        # (name, extra setting, discovery delay, token refresh delay, the longest wait)
+        cases = (("cached", {}, 0.0, 0.0, 2.4),
+                 ("a timeout_ms of 3 s is for tool results", {"timeout_ms": 3000}, 0.0, 0.0, 2.4),
+                 ("slow discovery", {}, 1.2, 0.0, 2.4),
+                 ("discovery past the end", {}, 2.3, 0.0, None),
+                 ("slow token, a shorter prompt wait", {"prompt_timeout_ms": 1000}, 0.0, 1.5, 1.3))
+        for name, extra, discovery, refresh, longest in cases:
+            with self.subTest(name):
+                if discovery:
+                    ner_gateway.CACHE.unlink(missing_ok=True)
+                if refresh:
+                    rec = S._load(self.backend, self.origin)
+                    S._keep(self.backend, self.origin, {**rec, "expires": 0})      # the next call refreshes
+                self.srv.refresh_delay = refresh
+                cfg = {**self.cfg, "remote_detector": {**self.cfg["remote_detector"], **extra}}
+                with mock.patch.object(S, "discover", slow(discovery)):
+                    t0 = time.monotonic()
+                    names, why = remote_layer.prompt_names(cfg, TEXT, [], lambda: None)
+                    took = time.monotonic() - t0
+                # a setup that ends after the wait: no answer in time, as for a slow service
+                self.assertEqual((names, why), ([], "timeout"))
+                if longest is not None:
+                    self.assertLess(took, longest)
+
+    def test_the_prompts_switch_is_no_form_of_the_command_any_more(self):
+        for text in ("/maisecrets:ner prompts on", "/maisecrets:ner prompts off"):
+            self.assertEqual(ner_setup.parse(text), "other:" + text[16:])
 
     def post_tool(self, conf: dict, tool: str = "Bash") -> dict:
         import json

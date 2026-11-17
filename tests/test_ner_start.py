@@ -15,6 +15,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
+from _hygiene import codex_rollout  # noqa: E402
 
 from maisecrets import ner_secret, ner_setup, remote_layer  # noqa: E402
 from maisecrets.vault import HOME, make_backend  # noqa: E402
@@ -203,6 +204,47 @@ class StoredSecretTests(unittest.TestCase):
             note = remote_layer.hint({"session_id": "S1"})
         self.assertEqual(note, ner_setup.DOWN_NOTE.format(why="no answer in time"))
         self.assertIn("(no answer in time)", note)
+
+    def test_a_note_of_the_name_service_waits_for_a_person_and_names_the_codex_form_in_codex(self):
+        # Gate A of 58af1883: claimed without the check; and /maisecrets:ner does not exist in Codex
+        down = remote_layer.remote.RemoteStatus("hf", "", "unavailable", "timeout")
+        not_ours = remote_layer.remote.RemoteStatus("hf", "", "unavailable", "not_ours")
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_ENTRYPOINT": "sdk-cli"}), \
+                mock.patch.object(ner_setup, "claim_down_note", return_value=True) as claim:
+            remote_layer.note_result(remote_layer.Layer({}, down))
+            self.assertIsNone(remote_layer.hint({"session_id": "S1"}), "claude -p shows no line")
+            remote_layer.NER_DOWN["fallback"] = True
+            self.assertIsNone(remote_layer.hint({"session_id": "S1"}, codex=True), "no rollout: no line")
+        claim.assert_not_called()
+        remote_layer.NER_DOWN.pop("fallback", None)
+        remote_layer.NER_DOWN["v"] = False
+        tui = {"session_id": "S1", "transcript_path": codex_rollout("cli")["transcript_path"]}
+        with mock.patch.object(ner_setup, "claim_down_note", return_value=True):
+            for status, want in ((down, ner_setup.DOWN_NOTE_CODEX.format(why="no answer in time")),
+                                 (not_ours, ner_setup.NOT_OURS_NOTE_CODEX)):
+                remote_layer.note_result(remote_layer.Layer({}, status))
+                self.assertEqual(remote_layer.hint(tui, codex=True), want)
+            remote_layer.NER_DOWN["fallback"] = True
+            self.assertEqual(remote_layer.hint(tui, codex=True), ner_setup.FALLBACK_NOTE_CODEX)
+        for note in (ner_setup.DOWN_NOTE_CODEX, ner_setup.NOT_OURS_NOTE_CODEX, ner_setup.FALLBACK_NOTE_CODEX):
+            self.assertNotIn("/maisecrets:", note, "Codex has no slash command for plugins")
+            self.assertTrue(note.startswith("maisecrets: "))
+
+    def test_a_note_of_the_name_service_is_a_line_for_the_person(self):
+        # the model got "mention this once" and worded it itself, more than once (field report 2026-11-17)
+        from maisecrets import hooks
+        for note in (ner_setup.DOWN_NOTE, ner_setup.NOT_OURS_NOTE, ner_setup.FALLBACK_NOTE):
+            with self.subTest(note=note[:40]):
+                for word in ("Mention", "tell the user", "after your answer", "yourself"):
+                    self.assertNotIn(word, note)
+                with mock.patch.object(hooks, "_ner_hint", return_value=note), \
+                        mock.patch.object(hooks, "_ssh_hint", return_value=None), \
+                        mock.patch.object(hooks, "_destination_hint", return_value=None), \
+                        mock.patch.object(hooks, "_file_read_hint", return_value=None):
+                    ctx = {"hookEventName": "PostToolUse", "additionalContext": "masked"}
+                    out = hooks._with_hint({"session_id": "S1"}, {"hookSpecificOutput": ctx})
+                self.assertEqual(out["systemMessage"], note)
+                self.assertEqual(out["hookSpecificOutput"], ctx, "the model's context is unchanged")
 
 
 OLD = "mcpgate/ner:v2.0.3584"

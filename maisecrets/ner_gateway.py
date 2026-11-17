@@ -5,7 +5,7 @@
 resource metadata names `ner_endpoint`, `ner_scope` and `ner_max_chars`; kept for an hour in ner-gateway.json, never
 a token) and for an access token of the login (sref_client, refreshed under its lock). The login must hold the name
 scope: a login asks for it only while this source is set (sref_client.discover), so the person logs in once more
-after the switch. A prompt goes to this source only after `/maisecrets:ner prompts on`, typed while this source is set
+after the switch. A typed prompt goes to this source too, as to any source that is set
 (C30a: remote_layer.prompt_names); the rules' findings and the stored values go there as filler, as for a tool result.
 """
 from __future__ import annotations
@@ -128,13 +128,16 @@ def status_line(doc) -> str:
     return ("load: " + "; ".join(parts)) if parts else "load: no load data"
 
 
-def detector(cfg: dict, conf: dict, make) -> tuple:
+def detector(cfg: dict, conf: dict, make, deadline: float | None = None) -> tuple:
     """(RemoteDetector or None, why not). `make(url, token, max_chars)` builds the detector with the person's tuning.
-    No login, no name endpoint or a login without the name scope: no detector, and the rules alone, with the reason."""
+    No login, no name endpoint or a login without the name scope: no detector, and the rules alone, with the reason.
+    `deadline`: the end of the whole prompt wait (remote_layer.prompt_names); the discovery and the token take their
+    time from it, and the request gets what is left. Without one (a tool result) they take up to 2 s."""
     from . import sref_client
     from .vault import make_backend
     origin = origin_of(conf)
-    deadline = time.monotonic() + 2.0
+    if deadline is None:
+        deadline = time.monotonic() + 2.0
     found = found_for(cfg, origin, str(conf.get("gateway_url") or origin), deadline)
     if not found or not found.get("ner"):
         return None, f"{origin} names no name detection (the gateway's admin switch may be off)"

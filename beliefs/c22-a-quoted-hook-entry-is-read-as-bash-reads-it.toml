@@ -1,0 +1,10 @@
+# c22-a-quoted-hook-entry-is-read-as-bash-reads-it: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c22-a-quoted-hook-entry-is-read-as-bash-reads-it"
+control = "C22"
+statement = "A tool call that names a hook entry in a form bash hands over as the plain name ($'…' with its escapes, $\"…\", split quotes, backslashes) is refused, for every mod entry."
+runner = ["tests/test_hub.py::ToolCallTests::test_each_mod_entry_in_a_quoted_form_bash_hands_over_is_refused"]
+
+[proof]
+file = "maisecrets/shell_commands.py"
+find = "                _names_an_entry(_bash_words(command[sg[\"start\"]:sg[\"end\"]]), broad):"
+replace = "                False:"

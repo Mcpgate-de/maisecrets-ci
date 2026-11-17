@@ -1,6 +1,6 @@
 ---
-description: Names in tool results from a named-entity service - local (a container on this computer), url URL (a service of your team), gateway URL or gateway NAME (the gateway of your login, or an MCP server of your configuration by its name) or off. Without an argument it shows the source and its checks on one screen; all adds the details.
-argument-hint: "[all | on | local | url URL | gateway URL | gateway NAME | NAME | fallback url URL | fallback off | prompts on | prompts off | unavailable rules | unavailable withhold | updates on | updates off | off]"
+description: "Setup: mask names with a named-entity service"
+argument-hint: "[local | url URL | gateway NAME | off | all]"
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" ner *), Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" ner), Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" sref login *), Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" sref login), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" ner *), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" ner), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" sref login *), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" sref login)
 ---
 

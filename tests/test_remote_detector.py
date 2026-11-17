@@ -334,7 +334,8 @@ class RemoteDetectorTests(unittest.TestCase):
         # the gateway applies the spans itself and asks this function (public since 0.8.15)
         for span in ("Claude", " claude code ", "GitHub Actions", "Docker Desktop", "Claude Opus", "GitHub Copilot"):
             self.assertTrue(rm.is_product_name(span), span)
-        for span in ("", "Hallo", NAME, NAME + " Docker", "Claude " + NAME.split()[-1], "Code", "Desktop Claude"):
+        for span in ("", "Hallo", NAME, NAME + " Docker", "Claude " + NAME.split()[-1], "Code", "Desktop Claude",
+                     "Claude Server", "GitHub Api"):
             self.assertFalse(rm.is_product_name(span), span)
 
     def test_a_greeting_alone_is_no_name_and_the_name_after_it_stays(self):
@@ -377,6 +378,143 @@ class RemoteDetectorTests(unittest.TestCase):
         for span in ("", NAME, NAME.split()[0], NAME.split()[-1], "Allow " + NAME.split()[-1], "Allowance", "Edit",
                      "Ok"):
             self.assertFalse(rm.is_no_person(span), span)
+
+    def _kept(self, text: str, words: tuple) -> list:
+        def answer(t):
+            out = []
+            for word in words:
+                at = t.find(word)
+                out.append({"entity_group": "PER", "start": at, "end": at + len(word), "score": 0.95, "word": word})
+            return out
+        svc = Service(answer=answer)
+        self.addCleanup(svc.close)
+        spans, status = rm.RemoteDetector(svc.url).ask(text, [])
+        self.assertEqual(status.state, "ok")
+        return [text[s:e] for s, e, _t, _sc in spans]
+
+    def test_the_tail_of_a_product_name_is_no_name(self):
+        # 2026-11-17: the gateway's service gave "Code" of "Claude Code" alone, and it was stored as a name
+        for product, tail in (("Claude", "Code"), ("GitHub", "Actions"), ("Docker", "Desktop")):
+            text = f"I use {product} {tail} with {NAME} today."
+            for words in ((tail,), (f"{product} {tail}",), (product,)):
+                with self.subTest(words=words):
+                    self.assertEqual(self._kept(text, words + (NAME,)), [NAME])
+        self.assertEqual(self._kept(f"Open Claude Code Desktop, {NAME}.", ("Desktop", NAME)), [NAME])
+
+    def test_a_name_after_a_product_word_stays_a_name(self):
+        first, last = NAME.split()[0], NAME.split()[-1]
+        self.assertEqual(self._kept(f"Claude {NAME} wrote it.", (NAME,)), [NAME])
+        self.assertEqual(self._kept(f"Claude {first} wrote it.", (first,)), [first])
+        self.assertEqual(self._kept(f"Claude Code {last} wrote it.", (last,)), [last])
+        # a tail that is a given name or a surname stays a name after a product word: Server is a Turkish given name
+        for words, kept in ((("Server",), ["Server"]), (("Claude Server",), ["Claude Server"]), (("Api",), ["Api"]),
+                            (("Claude Api",), ["Claude Api"])):
+            with self.subTest(words=words):
+                self.assertEqual(self._kept("Ask Claude Server and Claude Api about it.", words), kept)
+
+    def test_a_word_that_is_a_name_somewhere_stays_a_name_without_context(self):
+        # Gate A: code, bash, home, edit are surnames or given names; only a context in the text frees them
+        for word in ("Code", "Bash", "Home", "Edit", "Read", "Desktop", "Server", "Opus", "Library"):
+            with self.subTest(word=word):
+                self.assertEqual(self._kept(f"Ask {word} about it.", (word,)), [word])
+        # a word that is never a name goes alone
+        self.assertEqual(self._kept("WebFetch, PostToolUse, Users and GitLab", ("WebFetch", "PostToolUse", "Users",
+                                                                                  "GitLab")), [])
+
+    def test_a_tool_name_in_a_hook_label_or_a_tool_context_is_no_name(self):
+        # 2026-11-17: "PostToolUse:Bash says: …" made "Bash" a stored name, masked in every later text
+        line = "PostToolUse:Bash says: maisecrets masked 2 values. Then PreToolUse:Edit ran."
+        for words in (("PostToolUse:Bash",), ("Bash",), ("PostToolUse",), ("Edit",), ("PreToolUse:Edit",)):
+            with self.subTest(words=words):
+                self.assertEqual(self._kept(line + f" {NAME} saw it.", words + (NAME,)), [NAME])
+        self.assertEqual(self._kept(f"I ran Bash and then {NAME} used the Edit tool, Read(x) and via Task.",
+                                    ("Bash", NAME, "Edit", "Read", "Task")), [NAME])
+        self.assertEqual(self._kept(f"Stop:{NAME.split()[0]} and Edit and Bash.", (NAME.split()[0], "Edit", "Bash")),
+                         [NAME.split()[0], "Edit", "Bash"])
+
+    def test_the_hook_and_tool_rules_a_caller_applies_itself(self):
+        for span in ("PostToolUse:Bash", "Stop:Edit", " sessionstart:read "):
+            self.assertTrue(rm.is_hook_label(span), span)
+            self.assertTrue(rm.is_no_person(span), span)
+        for span in ("", "Bash", "Edit", "PostToolUse", "PostToolUse:" + NAME.split()[0], "Foo:Bash",
+                     "PostToolUse:Bash hook", ":"):
+            self.assertFalse(rm.is_hook_label(span), span)
+        for text, span in (("PostToolUse:Edit", "Edit"), ("x Stop:Bash", "Bash")):
+            at = text.rindex(span)
+            self.assertTrue(rm.is_hook_label_tail(text, at, at + len(span)), (text, span))
+            self.assertTrue(rm.is_no_person_in(text, at, at + len(span)), (text, span))
+        for text, span in (("Edit", "Edit"), ("Note:Edit", "Edit"), ("PostToolUse: Edit", "Edit"),
+                           ("PostToolUse:Edit it", "Edit it"), ("PostToolUseX:Edit", "Edit"),
+                           ("PostToolUse-Edit", "Edit"), ("Edit PostToolUse:", "Edit"),
+                           ("Stop:" + NAME.split()[0], NAME.split()[0]), ("PostToolUse :Edit", "Edit")):
+            at = text.rindex(span)
+            self.assertFalse(rm.is_hook_label_tail(text, at, at + len(span)), (text, span))
+        for text, span in (("Bash(ls)", "Bash"), ("the Edit tool", "Edit"), ("two Read  tools", "Read"),
+                           ("I ran Bash", "Bash"), ("run  Write", "Write"), ("runs Grep", "Grep"), ("via Task", "Task"),
+                           ("ran\tBash", "Bash")):
+            at = text.rindex(span)
+            self.assertTrue(rm.is_tool_in_context(text, at, at + len(span)), (text, span))
+        for text, span in (("Bash (ls)", "Bash"), ("Edit toolbox", "Edit"), ("called Bash", "Bash"),
+                           ("ranBash", "Bash"),
+                           ("Bash", "Bash"), (NAME + "(x)", NAME), ("ran " + NAME, NAME), ("the Bash\ntool", "Bash")):
+            at = text.rindex(span)
+            self.assertFalse(rm.is_tool_in_context(text, at, at + len(span)), (text, span))
+
+    def test_a_folder_name_or_a_product_word_in_a_path_is_no_name_and_a_login_name_stays(self):
+        # 2026-11-17: "Users" and "Claude" in paths of an audit report were masked as names
+        login = NAME.split()[0].lower()
+        text = (f"read /Users/{login}/.claude/settings.json and C:\\Users\\{login}\\AppData\\Roaming\\Codex "
+                f"and /home/{login}/Library/Shared/x, Library/Documents.")
+        words = ("Users", "claude", "AppData", "Roaming", "Codex", "home", "Library", "Library/Documents", login)
+        self.assertEqual(self._kept(text, words), [login])
+        self.assertEqual(self._kept(f"/Users/{login}/Documents", (f"Users/{login}",)), [f"Users/{login}"])
+
+    def test_the_path_rules_a_caller_applies_itself(self):
+        for span in ("Library/Documents", "AppData\\Roaming", "/var/tmp/", "/opt/claude", "Documents/Users"):
+            self.assertTrue(rm.is_path_words(span), span)
+        for span in ("", "/", "Users", "Users/" + NAME.split()[0], "Users Library", "Library " + NAME, "Users/Home",
+                     "home/claude", "/Users/Shared"):
+            self.assertFalse(rm.is_path_words(span), span)
+        for text, span in (("/home/x", "home"), ("Library/", "Library"), ("x\\Local", "Local"), ("/.claude", ".claude"),
+                           ("/.claude", "claude"), ("C:\\Opt", "Opt"), ("/x/home/y", "home"), ("/home/a/Opt", "Opt"),
+                           ("Users-x/Home", "Home"), ("myusers//Home", "Home"), ("usersLibrary/", "Library"),
+                           ("x-users/Home", "Home"),
+                           ("/myusers/Library", "Library")):
+            at = text.rindex(span)
+            self.assertTrue(rm.is_path_segment(text, at, at + len(span)), (text, span))
+        for text, span in (("home", "home"), ("go home now", "home"), ("/x/" + NAME.split()[0], NAME.split()[0]),
+                           ("a.home", "home"), ("-home-", "home"), (".home", "home"), ("/Users/Home/file", "Home"),
+                           ("/home/home/file", "home"), ("/Users//Home/", "Home"), ("/home//Home/", "Home"),
+                           ("C:\\\\Users\\\\Home\\\\", "Home"),
+                           ("C:\\Users\\Opt\\x", "Opt"), ("Users/Library", "Library")):
+            at = text.rindex(span)
+            self.assertFalse(rm.is_path_segment(text, at, at + len(span)), (text, span))
+
+    def test_is_never_stored_name_holds_only_words_that_are_never_a_name(self):
+        for value in ("Users", "PostToolUse", "WebFetch", "GitLab", "Codex", "Actions", "Users/AppData", " grep ",
+                      "PostToolUse:WebFetch", "AppData\\Users"):
+            self.assertTrue(rm.is_never_stored_name(value), value)
+        # a word that is a name somewhere is stored when the filter keeps it: the filter has the context
+        for value in ("", "/", NAME, NAME.split()[0], "Claude", "Code", "Server", "Bash", "Edit", "Home", "Desktop",
+                      "PostToolUse:Bash", "Users/" + NAME.split()[0], "Claude Code"):
+            self.assertFalse(rm.is_never_stored_name(value), value)
+
+    def test_is_product_tail_and_is_no_person_in_are_the_rule_a_caller_applies_itself(self):
+        for text, span in (("Claude Code", "Code"), ("GitHub  Actions", "Actions"), ("Docker Desktop", "Desktop"),
+                           ("Claude Code Desktop", "Desktop"), ("Claude Code Desktop", "Code Desktop")):
+            at = text.rindex(span)
+            self.assertTrue(rm.is_product_tail(text, at, at + len(span)), (text, span))
+            self.assertTrue(rm.is_no_person_in(text, at, at + len(span)), (text, span))
+        for text, span in (("Code", "Code"), ("my Code", "Code"), ("Claude\nCode", "Code"),
+                           ("Claude-Code", "Code"), ("Claude " + NAME, NAME), ("Claude Code", " "),
+                           (".Code", "Code"), ("Claude Code " + NAME, "Code " + NAME),
+                           ("ClaudeCode", "Code"), ("Claude my Code", "Code"), ("Claude ", ""),
+                           ("Claude Server", "Server"), ("Claude Code Server", "Code Server")):
+            at = text.rindex(span)
+            self.assertFalse(rm.is_product_tail(text, at, at + len(span)), (text, span))
+        self.assertTrue(rm.is_no_person_in("Kessler GmbH", 0, len("Kessler")))
+        self.assertTrue(rm.is_no_person_in("Hallo", 0, 5))
+        self.assertFalse(rm.is_no_person_in("x " + NAME, 2, 2 + len(NAME)))
 
     def test_a_company_with_a_legal_form_is_no_name(self):
         # #46: the name service took company names of the Mendeley sample for persons; invented companies
