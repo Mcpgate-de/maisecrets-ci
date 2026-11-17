@@ -1,0 +1,279 @@
+{
+ "_about": "Where a person revokes a leaked credential, by detection rule. A rule id matches the longest prefix below. 'where' is a page or a menu path that the provider's own documentation names (the 'docs' page, read 2026-11-17). A row's fourth field replaces the provider's 'where' for that token kind; 'settings' there, or a rule without a row, gives 'see the provider's settings': a rule that covers several token kinds, or a kind whose page the docs do not name. references/rotation.md has the steps.",
+ "providers": {
+  "anthropic": {
+   "name": "Anthropic",
+   "where": "https://platform.claude.com/settings/keys",
+   "docs": "https://platform.claude.com/docs/en/api/overview"
+  },
+  "atlassian": {
+   "name": "Atlassian",
+   "where": "https://id.atlassian.com/manage-profile/security/api-tokens",
+   "docs": "https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/"
+  },
+  "aws": {
+   "name": "AWS",
+   "where": "IAM console: Users, the user, Security credentials, Access keys",
+   "docs": "https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html"
+  },
+  "bitbucket": {
+   "name": "Bitbucket",
+   "where": "Account settings, Security, Create and manage API tokens",
+   "docs": "https://support.atlassian.com/bitbucket-cloud/docs/revoke-an-api-token/"
+  },
+  "cloudflare": {
+   "name": "Cloudflare",
+   "where": "https://dash.cloudflare.com/profile/api-tokens",
+   "docs": "https://developers.cloudflare.com/fundamentals/api/how-to/roll-token/"
+  },
+  "github": {
+   "name": "GitHub",
+   "where": "github.com: Settings, Developer settings, Personal access tokens",
+   "docs": "https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens"
+  },
+  "gitlab": {
+   "name": "GitLab",
+   "where": "https://gitlab.com/-/user_settings/personal_access_tokens (on your own GitLab: the same path on its host)",
+   "docs": "https://docs.gitlab.com/user/profile/personal_access_tokens/"
+  },
+  "google": {
+   "name": "Google Cloud",
+   "where": "https://console.cloud.google.com/apis/credentials",
+   "docs": "https://docs.cloud.google.com/docs/authentication/api-keys"
+  },
+  "huggingface": {
+   "name": "Hugging Face",
+   "where": "https://huggingface.co/settings/tokens",
+   "docs": "https://huggingface.co/docs/hub/security-tokens"
+  },
+  "npm": {
+   "name": "npm",
+   "where": "npmjs.com: your profile picture, Access Tokens",
+   "docs": "https://docs.npmjs.com/revoking-access-tokens"
+  },
+  "openai": {
+   "name": "OpenAI",
+   "where": "https://platform.openai.com/api-keys",
+   "docs": "https://developers.openai.com/api/docs/quickstart"
+  },
+  "postmark": {
+   "name": "Postmark",
+   "where": "Postmark: Servers, the server, API Tokens (an account token: Account, API Tokens)",
+   "docs": "https://postmarkapp.com/support/article/1008-what-are-the-account-and-server-api-tokens"
+  },
+  "slack": {
+   "name": "Slack",
+   "where": "https://api.slack.com/apps",
+   "docs": "https://docs.slack.dev/authentication/tokens"
+  },
+  "storyblok": {
+   "name": "Storyblok",
+   "where": "https://app.storyblok.com/#/me/account?tab=token (a space token: the space, Settings, Access Tokens)",
+   "docs": "https://www.storyblok.com/docs/concepts/access-tokens"
+  },
+  "stripe": {
+   "name": "Stripe",
+   "where": "https://dashboard.stripe.com/apikeys",
+   "docs": "https://docs.stripe.com/keys"
+  },
+  "github_apps": {
+   "name": "GitHub",
+   "where": "github.com: Settings, Applications, Authorized GitHub Apps",
+   "docs": "https://docs.github.com/en/apps/using-github-apps/reviewing-and-revoking-authorization-of-github-apps"
+  },
+  "github_oauth": {
+   "name": "GitHub",
+   "where": "github.com: Settings, Applications, Authorized OAuth Apps",
+   "docs": "https://docs.github.com/en/apps/oauth-apps/using-oauth-apps/reviewing-your-authorized-oauth-apps"
+  }
+ },
+ "rules": [
+  [
+   "anthropic-",
+   "anthropic",
+   "key",
+   "settings"
+  ],
+  [
+   "anthropic-api-key",
+   "anthropic",
+   "API key"
+  ],
+  [
+   "atlassian-",
+   "atlassian",
+   "secret",
+   "settings"
+  ],
+  [
+   "atlassian-api-token",
+   "atlassian",
+   "API token"
+  ],
+  [
+   "aws-",
+   "aws",
+   "credential",
+   "settings"
+  ],
+  [
+   "aws-access-token",
+   "aws",
+   "access key"
+  ],
+  [
+   "aws-secret-after-access-key",
+   "aws",
+   "secret access key"
+  ],
+  [
+   "bitbucket-",
+   "bitbucket",
+   "credential",
+   "settings"
+  ],
+  [
+   "cloudflare-",
+   "cloudflare",
+   "credential",
+   "settings"
+  ],
+  [
+   "cloudflare-user-api-token",
+   "cloudflare",
+   "user API token"
+  ],
+  [
+   "gcp-",
+   "google",
+   "credential",
+   "settings"
+  ],
+  [
+   "gcp-api-key",
+   "google",
+   "API key"
+  ],
+  [
+   "github-",
+   "github",
+   "token",
+   "settings"
+  ],
+  [
+   "github-pat",
+   "github",
+   "personal access token"
+  ],
+  [
+   "github-fine-grained-pat",
+   "github",
+   "fine-grained personal access token"
+  ],
+  [
+   "github-oauth",
+   "github_oauth",
+   "OAuth app token"
+  ],
+  [
+   "github-refresh-token",
+   "github_apps",
+   "GitHub App refresh token"
+  ],
+  [
+   "gitlab-",
+   "gitlab",
+   "token",
+   "settings"
+  ],
+  [
+   "gitlab-pat",
+   "gitlab",
+   "personal access token"
+  ],
+  [
+   "huggingface-",
+   "huggingface",
+   "token",
+   "settings"
+  ],
+  [
+   "huggingface-access-token",
+   "huggingface",
+   "access token"
+  ],
+  [
+   "npm-access-token",
+   "npm",
+   "access token"
+  ],
+  [
+   "openai-",
+   "openai",
+   "API key",
+   "settings"
+  ],
+  [
+   "openai-api-key-short-prefixed",
+   "openai",
+   "API key"
+  ],
+  [
+   "postmark-",
+   "postmark",
+   "API token"
+  ],
+  [
+   "slack-",
+   "slack",
+   "token",
+   "settings"
+  ],
+  [
+   "slack-bot-token",
+   "slack",
+   "bot token"
+  ],
+  [
+   "slack-legacy-bot-token",
+   "slack",
+   "bot token"
+  ],
+  [
+   "slack-user-token",
+   "slack",
+   "user token"
+  ],
+  [
+   "slack-app-token",
+   "slack",
+   "app-level token"
+  ],
+  [
+   "slack-config-",
+   "slack",
+   "app configuration token"
+  ],
+  [
+   "slack-app-configuration-access-token",
+   "slack",
+   "app configuration token"
+  ],
+  [
+   "storyblok-personal-access-token",
+   "storyblok",
+   "personal access token"
+  ],
+  [
+   "stripe-",
+   "stripe",
+   "key",
+   "settings"
+  ],
+  [
+   "stripe-access-token",
+   "stripe",
+   "secret or restricted key"
+  ]
+ ]
+}

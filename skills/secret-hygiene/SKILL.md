@@ -165,16 +165,33 @@ my agents already leak?".
      than three lines away from it, and a weak shape that needs a word farther away. `--full` reads each record as
      one text, as before, with every rule: it is slower, and the user can ask for it after a fast scan. Neither scan finds a random value
      with no label and no prefix.
-3. When the scan ends, report it first. Begin with the values under "REACHED THE PROVIDER", `shape` before
-   `guess`: each one was sent to Anthropic or OpenAI and must be rotated ("Contain a leak"). Values only in local
-   records did not provably reach a provider.
-4. Only when the user asks, offer to clean the local copies: `--scrub` lists the files, and
-   only `--scrub --yes`, after the user's explicit yes, replaces the values. Say every time
-   that this cleans only this computer: the provider keeps what it received, so rotation
-   comes first.
+3. When the scan ends, show its stdout AS IS, in a code block: the verdict line, at most 10 real tokens (type,
+   sessions, last date, the page to revoke it), an "Also check" line when a token in a provider's format was seen
+   only in test files, and one "Not shown" line with the full report. Add
+   nothing before it, and do not restate, sort or explain it. Do not add counts, ids or rules from the report.
+   - The script sorts each value into a class: REAL (it is in the person's maisecrets store, or it has a
+     provider's token format and was sent in a prompt or a tool result: rotate it), TEST (it names itself a test
+     value, vendor docs publish it, only the model wrote it, or a keyword guess stands only in test code) and
+     UNKNOWN (the rest; a provider format seen only in test files is UNKNOWN with the reason "provider format,
+     only in test code"). It compares with the store in its own process by keyed fingerprint and prints no value.
+   - Never offer to write a script that compares the findings with the person's real tokens: the audit did that.
+4. Then offer the choices. In Claude Code, use your question tool (AskUserQuestion) with these options; in Codex,
+   a numbered list, and wait for the answer:
+   - "Show me how to rotate them" (only when there is a real token): walk through the real tokens one at a time.
+     For each one, give the page from the summary and the steps from `references/rotation.md`, and wait until the
+     person says it is done or skips it.
+   - "Clean the local copies": run `--scrub` (with the same `--all`, `--claude` or `--codex` as the scan). It lists
+     the files. Then ask for an explicit yes, and only then run `--scrub --yes`. Say every time that this cleans
+     only this computer: the provider keeps what it received, so rotation comes first.
+   - "Show details": read the "BY RULE" part of the report file and give, per rule, the counts of TEST and
+     UNKNOWN with their reasons, at most 15 lines. Name the rows of "provider format, only in test code" first:
+     those are the "Also check" tokens, and the person decides whether each one is a fixture or a real token. No
+     value is in the report.
+   - "Done".
 5. The approvals are part of this task. While the scan runs, run them with all output to files:
    `python3 scripts/audit_approvals.py --out <file> > <summary-file> 2>&1`. Do not read either file until the
-   scan ends. Then report the approvals in the same answer as the scan, after the scan's result. When the user
+   scan ends. Then report the approvals in the same answer as the scan, after the scan's summary and before the
+   choices, in one or two lines. When the user
    asks only for the approvals, run `python3 scripts/audit_approvals.py --out <file>` and report it at once. It
    reads the settings and
    the client config of Claude Code and the rules and config of Codex, and it names each file

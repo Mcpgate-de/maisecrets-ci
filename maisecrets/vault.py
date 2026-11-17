@@ -745,6 +745,25 @@ class Vault:
         return {m["fingerprint"]: k for k, m in self._index["entries"].items()
                 if not m.get("purged") and not m.get("weak") and not (prompt and m.get("quiet"))}
 
+    def held_among(self, values) -> set | None:
+        """Which of `values` this store holds or held: a live entry, or a purged one whose record is still kept
+        (keep_purged_days). A weak entry (a word) does not count. Compared by the keyed fingerprint in this process;
+        no stored value is read. Strictly read-only: None (not compared) when the fingerprint key or the key file of
+        the encrypted store is missing, and no key or file is made (the encrypted store's _tag would make its key
+        file). For the session audit of the secret-hygiene skill (THREAT-MODEL C17)."""
+        held = {m["fingerprint"] for m in self._index["entries"].values()
+                if m.get("fingerprint") and not m.get("weak")}
+        if not held:
+            return set()
+        key_file = getattr(self.backend, "key_file", None)
+        if key_file is not None and not Path(key_file).exists():
+            return None
+        raw = self.backend.get(FP_KEY_ENTRY)
+        if not raw:
+            return None
+        key = bytes.fromhex(raw.strip())
+        return {v for v in values if fingerprint(v, key) in held}
+
     @_mutating
     def weaken_quiet_words(self) -> int:
         """Mark weak the live quiet entries (a label rule took them in a tool result) that are English words

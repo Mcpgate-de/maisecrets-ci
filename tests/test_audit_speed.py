@@ -491,8 +491,13 @@ class RunTests(unittest.TestCase):
         self.addCleanup(importlib.reload, at)
         with mock.patch.object(mod, "ESTIMATE_SECONDS", 0), mock.patch.object(mod, "PROGRESS_SECONDS", 0), \
                 redirect_stderr(err), mock.patch("sys.stdout", out):
-            code = mod.main(["--claude", *args])
-        return code, out.getvalue(), err.getvalue()
+            code = mod.main(["--claude", "--out", str(self.dir / "report.txt"), *args])
+        report = self.dir / "report.txt"
+        # the summary on stdout, then the full report (the rows the tests read)
+        full = out.getvalue() + (report.read_text(encoding="utf-8") if report.exists() else "")
+        if report.exists():
+            report.unlink()
+        return code, full, err.getvalue()
 
     def test_a_scan_that_never_reaches_its_sample_size_still_gets_an_estimate(self):
         out = io.StringIO()
@@ -664,8 +669,14 @@ class ScrubTests(unittest.TestCase):
     def audit(self, *args):
         env = dict(os.environ, PYTHONUTF8="1", CLAUDE_CONFIG_DIR=str(self.dir / "claude"),
                    CODEX_HOME=str(self.dir / "codex"))
-        return subprocess.run([sys.executable, str(SCRIPTS / "audit_transcripts.py"), "--claude", *args],
-                              capture_output=True, text=True, encoding="utf-8", env=env, timeout=120)
+        report = self.dir / "report.txt"
+        if report.exists():
+            report.unlink()
+        r = subprocess.run([sys.executable, str(SCRIPTS / "audit_transcripts.py"), "--claude", "--out", str(report),
+                            *args], capture_output=True, text=True, encoding="utf-8", env=env, timeout=120)
+        if report.exists():   # the rows of the full report, after the summary
+            r.stdout += report.read_text(encoding="utf-8")
+        return r
 
     def test_a_value_in_a_text_document_and_a_key_with_line_breaks_are_removed(self):
         doc = base64.b64encode(("notes\nGITHUB_TOKEN=" + self.token + "\n").encode()).decode()

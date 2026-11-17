@@ -343,15 +343,17 @@ class SkillChannelTests(unittest.TestCase):
         old = time.time() - 3600
         os.utime(session, (old, old))
         env = dict(_clean_env(), PYTHONUTF8="1", CLAUDE_CONFIG_DIR=str(claude), CODEX_HOME=str(self.dir / "codex"))
-        r = subprocess.run([sys.executable, str(SCRIPTS / "audit_transcripts.py")], capture_output=True, text=True,
-                           encoding="utf-8", env=env, timeout=120)
+        report = self.dir / "report.txt"
+        r = subprocess.run([sys.executable, str(SCRIPTS / "audit_transcripts.py"), "--out", str(report)],
+                           capture_output=True, text=True, encoding="utf-8", env=env, timeout=120)
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertIn("Reached the AI provider: 1 distinct value(s).", r.stdout)
-        row = next(line for line in r.stdout.splitlines() if line.startswith("  S1"))
+        full = report.read_text(encoding="utf-8")
+        self.assertIn("Reached the AI provider: 1 distinct value(s).", full)
+        row = next(line for line in full.splitlines() if line.startswith("  S1"))
         self.assertIn("tool result", row)
         self.assertNotIn("prompt", row)
         for v in (self.FILE_PW, self.PROMPT_PW):
-            self.assertNotIn(v, r.stdout + r.stderr)
+            self.assertNotIn(v, r.stdout + r.stderr + full)
 
 
 def _rnd(n: int, alphabet: str = string.ascii_letters + string.digits) -> str:
@@ -429,7 +431,7 @@ class ReadAFileFullOfSecretsTests(unittest.TestCase):
         audit = text.split("## Check what the AI agents already received", 1)[1].split("\n## ", 1)[0]
         for rule in ("The estimate is no result", "I report when it ends.",
                      "python3 scripts/audit_approvals.py --out <file> > <summary-file> 2>&1",
-                     "Do not read either file until the\n   scan ends", "after the scan's result"):
+                     "Do not read either file until the\n   scan ends", "after the scan's summary"):
             self.assertIn(rule, audit, rule)
 
     def test_a_masked_copy_of_each_file_holds_no_value_and_the_original_is_kept(self):
@@ -617,17 +619,19 @@ class TranscriptAuditTests(unittest.TestCase):
                               text=True, encoding="utf-8", env=self.env, timeout=120)
 
     def test_the_report_names_what_reached_the_provider_and_no_value(self):
-        r = self.audit()
+        report = self.dir / "report.txt"
+        r = self.audit("--out", str(report))
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertIn("Reached the AI provider: 1 distinct value(s). Only in local records: 1.", r.stdout)
-        row = next(line for line in r.stdout.splitlines() if line.startswith("  S1"))
+        full = report.read_text(encoding="utf-8")
+        self.assertIn("Reached the AI provider: 1 distinct value(s). Only in local records: 1.", full)
+        row = next(line for line in full.splitlines() if line.startswith("  S1"))
         self.assertIn("to Anthropic/OpenAI", row)
         self.assertIn("in 2 session(s)", row)
         self.assertIn("prompt", row)
         self.assertIn("tool result", row)
         self.assertIn("2026-09-20..2026-09-22", row)
         for part in (self.token, self.token[4:], self.other, self.other[4:]):
-            self.assertNotIn(part, r.stdout + r.stderr)
+            self.assertNotIn(part, r.stdout + r.stderr + full)
 
     def test_scrub_asks_first_then_keeps_every_line_valid_json(self):
         dry = self.audit("--scrub", "--claude")
