@@ -414,6 +414,10 @@ def _hook_text(payload: dict, cfg: dict, typed: bool, codex: bool) -> str:
     if typed:
         with contextlib.suppress(OSError):
             prompt, _marked = term_files.take_markers(prompt, hooks._name_ttl(cfg))
+        from .prompt_commands import take_inline
+        prompt, inline, inline_values = take_inline(prompt, cfg, session)      # ms:(value) inside the prompt
+    else:
+        inline, inline_values = [], []
     refs = find_refs(prompt)
     matches = hooks._prompt_hits(prompt)
     vault = None
@@ -423,6 +427,7 @@ def _hook_text(payload: dict, cfg: dict, typed: bool, codex: bool) -> str:
             for key, _s, _e in refs:
                 vault.admit(key, session)
     rewritten, entries, values, _stored, _m = hooks._take_values_out(prompt, matches, cfg, vault, session)
+    entries, values = inline + entries, inline_values + values
     if values and cfg.get("scrub_transcript", True):
         path = str(payload.get("transcript_path") or "")
         hooks._scrub_transcript(path, values, [e.ref for e in entries])

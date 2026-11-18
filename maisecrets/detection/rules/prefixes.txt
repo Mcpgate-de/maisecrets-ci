@@ -50,7 +50,7 @@ netlify-personal-token       nfp_(?:(?<![A-Za-z0-9_]nfp_)|(?<=\\[nrt]nfp_))(?=[0
 teamcity-access-token        eyJ0eXAi[O]iAiVENWMiJ9\.(?:(?<![A-Za-z0-9_.-]eyJ0eXAi[O]iAiVENWMiJ9\.)|(?<=\\[nrt]eyJ0eXAi[O]iAiVENWMiJ9\.))[A-Za-z0-9_-]{36}\.[A-Za-z0-9_-]{48}(?![A-Za-z0-9_-])
 dependency-track-api-key     odt_(?:(?<![A-Za-z0-9_]odt_)|(?<=\\[nrt]odt_))(?=[0-9a-f]{0,254}[g-zA-Z])(?=[A-Za-z]{0,254}[0-9])[A-Za-z0-9]{32,255}(?![A-Za-z0-9_])(?!\.[A-Za-z0-9])
 tavily-api-key               tvly-(?:(?<![A-Za-z0-9_-]tvly-)|(?<=\\[nrt]tvly-))(?:dev-)?[A-Za-z0-9]{32}(?![A-Za-z0-9_-])
-jina-api-key                 jina_(?:(?<![A-Za-z0-9_]jina_)|(?<=\\[nrt]jina_))(?=[A-Za-z]{0,59}[0-9])[A-Za-z0-9]{60}(?![A-Za-z0-9_])
+jina-api-key                 jina_(?:(?<![A-Za-z0-9_-]jina_)|(?<=\\[nrt]jina_))(?=[A-Za-z_-]{0,59}[0-9])[A-Za-z0-9_-]{60}(?![A-Za-z0-9_-])
 aws-appsync-api-key          da2-(?:(?<![A-Za-z0-9_-]da2-)|(?<=\\[nrt]da2-))(?=[a-z]{0,25}[0-9])[a-z0-9]{26}(?![A-Za-z0-9_-])
 stackhawk-api-key            hawk\.(?:(?<![A-Za-z0-9_.-]hawk\.)|(?<=\\[nrt]hawk\.))[0-9A-Za-z_-]{20}\.[0-9A-Za-z_-]{20}(?![0-9A-Za-z_-])(?!\.[0-9A-Za-z_-])
 heroku-api-key-uuid          HRKU-(?:(?<![A-Za-z0-9_-]HRKU-)|(?<=\\[nrt]HRKU-))[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![0-9A-Za-z_-])
@@ -436,3 +436,6 @@ ec-pkcs8-key-der-base64                     MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEH
 # 0.9.7, from the format watch (trufflehog pkg/detectors/serval): a Serval secret key, svl_secret_ with pk, wk or
 # mk, then 43 characters and a 6-character check part
 serval-secret-key                           svl_secret_  (?:pk|wk|mk)_[0-9A-Za-z]{49}
+# 0.9.17, from the format watch (betterleaks cal-api-key, #491): a Cal.com API key. Cal.com writes a prefix, cal_ by
+# default and cal_live_ on its cloud (API_KEY_PREFIX), then 16 random bytes in hex (generateUniqueAPIKey).
+cal-api-key                                 cal_  (?:live_|test_)?[0-9a-f]{32}

@@ -6,5 +6,5 @@ runner = ["tests/test_check_value.py::AlwaysBlockedTests::test_every_check_is_bl
 
 [proof]
 file = "maisecrets/hooks.py"
-find = "        return _check_value(payload, groups)\n"
+find = "        return _pc().check_answer(payload, groups)\n"
 replace = "        pass\n"

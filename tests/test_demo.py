@@ -324,10 +324,11 @@ class EnterTests(_Base):
     def test_the_mod_leaves_commands_and_reports_to_the_hook(self):
         session = UUID.format(6)
         self.on(session=session)
-        for prompt in ("maisecrets: demo off", "maisecrets: set tips off",
-                       "<task-notification>\n<status>completed</status>\n</task-notification>"):
-            with self.subTest(prompt):
-                self.assertEqual(_mod(prompt, session), {})
+        self.assertEqual(_mod("<task-notification>\n<status>completed</status>\n</task-notification>", session), {})
+        # the person's own commands: the mod drops them with the hook's own answer (prompt_commands.mod_command), so
+        # none reads as a block and none reaches the model
+        self.assertEqual(_mod("maisecrets: demo off", session), {"drop": demo.OFF})
+        self.assertIn("drop", _mod("maisecrets: set tips off", session))
 
     def test_an_own_command_from_claude_p_enters_masked_as_any_prompt(self):
         session = UUID.format(7)

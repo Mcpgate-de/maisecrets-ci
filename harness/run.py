@@ -583,6 +583,21 @@ SCENARIOS = {
         "expect_placeholders": ["⟦SECRET_c1⟧"],
         "expect_file": ("used.txt", f"got:{MARK2}"),
     },
+    # decision G (2026-11-18): under prefix rules Claude Code refused the 0.9.16 rewrite as "Contains brace with
+    # quote character (expansion obfuscation)" (the `|| { echo "…"; }` of the read); the read is an if/else now.
+    # The client still asks for a command whose words it cannot know before it runs, so the call stays refused here
+    "bash_rehydrate_no_obfuscation_refusal": {
+        "prompt": "use the stored token ⟦SECRET_c1⟧",
+        "preload": [(MARK, "SECRET", "gitlab_pat")],
+        "allowed_tools": "Bash(printf:*),Bash(cat:*),Read",
+        "turns": [
+            {"tool": "Bash", "input": {"command": "printf 'got:%s' '⟦SECRET_c1⟧' > used.txt; cat used.txt"}},
+            {"text": "done"},
+        ],
+        "expect_requests": 2,
+        "expect_placeholders": ["⟦SECRET_c1⟧"],
+        "expect_no_text": "expansion obfuscation",
+    },
     # rehydration "confirm": ssh gets a value only on stdin, inside the sandbox, after the user
     # confirms; in -p nobody can answer the ask, so Claude Code refuses the call and the model reads
     # the reason, which names the host and the remote command but never the value

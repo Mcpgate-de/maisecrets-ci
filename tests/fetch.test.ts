@@ -88,15 +88,25 @@ test('a session that learned "not in the demo" from an early request asks again 
   const h = hooks()
   const state = { demo: false }
   const $: any = { ...world(null, { id: 'sess-start' }),
-    process: { run: async () => ({ exitCode: 0, stderr: '', stdout: JSON.stringify({ maisecrets: 'mod-' + 'demo',
-                                                                                     demo: state.demo }) }) },
+    process: { run: async (argv) => {
+      // the person's demo command: the mod's question answers it (prompt_commands.mod_command) and writes the state
+      if (argv[2] === 'mod-' + 'prompt') {
+        state.demo = true
+        return { exitCode: 0, stderr: '', stdout: JSON.stringify({ maisecrets: 'mod-' + 'prompt', drop: 'on' }) }
+      }
+      return { exitCode: 0, stderr: '', stdout: JSON.stringify({ maisecrets: 'mod-' + 'demo', demo: state.demo }) }
+    } },
+    clock: { now: async () => 1_000_000, after: () => {} },
+    prompt: { fill: async () => ({ isFilled: true }) },
+    session: { id: async () => 'sess-start', cwd: async () => '/work' },
     ui: { invalidate: () => {}, log: () => {} } }
   const c = { n: 0 }
   // an early request of the client (a title, a warm-up): not in the demo, kept
   expect((await h['http.fetch'].fn($, { url: 'u' }, engineNext(c))).value.text).toBe('sent')
-  // the person's first prompt starts the demo; the settings hook writes the state as the prompt goes on
-  const next: any = async (e) => { state.demo = true; return { text: e.text } }
-  await h['prompt.submit'].fn($, { text: '/maisecrets:demo on', origin: { kind: 'composer' } }, next)
+  // the person's first prompt starts the demo: the mod drops it with the answer, and nothing goes on
+  const next: any = async () => { throw new Error('the demo command went on') }
+  expect((await h['prompt.submit'].fn($, { text: '/maisecrets:demo on', origin: { kind: 'composer' } }, next)).drop)
+    .toBe('on')
   // /rename: its request of its own is refused
   const r = await h['http.fetch'].fn($, { url: 'u', init: { method: 'POST', body: '{"messages":[]}' } }, engineNext(c))
   expect(r.deny).toContain('maisecrets demo')

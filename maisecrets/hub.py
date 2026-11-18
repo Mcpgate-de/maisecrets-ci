@@ -139,7 +139,7 @@ def pane_values(offset: int = 0) -> dict:
 
 def pane_forget(key: str) -> str:
     from .vault import Vault
-    status = Vault().forget(key, route=PANE_ROUTE)
+    status = Vault().forget(key, route=PANE_ROUTE, typed=True)
     return {"ok": f"Forgot {key}. A placeholder for it no longer works anywhere.",
             "unknown": f"There is no {key}."}.get(status, f"The store refused to delete {key}; nothing was changed.")
 
@@ -151,7 +151,7 @@ def pane_forget_all() -> str:
     from .vault import Vault
     v = Vault()
     keys = [e.key for e in v.list()]
-    refused = [k for k in keys if v.forget(k, route=PANE_ROUTE) == "store"]
+    refused = [k for k in keys if v.forget(k, route=PANE_ROUTE, typed=True) == "store"]
     gone = len(keys) - len(refused)
     return (f"Forgot {gone} stored value(s). The logs and records stay."
             + (f" The store refused {len(refused)}; they are still stored." if refused else ""))

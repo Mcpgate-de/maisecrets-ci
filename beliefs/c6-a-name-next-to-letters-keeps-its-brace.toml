@@ -1,0 +1,10 @@
+# c6-a-name-next-to-letters-keeps-its-brace: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c6-a-name-next-to-letters-keeps-its-brace"
+control = "C6"
+statement = "A placeholder becomes ${name} in every context, so letters, digits or an underscore after it stay text: in double quotes, unquoted, in a heredoc and under set -u the value arrives, and a second run ends with exit 97."
+runner = ["tests/test_gates.py::ClientCheckTests::test_a_name_next_to_letters_or_digits_arrives_in_quotes_heredocs_and_under_set_u"]
+
+[proof]
+file = "maisecrets/hooks.py"
+find = "            piece = \"${\" + var + \"}\""
+replace = "            piece = \"$\" + var"

@@ -148,6 +148,93 @@ class Forget(unittest.TestCase):
         self.assertEqual(_weakened()[-1]["route"], "slash command")
 
 
+class TypedForget(unittest.TestCase):
+    """Decision I: a forget the person typed (/maisecrets:forget, the panel, not-a-secret) is no start notice; any
+    other deletion still is, and events.log keeps every line."""
+
+    def setUp(self):
+        _reset()
+        try:
+            os.unlink(events._TYPED_FORGET)
+        except FileNotFoundError:
+            pass
+
+    def _key(self, n: int = 0) -> str:
+        return Vault(load_config()).put(_value() + "x" * n, "SECRET", "manual", session="S1").key
+
+    def _slash_forget(self, key: str, session: str | None = "S1") -> None:
+        # the command file runs `run.sh forget --args-stdin` with the keys on stdin; the client gives the command its
+        # session id (CLAUDE_CODE_SESSION_ID)
+        env = {k: v for k, v in os.environ.items() if k not in ("CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID")}
+        if session:
+            env["CLAUDE_CODE_SESSION_ID"] = session
+        with mock.patch("sys.stdin", new=io.StringIO(key + "\n")), mock.patch("sys.stdout", new=io.StringIO()), \
+                mock.patch.dict(os.environ, env, clear=True):
+            self.assertEqual(cli.main(["forget", "--args-stdin"]), 0)
+
+    def test_a_mark_that_cannot_be_taken_out_is_not_used_and_the_notice_stays(self):
+        key = self._key(10)
+        _prompt(f"/maisecrets:forget {key}")
+        with mock.patch.object(events, "_keep_notes", side_effect=OSError("disk full")):
+            self._slash_forget(key)
+        self.assertIsNone(_weakened()[-1].get("typed"))
+        self.assertIn(f"stored value {key} deleted", events.weakenings_since_last_start())
+
+    def test_a_forget_in_another_session_or_without_a_session_keeps_the_notice(self):
+        key = self._key(8)
+        _prompt(f"/maisecrets:forget {key}")             # typed in session S1
+        self._slash_forget(key, session="S2")              # another session runs the command for the same key
+        self.assertIsNone(_weakened()[-1].get("typed"))
+        self.assertIn(f"stored value {key} deleted", events.weakenings_since_last_start())
+        key = self._key(9)
+        _prompt(f"/maisecrets:forget {key}")
+        self._slash_forget(key, session=None)              # no session id: the safe side
+        self.assertIn(f"stored value {key} deleted", events.weakenings_since_last_start())
+
+    def test_a_forget_the_person_typed_gives_no_notice_and_stays_in_the_log(self):
+        key = self._key()
+        _prompt(f"/maisecrets:forget {key}")
+        self._slash_forget(key)
+        self.assertEqual([(e["weakened"], e["name"], e.get("typed")) for e in _weakened()], [("forget", key, True)])
+        self.assertIsNone(events.weakenings_since_last_start())
+
+    def test_the_same_command_that_the_person_did_not_type_keeps_the_notice(self):
+        typed, other = self._key(1), self._key(2)
+        _prompt(f"/maisecrets:forget {typed}")
+        self._slash_forget(other)        # an agent ran the command for another key
+        self.assertIsNone(_weakened()[-1].get("typed"))
+        self.assertIn(f"stored value {other} deleted (a slash command)", events.weakenings_since_last_start())
+
+    def test_a_forget_typed_long_ago_or_by_a_subagent_keeps_the_notice(self):
+        key = self._key(3)
+        _prompt(f"/maisecrets:forget {key}")
+        notes = json.loads(events._TYPED_FORGET.read_text())
+        notes["S1"]["t"] -= events.TYPED_FORGET_SECONDS + 1
+        events._TYPED_FORGET.write_text(json.dumps(notes))
+        self._slash_forget(key)
+        self.assertIn(f"stored value {key} deleted", events.weakenings_since_last_start())
+        key = self._key(4)
+        hooks.user_prompt({"prompt": f"/maisecrets:forget {key}", "session_id": "S1", "agent_id": "a1", **CLAUDE})
+        self._slash_forget(key)
+        self.assertIn(f"stored value {key} deleted", events.weakenings_since_last_start())
+
+    def test_the_panel_and_not_a_secret_give_no_notice_and_a_terminal_forget_still_does(self):
+        from maisecrets import hub, not_a_secret
+        panel, nas, term = self._key(5), self._key(6), self._key(7)
+        hub.pane_forget(panel)
+        for _ in range(2):      # a key type asks for the command twice
+            not_a_secret.allow_typed(nas, "S1", "typed prompt")
+        with mock.patch("sys.stdout", new=io.StringIO()):
+            self.assertEqual(cli.main(["forget", term]), 0)
+        forgets = sorted(e["name"] for e in _weakened() if e["weakened"] == "forget")
+        self.assertEqual(forgets, sorted([panel, nas, term]), "events.log keeps every forget")
+        line = events.weakenings_since_last_start()
+        self.assertIn("1 protection was loosened: stored value " + term + " deleted (a terminal command)", line)
+        self.assertNotIn(panel, line)
+        self.assertNotIn(nas, line)
+        self.assertIsNone(events.weakenings_since_last_start(), "the typed lines are marked as shown too")
+
+
 
 class SessionStart(unittest.TestCase):
     def setUp(self):

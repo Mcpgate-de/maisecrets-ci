@@ -78,6 +78,10 @@ false
 "depot_org_",
 false
 ],
+"03a122694970ac50d82a103e": [
+"jina_",
+false
+],
 "03ad26a8e3bbe660a7fda9bf": [
 "ovsx",
 false
@@ -884,6 +888,10 @@ false,
 ],
 "4a9a1609ce392d9d6ee0afb4": [
 "packagist_ort_",
+false
+],
+"4b7f0a2ab39cd85ae560d537": [
+"cal_",
 false
 ],
 "4b80a0e3acc0dc1d36c69a80": [
@@ -1970,10 +1978,6 @@ false,
 ],
 "b194f9eb3038dcf57701de47": [
 "glwt-",
-false
-],
-"b1e9449b4cd8945bc21984d3": [
-"jina_",
 false
 ],
 "b3fe1f7da6e8cf2044394254": [

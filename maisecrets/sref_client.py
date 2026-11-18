@@ -60,8 +60,9 @@ def find(text: str) -> list:
 
 # why the last discover() of this process found no resolver: "timeout", "network" (no connection), "http" (an
 # answer other than 200 JSON), "json" (a body that is no JSON object), "absent" (a document that was read and names
-# none), or "" when it found one
-DISCOVERY = {"why": ""}
+# none), or "" when it found one; "status": the HTTP status of the last answer read (None before one came), "named": the
+# gateway's document named a resolver, so a later failure is a failed discovery and no server without references
+DISCOVERY: dict = {"why": "", "status": None, "named": False}
 
 
 def _get_json(cfg: dict, url: str, deadline: float) -> dict | None:
@@ -70,6 +71,7 @@ def _get_json(cfg: dict, url: str, deadline: float) -> dict | None:
     except _net_errors() as exc:
         DISCOVERY["why"] = "timeout" if isinstance(exc, TimeoutError) else "network"
         return None
+    DISCOVERY["status"] = status
     if status != 200 or not _is_json(headers):
         DISCOVERY["why"] = "http"
         return None
@@ -107,7 +109,7 @@ def discover(cfg: dict, mcp_url: str, deadline: float | None = None) -> dict | N
     """The resolver of the gateway behind an MCP URL: {"origin", "resolve", "scope", "sinks", "authorize", "token",
     "register"}, or None when the gateway names none. Every endpoint must be https on the same origin."""
     deadline = deadline if deadline is not None else time.monotonic() + BUDGET
-    DISCOVERY["why"] = ""
+    DISCOVERY.update(why="", status=None, named=False)
     origin = origin_of(mcp_url)
     if not origin:
         DISCOVERY["why"] = "absent"
@@ -121,6 +123,7 @@ def discover(cfg: dict, mcp_url: str, deadline: float | None = None) -> dict | N
     if not isinstance(block, dict) or origin_of(block.get("resolve_endpoint")) != origin:
         DISCOVERY["why"] = "absent"
         return None
+    DISCOVERY["named"] = True
     auth = _get_json(cfg, f"{origin}/.well-known/oauth-authorization-server", deadline)
     if auth is None:
         return None
@@ -167,6 +170,20 @@ def discover(cfg: dict, mcp_url: str, deadline: float | None = None) -> dict | N
             "display_scope": display_scope if isinstance(display_scope, str) else None,
             "sinks": sinks, "sink_types": types,
             "authorize": ends["authorization"], "token": ends["token"], "register": ends["registration"]}
+
+
+def discovery_failed() -> bool:
+    """The last discover() found no resolver because of a failure, not because the server offers none: no answer, a
+    server error, a redirect, a broken document, or any failure after the gateway named a resolver. A 4xx answer or a
+    page that is no JSON is an MCP server without the document (most servers), so it offers none."""
+    why = DISCOVERY.get("why")
+    if not why or (why == "absent" and not DISCOVERY.get("named")):
+        return False
+    if DISCOVERY.get("named") or why in ("timeout", "network", "json"):
+        return True
+    status = DISCOVERY.get("status")
+    # a redirect is no answer of a server without references: the discovery does not follow it, so it failed
+    return why == "http" and isinstance(status, int) and (status >= 500 or 300 <= status < 400)
 
 
 # ---------------------------------------------------------------- the token in the store --

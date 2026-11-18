@@ -70,7 +70,8 @@ def tracked(*patterns: str) -> list[Path]:
 
 class MovedSectionsTests(unittest.TestCase):
     def test_the_readme_is_short(self):
-        self.assertLess(README.stat().st_size, 15_000)
+        # counted with LF line ends: a Windows checkout writes CRLF and adds a byte per line
+        self.assertLess(len(README.read_bytes().replace(b"\r\n", b"\n")), 15_000)
 
     def test_every_old_section_lives_in_the_readme_or_a_reader_document(self):
         level2 = {h for p in [README] + READER_DOCS for lvl, h in headings(p.read_text(encoding="utf-8"))

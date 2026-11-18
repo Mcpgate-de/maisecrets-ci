@@ -5,6 +5,6 @@ statement = "The answer to a check names what a value is masked as, how it was f
 runner = ["tests/test_check_value.py::NeverTheValueTests::test_no_answer_and_no_file_but_the_store_holds_the_value"]
 
 [proof]
-file = "maisecrets/hooks.py"
-find = "    return check_value.stored_text(e.ref, alone, in_text, _hours(seconds)) + check_value.format_report(value)\n"
-replace = "    return check_value.stored_text(value, alone, in_text, _hours(seconds)) + check_value.format_report(value)\n"
+file = "maisecrets/prompt_commands.py"
+find = "    return check_value.stored_text(e.ref, alone, in_text, h._hours(seconds)) + check_value.format_report(value)\n"
+replace = "    return check_value.stored_text(value, alone, in_text, h._hours(seconds)) + check_value.format_report(value)\n"

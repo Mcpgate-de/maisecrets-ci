@@ -416,7 +416,7 @@ class HookTests(unittest.TestCase):
                               "tool_input": {"command": f'curl -H "PRIVATE-TOKEN: {e.ref}" u'}})
         cmd = out["hookSpecificOutput"]["updatedInput"]["command"]
         self.assertNotIn(GLPAT, cmd)                     # the value is never spliced into the command
-        self.assertTrue(cmd.startswith('__ms_1="$('), cmd)              # read up front in the main shell
+        self.assertTrue(cmd.startswith('if __ms_1="$('), cmd)           # read up front in the main shell
         self.assertIn(f"value for {e.key} was not delivered", cmd)
         self.assertTrue(cmd.endswith('curl -H "PRIVATE-TOKEN: ${__ms_1}" u'), cmd)   # double-quote context
         self.assertNotIn("permissionDecision", out["hookSpecificOutput"])

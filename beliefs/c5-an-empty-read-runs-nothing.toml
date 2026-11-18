@@ -1,0 +1,10 @@
+# c5-an-empty-read-runs-nothing: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c5-an-empty-read-runs-nothing"
+control = "C5"
+statement = "A read of a value that succeeds with zero bytes (another reader took the FIFO's write, a resolver answered nothing) ends the command with exit 97 before any part of it runs, for every key, not only for a Sensitive Reference."
+runner = ["tests/test_gates.py::ClientCheckTests::test_a_read_that_succeeds_with_zero_bytes_ends_with_97_and_runs_nothing"]
+
+[proof]
+file = "maisecrets/hooks.py"
+find = "        check = f' && [ -n \"${{{var}}}\" ]'\n"
+replace = "        check = f' && [ -n \"${{{var}}}\" ]' if key in srefs else \"\"\n"

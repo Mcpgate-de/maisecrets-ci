@@ -38,9 +38,11 @@ EXACT_RE = re.compile(r"\A" + _BLANK + r"ms:\(", re.I)
 # one blank at most on each side: `ms:( value )` and a key on its own lines between `ms:(` and `)`
 _EDGES = ("\r\n", "\n", " ", "\t")
 
-TIP_CLAUDE = "Tip: to test if maisecrets catches a value, send ms:(the value) alone."
+TIP_CLAUDE = ("Tip: to test if maisecrets catches a value, send ms:(the value) alone. Inside a prompt, ms:(the value) "
+              "stores it and the AI gets a placeholder.")
 TIP_CODEX = ("maisecrets: check a value first: send ms:(your value) alone as your prompt. maisecrets says whether it "
-             "would mask the value, and the value does not reach the AI.")
+             "would mask the value, and the value does not reach the AI. Inside a prompt, ms:(your value) stores the "
+             "value and puts its placeholder in its place.")
 NOT_SENT = "This prompt was not sent. The value did not reach the AI."
 # the verdict of one group ends without NOT_SENT: the answer adds it once, after the last group
 USAGE_LINE = ("maisecrets: put the value between the brackets, for example ms:(my-value). maisecrets then says whether "
@@ -90,6 +92,41 @@ def parse_all(prompt) -> list | None:
         close = max(raw.rfind(")"), raw.rfind("\uff09"))
         groups.append((_trim(raw[:close] if close >= 0 else raw), is_exact))
         start = nxt.end()       # a later group stores only when the first one may: `MS: (Teams) ms:(…)` stores nothing
+
+
+# ms:(value) inside a prompt: the person marks a value as a secret (night UX test, finding D). Only the exact start, not
+# glued to a word before it: `MS: (Teams)` in a sentence is no mark. The value stays on its line
+_INLINE_RE = _Lazy(r"(?<![\w])ms:\(", re.I)
+# the `)` that ends a mark: before a blank, the end, or a sign of punctuation that ends a word
+_INLINE_END_RE = _Lazy(r"\)(?=[.,;:!?]*(?:\s|\Z))")
+
+
+def inline_marks(prompt) -> list:
+    """(start, end, value) of each ms:(value) inside a prompt that is no check (parse_all is None). The value ends at
+    the first `)` before a blank, a punctuation sign or the end; else at the last `)` of the line; else at the end of
+    the line. An empty value is no mark."""
+    if not isinstance(prompt, str) or "ms:(" not in prompt.lower() or parse_all(prompt) is not None:
+        return []
+    marks: list = []
+    pos = 0
+    while True:
+        m = _INLINE_RE.search(prompt, pos)
+        if m is None:
+            return marks
+        eol = prompt.find("\n", m.end())
+        eol = len(prompt) if eol < 0 else eol
+        line = prompt[m.end():eol]
+        close = _INLINE_END_RE.search(line)
+        if close is not None:
+            value, end = line[:close.start()], m.end() + close.end()
+        elif ")" in line:
+            value, end = line[:line.rfind(")")], m.end() + line.rfind(")") + 1
+        else:
+            value, end = line.rstrip(), m.end() + len(line.rstrip())
+        value = _trim(value.rstrip("\r"))
+        if value.strip():
+            marks.append((m.start(), end, value))
+        pos = max(end, m.end())
 
 
 def parse(prompt) -> str | None:

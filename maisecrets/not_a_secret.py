@@ -196,7 +196,7 @@ def allow_typed(key: str, session: str | None, route: str, cfg: dict | None = No
     if not _fits_a_line(value):
         return (f"maisecrets: the value of {shown} cannot be one line of the allow list (it has a line break, a space "
                 f"at an end, or starts with # or rule:). Nothing was changed; /maisecrets:forget {key} deletes it.")
-    if v.forget(key, route=route) != "ok":
+    if v.forget(key, route=route, typed=True) != "ok":
         return f"maisecrets: the store refused to delete {key}. Nothing was changed."
     from . import events
     try:
@@ -215,7 +215,7 @@ def allow_typed(key: str, session: str | None, route: str, cfg: dict | None = No
     except OSError as exc:
         return (f"maisecrets: {key} was deleted, but the allow list could not be written ({type(exc).__name__}), so "
                 "maisecrets masks the value again where it finds it.")
-    events.record_weakening("allow", rid, route)       # the next session start names it to the person
+    events.record_weakening("allow", rid, route, typed=True)   # the person typed it: no start notice
     _reset()
     return (f"maisecrets: {shown} is deleted from the store, and this exact value is on your allow list, so "
             "maisecrets does not mask it again. A longer value that contains it is still masked. To take it back: "

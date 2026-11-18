@@ -143,7 +143,7 @@ class ValuesTests(unittest.TestCase):
         with mock.patch.object(events, "record_weakening") as record:
             out = ask(action="forget", key=key)
         self.assertTrue(out["note"].startswith(f"Forgot {key}."))
-        record.assert_called_once_with("forget", key, hub.PANE_ROUTE)
+        record.assert_called_once_with("forget", key, hub.PANE_ROUTE, True)
         self.assertNotIn(key, [r["key"] for r in out["rows"]])
 
     def test_a_key_type_on_the_allow_list_needs_both_steps_of_this_session(self):

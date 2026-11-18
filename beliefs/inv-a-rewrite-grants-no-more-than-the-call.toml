@@ -19,8 +19,8 @@ replace = "    return {\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\
 [[proof]]
 path = "a value that is not delivered lets the command run on"
 file = "maisecrets/hooks.py"
-find = "once; if it fails again, stop and tell the user\" >&2; exit 97; }}')"
-replace = "once; if it fails again, stop and tell the user\" >&2; true; }}')"
+find = "once; if it fails again, stop and tell the user\" >&2; exit 97; fi')"
+replace = "once; if it fails again, stop and tell the user\" >&2; true; fi')"
 
 [[proof]]
 path = "an MCP rewrite adds a field"

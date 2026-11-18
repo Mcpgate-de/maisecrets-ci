@@ -306,8 +306,8 @@ A placeholder turns back into its value only here:
   session A resolves in session B only after you paste it into a prompt there.
   Keys are counters, so an injected text could otherwise name one it never saw.
 - **Read up front in Bash.** The hook prefixes the command with
-  `__ms_1="$(cat <fifo>)" || exit 97;` and turns `⟦SECRET_c1⟧` into
-  `$__ms_1` in its quoting context. A detached process serves the value once
+  `if __ms_1="$(cat <fifo>)" && [ -n "${__ms_1}" ]; then :; else …; exit 97; fi;` and turns `⟦SECRET_c1⟧` into
+  `${__ms_1}` in its quoting context. A detached process serves the value once
   through a FIFO in a directory only you can enter (`$XDG_RUNTIME_DIR/maisecrets`
   where the system has one, else `maisecrets-<uid>` in the temp directory; owner
   and mode are checked, a symlink is refused). It is readable from inside Codex's

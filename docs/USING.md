@@ -31,6 +31,7 @@ claude plugin install maisecrets@maisecrets     # then start a new session
 ```text
 /maisecrets:status        what runs, which version
 ms:(your value)           would this value be caught?
+… ms:(your value) …       inside a prompt: stored, the AI gets a placeholder
 /maisecrets:settings      the choices you make
 /maisecrets:not-a-secret KEY   a wrong hit: never mask this exact value again
 /maisecrets:secret-hygiene   secrets that leaked before you installed it
@@ -200,6 +201,27 @@ as the typed command (the policy, the allowed values, the two steps of
 `not a secret` for a key), and a loosened protection is named at the next
 start with the route `settings pane`. In Codex, in `claude -p` and without the
 mod, `/maisecrets:settings` shows the text view below.
+
+### Your own commands in Claude Code
+
+With the mod (the terminal and the desktop app), maisecrets answers your own
+commands itself. Nothing goes to the AI, and the answer is one line under
+your prompt, not "operation blocked by hook". The mod then empties the input
+box, so the command does not mix into your next prompt; if the client refuses
+that, the text stays in the box. This applies
+to `/maisecrets:term add|remove`, `/maisecrets:not-a-secret` (and `undo`),
+`/maisecrets:demo`, `/maisecrets:forget import:ID`, `/maisecrets:report
+incident`, and to every Codex form: `maisecrets: status`,
+`maisecrets: list`, `maisecrets: set KEY VALUE`, `maisecrets: term add NAME`,
+`maisecrets: demo on` and the others. The self-test value is not one of them:
+the prompt hook itself stops it, so its pass proves that this hook ran, and it
+still reads as a block. A Codex form that needs the AI or a
+browser (`maisecrets: status test`, `maisecrets: sref login`) puts its slash
+form into the input box: press Enter to run it. If maisecrets cannot answer
+(Python does not start), the prompt is not sent either; send it again. A word
+after `maisecrets:` that is no command name (`maisecrets: why …`) is an
+ordinary prompt. In Codex, in `claude -p` and without the mod, the prompt
+hook answers these commands as before.
 
 ### Settings you decide
 
@@ -480,6 +502,21 @@ This prompt was not sent. The value did not reach the AI.
   when it holds a placeholder, or when the prompt did not come from you (a
   scheduled prompt, a subagent, `claude -p`). The client's own list of earlier
   prompts (the up arrow) may keep the prompt as typed; that is not measured.
+- **Inside a prompt** (`log in with ms:(Kx7-value) and deploy`), `ms:(…)`
+  marks a value as a secret. maisecrets stores it as `/maisecrets:put` does
+  and puts its placeholder in place of the whole mark, also for a value no
+  rule would catch. In Claude Code with the mod the prompt then goes to the AI
+  with the placeholder. In Codex and without the mod the prompt is blocked,
+  and `/maisecrets:send` (or the cleaned prompt in the clipboard) sends it
+  with the placeholder. Only the exact `ms:(` counts, not glued to a word
+  before it. The value ends at the first `)` before a blank, a punctuation
+  sign or the end; without one at the last `)` of its line; without a `)` at
+  the end of the line. A mark that holds only placeholders stays as typed; a
+  placeholder next to other text is stored with it. In Claude Code only a
+  prompt you typed stores a value; a prompt of a program (`claude -p`), a
+  subagent or another session keeps the mark as text. Codex cannot tell a
+  prompt you typed from a prompt of a program (`codex exec`), so there a
+  program's prompt with `ms:(…)` stores the value too.
 - **Finding it.** Claude Code names `ms:(…)` once, under the first prompt that
   was blocked or rewritten because it carried a value; Codex names it once at
   a session start. `/maisecrets:settings` lists it under "Feature hints", and
@@ -579,6 +616,12 @@ a shape needs a label or the vault command:
 
 A bare password in prose, such as "use Sommer2026 for the login", is not
 detected. That is a limit of pattern detection, not a setting.
+
+**A Bash command with a placeholder asks in Claude Code.** maisecrets never
+approves a tool call itself. The command reads the value when it runs, so Claude
+Code cannot check the words of the command first. It asks you, and under prefix
+rules such as `Bash(curl:*)` alone (and in `claude -p`) it refuses the command.
+In `--permission-mode auto` or with a plain `Bash` allow rule, the command runs.
 
 **The mod.** Claude Code 2.1.287 and later loads JavaScript middleware from a
 plugin ("mods"). maisecrets ships one in its own folder: `claude-mod/maisecrets-mod.mjs`,

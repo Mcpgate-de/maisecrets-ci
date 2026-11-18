@@ -49,7 +49,7 @@ execution time, (b) `maisecrets get` for a human.
 ## 3. Rehydration at the client
 
 `PreToolUse` on `Bash`: the command is prefixed with one read per key into a
-shell variable (`__ms_1="$(cat <fifo>)" || exit 97;` on POSIX, a resolver call
+shell variable (`if __ms_1="$(cat <fifo>)" && [ -n "${__ms_1}" ]; then :; else …; exit 97; fi;` on POSIX, a resolver call
 under a one-time grant on Windows Git Bash), and every `⟦TYPE_cN⟧` becomes that
 variable in its quoting context. The value is never in the command text. A
 context the rewrite cannot place (a nested shell, a quoted heredoc, `$'…'`,

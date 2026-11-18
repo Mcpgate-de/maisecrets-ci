@@ -1,5 +1,5 @@
 """ms:(…): the person checks whether maisecrets would catch a value, and the value never reaches the model
-(maisecrets/check_value.py, hooks._check_value, README "Check a value first").
+(maisecrets/check_value.py, prompt_commands.check_answer, README "Check a value first").
 
 The rules under test: a prompt that starts with ms:( is always blocked, also without the closing bracket; the verdict is
 the one the normal prompt path gives for the same value; the answer names types and rule ids and never the value; a

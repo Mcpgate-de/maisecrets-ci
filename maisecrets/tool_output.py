@@ -19,6 +19,7 @@ from .vault import Vault
 _TOKEN_SPLIT_RE = _LazyRx(r"[\s\"'`<>()\[\]{},;]+")
 _FINE_SPLIT_RE = _LazyRx(r"[/?&#=:@,;+|\\]")
 _EXACT_MIN_LEN = 8
+_RESOLVED_MIN_LEN = 4      # a value this session resolved is masked as it is from this length on
 
 
 def _candidates(token: str):
@@ -248,7 +249,7 @@ def _resolved_forms(value: str) -> list[str]:
     if isinstance(value, _Form):
         return [str(value)]
     forms = _derived_forms(value)
-    if value and 4 <= len(value) < _EXACT_MIN_LEN:
+    if value and _RESOLVED_MIN_LEN <= len(value) < _EXACT_MIN_LEN:
         forms.append(value)       # 4 to 7 characters: everywhere, also between letters
     return forms
 

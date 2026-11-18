@@ -862,7 +862,7 @@ kingfisher	kingfisher.buildkite.2	1	1
 kingfisher	kingfisher.buildkite.3	1	1
 kingfisher	kingfisher.bunnynet.1	0	1
 kingfisher	kingfisher.buttercms.1	0	1
-kingfisher	kingfisher.calcom.1	0	1
+kingfisher	kingfisher.calcom.1	1	1
 kingfisher	kingfisher.calendly.1	1	1
 kingfisher	kingfisher.canva.1	1	1
 kingfisher	kingfisher.canva.2	0	1

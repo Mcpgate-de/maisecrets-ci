@@ -5,6 +5,6 @@ statement = "A value that a check did not catch is stored only from a prompt the
 runner = ["tests/test_check_value.py::AlwaysBlockedTests::test_a_check_from_a_program_or_a_subagent_is_blocked_too"]
 
 [proof]
-file = "maisecrets/hooks.py"
+file = "maisecrets/prompt_commands.py"
 find = "    if not settings_mod.typed_by_the_person(payload) or payload.get(\"agent_id\") or \\\n"
 replace = "    if False and \\\n"

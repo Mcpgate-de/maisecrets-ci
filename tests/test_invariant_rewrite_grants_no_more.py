@@ -43,16 +43,18 @@ from _hygiene import CLAUDE, CODEX  # noqa: E402
 
 CODEX_P = {**CODEX, "model": "m"}
 
-# a value read into a variable, and the whole command ends when it is not delivered
+# a value read into a variable, and the whole command ends when it is not delivered or empty
 # the FIFO path is one shell word ending in v-<token>: a path with `; command` in it is not a read
-_READ = re.compile(r'__ms_(\d+)="\$\(cat (/[A-Za-z0-9._/-]+/v-[A-Za-z0-9_-]+)\)" \|\| \{ echo "maisecrets: the value '
-                   r'for ([A-Z_]+_c\d+) was not delivered[^"]*" >&2; exit 97; \}; ')
+_READ = re.compile(r'if __ms_(\d+)="\$\(cat (/[A-Za-z0-9._/-]+/v-[A-Za-z0-9_-]+)\)" '
+                   r'&& \[ -n "\$\{__ms_\1\}" \]; then :; else echo "maisecrets: '
+                   r'the value for ([A-Z_]+_c\d+) was not delivered[^"]*" >&2; exit 97; fi; ')
 # Windows Git Bash reads a value through the plugin's own resolver under a one-time grant
-_READ_WIN = re.compile(r'__ms_(\d+)="\$\("([^"]+)" "([^"]+/hooks/resolve\.py)" ([A-Z_]+_c\d+) '
-                       r'--grant ([A-Za-z0-9_-]+)\)" '
-                       r'\|\| \{ echo "maisecrets: the value for \4 was not delivered[^"]*" >&2; exit 97; \}; ')
+_READ_WIN = re.compile(r'if __ms_(\d+)="\$\("([^"]+)" "([^"]+/hooks/resolve\.py)" ([A-Z_]+_c\d+) '
+                       r'--grant ([A-Za-z0-9_-]+)\)"'
+                       r' && \[ -n "\$\{__ms_\1\}" \]; then :; else echo "maisecrets: the value for \4 '
+                       r'was not delivered[^"]*" >&2; exit 97; fi; ')
 # the sandbox guard of the ssh route: the value is read only after it passed
-_GUARD = re.compile(r'\S+ \S+/hooks/sandbox_probe\.py \|\| \{ echo "maisecrets: [^"]*" >&2; exit 97; \}; ')
+_GUARD = re.compile(r'if \S+ \S+/hooks/sandbox_probe\.py; then :; else echo "maisecrets: [^"]*" >&2; exit 97; fi; ')
 # the options the ssh route puts after `ssh`: no shared connection, the plugin's own proxy
 _SSH_OPTS = re.compile(r"(?<![\w-])ssh -o ControlMaster=no -o ControlPath=none "
                        r"-o 'ProxyCommand=\S+ \S+/hooks/proxy_connect\.py %h %p' ")

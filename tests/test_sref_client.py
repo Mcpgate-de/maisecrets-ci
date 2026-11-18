@@ -944,3 +944,73 @@ class StoredIdIsNotReplacedTests(unittest.TestCase):
         with mock.patch.object(sref_notes, "noted", return_value={}):
             shown = post()
         self.assertNotIn(ref, shown, "an untrusted reference is no shield")
+
+
+class StatusWithoutReferencesTests(unittest.TestCase):
+    """Decision H: no MCP server with Sensitive References is a state (exit 0 with the next step); a server that does
+    not answer or a failed discovery stays a failure (exit 1). The answers come from a stub of the one request."""
+
+    SERVERS = {"some-mcp": "https://mcp.example.com/mcp"}
+
+    def status(self, answer) -> tuple:
+        import io
+        from contextlib import redirect_stdout
+        from maisecrets import cli, vault_refs
+
+        def request(cfg, method, url, headers, body, deadline):
+            if isinstance(answer, BaseException):
+                raise answer
+            return answer
+        out = io.StringIO()
+        with mock.patch.object(vault_refs, "user_servers", return_value=self.SERVERS), \
+                mock.patch.object(S, "_request", side_effect=request), \
+                mock.patch.object(cli, "load_config", return_value={"backend": "jsonfile",
+                                                                    "allow_plaintext_store": True}), \
+                redirect_stdout(out):
+            code = cli.cmd_sref(["status"])
+        return code, out.getvalue()
+
+    def test_a_server_without_the_document_exits_0_and_names_the_next_step(self):
+        json_type = {"content-type": "application/json"}
+        for name, answer in (("404", (404, {}, b"")), ("html page", (200, {"content-type": "text/html"}, b"<p>")),
+                             ("no block", (200, json_type, b'{"resource": "https://mcp.example.com/mcp"}'))):
+            with self.subTest(name):
+                code, text = self.status(answer)
+                self.assertEqual(code, 0, text)
+                self.assertIn("add your gateway as an MCP server", text)
+                self.assertIn("/maisecrets:sref login", text)
+
+    def test_a_server_that_does_not_answer_or_fails_the_discovery_exits_1(self):
+        for name, answer in (("no connection", ConnectionRefusedError()), ("timeout", TimeoutError()),
+                             ("server error", (503, {}, b"")),
+                             ("moved", (301, {"location": "https://x.example/"}, b"")),
+                             ("found", (302, {"location": "https://x.example/"}, b"")),
+                             ("broken document", (200, {"content-type": "application/json"}, b"[1]"))):
+            with self.subTest(name):
+                code, text = self.status(answer)
+                self.assertEqual(code, 1, text)
+                self.assertIn("discovery of Sensitive References failed for some-mcp", text)
+
+    def test_a_failed_server_next_to_a_working_one_is_named_and_exits_1(self):
+        import io
+        from contextlib import redirect_stdout
+        from maisecrets import cli, vault_refs
+        servers = {"good-gw": "https://gw.example.com/mcp", "slow-mcp": "https://slow.example.com/mcp"}
+
+        def discover(cfg, url, *a):
+            if url == servers["good-gw"]:
+                S.DISCOVERY.update(why="", status=200, named=True)
+                return {"origin": "https://gw.example.com"}
+            S.DISCOVERY.update(why="timeout", status=None, named=False)
+            return None
+        out = io.StringIO()
+        with mock.patch.object(vault_refs, "user_servers", return_value=servers), \
+                mock.patch.object(S, "discover", side_effect=discover), \
+                mock.patch.object(cli, "load_config", return_value={"backend": "jsonfile",
+                                                                    "allow_plaintext_store": True}), \
+                redirect_stdout(out):
+            code = cli.cmd_sref(["status"])
+        text = out.getvalue()
+        self.assertEqual(code, 1, text)
+        self.assertIn("discovery of Sensitive References failed for slow-mcp (timeout)", text)
+        self.assertIn("good-gw (gw.example.com): not logged in", text)

@@ -118,8 +118,15 @@ _SHOWN = HOME / ".weakenings-shown"
 _NAME_RE = re.compile(r"[^A-Za-z0-9_.:@-]")
 
 
-def record_weakening(kind: str, name: str, route: str) -> None:
-    """One events.log line for an action that loosened a protection. Never raises: the action is done already."""
+# a deletion the person did (TYPED_KINDS, typed=True): the line stays in events.log, the session start does not name it
+TYPED_KINDS = ("forget", "allow", "value-import")
+_TYPED_FORGET = HOME / ".typed-forget"
+TYPED_FORGET_SECONDS = 600
+
+
+def record_weakening(kind: str, name: str, route: str, typed: bool = False) -> None:
+    """One events.log line for an action that loosened a protection. Never raises: the action is done already.
+    `typed`: the person did it (their typed prompt, the panel); kept as a mark in the line."""
     try:
         HOME.mkdir(mode=0o700, parents=True, exist_ok=True)
         try:
@@ -133,9 +140,92 @@ def record_weakening(kind: str, name: str, route: str) -> None:
             "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime()), "t": max(time.time_ns(), last + 1),
             "weakened": kind, "name": _NAME_RE.sub("", str(name))[:64],
             "route": route if route in ROUTES else "other", "version": plugin_version(),
+            **({"typed": True} if typed and kind in TYPED_KINDS else {}),
         }))
     except (OSError, ValueError):
         pass
+
+
+def forget_keys(text: str) -> list:
+    """The keys of a forget as a person types them: a comma or a semicolon between them, a full stop after the last, a
+    key twice (#44). A placeholder in brackets is one key, also when its shown form holds a space or a comma: only the
+    part before its first colon counts (codex review of #44)."""
+    keys = [m.group(1) for m in re.finditer(r"⟦([^⟦⟧:\s]+)(?::[^⟦⟧]*)?⟧", text)]
+    rest = re.sub(r"⟦[^⟦⟧]*⟧", " ", text)
+    keys += [k.strip("⟦⟧.").split(":", 1)[0].strip("⟦⟧.") for k in re.split(r"[\s,;]+", rest)]
+    return list(dict.fromkeys(k for k in keys if k))
+
+
+_FORGET_CMD_RE = re.compile(r"\A\s*/maisecrets:forget\s+(.+)\Z", re.S | re.I)
+
+
+def _typed_notes() -> dict:
+    """session id -> {"keys", "t"} of the typed /maisecrets:forget prompts; the expired ones are left out."""
+    try:
+        notes = json.loads(_TYPED_FORGET.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(notes, dict):
+        return {}
+    now = time.time()
+    return {s: n for s, n in notes.items() if isinstance(n, dict) and isinstance(n.get("keys"), list)
+            and isinstance(n.get("t"), (int, float)) and 0 <= now - n["t"] <= TYPED_FORGET_SECONDS}
+
+
+def _keep_notes(notes: dict) -> None:
+    HOME.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # a name of its own per writer: two writers that shared one .tmp replaced each other's half-written file
+    atomic = _TYPED_FORGET.with_name(f"{_TYPED_FORGET.name}.{os.getpid()}.{os.urandom(4).hex()}.tmp")
+    try:
+        atomic.write_text(json.dumps(notes), encoding="utf-8")
+        os.replace(atomic, _TYPED_FORGET)
+    finally:
+        try:
+            atomic.unlink()
+        except OSError:
+            pass
+
+
+def _notes_lock():
+    """The lock around each read-modify-write of the notes, with a short wait: a busy lock keeps the start notice."""
+    from .home import _lock_for
+    return _lock_for(HOME / ".typed-forget.lock").held(2.0)
+
+
+def note_typed_forget(prompt: str, payload: dict, typed: bool) -> None:
+    """The person typed /maisecrets:forget KEY... in this session (`typed`, and no subagent's prompt): the keys and the
+    time, so the command that this session runs marks its deletions as typed. An import (import:ID) has its own typed
+    path. Never raises."""
+    m = _FORGET_CMD_RE.match(prompt or "")
+    session = payload.get("session_id")
+    if not m or not typed or payload.get("agent_id") or not isinstance(session, str) or not session:
+        return
+    keys = [k for k in forget_keys(m.group(1)) if not k.lower().startswith("import")]
+    if not keys:
+        return
+    try:
+        with _notes_lock():
+            _keep_notes({**_typed_notes(), session: {"keys": keys, "t": time.time()}})
+    except (OSError, RuntimeError):     # RuntimeError: LockTimeout
+        pass
+
+
+def take_typed_forget(key: str, sessions: list) -> bool:
+    """True once for a key the person typed in /maisecrets:forget within TYPED_FORGET_SECONDS in one of `sessions`
+    (the session ids the client gave this command); the key leaves that note. Without a session id it is False: the
+    start notice stays. Any process of the user can write the note too (C22): it only leaves out the start notice."""
+    try:
+        with _notes_lock():
+            notes = _typed_notes()
+            for s in sessions:
+                note = notes.get(s)
+                if note and key in note["keys"]:
+                    note["keys"] = [k for k in note["keys"] if k != key]
+                    _keep_notes(notes)      # a mark that cannot be taken out is not used: it could serve twice
+                    return True
+    except (OSError, RuntimeError):     # RuntimeError: LockTimeout
+        pass
+    return False
 
 
 _ROUTE_WORDS = {"typed prompt": "your prompt", "slash command": "a slash command", "cli": "a terminal command"}
@@ -172,12 +262,17 @@ def weakenings_since_last_start() -> str | None:
     new = [e for e in map(_parsed, lines) if e.get("weakened") and isinstance(e.get("t"), int) and e["t"] > shown]
     if not new:
         return None
+    mark = max(e["t"] for e in new)
+    # a deletion the person typed is no surprise to them: it stays in events.log, the notice leaves it out
+    new = [e for e in new if not (e.get("typed") is True and e.get("weakened") in TYPED_KINDS)]
     try:
         atomic = _SHOWN.with_name(_SHOWN.name + ".tmp")
-        atomic.write_text(repr(max(e["t"] for e in new)) + "\n", encoding="utf-8")
+        atomic.write_text(repr(mark) + "\n", encoding="utf-8")
         os.replace(atomic, _SHOWN)
     except OSError:
         pass
+    if not new:
+        return None
     named = ", ".join(_label(e) for e in new[:5])
     more = f", and {len(new) - 5} more in {EVENTS.name}" if len(new) > 5 else ""
     was = "protection was" if len(new) == 1 else "protections were"

@@ -114,7 +114,9 @@ TOKENS = {
                                            J(["od", "t_"]) + rd(r, 12, AN)),
     "tavily-api-key": lambda r: (J(["tv", "ly-", r.choice(["", "dev-"])]) + rd(r, 32, AN),
                                  J(["tv", "ly-"]) + rd(r, 12, AN)),
-    "jina-api-key": lambda r: (J(["ji", "na_"]) + rd(r, 60, AN), J(["ji", "na_"]) + rd(r, 20, AN)),
+    # Jina AI: 60 characters, '_' and '-' among them (betterleaks jina-ai-api-key, #492)
+    "jina-api-key": lambda r: (J(["ji", "na_"]) + rd(r, 28, AN) + r.choice("_-") + rd_mixed(r, 31, B64U),
+                               J(["ji", "na_"]) + rd(r, 20, AN)),
     "aws-appsync-api-key": lambda r: (J(["da", "2-"]) + rd_mixed(r, 26, L + D), J(["da", "2-"]) + rd(r, 26, L)),
     "stackhawk-api-key": lambda r: (J(["haw", "k."]) + rd(r, 20, B64U) + "." + rd(r, 20, B64U),
                                     J(["haw", "k."]) + rd(r, 12, B64U)),
@@ -138,6 +140,9 @@ TOKENS = {
                                    J(["lb", "x_"]) + rd(r, 42, AN) + "B"),
     "labelbox-recursion-api-key": lambda r: (J(["rm", "a_"]) + rd(r, 42, AN + "_-") + rd(r, 1, "AEIMQUYcgkosw048"),
                                              J(["rm", "a_"]) + rd(r, 30, AN) + "Q"),
+    # Cal.com: cal_ (self-hosted default), cal_live_ or cal_test_, then 32 hex digits; the look-alike has 16
+    "cal-api-key": lambda r: (J(["ca", "l_", r.choice(["", "live_", "test_"])]) + rd(r, 32, HEXL),
+                              J(["ca", "l_live_"]) + rd(r, 16, HEXL)),
     # Composio: oak_ needs a capital and a digit among its 20 characters; the look-alikes have 20 without one
     "oak-api-key": lambda r: (J(["o", "ak_"]) + rd(r, 1, D) + rd(r, 18, B64U) + rd(r, 1, U),
                                        J(["o", "ak_"]) + rd(r, 20, r.choice((L + D, string.ascii_letters + "_-")))),

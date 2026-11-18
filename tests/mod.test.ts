@@ -327,6 +327,9 @@ function demoWorld(on, opts: { demo?: boolean | null, sent?: number[], asked?: s
   on('session.cwd', () => ({ value: '/work' }))
   on('ui.log', ($, e) => { opts.logged?.push(e.text); return { value: undefined } })
   on('env.set', ($, e) => { (opts as any).env?.push([e.name, e.value]); return { value: {} } })
+  // the mod reads no environment variable (the directory review flagged the read next to a program start): each
+  // read is counted, also one that a try/catch of the mod would hide
+  on('env.get', ($, e) => { (opts as any).envReads?.push(e.name); return { value: undefined } })
   on('process.run', ($, e) => {
     opts.asked?.push(e.argv[2])
     if (e.argv[2] === 'mod-demo') {
@@ -454,7 +457,8 @@ test('a demo prompt switches the next-prompt guess of the client off, once per p
 
 test('a prompt out of the demo switches the next-prompt guess back on, only after the demo switched it off', async ($, on) => {
   const env: any[] = []
-  const opts: any = { env, inDemo: false }
+  const envReads: string[] = []
+  const opts: any = { env, envReads, inDemo: false }
   demoWorld(on, opts)
   await $.prompt.submit({ text: TYPED, wait: false, origin: { kind: 'composer' } })
   expect(env).toEqual([])                     // never switched: nothing to switch back
@@ -462,7 +466,10 @@ test('a prompt out of the demo switches the next-prompt guess back on, only afte
   await $.prompt.submit({ text: TYPED, wait: false, origin: { kind: 'composer' } })
   opts.inDemo = false
   await $.prompt.submit({ text: TYPED, wait: false, origin: { kind: 'composer' } })
-  expect(env).toEqual([['CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION', 'false'], ['CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION', undefined]])
+  // '' brings the client's default back (its env parser reads '' as not set), with no undefined argument
+  expect(env).toEqual([['CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION', 'false'], ['CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION', '']])
+  expect(env.flat()).not.toContain(undefined)
+  expect(envReads).toEqual([])
 })
 
 // ---- the UX test of 2026-11-17
@@ -506,4 +513,107 @@ test('a prompt answered in a damaged demo state keeps no true: the next step ask
   await $.prompt.submit({ text: TYPED, wait: false, origin: { kind: 'composer' } })   // inDemo true, damaged
   expect((await step($)).result.answer).toBe('FROM-THE-MODEL')     // demo off reset it: the step asked again
   expect(sent).toEqual([0])
+})
+
+// ---- the person's own commands (prompt_commands.mod_command, night UX test findings C and F): the mod answers them with
+// Python's text and empties the box; a Codex form that needs the model puts its slash form into the box; no answer
+// from Python drops the prompt all the same
+const settleFill = () => new Promise(resolve => setTimeout(resolve, 150))
+
+function ownSetup(on, answer, logs: string[] = []) {
+  const seen = { runs: 0, downstream: 0, filled: [] as string[], answer }
+  on('clock.now', () => ({ value: clock.t }))
+  on('clock.after', () => ({ value: undefined }))
+  on('session.id', () => ({ value: 'sess-1' }))
+  on('session.cwd', () => ({ value: '/work' }))
+  on('env.get', () => { throw new Error('the mod read an environment variable') })
+  on('ui.log', ($, e) => { logs.push(e.text ?? JSON.stringify(e)); return { value: undefined } })
+  on('prompt.fill', ($, e) => { seen.filled.push(e.text); return { isFilled: true } })
+  on('process.run', ($, e) => {
+    seen.runs += 1
+    return seen.answer(JSON.parse(e.init.stdin))
+  })
+  on('prompt.submit', ($, e) => { seen.downstream += 1; return { text: e.text } })
+  return seen
+}
+const own = (o) => ({ value: { exitCode: 0, stderr: '', stdout: JSON.stringify({ maisecrets: 'mod-prompt', ...o }) } })
+
+test('a command the prompt hook answers is dropped with its answer, and the box is emptied', async ($, on) => {
+  const LINE = 'maisecrets: the term is on your list now as NAME_1. This prompt was not sent to the AI.'
+  const seen = ownSetup(on, () => own({ drop: LINE }))
+  for (const text of ['/maisecrets:term add Bertolt Q', 'maisecrets: term add Bertolt Q', '/maisecrets:demo on',
+    '/maisecrets:not-a-secret SECRET_c1', '/maisecrets:report incident',
+    'maisecrets: set ssh_consent on', 'maisecrets: status']) {
+    seen.filled.length = 0
+    seen.downstream = 0
+    const r = await $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } })
+    expect(r.drop).toBe(LINE)
+    expect(r.text).toBeUndefined()
+    await settleFill()
+    expect(seen.filled).toEqual([''])
+    expect(seen.downstream).toBe(0)
+  }
+})
+
+test('a Codex form that needs the model puts its slash form into the box', async ($, on) => {
+  const seen = ownSetup(on, () => own({ drop: 'maisecrets: in Claude Code this is /maisecrets:status test.',
+    fill: '/maisecrets:status test' }))
+  const r = await $.prompt.submit({ text: 'maisecrets: status test', wait: false, origin: { kind: 'composer' } })
+  expect(typeof r.drop).toBe('string')
+  await settleFill()
+  expect(seen.filled).toEqual(['/maisecrets:status test'])
+})
+
+test('an answer of several lines goes above, a row per line, and the drop is one line', async ($, on) => {
+  const logs: string[] = []
+  ownSetup(on, () => own({ drop: 'first line\nsecond line' }), logs)
+  const r = await $.prompt.submit({ text: 'maisecrets: list', wait: false, origin: { kind: 'composer' } })
+  expect(r.drop).toBe('maisecrets: answered without the AI, the output is above.')
+  expect(logs).toEqual(['first line', 'second line'])
+})
+
+test('a command with no answer from Python is dropped all the same and never passed on', async ($, on) => {
+  const failures = [() => ({ deny: 'cannot start' }), () => ({ value: { exitCode: 1, stderr: 'boom', stdout: '' } }),
+    () => ({ value: { exitCode: 0, stderr: '', stdout: 'not json' } }),
+    () => ({ value: { exitCode: 0, stderr: '', stdout: JSON.stringify({ drop: 'from another program' }) } })]
+  const seen = ownSetup(on, failures[0])
+  for (const fail of failures) {
+    seen.answer = fail
+    for (const text of ['/maisecrets:term add Bertolt Q', 'maisecrets: demo on']) {
+      const r = await $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } })
+      expect(r.drop).toBe('maisecrets could not answer this command. Nothing was sent; send it again.')
+      expect(seen.downstream).toBe(0)
+    }
+  }
+})
+
+test('a Codex-like prompt that is no command takes the normal way with the one answer Python gave', async ($, on) => {
+  const seen = ownSetup(on, () => own({ text: REWRITTEN, count: 1 }))
+  const r = await $.prompt.submit({ text: 'maisecrets: why was TOKENWORD blocked', wait: false,
+    origin: { kind: 'composer' } })
+  expect(r.text).toBe(REWRITTEN)
+  expect(seen.runs).toBe(1)
+})
+
+test('a slash command the mod does not answer goes on as typed', async ($, on) => {
+  const seen = ownSetup(on, () => own({}))
+  const r = await $.prompt.submit({ text: '/maisecrets:demo', wait: false, origin: { kind: 'composer' } })
+  expect(r.text).toBe('/maisecrets:demo')
+  expect(seen.downstream).toBe(1)
+})
+
+test('the self-test value is no own command: with no answer from Python it goes on to the real prompt hook',
+  async ($, on) => {
+    // the hook must stop it, so its pass proves that hook ran (Gate A); the mod's fail-closed drop is not for it
+    const seen = ownSetup(on, () => ({ value: { exitCode: 1, stderr: 'boom', stdout: '' } }))
+    const r = await $.prompt.submit({ text: 'ms-selftest-abcdefghij12', wait: false, origin: { kind: 'composer' } })
+    expect(r.text).toBe('ms-selftest-abcdefghij12')
+    expect(seen.downstream).toBe(1)
+  })
+
+test('a command that is no person\'s takes the hook path: Python is not asked', async ($, on) => {
+  const seen = ownSetup(on, () => own({ drop: 'x' }))
+  const r = await $.prompt.submit({ text: '/maisecrets:term add Bertolt Q', wait: false, origin: { kind: 'peer' } })
+  expect(r.text).toBe('/maisecrets:term add Bertolt Q')
+  expect(seen.runs).toBe(0)
 })

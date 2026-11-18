@@ -522,7 +522,7 @@ def remove_typed(ids: list) -> str:
                 continue
             said.append(f"import:{iid} removed; its values are no longer masked")
             from . import events
-            events.record_weakening("value-import", "import:" + iid, "typed prompt")
+            events.record_weakening("value-import", "import:" + iid, "typed prompt", typed=True)
     reset()
     prebuild()
     return "maisecrets: " + "; ".join(said) + "."

@@ -105,7 +105,7 @@ class GrantTests(unittest.TestCase):
     def test_value_is_delivered_once_and_a_missing_delivery_fails_the_whole_command(self):
         out = _bash_pre("printf '%s' " + self.e.ref + " | tr a-z A-Z; echo tail")["hookSpecificOutput"]
         cmd = out["updatedInput"]["command"]
-        self.assertTrue(cmd.startswith('__ms_1="$('), cmd)             # read up front, in the main shell
+        self.assertTrue(cmd.startswith('if __ms_1="$('), cmd)          # read up front, in the main shell
         self.assertNotIn(NASTY, cmd)
         r = _run(cmd)
         self.assertEqual(r.stdout, NASTY.upper() + "tail\n", r.stderr)   # the value reached a pipeline element
@@ -122,7 +122,9 @@ class GrantTests(unittest.TestCase):
         out = _bash_pre("echo " + self.e.ref + " and '" + self.e.ref + "'")["hookSpecificOutput"]
         cmd = out["updatedInput"]["command"]
         self.assertEqual(cmd.count("__ms_1="), 1)
-        self.assertEqual(cmd.count("${__ms_1}"), 2)
+        # the one read refuses an empty value, and both places get the value
+        self.assertEqual(cmd.count('[ -n "${__ms_1}" ]'), 1)
+        self.assertEqual(cmd.count("${__ms_1}"), 3)
         if BASH:
             self.assertEqual(_run(cmd).stdout, NASTY + " and " + NASTY + "\n")
 
@@ -516,10 +518,11 @@ class ScannerEdgeTests(unittest.TestCase):
         out = _bash_pre(cmd)["hookSpecificOutput"]
         self.assertNotIn("permissionDecision", out, out)
         got = out["updatedInput"]["command"]
-        prelude = re.escape('__ms_1="$(cat ') + r"[^)\s]+" + re.escape(
-            ')" || { echo "maisecrets: the value for ' + self.e.key + ' was not delivered (served for 120 s, or '
-            'read by another process); the command did not run. Run it again once; if it fails again, stop and '
-            'tell the user" >&2; exit 97; }; ')
+        prelude = re.escape('if __ms_1="$(cat ') + r"[^)\s]+" + re.escape(
+            ')" && [ -n "${__ms_1}" ]; then :; else echo "maisecrets: the value for ' + self.e.key
+            + ' was not delivered (served for 120 s, or read by another process); the command did not run. '
+            'Run it again once; if it fails again, stop and '
+            'tell the user" >&2; exit 97; fi; ')
         from maisecrets import exit_wrap        # Claude Code: the exit-0 trap after the reads (0.9.1)
         prelude += re.escape(exit_wrap.trap() + "; ")
         self.assertRegex(got, "^" + prelude + re.escape("cat <<EOF\r\nk: ${__ms_1}\r\nEOF\r\n") + r"\Z")
@@ -579,6 +582,66 @@ class ScannerEdgeTests(unittest.TestCase):
         self.assertIn("pre-tool\tclaude\tS1\tBash\trewrite", log)
         self.assertNotIn(NASTY, log)
         self.assertNotIn("printf", log)
+
+
+class ClientCheckTests(unittest.TestCase):
+    """Claude Code refused the 0.9.16 rewrite as "expansion obfuscation" (headless: 3 refusals in the live test);
+    the read is an if/else now, the placeholder stays ${__ms_N} (the brace keeps a following letter apart)."""
+
+    def setUp(self):
+        _hygiene.watch_children(self)
+        _reset()
+        self.e = Vault().put(NASTY, "SECRET", "manual", session="S1")
+
+    def test_no_rewrite_trips_the_clients_brace_with_quote_check(self):
+        from _client_bash_check import refused_as_obfuscation
+        self.assertTrue(refused_as_obfuscation('x="$(cat f)" || { echo "m" >&2; exit 97; }; echo "${x}"'),
+                        "the port must still flag the 0.9.16 prelude")
+        two = Vault().put(PLAIN, "SECRET", "manual", session="S1")
+        r = self.e.ref
+        for cmd in ("printf '%s' " + r, 'printf "%s" "a' + r + 'b"', "printf '%s' '" + r + "'",
+                    "cat <<EOF\nk: " + r + "x\nEOF", 'echo "$(printf %s "' + r + '")"', "set -u; echo " + r + "9",
+                    "echo " + r + " '" + two.ref + "'"):
+            with self.subTest(cmd[:40]):
+                out = _bash_pre(cmd)["hookSpecificOutput"]
+                self.assertNotEqual(out.get("permissionDecision"), "deny", out)   # ask under a confirm policy
+                self.assertFalse(refused_as_obfuscation(out["updatedInput"]["command"]),
+                                 out["updatedInput"]["command"])
+        self.assertFalse(refused_as_obfuscation(hooks._sandbox_guard()), "the ssh guard step")
+
+    @unittest.skipIf(BASH is None, "no bash")
+    def test_a_name_next_to_letters_or_digits_arrives_in_quotes_heredocs_and_under_set_u(self):
+        r = self.e.ref
+        for cmd, want in [
+            ("printf '%s' \"" + r + "b\"", NASTY + "b"),
+            ("printf '%s' " + r + "9", NASTY + "9"),
+            ("printf '%s' " + r + "_z", NASTY + "_z"),
+            ("set -u; printf '%s' \"a" + r + "b\"", "a" + NASTY + "b"),
+            ("cat <<EOF\n" + r + "b\nEOF", NASTY + "b\n"),
+            ("set -u; cat <<EOF\nk " + r + "1\nEOF", "k " + NASTY + "1\n"),
+        ]:
+            with self.subTest(cmd[:40]):
+                out = _bash_pre(cmd)["hookSpecificOutput"]
+                self.assertNotEqual(out.get("permissionDecision"), "deny", out)   # ask under a confirm policy
+                new = out["updatedInput"]["command"]
+                self.assertNotIn(NASTY, new)
+                got = _run(new)
+                self.assertEqual(got.stdout, want, got.stderr)
+                if sys.platform != "win32":
+                    # served once: a second run ends with 97 before the command, also under set -u
+                    again = _run(new)
+                    self.assertEqual((again.returncode, again.stdout), (97, ""), again.stderr)
+                    self.assertIn("not delivered", again.stderr)
+
+    @unittest.skipIf(BASH is None or os.name == "nt", "POSIX rewrite through bash")
+    def test_a_read_that_succeeds_with_zero_bytes_ends_with_97_and_runs_nothing(self):
+        # another reader took the FIFO's write, or a resolver answered nothing: cat exits 0 with no bytes (Gate A)
+        out = _bash_pre("echo RAN; printf '%s' " + self.e.ref)["hookSpecificOutput"]
+        new = out["updatedInput"]["command"]
+        fifo = re.search(r"\$\(cat (\S+)\)", new).group(1)
+        r = _run(new.replace(fifo, "/dev/null"))
+        self.assertEqual((r.returncode, r.stdout), (97, ""), r.stderr)
+        self.assertIn("not delivered", r.stderr)     # stdout "" above: not even the echo before the value ran
 
 
 class FailClosedTests(unittest.TestCase):

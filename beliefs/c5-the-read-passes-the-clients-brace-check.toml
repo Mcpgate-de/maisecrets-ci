@@ -1,0 +1,10 @@
+# c5-the-read-passes-the-clients-brace-check: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c5-the-read-passes-the-clients-brace-check"
+control = "C5"
+statement = "The read of a value at the start of a Bash command is an if/else, never `|| { echo \"…\"; }`: Claude Code refuses an unquoted { before a quote as expansion obfuscation (headless, the command did not run; measured on 2.1.327)."
+runner = ["tests/test_gates.py::ClientCheckTests::test_no_rewrite_trips_the_clients_brace_with_quote_check"]
+
+[proof]
+file = "maisecrets/hooks.py"
+find = "        prelude.append(f'if {var}=\"{read}\"{check}; then :; else echo \"maisecrets: the value for {key} was not '"
+replace = "        prelude.append(f'{var}=\"{read}\"{check} || {{ echo \"maisecrets: the value for {key} was not '"

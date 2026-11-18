@@ -343,9 +343,9 @@ MATRIX: dict[str, list[tuple[list[str], str, dict]]] = {
     "pending": [([], "", _ALL0)],
     # it reads the setting and asks no service when none is set; a config that does not load exits 1
     "ner": [([], "", {"ok": 0, "index": 0, "config": 1})],
-    # the sandbox has no MCP server with Sensitive References: the status and a login say so and exit 1; a word that is
-    # no action is a usage error
-    "sref": [([], "", _ALL1), (["login"], "", _ALL1), (["nonsense"], "", _ALL2)],
+    # the sandbox has no MCP server with Sensitive References: the status names the next step and exits 0, a login
+    # cannot start and exits 1, a config that does not load exits 1; a word that is no action is a usage error
+    "sref": [([], "", {"ok": 0, "index": 0, "config": 1}), (["login"], "", _ALL1), (["nonsense"], "", _ALL2)],
     # it reads the transcripts of the sandbox's own CLAUDE_CONFIG_DIR, never the store: every state answers alike
     "consent-report": [(["ssh", "--json"], "", _ALL0), (["ssh", "--last", "7d"], "", _ALL0), ([], "", _ALL2)],
     # the rule folders are read without the store, and a config that does not load means no extra folder: every
@@ -794,6 +794,28 @@ class StateMatrixTests(unittest.TestCase):
         self.assertEqual(sb.run("list").stdout.strip(), "Nothing is stored.")
         r = sb.run("put", stdin=fake_value())
         self.assertRegex(r.stdout, r"placeholder (?:is )?\u27e6SECRET_c2\b", "the counter continues past the old key")
+
+    def test_put_stores_a_short_value_and_says_where_maisecrets_finds_it(self):
+        # literal lengths: the limits of 4 and 8 characters are what the person reads, not a copy of the constants
+        sb = base_state("empty").copy()
+        self.addCleanup(sb.remove)
+        said = {}
+        for n in (3, 4, 7, 8):
+            r = sb.run("put", stdin=fake_value()[:n] + "\n")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("Stored.", r.stdout)
+            said[n] = r.stdout
+        for n in (3,):
+            self.assertIn("fewer than 4 characters. Stored-value matching masks it where its placeholder is used in "
+                          "a session, but only where no letter or digit stands next to it", said[n])
+        for n in (4, 7):
+            self.assertIn("fewer than 8 characters. Stored-value matching masks it where its placeholder is used",
+                          said[n])
+            self.assertIn("does not find it in other text", said[n])
+        for n in (3, 4, 7):
+            self.assertIn("The rules can still find it after a label such as password=.", said[n])
+        self.assertNotIn("Note:", said[8], "a value of 8 characters gets no note")
+        self.assertEqual(len(json.loads((sb.home / "index.json").read_text())["entries"]), 4, "all four are stored")
 
     def test_a_configuration_error_names_the_file_and_changes_nothing(self):
         for state, where in (("policy-wrong-type", "policy.json: keep_purged_days has the wrong type"),

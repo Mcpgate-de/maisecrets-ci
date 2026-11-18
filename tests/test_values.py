@@ -454,6 +454,17 @@ class ReviewRoundOne(_Files):
         detect.reset_rules()
         self.assertEqual(len(detect.scan(f"an {NAME}")), 1)
 
+    def test_a_typed_removal_stays_in_events_log_and_gives_no_start_notice(self):
+        # decision I: the person typed it, so the next session start does not name it as a loosened protection
+        from maisecrets import events
+        a = self.imported([{"value": NAME, "type": "NAME"}], name="typed.jsonl")
+        events.weakenings_since_last_start()          # earlier lines of this module are shown already
+        values.remove_typed([a.id])
+        lines = [json.loads(x) for x in events.EVENTS.read_text().splitlines()]
+        self.assertIn({"weakened": "value-import", "name": "import:" + a.id, "typed": True},
+                      [{k: e.get(k) for k in ("weakened", "name", "typed")} for e in lines])
+        self.assertIsNone(events.weakenings_since_last_start())
+
     def test_a_value_file_whose_import_is_gone_is_imported_again(self):
         p = self.file([{"value": NAME, "type": "NAME"}], name="mine.jsonl")
         cfg = self._config([p])

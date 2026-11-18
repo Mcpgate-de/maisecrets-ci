@@ -698,118 +698,10 @@ def _verdict(text: str, cfg: dict, session: str | None, vault=None) -> tuple:
     return entries, matches, stored["n"], values
 
 
-def _allowed_by_the_list(value: str) -> str | None:
-    """Why the allow list lets this value through, or None. Only for a value no rule caught: the scan with every rule,
-    without the allow list, shows whether the list took a hit out (`rule: <id>` or an exact value)."""
-    return detect.explain_allowed(value)
-
-
-def _store_unseen(payload: dict, cfg: dict, value: str, session: str | None, exact: bool) -> str:
-    """No rule and no stored value caught `value`: store it as /maisecrets:put does, so that it is masked from now
-    on, and say where maisecrets finds it again. Each case where storing is not allowed or would not help says so."""
-    from . import settings as settings_mod
-    allowed = _allowed_by_the_list(value)
-    if allowed:
-        from .user_rules import ALLOW_FILE
-        why = allowed[len("your allow list "):] if allowed.startswith("your allow list ") else allowed
-        return check_value.not_caught(f"Your allow list lets it through: it {why}. It was not stored. To protect it, "
-                                      f"remove that line from {ALLOW_FILE}.")
-    if not exact:
-        return check_value.not_caught("It was not stored, because the prompt does not start with ms:( exactly. Send "
-                                      "it again as ms:(…) to store it.")
-    # the mod names who sent the prompt: only the person at the terminal or in Remote Control stores (an `sdk` turn can
-    # come from a program, as for a settings change)
-    if not settings_mod.typed_by_the_person(payload) or payload.get("agent_id") or \
-            payload.get("origin") not in (None, "composer", "bridge"):
-        return check_value.not_caught("It was not stored: maisecrets stores a value only from a prompt that you "
-                                      "type yourself.")
-    if find_refs(value):
-        return check_value.not_caught("It holds a maisecrets placeholder, so it was not stored. Check the value "
-                                      "without the placeholder.")
-    if "\n" in value or "\r" in value:
-        return check_value.not_caught("It has more than one line, so it was not stored. maisecrets finds a stored "
-                                      "value only on one line. Use /maisecrets:put for it.")
-    if len(value) < _EXACT_MIN_LEN:
-        return check_value.not_caught(f"maisecrets finds a stored value only from {_EXACT_MIN_LEN} characters on, "
-                                      "so it was not stored.")
-    if not check_value.looks_like_a_credential(value):
-        # a check of ordinary words stored them for good, and every later prompt with them was blocked (field report,
-        # 0.6.32): only a value that the credential checks of the detector take is stored here
-        return check_value.not_caught(check_value.TEST_VALUE if check_value.names_a_test_value(value)
-                                      else check_value.ORDINARY)
-    try:
-        e = Vault(cfg).put(value, "SECRET", "manual", session=session)
-    except Exception as exc:  # noqa: BLE001 - the answer says it; the prompt stays blocked
-        incidents.note("prompt.check-store", exc)
-        return check_value.not_caught(f"It could not be stored (an internal error, {type(exc).__name__}). Try "
-                                      "/maisecrets:put, or /maisecrets:report incident.")
-    _live_cache.clear()        # the store holds a value now: the checks below must look for it
-    alone = any(_verdict(value, cfg, session)[1:3])
-    in_text = any(_verdict(f"see {value} here", cfg, session)[1:3])
-    seconds = int(round(e.expires - e.created))
-    return check_value.stored_text(e.ref, alone, in_text, _hours(seconds)) + check_value.format_report(value)
-
-
-def _check_value(payload: dict, groups: list) -> dict:
-    """The answer to ms:(…): always a block, whatever the verdict. Each group of the prompt (check_value.parse_all)
-    gets its own verdict, from the same calls as a normal prompt with that value. The reason goes to the person and
-    says what each hit is masked as and how it was found (maisecrets/verdict.py), never the value; the transcript
-    loses the prompt as typed."""
-    cfg = load_config()
-    session = payload.get("session_id")
-    codex = client_of(payload) == "codex"
-    entries: list = []
-    values: list = []
-    lines: list = []
-    seen: dict = {}
-    for value, exact in groups:
-        if value in seen:                  # the same value again: the same line, and it is stored once
-            lines.append(lines[seen[value]])
-            continue
-        seen[value] = len(lines)
-        got, taken, line = _check_one(payload, cfg, session, value, exact)
-        entries += got
-        values += taken
-        lines.append(line)
-    # a value no rule caught is stored after every group has its verdict: a group never sees what a check before it
-    # in the same prompt stored, so each verdict is the one its normal prompt gets alone
-    stored: dict = {}
-    for i, line in enumerate(lines):
-        if isinstance(line, tuple):
-            if line[1] not in stored:
-                stored[line[1]] = _store_unseen(payload, cfg, *line[1:])
-            lines[i] = stored[line[1]]
-    if len(lines) == 1:
-        reason = lines[0] + "\n\n" + check_value.NOT_SENT
-    else:
-        reason = "\n".join(f"Value {i}: {line}" for i, line in enumerate(lines, 1)) + "\n\n" + check_value.NOT_SENT
-    if cfg.get("scrub_transcript", True):
-        raw = payload.get("prompt") if isinstance(payload.get("prompt"), str) else ""
-        forms = check_value.scrub_forms(raw, [v for v, _exact in groups])
-        scrub = [x for x in dict.fromkeys(forms + list(values)) if x]
-        _scrub_transcript(payload.get("transcript_path", ""), scrub, [])
-        _scrub_transcript_later(payload.get("transcript_path", ""), scrub, [], session=session)
-    from . import events
-    events.record("UserPromptSubmit", client_of(payload), entries, outcome="ms:( check")   # key, type, rule: no value
-    if codex:
-        return {"decision": "block", "reason": reason}
-    return {"decision": "block", "reason": reason,
-            "hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "suppressOriginalPrompt": True}}
-
-
-def _check_one(payload: dict, cfg: dict, session: str | None, value: str, exact: bool) -> tuple:
-    """(entries, values taken out, verdict line) of one group of a check. The line ends without the sentence that the
-    prompt was not sent: _check_value adds it once. For a value no rule caught, the line is a tuple that names the
-    store step, which _check_value runs after the verdicts of all groups."""
-    if not value.strip():
-        return [], [], check_value.USAGE_LINE
-    if check_value.only_placeholders(value, find_refs(value)):
-        return [], [], check_value.A_PLACEHOLDER_LINE
-    entries, matches, n_stored, values = _verdict(value, cfg, session)
-    if matches or n_stored:
-        from . import verdict
-        return entries, values, verdict.caught(value, matches, entries)
-    return entries, values, ("store", value, session, exact)     # _check_value stores it after the last verdict
+def _pc():
+    """maisecrets/prompt_commands.py: the ms:(…) check, ms:(value) inside a prompt, the mod's own commands."""
+    from . import prompt_commands
+    return prompt_commands
 
 
 def rewrite_prompt(payload: dict) -> dict:
@@ -818,6 +710,9 @@ def rewrite_prompt(payload: dict) -> dict:
     the prompt as it is, and the settings hook, which runs after the mod on what the mod passes on,
     decides it as without the mod: a clean prompt, an @file mention, a subagent report, a setting
     that turns the rewrite off. The answer carries placeholders, never a value."""
+    own = _pc().mod_command(payload)
+    if own is not None:
+        return own
     if incidents.recognize(payload.get("prompt"), client_of(payload)) or _selftest().claims(payload.get("prompt")):
         return {}            # the prompt hook answers it, before the config and the store (docs/DIAGNOSTICS.md, 7)
     groups = check_value.parse_all(payload.get("prompt"))
@@ -825,7 +720,7 @@ def rewrite_prompt(payload: dict) -> dict:
         # ms:(…) is never sent: the mod drops it with this verdict, and drops it with its own sentence when no answer
         # comes, so a hook that hangs or cannot start cannot let it through (Gate A, round 2). The transcript is found
         # by the session id, as for a rewrite
-        out = _check_value({**payload, "prompt_id": "mod", "transcript_path": ""}, groups)
+        out = _pc().check_answer({**payload, "prompt_id": "mod", "transcript_path": ""}, groups)
         # one line: `claude -p` prints the line breaks of a drop as replacement characters (measured on 2.1.301)
         return {"drop": " ".join(out["reason"].split())}
     cfg = load_config()
@@ -864,6 +759,10 @@ def rewrite_prompt(payload: dict) -> dict:
             prompt, _marked = term_files.take_markers(prompt, _name_ttl(cfg))
         except OSError:
             return {}           # the hook answers it, and blocks when it cannot record the name either
+    # ms:(value) inside the prompt: stored, its placeholder in its place (the same origins as the marker above)
+    inline, inline_values = [], []
+    if payload.get("origin") in ("composer", "bridge"):
+        prompt, inline, inline_values = _pc().take_inline(prompt, cfg, session)
     matches = _prompt_hits(prompt)
     names, why = _prompt_names(cfg, prompt, matches, session, payload.get("origin") in ("composer", "bridge"))
     LAST_NAMES_WHY[0] = why         # the demo's line reads it (demo.mod_answer)
@@ -880,8 +779,9 @@ def rewrite_prompt(payload: dict) -> dict:
         return {}
     vault = Vault(cfg)
     rewritten, entries, values, stored, matches = _take_values_out(prompt, matches, cfg, vault, session)
-    if not matches and not stored["n"]:
+    if not matches and not stored["n"] and not inline:
         return {"text": prompt, "count": 0, "tip": unchecked} if unchecked else {}
+    entries, values = inline + entries, inline_values + values
     if _blocking_mention(rewritten, cwd if isinstance(cwd, str) else "", cfg):
         return {}      # a stored value without a shape made the mention; the hook blocks it
     if cfg.get("scrub_transcript", True):
@@ -893,7 +793,7 @@ def rewrite_prompt(payload: dict) -> dict:
     from . import events
     events.record("UserPromptSubmit", "claude", entries, outcome="rewritten by the mod")
     # what the person reads: each value taken out, a detected one per place and a stored one per place
-    answer = {"text": rewritten, "count": len(matches) + stored["n"]}
+    answer = {"text": rewritten, "count": len(matches) + stored["n"] + len(inline)}
     tip = unchecked or _check_tip(cfg)
     if tip:
         answer["tip"] = tip         # the mod shows it next to its line, once (check_value.py)
@@ -943,7 +843,7 @@ def user_prompt(payload: dict) -> dict:
     groups = check_value.parse_all(payload.get("prompt"))
     if groups is not None:
         # ms:(…): blocked on every path, also without a closing bracket, before anything else reads the prompt
-        return _check_value(payload, groups)
+        return _pc().check_answer(payload, groups)
     asked = incidents.recognize(payload.get("prompt"), client_of(payload))
     if asked:
         if asked[0] == "usage":
@@ -1036,6 +936,8 @@ def user_prompt(payload: dict) -> dict:
         # a subagent's prompt is no prompt of the person (as for the marker below)
         from .terms import command_answer
         return command_answer(payload, term_cmd, typed and not payload.get("agent_id"), cfg)
+    from .events import note_typed_forget
+    note_typed_forget(prompt, payload, typed)
     # /maisecrets:not-a-secret KEY (not_a_secret.py): makes detection weaker, so only the person's typed prompt counts
     nas = not_a_secret.parse(prompt)
     if nas:
@@ -1071,6 +973,11 @@ def user_prompt(payload: dict) -> dict:
                 "AI would see it. This prompt was not sent. Add the name with /maisecrets:term add NAME, then send "
                 "the prompt again."),
                 "hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "suppressOriginalPrompt": True}}
+    # ms:(value) inside a prompt the person typed: stored, and the prompt is blocked with its placeholder in its place
+    # (/maisecrets:send sends that text)
+    inline, inline_values = [], []
+    if typed and not payload.get("agent_id") and not grant:
+        prompt, inline, inline_values = _pc().take_inline(prompt, cfg, session)
     if grant:
         from . import consent_store
         if grant.group(2):
@@ -1107,7 +1014,8 @@ def user_prompt(payload: dict) -> dict:
             for key, _s, _e in typed:
                 vault.admit(key, session)
     rewritten, entries, values, stored, matches = _take_values_out(prompt, matches, cfg, vault, session)
-    if not matches and not stored["n"]:
+    entries, values = inline + entries, inline_values + values
+    if not matches and not stored["n"] and not inline:
         if typed:
             # the model has never seen the bracket syntax; without this it asks the user for the
             # value, and that value is blocked again (agent review, 2026-09-26)
@@ -1152,10 +1060,11 @@ def _sandbox_guard(py: str | None = None) -> str:
     inside the Claude Code sandbox; otherwise the command stops with exit 97 before the value is read."""
     from pathlib import Path as _P
     probe = _P(__file__).resolve().parent.parent / "hooks" / "sandbox_probe.py"
-    return (f'{shlex_quote(py or sys.executable)} {shlex_quote(str(probe))} || '
-            '{ echo "maisecrets: this command sends a value over ssh and runs only inside the Claude Code '
+    # if/else, not `|| { echo "…"; }`: Claude Code refuses an unquoted { before a quote as expansion obfuscation
+    return (f'if {shlex_quote(py or sys.executable)} {shlex_quote(str(probe))}; then :; else '
+            'echo "maisecrets: this command sends a value over ssh and runs only inside the Claude Code '
             'sandbox (sandbox.enabled with network.allowedDomains). The value was not read; the command '
-            'did not run." >&2; exit 97; }')
+            'did not run." >&2; exit 97; fi')
 
 
 def _proxy_option() -> str:
@@ -1913,7 +1822,8 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
                              "message comes again, stop and tell the user.")
             served.append(fifo)
             read = f"$(cat {shlex_quote(fifo)})"
-        check = f' && [ -n "${{{var}}}" ]' if key in srefs else ""   # a failed resolve writes nothing
+        # every read: an empty read (a failed resolve, another reader took the FIFO's write) never runs the command
+        check = f' && [ -n "${{{var}}}" ]'
         if key in srefs:
             # a refused resolve writes its reason (fixed text and counts, never a value) after a marker: the person
             # reads why, not a delivery timeout (mcpgate 2.0.3815: a login without the process scope)
@@ -1921,9 +1831,10 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
             check += (f' && case "${{{var}}}" in {SREF_REFUSED}*) printf \'%s\\n\' "maisecrets: the value for {key} '
                       f'was not given: ${{{var}#{SREF_REFUSED}}}. The command did not run; do not retry, tell the '
                       f'user." >&2; exit 97;; esac')
-        prelude.append(f'{var}="{read}"{check} || {{ echo "maisecrets: the value for {key} was not delivered '
-                       f'(served for 120 s, or read by another process); the command did not run. Run it again '
-                       f'once; if it fails again, stop and tell the user" >&2; exit 97; }}')
+        # if/else, not `|| { echo "…"; }`: Claude Code refuses an unquoted { before a quote as expansion obfuscation
+        prelude.append(f'if {var}="{read}"{check}; then :; else echo "maisecrets: the value for {key} was not '
+                       f'delivered (served for 120 s, or read by another process); the command did not run. Run it '
+                       f'again once; if it fails again, stop and tell the user" >&2; exit 97; fi')
     for key, start, end in sorted(refs, key=lambda r: r[1], reverse=True):
         var = var_by_key[key]
         ctx = ctxs[start]

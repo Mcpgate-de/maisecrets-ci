@@ -23,6 +23,8 @@ alibaba-sts-security-token
 amplitude-secret-key
 anthropic-admin-api-key
 anthropic-api-key
+anthropic-oauth-access-token
+anthropic-oauth-refresh-token
 apify-api-token
 apollo-api-key.1
 artifactory-api-key
@@ -62,6 +64,7 @@ browserstack-access-key.1
 browserstack-username.1
 buildkite-service-token
 buildkite-user-access-token
+cal-api-key
 canadian-digital-service-notify-api-key
 canva-client-id
 canva-client-secret
@@ -113,8 +116,6 @@ deepgram-api-key
 deepseek-api-key
 defined-networking-api-token
 deno-account-token
-devcycle-client-sdk-key
-devcycle-mobile-sdk-key
 devcycle-server-sdk-key
 devin-personal-api-key
 devin-service-api-key
@@ -160,7 +161,6 @@ finicity-client-secret
 finnhub-access-token
 flickr-access-token
 flutterwave-encryption-key
-flutterwave-public-key
 flutterwave-secret-key
 flyio-access-token
 frameio-api-token
@@ -225,6 +225,7 @@ instantly-api-key.1
 intercom-api-key
 intra42-client-secret
 ionic-personal-access-token
+jina-ai-api-key
 jumpcloud-api-key
 jwt
 jwt-base64
@@ -252,7 +253,6 @@ linkedin-client-id
 linkedin-client-secret
 llama-cloud-api-key.1
 lob-api-key
-lob-pub-api-key
 looker-client-id
 looker-client-secret
 mailchimp-api-key
@@ -339,7 +339,6 @@ polymarket-api-secret
 polymarket-passphrase
 polymarket-private-key
 posthog-personal-api-key
-posthog-project-api-key
 postman-api-token
 postmark-api-token.1
 prefect-api-token

@@ -252,6 +252,11 @@ def after(payload: dict, result: dict, codex: bool) -> dict:
 
 # --- UserPromptSubmit ---------------------------------------------------------------------------------------------
 
+def typed_command(prompt) -> bool:
+    """The Codex form of the command (`maisecrets: status test`): it needs the model, which runs the command."""
+    return isinstance(prompt, str) and _TYPED_RE.match(prompt) is not None
+
+
 def claims(prompt) -> bool:
     """The prompt hook answers this prompt itself (the mod passes it on unchanged): the typed command, or a prompt
     with the pending test value."""
