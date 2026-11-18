@@ -572,7 +572,7 @@ def transition_problems(state: str, command: str, args: list[str], r: subprocess
             others = sorted(k for k in ret if k != key)
             expect(sorted(after_entries) == others, f"forget left {sorted(after_entries)}, expected {others}")
         else:
-            expect(r.stdout == f"There is no {key} (see /maisecrets:list).\n", "forget of an unknown key")
+            expect(r.stdout == "That key is not stored (see /maisecrets:list).\n", "forget of an unknown key")
             expect(after.store == before.store and after_entries == (before.index or {}).get("entries", {}),
                    "forget of an unknown key changed the store")
         return p
@@ -672,7 +672,9 @@ class PopulationTests(unittest.TestCase):
         # mod-prompt and mod-values are the questions of the mod (claude-mod/), not commands of the CLI
         dispatched = commands_in_dispatch() - {"pending", "session-start", "session-end", "mod-prompt", "mod-values",
                                                "mod-reveal", "mod-demo",
-                                               "mod-settings"}
+                                               "mod-settings",
+                                               # the help of cli.main, for a person in a terminal
+                                               "help", "-h", "--help"}
         self.assertEqual(sorted(dispatched - cli_commands()), [], "dispatch.py sends these to cli.main")
         # resolve is reached through hooks/resolve.py, which the Bash hook writes into a command
         self.assertEqual(sorted(cli_commands() - dispatched), ["resolve"])
@@ -877,6 +879,11 @@ class StateMatrixTests(unittest.TestCase):
         sb = base_state("empty").copy()
         self.addCleanup(sb.remove)
         r = sb.run("shortcut", "../evil")
+        # a path as a name is refused with the usage, and nothing is written (UX test, 2026-11-17: it installed /ms)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("usage: /maisecrets:shortcut", r.stdout)
+        self.assertFalse((sb.user_home / ".claude" / "commands").exists())
+        r = sb.run("shortcut")
         self.assertEqual(r.returncode, 0)
         self.assertIn("Installed /ms.", r.stdout)
         commands = sb.user_home / ".claude" / "commands"
@@ -1217,6 +1224,13 @@ class HookEventTests(unittest.TestCase):
         self.assertNotIn(value, r.stdout)
         self.assertEqual(json.loads(r.stdout)["hookSpecificOutput"]["updatedToolOutput"],
                          {"stdout": "api_key=⟦SECRET_c1⟧"})
+
+    def test_help_prints_the_help_of_the_commands(self):
+        # `run.sh help` printed the hook names (UX test, 2026-11-17)
+        for word in ("help", "-h", "--help"):
+            r = self.sb.run(word)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(r.stdout.startswith("maisecrets status"), r.stdout[:200])
 
     def test_an_unknown_event_and_a_bad_payload_fail_closed(self):
         for args in (("bogus",), ()):

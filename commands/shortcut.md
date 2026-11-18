@@ -1,6 +1,6 @@
 ---
 description: "Setup: a short /ms command for /maisecrets:send"
-argument-hint: "[name | --remove]"
+argument-hint: "[install] [name] | remove [name] | status [name] | --remove [name]"
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" shortcut *), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" shortcut *)
 ---
 
@@ -26,5 +26,5 @@ The arguments go in the quoted heredoc as they are, so the shell never reads the
 
 It writes `~/.claude/commands/ms.md` (or the name given) and a small wrapper in
 `~/.maisecrets/bin/` that finds the installed plugin at run time, so the shortcut survives
-plugin updates. The user then types `/ms` after a blocked prompt. `--remove` takes it away
-again and keeps it away.
+plugin updates. The user then types `/ms` after a blocked prompt. `remove` takes it away
+again and keeps it away; `status` says whether it is installed.

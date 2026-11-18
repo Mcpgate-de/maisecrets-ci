@@ -171,13 +171,12 @@ if len(sys.argv) == 2 and sys.argv[1] == "mod-demo":
     sys.exit(0)
 
 if len(sys.argv) >= 2 and sys.argv[1] == "pending":
-    from maisecrets.hooks import take_pending  # noqa: E402
+    from maisecrets.hooks import NOTHING_WAITING, take_pending  # noqa: E402
     # Claude Code gives a command the id of its session, the same id its hooks get (measured with the
     # harness, 2026-09-28): with two blocked prompts waiting, /ms found neither and pointed to the
     # clipboard, which does not exist over SSH or in Remote Control (field report on 0.5.8)
     text = take_pending(os.environ.get("CLAUDE_CODE_SESSION_ID") or None)
-    print(text if text is not None else "(maisecrets: no blocked prompt is waiting. A blocked prompt waits 15 "
-          "minutes.)")
+    print(text if text is not None else NOTHING_WAITING)
     sys.exit(0)
 
 if len(sys.argv) >= 2 and sys.argv[1] in ("report", "put", "status", "list", "audit", "expire", "config",
@@ -186,6 +185,12 @@ if len(sys.argv) >= 2 and sys.argv[1] in ("report", "put", "status", "list", "au
                                           "sref"):
     from maisecrets.cli import main as cli_main  # noqa: E402
     sys.exit(cli_main(sys.argv[1:]))
+
+# `run.sh help` printed the hook names; the help of the commands was unreachable (UX test, 2026-11-17). No word stays
+# the hook usage with exit 2: a hook called without its event fails closed
+if len(sys.argv) == 2 and sys.argv[1] in ("help", "-h", "--help"):
+    from maisecrets.cli import main as cli_main  # noqa: E402
+    sys.exit(cli_main(["--help"]))
 
 if len(sys.argv) == 2 and sys.argv[1] == "session-end":
     # the values a server gave this session leave the store now (a crashed session sends no SessionEnd: then they go

@@ -179,6 +179,12 @@ def _servers() -> dict:
     return servers if isinstance(servers, dict) else {}
 
 
+# a word of the command typed without its value: what is missing, and the form that names it
+_MISSING = {"gateway": ("a server name or URL", "NAME"), "url": ("the address of the service", "URL"),
+            "updates": ("on or off", "on"), "unavailable": ("rules or withhold", "rules"),
+            "fallback": ("url URL or off", "url URL")}
+
+
 def _quoted(text: str) -> str:
     return '"' + "".join(c if c.isprintable() else "?" for c in text)[:60] + '"'
 
@@ -200,6 +206,14 @@ def typed_word(word: str, slash: bool = True) -> tuple:
                       f"them, and {cmd} gateway URL takes an address. Nothing was changed.")
     if word.startswith("other:"):
         text = word[len("other:"):]
+        # `ner gateway` without a value said "the command does not know gateway" (UX test, 2026-11-17)
+        missing = _MISSING.get(text.lower())
+        if missing:
+            # a count and the command that lists them, never a name: a name can be a stored value (Gate A, 2026-11-17)
+            n = len(_servers()) if text.lower() == "gateway" else 0
+            have = f" {n} server(s) of your configuration can be named; {sref} lists them." if n else ""
+            return None, (f"maisecrets: {text.lower()} needs {missing[0]}: {cmd} {text.lower()} {missing[1]}.{have} "
+                          "Nothing was changed.")
         if text.lower() not in KEYWORDS and not any(c.isspace() for c in text):
             url = _servers().get(text)
             if url:

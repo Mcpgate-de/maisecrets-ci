@@ -403,6 +403,13 @@ def _save_pending(rewritten: str, session: str | None) -> None:
         incidents.note("prompt.pending", exc)
 
 
+# the two notes of /maisecrets:send. The command files name them whole: a prompt of the person that starts like one
+# is still sent (Gate A, 2026-11-17)
+NOTHING_WAITING = "(maisecrets: no blocked prompt is waiting. A blocked prompt waits 15 minutes.)"
+TWO_WAITING = ("(maisecrets: blocked prompts of two sessions are waiting; paste from the clipboard, or copy the "
+               "cleaned prompt from the block message)")
+
+
 def take_pending(session: str | None = None) -> str | None:
     """Return and delete the pending prompt. With a session id, that session's own and nothing else:
     another session's prompt holds another conversation's text. Without one (a client that names no
@@ -418,8 +425,7 @@ def take_pending(session: str | None = None) -> str | None:
         if len(fresh) > 1:
             # two sessions blocked a prompt; without a session id the newest could belong to the
             # other one and its private text would land here (review, 2026-09-26)
-            return ("(maisecrets: blocked prompts of two sessions are waiting; paste from the clipboard, or copy "
-                    "the cleaned prompt from the block message)")
+            return TWO_WAITING
         cands = sorted(fresh, key=lambda p: p.stat().st_mtime, reverse=True)[:1]
     cands = [c for c in cands if time.time() - c.stat().st_mtime < 15 * 60]   # a stale prompt is not sent
     if not cands:

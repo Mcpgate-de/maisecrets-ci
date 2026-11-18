@@ -59,8 +59,14 @@ def parse(prompt) -> tuple | None:
     if not m:
         return None
     verb = "undo" if (m.group("slash_undo") or m.group("typed_undo")) else "allow"
-    k = _KEY_RE.fullmatch((m.group("arg") or "").strip())
-    if not k or (verb == "allow" and "-" in k.group(1)):
+    arg = (m.group("arg") or "").strip()
+    k = _KEY_RE.fullmatch(arg)
+    if not k:
+        # `secret_c1`: the usage names the key in its own spelling and changes nothing; a typo never loosens
+        # detection (UX test and Gate A, 2026-11-17)
+        low = re.fullmatch(r"([A-Za-z][A-Za-z0-9_]*)_[cC](\d+(?:-\d+)?)\.?", arg)
+        return ("usage", f"{low.group(1).upper()}_c{low.group(2)}" if low else "")
+    if verb == "allow" and "-" in k.group(1):
         return ("usage", "")
     return (verb, k.group(1))
 
@@ -287,12 +293,23 @@ def _reset() -> None:
     detect.reset_rules()
 
 
+def _stored(key: str) -> bool:
+    """Whether the key is in the index (a key, never a value). False when the store cannot be read."""
+    try:
+        from .vault import Vault
+        return key in Vault()._index["entries"]
+    except Exception:  # noqa: BLE001 - the usage line stays without the hint
+        return False
+
+
 def answer(payload: dict, cmd: tuple, typed: bool, client: str) -> dict:
     """The prompt hook's answer: always a block, so the command never reaches the model. Only a typed prompt of the
     person changes something; any other says where it came from. The prompt carries a key, never a value."""
     verb, key = cmd
     if verb == "usage":
-        reason = USAGE
+        # only a key of the index: a key built from the typed text could spell a stored value (Gate A, 2026-11-17)
+        reason = USAGE + (f" Did you mean {key}? Write the key as /maisecrets:list shows it." if key and _stored(key)
+                          else "")
     elif not typed:
         from .settings import came_from
         reason = ("maisecrets: /maisecrets:not-a-secret counts only when you type it as your prompt; this one came "
