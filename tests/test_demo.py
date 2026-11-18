@@ -324,7 +324,7 @@ class EnterTests(_Base):
     def test_the_mod_leaves_commands_and_reports_to_the_hook(self):
         session = UUID.format(6)
         self.on(session=session)
-        for prompt in ("maisecrets: demo off", "maisecrets: status", "maisecrets: set tips off",
+        for prompt in ("maisecrets: demo off", "maisecrets: set tips off",
                        "<task-notification>\n<status>completed</status>\n</task-notification>"):
             with self.subTest(prompt):
                 self.assertEqual(_mod(prompt, session), {})
@@ -351,7 +351,8 @@ class EnterTests(_Base):
         self.on(session=session)
         self.assertEqual(demo.mod_demo({"session_id": session}), {"demo": True})
         demo.STATE.write_text("{not json")
-        self.assertEqual(demo.mod_demo({"session_id": "S-any"}), {"demo": True}, "a damaged state: every session")
+        self.assertEqual(demo.mod_demo({"session_id": "S-any"}), {"demo": True, "damaged": True},
+                         "a damaged state: every session, and the mod keeps no true of it")
 
     def test_the_dispatcher_answers_in_demo_and_the_step_question(self):
         import subprocess
@@ -360,7 +361,8 @@ class EnterTests(_Base):
         for cmd, payload, want in (
                 ("mod-demo", {"session_id": session}, {"maisecrets": "mod-demo", "demo": True}),
                 ("mod-prompt", {"prompt": "hello", "session_id": session, "cwd": "", "origin": "composer"},
-                 {"maisecrets": "mod-prompt", "text": "hello", "count": 0, "demo": True, "inDemo": True}),
+                 {"maisecrets": "mod-prompt", "text": "hello", "count": 0, "demo": True, "inDemo": True,
+                  "masked": "", "namesUnchecked": True}),
                 ("mod-prompt", {"prompt": "hello", "session_id": UUID.format(12), "cwd": "", "origin": "composer"},
                  {"maisecrets": "mod-prompt", "inDemo": False})):
             with self.subTest(cmd=cmd, payload=payload):
@@ -669,6 +671,7 @@ class NameServiceTests(_ServiceBase):
         out = _mod(f"please ask {NAME} today", self.session)
         self.assertIn(f"please ask {OPEN}NAME_c", out["text"])
         self.assertNotIn(NAME, out["text"])
+        self.assertEqual((out["masked"], out["namesUnchecked"]), ("masked: 1 name", False), "the service read it")
 
     def _network(self, **old):
         cfg = json.loads(CONFIG.read_text())
@@ -684,6 +687,104 @@ class NameServiceTests(_ServiceBase):
         self._network().assert_called_once()
         # `"prompts": false` of an older version in the person's own file stops it no more (only a policy does)
         self._network(prompts=False).assert_called_once()
+
+
+
+# ------------------------------------------------------------ the UX test of 2026-11-17 --
+class NightFindingsTests(_Base):
+    def test_off_in_a_session_not_in_the_demo_says_it_is_off(self):
+        out = _prompt("/maisecrets:demo off")
+        self.assertEqual(out["reason"], "Demo mode is off in this session. Nothing was changed.")
+        self.assertFalse(demo.active(SESSION))
+        self.on()
+        self.assertIn("The demo ends with /clear", _prompt("/maisecrets:demo off")["reason"], "on: as before")
+
+    def test_the_demo_line_says_what_was_masked_and_that_names_were_not_checked(self):
+        session = UUID.format(31)
+        self.on(session=session)
+        out = _mod(PROMPT, session)
+        self.assertEqual((out["masked"], out["namesUnchecked"]), ("masked: 1 secret, 1 e-mail", True))
+        out = _mod(f"again {_ph('SECRET_c1')} and nothing new", session)
+        self.assertEqual(out["masked"], "", "a placeholder the person typed is no new mask")
+
+    def test_own_commands_run_without_the_model_in_the_demo(self):
+        session = UUID.format(32)
+        self.on(session=session)
+        Vault(load_config()).put("demo-own-" + "value-for-the-forget-test", "SECRET", "manual")
+        listed = demo.mod_demo({"session_id": session, "prompt": "/maisecrets:list", "origin": "composer"})
+        self.assertTrue(listed["demo"])
+        self.assertIn("SECRET_c1", listed["drop"])
+        self.assertNotIn("value-for-the-forget-test", listed["drop"])
+        out = demo.mod_demo({"session_id": session, "prompt": "/maisecrets:forget SECRET_c1", "origin": "composer"})
+        self.assertIn("Deleted SECRET_c1", out["drop"])
+        self.assertEqual(_entries(), {}, "the value is gone, not only the demo line")
+        status = demo.mod_demo({"session_id": session, "prompt": "/maisecrets:status", "origin": "composer"})
+        self.assertNotEqual(status["drop"], LINE)
+        self.assertIn("demo", status["drop"].lower())
+        self.assertIn("did not run in the demo",
+                      demo.mod_demo({"session_id": session, "prompt": "/maisecrets:status test",
+                                     "origin": "composer"})["drop"])
+        self.assertIn("did not run in the demo", _mod("maisecrets: report last", session)["drop"])
+
+    def test_own_commands_outside_the_demo_or_not_typed_get_no_answer_here(self):
+        session = UUID.format(33)
+        self.assertEqual(demo.mod_demo({"session_id": session, "prompt": "/maisecrets:list", "origin": "composer"}),
+                         {"demo": False})
+        self.on(session=session)
+        for prompt, origin in (("/maisecrets:list", "sdk"), ("/maisecrets:demo off", "composer"),
+                               ("/maisecrets:settings tips off", "composer"), ("/maisecrets:list words", "composer")):
+            with self.subTest(prompt=prompt, origin=origin):
+                self.assertEqual(demo.mod_demo({"session_id": session, "prompt": prompt, "origin": origin}),
+                                 {"demo": True})
+
+    def test_own_commands_that_probe_a_service_send_no_text_of_the_demo(self):
+        # status, ner and sref status may ask the person's name service or gateway whether it answers; what they
+        # send is fixed, never a prompt of the demo (docs/USING.md, the demo)
+        import http.client
+        session = UUID.format(35)
+        cfg = json.loads(CONFIG.read_text())
+        cfg["remote_detector"] = {"url": "http://127.0.0.1:9/v1", "format": "hf", "model": "fake@1"}
+        CONFIG.write_text(json.dumps(cfg))
+        self.on(session=session)
+        _mod(PROMPT, session)
+        sent: list = []
+
+        def record(conn, method, url, body=None, headers=None, **_kw):
+            sent.append(f"{method} {conn.host}{url} {body!r} {headers!r}")
+            raise OSError("no network in this test")
+
+        with mock.patch.object(http.client.HTTPConnection, "request", record):
+            for cmd in ("/maisecrets:status", "/maisecrets:ner", "/maisecrets:sref status"):
+                demo.own_answer(cmd, session)
+        self.assertTrue(sent, "the name service was asked: the check below is not empty")
+        for line in sent:
+            for text in (TOKEN, MAIL, "please check the token", "write to"):
+                self.assertNotIn(text, line)
+
+    def test_in_the_demo_shortcut_runs_only_its_status(self):
+        self.assertEqual(demo.own_argv("/maisecrets:shortcut status"), ["shortcut", "status"])
+        for form in ("/maisecrets:shortcut", "/maisecrets:shortcut my-command", "/maisecrets:shortcut --remove",
+                     "/maisecrets:shortcut remove"):
+            with self.subTest(form):
+                self.assertIsNone(demo.own_argv(form), "an install or a remove waits for the end of the demo")
+
+    def test_a_damaged_state_says_so_to_the_mod(self):
+        demo.STATE.write_text("{not json")
+        self.assertEqual(demo.mod_demo({"session_id": SESSION, "prompt": "/maisecrets:list", "origin": "composer"}),
+                         {"demo": True, "damaged": True})
+        import subprocess
+        r = subprocess.run([sys.executable, str(ROOT / "hooks" / "dispatch.py"), "mod-prompt"], text=True,
+                           input=json.dumps({"prompt": "hello", "session_id": UUID.format(34), "cwd": "",
+                                             "origin": "composer"}), capture_output=True, timeout=60)
+        self.assertEqual(json.loads(r.stdout).get("damaged"), True, "the prompt's answer says it too")
+
+    def test_a_settings_change_in_the_demo_is_answered_by_the_hook(self):
+        self.on()
+        out = _prompt("/maisecrets:settings tips off")
+        self.assertEqual(out.get("decision"), "block", "it waits for no model turn, which the demo answers")
+        self.assertIn("Tips and hints is off", out["reason"])
+        out = _prompt("/maisecrets:settings tips on", session="S-not-in-demo")
+        self.assertNotIn("decision", out, "out of the demo the command runs on as before")
 
 
 if __name__ == "__main__":

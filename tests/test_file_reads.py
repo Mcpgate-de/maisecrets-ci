@@ -586,17 +586,27 @@ class Convert(_Work):
         (self.bin / "pdftotext").chmod(0o755)
         self.assertIsNone(file_reads.pdftotext(str(self.dir)), "a program in the working folder")
 
-    def test_a_failing_or_slow_pdftotext_withholds(self):
+    def test_a_failing_pdftotext_withholds_and_names_its_exit(self):
+        # the product's budget (6 s): with 0.5 s a busy machine turned the exit into a timeout (#73)
         _reset(read_pdf="convert")
-        for body, why in (("exit 3", "exit 3"), ("/bin/sleep 5", "longer than")):
-            with self.subTest(body):
-                self.stub(body)
-                with mock.patch.object(file_reads, "EXTRACT_SECONDS", 0.5):
-                    started = time.monotonic()
-                    out = output(self.post())
-                self.assertLess(time.monotonic() - started, 4)
-                self.assertEqual(out["type"], "text")
-                self.assertIn(why, out["file"]["content"])
+        self.stub("exit 3")
+        answer = self.post()
+        out = output(answer)
+        self.assertEqual((out or {}).get("type"), "text", answer)
+        self.assertIn("exit 3", out["file"]["content"], answer)
+
+    def test_a_slow_pdftotext_withholds_within_its_budget(self):
+        # a child that runs 30 s; a hook that waited for it would pass the bound by far
+        _reset(read_pdf="convert")
+        self.stub("/bin/sleep 30")
+        with mock.patch.object(file_reads, "EXTRACT_SECONDS", 0.5):
+            started = time.monotonic()
+            answer = self.post()
+        took = time.monotonic() - started
+        out = output(answer)
+        self.assertLess(took, 15, f"the hook took {took:.1f} s: it waited for the child; {answer}")
+        self.assertEqual((out or {}).get("type"), "text", answer)
+        self.assertIn("took longer than 0.5 s", out["file"]["content"], answer)
 
     def test_an_exception_during_the_extraction_kills_the_child_and_fails_closed(self):
         # any exception in the main thread while pdftotext runs. This tree's watchdog is a thread and cannot raise

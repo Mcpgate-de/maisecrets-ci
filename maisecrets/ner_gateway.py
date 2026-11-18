@@ -21,6 +21,8 @@ CACHE_S = 3600
 # the person's timeout_ms of this source wins. Measured: p95 600 ms with 8 sessions at once, and 2 of 45 requests
 # over 2 s (README "Names from a service")
 DEFAULT_TIMEOUT_MS = 3000
+# why the last detector() of this process gave none, as a cause of ner_health.CAUSES ("" when it gave one)
+LAST = {"cause": ""}
 
 
 def origin_of(conf) -> str:
@@ -136,17 +138,37 @@ def detector(cfg: dict, conf: dict, make, deadline: float | None = None) -> tupl
     from . import sref_client
     from .vault import make_backend
     origin = origin_of(conf)
+    LAST["cause"] = ""
     if deadline is None:
         deadline = time.monotonic() + 2.0
     found = found_for(cfg, origin, str(conf.get("gateway_url") or origin), deadline)
+    if not found:
+        # "offers no name detection" only for a discovery document that was read; a failed read has its own cause
+        why = sref_client.DISCOVERY.get("why")
+        LAST["cause"] = {"absent": "no_ner", "timeout": "slow", "network": "no_answer", "http": "no_answer"}.get(
+            why, "other")
+        if LAST["cause"] != "no_ner":
+            return None, f"the discovery of {origin} failed ({why or 'no usable answer'})"
     if not found or not found.get("ner"):
+        LAST["cause"] = "no_ner"
         return None, f"{origin} names no name detection (the gateway's admin switch may be off)"
     backend = make_backend(cfg)
-    scopes = str(sref_client._load(backend, origin).get("scope") or "").split()
-    if found["ner"]["scope"] not in scopes:
+    rec = sref_client._load(backend, origin)
+    if not rec.get("refresh"):
+        from .ner_health import ended_cause
+        LAST["cause"] = ended_cause(origin)
+        return None, f"maisecrets is not logged in at {origin}; the person runs /maisecrets:sref login"
+    if found["ner"]["scope"] not in str(rec.get("scope") or "").split():
+        LAST["cause"] = "no_scope"
         return None, "the login lacks the name scope; the person runs /maisecrets:sref login once more"
     try:
         token = sref_client._access(cfg, backend, found, deadline)
     except sref_client.Refused as exc:
+        from .ner_health import ended_cause
+        # a renewal that ended the login marked why before it raised: invalid_grant or a renewal that did not finish
+        LAST["cause"] = ("slow" if isinstance(exc, sref_client.Renewing) else
+                         (ended_cause(origin) if sref_client.ended(origin) else "login_ended")
+                         if isinstance(exc, sref_client._Revoked) else
+                         "no_login" if "not logged in" in str(exc) else "other")
         return None, str(exc)
     return make(found["ner"]["endpoint"], token, int(found["ner"].get("max_chars") or 20000)), ""

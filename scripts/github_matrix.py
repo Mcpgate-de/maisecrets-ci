@@ -314,7 +314,8 @@ def cmd_unit() -> int:
     rc = p.wait()
     if rc != 0:
         for line in annotations(unittest_failures("".join(chunks)), rc):
-            print(line, flush=True)
+            sys.stdout.buffer.write((line + "\n").encode("utf-8", "replace"))  # a cp1252 console cannot print \u2192
+        sys.stdout.buffer.flush()
     return rc
 
 

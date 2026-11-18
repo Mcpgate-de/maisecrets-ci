@@ -41,6 +41,16 @@ CLEANUP_EVENTS = ("session-end",)
 # Python installed on this machine cannot answer for the missing one
 ABSOLUTE_PYTHONS = ("/opt/homebrew/bin/python3", "/usr/local/bin/python3",
                     "/Library/Frameworks/Python.framework/Versions/Current/bin/python3")
+# the probe budget of a copy of run.sh in a test whose point is the verdict, not the budget: on a busy machine the
+# probes passed 2 s and the launcher refused for that reason (#72). The tests that prove the budget keep 2 s.
+# Not more than 10 s: the launcher can wait up to one budget for its timer, and LIMIT is 30 s
+RESULT_BUDGET = 10
+
+
+def with_budget(text: str, seconds: int) -> str:
+    """run.sh with another probe budget."""
+    assert "\nBUDGET=2\n" in text, "run.sh changed its budget line; update with_budget"
+    return text.replace("\nBUDGET=2\n", f"\nBUDGET={seconds}\n")
 
 # a python3 that says it is 3.8: the probe of run.sh gets 60 + minor, as from a real 3.8, and any other call
 # (a run of dispatch.py) is recorded in the tripwire
@@ -86,7 +96,8 @@ class LauncherFailsClosedTests(unittest.TestCase):
         # the copy sits next to the real dispatch.py name, so a launcher that runs it is seen
         self.hooks = self.sb.root / "hooks"
         self.hooks.mkdir()
-        (self.hooks / "run.sh").write_text(text, encoding="utf-8")
+        # no test here is about the budget: a slow probe of the fake 3.8 must still give its version (#72)
+        (self.hooks / "run.sh").write_text(with_budget(text, RESULT_BUDGET), encoding="utf-8")
         (self.hooks / "dispatch.py").write_text("raise SystemExit('dispatch.py ran')\n", encoding="utf-8")
         # only the tools run.sh needs besides a Python; no python3, python or py on this PATH
         self.tools = self.sb.root / "tools"
@@ -169,10 +180,10 @@ class LauncherFailsClosedTests(unittest.TestCase):
 # hold no descriptor of the hook, and all probes together get 2 s (hooks/run.sh, BUDGET)
 _STALLING_PYTHONS = {
     # a wrapper that never answers
-    "hangs": "#!/bin/sh\nexec sleep 30\n",
+    "hangs": "#!/bin/sh\nexec sleep 60\n",
     # a wrapper that fails and leaves a job in the background on the descriptors it got (a shim, a version manager)
-    "leaves_a_job_on_its_stdout": "#!/bin/sh\n( sleep 30 ) &\nexit 1\n",
-    "leaves_a_job_on_its_stderr": "#!/bin/sh\n( sleep 30 >/dev/null ) &\nexit 1\n",
+    "leaves_a_job_on_its_stdout": "#!/bin/sh\n( sleep 60 ) &\nexit 1\n",
+    "leaves_a_job_on_its_stderr": "#!/bin/sh\n( sleep 60 >/dev/null ) &\nexit 1\n",
     # a wrapper that reads its stdin: the payload is the hook's stdin
     "reads_stdin": "#!/bin/sh\ncat >/dev/null\nexit 1\n",
     # a wrapper that prints a wrong version and fails
@@ -189,7 +200,9 @@ class LauncherProbeHoldsNothingTests(unittest.TestCase):
     measured): past the client's timeout, and both clients let the call through then (Claude Code 2.1.302 and
     codex-cli 0.162.0, measured 2026-10-17). Codex also waits until the hook's stdout closes. The launcher must
     finish within its bound, with the verdict of the working Python or a refusal, and hold no descriptor open."""
-    LIMIT = 5.0   # the budget of 2 s plus a loaded machine; a held descriptor holds the hook for 30 s
+    # the budget of 2 s plus a busy machine (16-21 s measured at background priority); a held descriptor or a probe
+    # that never ends holds the hook for 60 s, so half of that still tells them apart
+    LIMIT = 30.0
 
     def setUp(self):
         self.sb = Sandbox(JSONFILE, backend="jsonfile")
@@ -199,7 +212,7 @@ class LauncherProbeHoldsNothingTests(unittest.TestCase):
             text = text.replace(p, str(self.sb.root / "abs" / p.lstrip("/")))
         self.hooks = self.sb.root / "hooks"
         self.hooks.mkdir()
-        (self.hooks / "run.sh").write_text(text, encoding="utf-8")
+        self.run_sh = text
         (self.hooks / "dispatch.py").write_text(_DISPATCH_ECHO, encoding="utf-8")
         self.fake = self.sb.root / "fake"
         self.fake.mkdir()
@@ -210,8 +223,10 @@ class LauncherProbeHoldsNothingTests(unittest.TestCase):
         for tool in ("dirname", "mkdir", "cat", "sleep"):
             os.symlink(shutil.which(tool), self.tools / tool)
 
-    def launch(self, body: str | None, event: str = "pre-tool",
-               ignored: tuple = ()) -> tuple[subprocess.CompletedProcess, float]:
+    def launch(self, body: str | None, event: str = "pre-tool", ignored: tuple = (),
+               budget: int = 2) -> tuple[subprocess.CompletedProcess, float]:
+        # a test of the working Python's verdict passes RESULT_BUDGET; a test of the 2 s bound keeps the real one
+        (self.hooks / "run.sh").write_text(with_budget(self.run_sh, budget), encoding="utf-8")
         for old in self.fake.iterdir():
             old.unlink()
         if body is not None:
@@ -228,7 +243,8 @@ class LauncherProbeHoldsNothingTests(unittest.TestCase):
                              preexec_fn=(lambda: [signal.signal(s, signal.SIG_IGN) for s in ignored])
                              if ignored else None)
         try:
-            out, err = p.communicate(payload, timeout=60)
+            # past the 60 s of a held descriptor, so a held one fails at LIMIT with its time, not here
+            out, err = p.communicate(payload, timeout=120)
         finally:
             # the jobs the fakes left: only the group this test started
             try:
@@ -241,11 +257,12 @@ class LauncherProbeHoldsNothingTests(unittest.TestCase):
         for case in ("leaves_a_job_on_its_stdout", "leaves_a_job_on_its_stderr", "reads_stdin",
                      "prints_a_wrong_version"):
             with self.subTest(case):
-                r, took = self.launch(_STALLING_PYTHONS[case])
-                self.assertLess(took, self.LIMIT, f"run.sh took {took:.1f} s: a probe held the hook")
-                self.assertEqual(r.returncode, 0, r.stderr)
+                r, took = self.launch(_STALLING_PYTHONS[case], budget=RESULT_BUDGET)
+                said = f"stdout: {r.stdout!r} stderr: {r.stderr!r}"
+                self.assertLess(took, self.LIMIT, f"run.sh took {took:.1f} s: a probe held the hook; {said}")
+                self.assertEqual(r.returncode, 0, said)
                 out = json.loads(r.stdout)
-                self.assertEqual(out["reason"], "dispatch ran", "the working Python must answer")
+                self.assertEqual(out.get("reason"), "dispatch ran", f"the working Python must answer; {said}")
                 self.assertIn("probe-payload", out["payload"], "the payload must reach dispatch.py whole")
                 self.assertEqual(r.stderr, "")
 
@@ -255,7 +272,7 @@ class LauncherProbeHoldsNothingTests(unittest.TestCase):
                 r, took = self.launch(_STALLING_PYTHONS["hangs"], event)
                 self.assertLess(took, self.LIMIT, f"run.sh took {took:.1f} s past its budget")
                 self.assertGreaterEqual(took, 1.5, "the budget is 2 s: a refusal before it is a false block")
-                self.assertIn("(found: python3 gave no answer in 2 s)", r.stdout)
+                self.assertIn("(found: python3 gave no answer in 2 s)", r.stdout, r.stderr)
                 self.assertNotIn("dispatch ran", r.stdout)
                 self.assertEqual(r.stderr, "", "the end of the stopped probe is not reported")
                 assert_refuses(self, event, r)
@@ -272,15 +289,16 @@ class LauncherProbeHoldsNothingTests(unittest.TestCase):
         # can answer
         (self.tools / "python").unlink()
         self.addCleanup(lambda: os.symlink(sys.executable, self.tools / "python"))
-        r, took = self.launch(f"#!/bin/sh\nexec {sys.executable} \"$@\"\n")
+        r, took = self.launch(f"#!/bin/sh\nexec {sys.executable} \"$@\"\n", budget=RESULT_BUDGET)
         out = json.loads(r.stdout)
-        self.assertEqual(out["reason"], "dispatch ran")
+        self.assertEqual(out.get("reason"), "dispatch ran", f"stdout: {r.stdout!r} stderr: {r.stderr!r}")
         self.assertIn("probe-payload", out["payload"])
         self.assertLess(took, self.LIMIT)
 
     def test_without_a_stalling_candidate_the_first_python_answers(self):
-        r, took = self.launch(None)
-        self.assertEqual(json.loads(r.stdout)["reason"], "dispatch ran")
+        r, took = self.launch(None, budget=RESULT_BUDGET)
+        self.assertEqual(json.loads(r.stdout).get("reason"), "dispatch ran",
+                         f"stdout: {r.stdout!r} stderr: {r.stderr!r}")
         self.assertLess(took, self.LIMIT)
 
 

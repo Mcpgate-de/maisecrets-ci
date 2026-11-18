@@ -5,7 +5,9 @@ upstream (harness/fake_anthropic.py), in a pseudo-terminal.
     python3 harness/demo_screen.py       # needs pyte (pip install pyte==0.8.2), a POSIX pty and claude on PATH
 
 It types `/maisecrets:demo on`, two prompts with a synthetic token, waits 60 s, presses Tab and Enter on an empty
-prompt (the client's next-prompt guess), types /compact, and waits 40 s more. Then it starts `claude --resume` of that
+prompt (the client's next-prompt guess), types /compact, the client commands that make a model request of their own
+outside a turn (SIDE: /btw, /rename, /recap, /insights) and the person's own /maisecrets:list, and waits 40 s
+more. Then it starts `claude --resume` of that
 session (a new process: the mod knows nothing yet) and repeats: 30 s idle, Tab, /compact, one more prompt.
 Each request in that window fails the run,
 with its source as the client's debug log names it (title, prompt_suggestion, compact …): every one would carry demo
@@ -40,6 +42,9 @@ ROOT = Path(__file__).resolve().parent.parent
 TOKEN = "glpat-" + "DemoScreenRt9LpW4nZb"   # synthetic: a GitLab token shape, no real token
 PORT = 8804
 DEMO_LINE = "Demo mode: nothing was sent to the AI. /clear to switch it off."
+# client commands that send a request of their own outside a turn (the UX test of 2026-11-17 measured 1 request for each
+# of the first three; source side_question, rename_generate_name, away_summary on Claude Code 2.1.326)
+SIDE = ("/btw what is the name in the sentence above?", "/rename", "/recap", "/insights")
 
 
 def main() -> int:
@@ -136,6 +141,7 @@ def _drive(args, env, cwd, out, cfg, run_dir, resumed: bool = False) -> list[str
         pump(wait)
 
     failures = []
+    in_demo = None
     try:
         pump(10)
         if not resumed:
@@ -156,12 +162,34 @@ def _drive(args, env, cwd, out, cfg, run_dir, resumed: bool = False) -> list[str
         os.write(fd, b"\r")
         pump(8)
         typ("/compact", 15)
+        if not resumed:
+            for cmd in SIDE:
+                before = len(list(out.glob("request_*.json")))
+                typ(cmd, 10)
+                os.write(fd, b"\x1b")          # Esc closes an overlay (/btw, /insights)
+                pump(2)
+                made = len(list(out.glob("request_*.json"))) - before
+                print(f"     {cmd.split()[0]}: {made} request(s)")
+            typ("/maisecrets:list", 6)
+            for _ in range(20):                 # the list runs in Python without the model: seconds on a busy host
+                if "value(s) stored" in screen() or "Nothing is stored" in screen():
+                    break
+                pump(1)
+            else:
+                failures.append("/maisecrets:list in the demo did not show the list")
         if resumed:
             typ(f"Nach dem Fortsetzen: Token {TOKEN}", 12)
             if DEMO_LINE not in screen():
                 failures.append("the resumed session answered without the demo line")
         pump(40 if not resumed else 20)
         (run_dir / "screen.txt").write_text(screen().replace(TOKEN, "<TOKEN>"))
+        in_demo = len(list(out.glob("request_*.json")))
+        if resumed:
+            # the demo ends with /clear: the next prompt goes out (the demo's refusal ends with its session)
+            typ("/clear", 6)
+            typ("a normal prompt after the demo", 15)
+            if len(list(out.glob("request_*.json"))) == in_demo:
+                failures.append("after /clear the next prompt made no request: the demo did not end")
     finally:
         for b in (b"\x03", b"\x03"):
             try:
@@ -173,7 +201,7 @@ def _drive(args, env, cwd, out, cfg, run_dir, resumed: bool = False) -> list[str
             os.kill(pid, 9)
         except OSError:
             pass
-    requests = sorted(out.glob("request_*.json"))
+    requests = sorted(out.glob("request_*.json"))[:in_demo]
     if requests:
         sources = re.findall(r"\[API REQUEST\] \S+ source=(\S+)", (run_dir / "debug.log").read_text(errors="ignore"))
         sources = sources[-len(requests):]

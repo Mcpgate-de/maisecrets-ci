@@ -46,15 +46,22 @@ async function mountWhen($, query) {
   }
   return $.ui.mount({ ...PANE, surface: 'terminal' })
 }
-function engine(on, calls: any[], opened: { placed: boolean }) {
-  on('clock.now', () => ({ value: 1_000_000 }))
+// opts: a clock the test moves, a status line per ask, the waits of $.clock.after (a recorded wait never ends)
+function engine(on, calls: any[], opened: { placed: boolean },
+  opts: { clock?: { t: number }, line?: (n: number) => string, waits?: number[], delay?: (n: number) => number } = {}) {
+  let asked = 0
+  on('clock.now', () => ({ value: opts.clock ? opts.clock.t : 1_000_000 }))
   on('session.id', () => ({ value: 'sess-1' }))
   on('session.cwd', () => ({ value: '/work' }))
   on('ui.log', () => ({ value: undefined }))
   on('ui.invalidate', () => ({ value: undefined }))
   on('ui.open', () => ({ value: opened.placed ? { isPlaced: true } : { isPlaced: false, reason: 'no surface' } }))
   on('ui.close', () => ({ value: undefined }))
-  on('clock.after', () => ({ value: undefined }))
+  on('clock.after', ($, e) => {
+    if (!opts.waits) return { value: undefined }
+    opts.waits.push(e.ms)
+    return new Promise(() => {})
+  })
   on('prompt.fill', ($, e) => { filled.push(e.text); return { isFilled: true } })
   on('process.run', async ($, e) => {
     calls.push(e)
@@ -62,9 +69,10 @@ function engine(on, calls: any[], opened: { placed: boolean }) {
     const q = JSON.parse(e.init.stdin)
     const set = q.action === 'set'
     // the status comes late, as on a busy CI runner: the panel draws first and the line follows
-    if (q.action === 'status') await new Promise(resolve => setTimeout(resolve, 30))
+    const n = q.action === 'status' ? ++asked : 0
+    if (q.action === 'status') await new Promise(resolve => setTimeout(resolve, opts.delay ? opts.delay(n) : 30))
     if (q.action === 'status') return { value: { exitCode: 0, stderr: '', stdout: JSON.stringify({
-      maisecrets: ENTRY, line: '🔒 maisecrets 0.9.12 protects this session', ms: 8,
+      maisecrets: ENTRY, line: opts.line ? opts.line(n) : '🔒 maisecrets 0.9.12 protects this session', ms: 8,
       notes: [{ name: 'store', fact: 'test file, 0 values', next: 'set backend in config.json' }] }) } }
     const answer = (o) => ({ value: { exitCode: 0, stderr: '', stdout: JSON.stringify({ maisecrets: ENTRY, ...o }) } })
     const VALUES = { rows: [{ key: 'SECRET_c1', type: 'SECRET', shown: '-', age: '2h', uses: 1, expires: '22h',
@@ -287,3 +295,216 @@ test('not a secret sends the first step at the press and the second at the yes; 
     const wipe = calls.map(c => JSON.parse(c.init.stdin || '{}')).find(q => q.action === 'forget_all')
     expect(wipe.confirm).toBe('forget every stored value')
   })
+
+// the status of an open panel follows the session: the first line can come before the session's first tool call
+const statusAsks = (calls: any[]) => calls.filter(c => JSON.parse(c.init.stdin || '{}').action === 'status').length
+const settle = () => new Promise(resolve => setTimeout(resolve, 60))
+const lineOf = (n: number) => n === 1 ? '⚠️ maisecrets 0.9.15 is NOT protecting this session (ask 1)'
+  : `🔒 maisecrets 0.9.15 protects this session (ask ${n})`
+
+test('a tool call while the panel is open brings a new status line, at most once in a few seconds', async ($, on) => {
+  const calls: any[] = []
+  const clock = { t: 1_000_000 }
+  const waits: number[] = []
+  engine(on, calls, { placed: true }, { clock, line: lineOf, waits })
+  on('command.run', () => ({ text: 'engine' }))
+  on('tool.call', () => ({ result: 'listed' }))
+  await $.command.run({ command: 'maisecrets' })
+  ;(await mountWhen($, { type: 'Text', text: /\(ask 1\)/ })).unmount()
+  clock.t += 5000
+  await $.tool.call({ tool: 'Bash', command: 'ls' } as any)
+  const ui = await mountWhen($, { type: 'Text', text: /protects this session \(ask 2\)/ })
+  expect(await ui.find({ type: 'Text', text: /protects this session \(ask 2\)/ })).toBeDefined()
+  await ui.unmount()
+  // a second call a moment later waits for the gap: one wait, no ask now
+  clock.t += 500
+  await $.tool.call({ tool: 'Bash', command: 'ls' } as any)
+  await $.tool.call({ tool: 'Bash', command: 'ls' } as any)
+  await settle()
+  expect(statusAsks(calls)).toBe(2)
+  // (the wait of 60 ms is the panel's own: it asks for the keys once the dropped prompt landed)
+  expect(waits.filter(ms => ms !== 60)).toEqual([2500])
+})
+
+test('a closed panel asks nothing after a tool call', async ($, on) => {
+  const calls: any[] = []
+  const clock = { t: 2_000_000 }
+  engine(on, calls, { placed: true }, { clock, line: lineOf })
+  on('command.run', () => ({ text: 'engine' }))
+  on('tool.call', () => ({ result: 'listed' }))
+  await $.command.run({ command: 'maisecrets' })
+  const ui = await mountWhen($, { type: 'Text', text: /\(ask 1\)/ })
+  await ui.press({ key: 'close' })
+  await ui.unmount()
+  clock.t += 5000
+  await $.tool.call({ tool: 'Bash', command: 'ls' } as any)
+  await settle()
+  expect(statusAsks(calls)).toBe(1)
+})
+
+test('the panel asks for the status again when it takes the keys back', async ($, on) => {
+  const calls: any[] = []
+  const clock = { t: 3_000_000 }
+  engine(on, calls, { placed: true }, { clock, line: lineOf })
+  on('command.run', () => ({ text: 'engine' }))
+  await $.command.run({ command: 'maisecrets' })
+  ;(await mountWhen($, { type: 'Text', text: /\(ask 1\)/ })).unmount()
+  const away = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: false }, surface: 'terminal' })
+  await away.unmount()
+  await settle()
+  expect(statusAsks(calls)).toBe(1)
+  clock.t += 5000
+  const ui = await mountWhen($, { type: 'Text', text: /protects this session \(ask 2\)/ })
+  expect(await ui.find({ type: 'Text', text: /protects this session \(ask 2\)/ })).toBeDefined()
+  await ui.unmount()
+})
+
+// `/maisecrets sref login`, typed with a space: the command with its colon goes into the box, and nothing is sent
+test('a maisecrets command typed after /maisecrets with a space goes into the box with its colon', async ($, on) => {
+  const calls: any[] = []
+  engine(on, calls, { placed: true })
+  filled.length = 0
+  const r = await $.prompt.submit({ text: '/maisecrets sref login', wait: false, origin: { kind: 'composer' },
+    command: { name: 'maisecrets', args: 'sref login' } })
+  expect(r.drop).toBe('Did you mean /maisecrets:sref login? Press Enter.')
+  await settle()
+  expect(filled).toContain('/maisecrets:sref login')
+  expect(calls.length).toBe(0)
+})
+
+test('a command that no person typed gets the same answer from the menu command', async ($, on) => {
+  engine(on, [], { placed: true })
+  filled.length = 0
+  on('command.run', () => ({ text: 'engine' }))
+  const r = await $.command.run({ command: 'maisecrets', args: 'not-a-secret SECRET_c1' } as any)
+  expect(r.text).toBe('Did you mean /maisecrets:not-a-secret SECRET_c1? Press Enter.')
+  expect(filled).toContain('/maisecrets:not-a-secret SECRET_c1')
+})
+
+test('/maisecrets with a word that is no command opens the panel with a line that says so', async ($, on) => {
+  engine(on, [], { placed: true })
+  on('command.run', () => ({ text: 'engine' }))
+  filled.length = 0
+  const r = await $.command.run({ command: 'maisecrets', args: 'wibble' } as any)
+  expect(r.text).toBeUndefined()
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^"wibble" is no maisecrets command\. Try: status, settings, ner, sref login/ }))
+    .toBeDefined()
+  await ui.unmount()
+  expect(filled).not.toContain('/maisecrets:wibble')
+  // the plain menu has no such line
+  await $.command.run({ command: 'maisecrets', args: '' } as any)
+  const again = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await again.find({ type: 'Text', text: /is no maisecrets command/ })).toBeUndefined()
+  await again.unmount()
+})
+
+test('an older status answer that comes late does not replace a newer one', async ($, on) => {
+  const calls: any[] = []
+  const clock = { t: 4_000_000 }
+  // the first ask answers after the second
+  engine(on, calls, { placed: true }, { clock, line: lineOf, delay: n => (n === 1 ? 300 : 10) })
+  on('command.run', () => ({ text: 'engine' }))
+  on('tool.call', () => ({ result: 'listed' }))
+  await $.command.run({ command: 'maisecrets' })
+  clock.t += 5000
+  await $.tool.call({ tool: 'Bash', command: 'ls' } as any)
+  await new Promise(resolve => setTimeout(resolve, 450))
+  expect(statusAsks(calls)).toBe(2)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /\(ask 2\)/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /\(ask 1\)/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('the status question carries the start of the last tool call of the session that the mod saw', async ($, on) => {
+  const calls: any[] = []
+  const clock = { t: 5_000_000 }
+  engine(on, calls, { placed: true }, { clock, line: lineOf })
+  on('command.run', () => ({ text: 'engine' }))
+  on('tool.call', () => ({ result: 'listed' }))
+  await $.command.run({ command: 'maisecrets' })
+  ;(await mountWhen($, { type: 'Text', text: /\(ask 1\)/ })).unmount()
+  const asks = () => calls.map(c => JSON.parse(c.init.stdin || '{}')).filter(q => q.action === 'status')
+  clock.t += 5000
+  const start = clock.t
+  await $.tool.call({ tool: 'Bash', command: 'ls' } as any)
+  ;(await mountWhen($, { type: 'Text', text: /\(ask 2\)/ })).unmount()
+  expect(asks()[1]).toMatchObject({ session_id: 'sess-1', tool_call_at: start / 1000 })
+})
+
+test('of two tool calls at once, the newer start stays when the older call ends last', async ($, on) => {
+  const calls: any[] = []
+  const clock = { t: 6_000_000 }
+  engine(on, calls, { placed: true }, { clock, line: lineOf })
+  on('command.run', () => ({ text: 'engine' }))
+  on('tool.call', async ($, e) => {
+    if (e.command === 'slow') await new Promise(resolve => setTimeout(resolve, 150))
+    return { result: 'listed' }
+  })
+  await $.command.run({ command: 'maisecrets' })
+  ;(await mountWhen($, { type: 'Text', text: /\(ask 1\)/ })).unmount()
+  const asks = () => calls.map(c => JSON.parse(c.init.stdin || '{}')).filter(q => q.action === 'status')
+  clock.t += 5000
+  const older = $.tool.call({ tool: 'Bash', command: 'slow' } as any)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  clock.t += 5000
+  const newer = clock.t
+  await $.tool.call({ tool: 'Bash', command: 'fast' } as any)
+  await older
+  await new Promise(resolve => setTimeout(resolve, 150))
+  const last = asks()[asks().length - 1]
+  expect(asks().length).toBeGreaterThan(2)
+  expect(last.tool_call_at).toBe(newer / 1000)
+})
+
+// the UX test of 2026-11-17: Enter right after /maisecrets changed a setting, and a double Enter on forget deleted
+async function focused(ui) {
+  const all = await ui.findAll({ type: 'Button' })
+  return all.filter(b => b.props?.autoFocus === true).map(b => b.key ?? b.props?.key)
+}
+
+test('the panel opens with the focus on Close, and a forget asks with the focus on no', async ($, on) => {
+  const calls: any[] = []
+  engine(on, calls, { placed: true })
+  on('command.run', () => ({ text: 'engine' }))
+  await $.command.run({ command: 'maisecrets' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await focused(ui)).toEqual(['close'])
+  await ui.press({ key: 'stored' })
+  await ui.unmount()
+  const v = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await focused(v)).toEqual(['back'])
+  await v.press({ key: 'forget:SECRET_c1' })
+  await v.unmount()
+  const ask = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await focused(ask)).toEqual(['no:SECRET_c1'])
+  await ask.press({ key: 'no:SECRET_c1' })
+  await ask.press({ key: 'forget-all' })
+  await ask.unmount()
+  const all = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await focused(all)).toEqual(['no:all'])
+  await all.unmount()
+  expect(calls.some(c => ['forget', 'forget_all'].includes(JSON.parse(c.init.stdin || '{}').action))).toBe(false)
+})
+
+test('the name service questions open on Back: local starts its download only on a press of start', async ($, on) => {
+  const calls: any[] = []
+  engine(on, calls, { placed: true })
+  on('command.run', () => ({ text: 'engine' }))
+  await $.command.run({ command: 'maisecrets' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'names' })
+  await ui.unmount()
+  for (const sub of ['ner:local', 'ner:gateway']) {
+    const n = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    expect(await focused(n)).toEqual(['back'])
+    await n.press({ key: sub })
+    await n.unmount()
+    const q = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    expect(await focused(q)).toEqual(['back'])
+    await q.press({ key: 'cancel' })
+    await q.unmount()
+  }
+  expect(calls.some(c => JSON.parse(c.init.stdin || '{}').action === 'ner_set')).toBe(false)
+})

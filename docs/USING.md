@@ -517,7 +517,12 @@ locked, and one line answers it:
   conversation as it is (a compaction would be a request of its own), and
   Claude Code's guess at your next prompt is off while the demo runs (it is a
   request of its own too; it comes back with the next prompt of a session out
-  of the demo).
+  of the demo). Every other request Claude Code makes on its own is refused
+  too: `/btw`, `/rename`, `/recap` and `/insights` send nothing, and Claude
+  Code says that a mod stopped the request (measured on Claude Code 2.1.326).
+- **One line under your message says what was masked**, for example
+  `maisecrets: demo · masked: 1 secret, 1 e-mail`. Once per session it adds
+  `names: not checked` when no name service read the prompt.
 - **Names.** A name service (`/maisecrets:ner`) takes part as for a normal
   prompt, also a service on the network. A name that no rule and no service
   finds stays in clear.
@@ -526,7 +531,9 @@ locked, and one line answers it:
   "Start the demo in a new session (or after /clear), so this conversation stays
   as it is."
 - **It ends only with `/clear`**, which starts a new conversation, so the demo
-  lines never go to the AI. `/maisecrets:demo off` changes nothing and says so.
+  lines never go to the AI. `/maisecrets:demo off` changes nothing and says so
+  (in a session that is not in the demo it says "Demo mode is off in this
+  session").
   A session you resume (`claude --resume`) is still in the demo: its last
   answer is the demo line. Only your own typed prompt switches it on: a
   subagent, a program (`claude -p`), a scheduled prompt or a tool call that
@@ -535,8 +542,14 @@ locked, and one line answers it:
   does not stop that.
 - **Your own commands keep working, in their exact form:** the settings,
   `ms:(…)`, `/maisecrets:term`, `/maisecrets:not-a-secret`, and for example
-  `/maisecrets:status` or `/maisecrets:list`. A command with other text after it
-  gets the demo line. `/ms` and `/maisecrets:send` send nothing.
+  `/maisecrets:status`, `/maisecrets:list`, `/maisecrets:forget KEY` or
+  `/maisecrets:put`. In Claude Code they run without the AI and show their
+  output in place of the answer; a settings change says what it changed.
+  `/maisecrets:status test`, `/maisecrets:report` and `/maisecrets:sref login`
+  need the AI or a browser: they say so and do not run. `status`, `ner` and
+  `sref status` may check whether your name service or gateway answers; they
+  send none of your text. A command with other
+  text after it gets the demo line. `/ms` and `/maisecrets:send` send nothing.
   `/maisecrets:status` shows a `!` line while the demo is on.
 - **A pasted image** goes nowhere: no request is made (measured on Claude Code
   2.1.326). maisecrets does not read the image.

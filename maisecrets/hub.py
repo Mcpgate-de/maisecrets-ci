@@ -61,10 +61,20 @@ def pane_rows(cfg: dict | None = None, show_all: bool = False) -> list:
     return groups
 
 
-def pane_status(session: str) -> dict:
+# a tool call the mod saw counts only after this many seconds: its PreToolUse row comes within the call
+TOOL_CALL_GRACE = 2.0
+
+
+def pane_status(session: str, tool_call_at: float = 0.0) -> dict:
     """The verdict /maisecrets:status prints first, for the session of the pane: its head line and the names of the
-    checks that failed. The hooks check differs in one point: the pane is no tool call, so it asks only that a hook
-    of this session ran (the session start counts), not that the tool-call hook ran a moment ago."""
+    checks that failed. The hooks check differs: the pane is no tool call, and no row of this session in hooks.log is
+    no proof that a hook failed (before the first tool call a session can have none, and the capped log can drop a
+    session's rows), so it is a note. A positive signal of a failure gives FAIL: the self-test, or the last tool call
+    of this session that the mod saw (`tool_call_at`, its start in epoch seconds) with no pre-tool row at or after it.
+    The PreToolUse hook writes that row within the call, so the newest pre-tool row of the session is compared, not a
+    count of rows (hooks.log keeps 2000 lines). Its time is cut to whole seconds, so a row of the call's own second
+    is the earliest a real row can have. Limit: a row of an earlier call in the same second hides a miss; a hook that
+    stops running stops for the whole session, so the next call in a later second shows it."""
     import time
     from pathlib import Path
     from . import selftest
@@ -79,9 +89,14 @@ def pane_status(session: str) -> dict:
         runs = sv.last_runs(log, session) if session else {}
         if not session:
             return sv.Check("warn", "hooks", "no session id", None, None)
+        if tool_call_at > 0 and time.time() - tool_call_at > TOOL_CALL_GRACE \
+                and runs.get("pre-tool", 0) < int(tool_call_at):
+            return sv.Check("FAIL", "hooks", "did not run for a tool call", sv.reload_next("claude"),
+                            f"the last tool call of this session started {sv.ago(time.time() - tool_call_at)}; "
+                            "hooks.log holds no tool-call row of it")
         if not runs:
-            return sv.Check("FAIL", "hooks", "no hook ran", sv.reload_next("claude"),
-                            "no maisecrets hook ran in this session")
+            return sv.Check("warn", "hooks", "not seen in this session yet", "/maisecrets:status",
+                            "hooks.log holds no row of this session (none before its first tool call)")
         return sv.Check("ok", "hooks", "ran in this session", None, ", ".join(sorted(runs)))
 
     t0 = time.time()
@@ -91,6 +106,9 @@ def pane_status(session: str) -> dict:
               sv._guarded(sv.store_verdict),
               sv._guarded(sv.incidents_verdict),
               sv._guarded(lambda: selftest.verdict(None, [session] if session else [], version, client="claude"))]
+    names = sv.names_verdict()          # the name source: a warn when it is set and cannot be used
+    if names:
+        checks.append(names)
     head = sv.head_line(version, checks, "claude").split(" \u00b7 ")[0]
     failed = [c.name for c in checks if c.state == "FAIL"]
     if failed:
@@ -213,7 +231,9 @@ def mod_answer(payload: dict) -> dict:
     forget (key), allow_ask and allow (key, session_id), forget_all (confirm), ner, ner_set (value)."""
     action = payload.get("action")
     if action == "status":
-        return pane_status(str(payload.get("session_id") or ""))
+        at = payload.get("tool_call_at")
+        ok = isinstance(at, (int, float)) and not isinstance(at, bool) and at > 0
+        return pane_status(str(payload.get("session_id") or ""), float(at) if ok else 0.0)
     if action == "values":
         off = payload.get("offset")
         return pane_values(off if isinstance(off, int) and not isinstance(off, bool) and off >= 0 else 0)

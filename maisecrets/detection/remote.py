@@ -263,6 +263,11 @@ class RemoteDetector:
         return _PinnedConnection(p.hostname, port, addrs[0], left, p.scheme == "https", self.allow_network,
                                  self.cafile), target
 
+    @property
+    def proves(self) -> bool:
+        """True for the service maisecrets started (a secret is stored for it): it must prove the secret (_prove)."""
+        return bool(self.__secret)
+
     def _prove(self, deadline: float, pin: dict | None = None) -> None:
         """GET /health?challenge=<a fresh nonce> and compare the proof (#1699). Raises _NotOurs on any other answer.
         The proof and the text go over two connections to one address (the service closes each one): a process that

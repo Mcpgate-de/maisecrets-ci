@@ -215,8 +215,7 @@ class ArgumentTests(unittest.TestCase):
 
     def test_an_argument_it_does_not_know_is_answered_and_changes_nothing(self):
         before = CONFIG.read_text()
-        for text, client in (("/maisecrets:ner phase-gateway", CLAUDE), ("/maisecrets:ner gateway", CLAUDE),
-                             ("/maisecrets:ner url", CLAUDE), ("/maisecrets:ner turn it on please", CLAUDE),
+        for text, client in (("/maisecrets:ner phase-gateway", CLAUDE), ("/maisecrets:ner turn it on please", CLAUDE),
                              ("maisecrets: ner phase-gateway", CODEX)):
             with self.subTest(text=text):
                 out = _prompt(text, client)
@@ -255,7 +254,10 @@ class ArgumentTests(unittest.TestCase):
         with mock.patch("maisecrets.vault_refs.user_servers", return_value={"gateway": GW, "all": GW, "url": GW}):
             for text in ("/maisecrets:ner gateway", "/maisecrets:ner url"):
                 with self.subTest(text=text):
-                    self.assertIn("does not know", _prompt(text)["reason"])
+                    # a keyword without its value: the answer names what is missing (UX test, 2026-11-17)
+                    reason = _prompt(text)["reason"]
+                    self.assertIn(" needs ", reason)
+                    self.assertNotIn("Your servers: all", reason, "a keyword is no server name to offer")
                     self.assertFalse(_conf())
             self.assertIsNone(settings.parse_prompt("/maisecrets:ner all"))
 

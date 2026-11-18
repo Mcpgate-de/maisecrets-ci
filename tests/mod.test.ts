@@ -331,11 +331,13 @@ function demoWorld(on, opts: { demo?: boolean | null, sent?: number[], asked?: s
     opts.asked?.push(e.argv[2])
     if (e.argv[2] === 'mod-demo') {
       if (opts.demo === null || opts.demo === undefined) return { value: { exitCode: 1, stdout: '', stderr: '' } }
-      return { value: { exitCode: 0, stderr: '', stdout: JSON.stringify({ maisecrets: 'mod-demo', demo: opts.demo }) } }
+      return { value: { exitCode: 0, stderr: '', stdout: JSON.stringify({ maisecrets: 'mod-demo', demo: opts.demo,
+                                                                           ...(opts as any).demoExtra }) } }
     }
     const on = (opts as any).inDemo ?? true
     return { value: { exitCode: 0, stderr: '', stdout: JSON.stringify({ maisecrets: 'mod-prompt', text: REWRITTEN,
-                                                                         count: 1, demo: on, inDemo: on }) } }
+                                                                         count: 1, demo: on, inDemo: on,
+                                                                         ...(opts as any).promptExtra }) } }
   })
   on('prompt.submit', ($, e) => ({ text: e.text }))
   // the engine's request: the bottom of the chain, counted
@@ -461,4 +463,47 @@ test('a prompt out of the demo switches the next-prompt guess back on, only afte
   opts.inDemo = false
   await $.prompt.submit({ text: TYPED, wait: false, origin: { kind: 'composer' } })
   expect(env).toEqual([['CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION', 'false'], ['CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION', undefined]])
+})
+
+// ---- the UX test of 2026-11-17
+test('an own command typed in a demo session runs without the model: the drop carries its output', async ($, on) => {
+  const asked: string[] = []
+  demoWorld(on, { demo: true, asked, demoExtra: { drop: 'Stored values (1)' } } as any)
+  const r = await $.prompt.submit({ text: '/maisecrets:list', wait: false, origin: { kind: 'composer' } })
+  expect((r as any).drop).toBe('Stored values (1)')
+  expect(asked).toEqual(['mod-' + 'demo'])
+})
+
+test('a longer output of an own command goes above the drop, a row per line', async ($, on) => {
+  const logged: string[] = []
+  demoWorld(on, { demo: true, logged, demoExtra: { drop: '1 value(s) stored\n\nSECRET_c1  SECRET' } } as any)
+  const r = await $.prompt.submit({ text: '/maisecrets:list', wait: false, origin: { kind: 'composer' } })
+  expect(logged).toEqual(['1 value(s) stored', 'SECRET_c1  SECRET'])
+  expect((r as any).drop).toContain('output is above')
+})
+
+test('an own command of a session known not to be in the demo asks nothing and goes on', async ($, on) => {
+  const asked: string[] = []
+  demoWorld(on, { demo: false, asked })
+  await step($)                                                     // the step learned: not in the demo
+  const r = await $.prompt.submit({ text: '/maisecrets:list', wait: false, origin: { kind: 'composer' } })
+  expect(r.text).toBe('/maisecrets:list')
+  expect(asked).toEqual(['mod-' + 'demo'])
+})
+
+test('the demo answer adds one line: what was masked, and once that names were not checked', async ($, on) => {
+  const logged: string[] = []
+  demoWorld(on, { logged, promptExtra: { masked: 'masked: 1 secret', namesUnchecked: true } } as any)
+  await $.prompt.submit({ text: TYPED, wait: false, origin: { kind: 'composer' } })
+  await $.prompt.submit({ text: TYPED, wait: false, origin: { kind: 'composer' } })
+  expect(logged).toEqual(['demo · masked: 1 secret · names: not checked', 'demo · masked: 1 secret'])
+})
+
+test('a prompt answered in a damaged demo state keeps no true: the next step asks again', async ($, on) => {
+  const sent: number[] = []
+  const opts: any = { demo: false, sent, promptExtra: { damaged: true } }
+  demoWorld(on, opts)
+  await $.prompt.submit({ text: TYPED, wait: false, origin: { kind: 'composer' } })   // inDemo true, damaged
+  expect((await step($)).result.answer).toBe('FROM-THE-MODEL')     // demo off reset it: the step asked again
+  expect(sent).toEqual([0])
 })

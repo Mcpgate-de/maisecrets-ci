@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -12,7 +13,8 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
 
-from maisecrets import events, hooks, hub, not_a_secret, settings  # noqa: E402
+from maisecrets import events, hooks, hub, not_a_secret, selftest, settings  # noqa: E402
+from maisecrets.home import HOME  # noqa: E402
 from maisecrets.vault import CONFIG, Vault, load_config  # noqa: E402
 from _hygiene import CLAUDE  # noqa: E402
 
@@ -232,11 +234,98 @@ class EntryTests(unittest.TestCase):
                 self.assertIn(r.returncode, (0, 1))
                 self.assertNotIn("Traceback", r.stdout + r.stderr)
 
-    def test_the_status_of_a_session_with_no_hook_is_not_protected(self):
-        out = ask(action="status", session_id="no-such-session")
-        self.assertIn("NOT protecting", out["line"])
-        self.assertIn("(hooks)", out["line"])
 
+
+class StatusTests(unittest.TestCase):
+    """The panel's status line: no row of this session in hooks.log is no proof that a hook failed (a session has
+    none before its first tool call); only a positive signal of a failure, the self-test, says NOT protecting."""
+
+    def setUp(self):
+        _reset()
+        for name in ("hooks.log", selftest.FILE):
+            try:
+                (HOME / name).unlink()
+            except OSError:
+                pass
+
+    def _hooks_note(self, out):
+        return [n for n in out["notes"] if n["name"] == "hooks"]
+
+    def test_a_session_with_no_row_yet_is_protected_with_a_note_on_the_hooks(self):
+        out = ask(action="status", session_id="no-row-yet")
+        self.assertIn("protects this session", out["line"])
+        self.assertNotIn("NOT protecting", out["line"])
+        self.assertEqual(self._hooks_note(out),
+                         [{"name": "hooks", "fact": "not seen in this session yet", "next": "/maisecrets:status"}])
+
+    def test_a_session_whose_hook_ran_has_no_note_on_the_hooks(self):
+        hooks._run_log("session-start", {"session_id": "ran-once"}, "answer", "pass", 0)
+        out = ask(action="status", session_id="ran-once")
+        self.assertIn("protects this session", out["line"])
+        self.assertEqual(self._hooks_note(out), [])
+
+    def _row(self, event, session, at):
+        # a hooks.log row as hooks._run_log writes it, at a given time
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(at))
+        with open(HOME / "hooks.log", "a", encoding="utf-8") as f:
+            f.write(f"{stamp}\t{event}\tclaude\t{session}\tBash\tpass\t1ms\tanswer\n")
+
+    def _fails(self, session, call_at):
+        out = ask(action="status", session_id=session, tool_call_at=call_at)
+        return "NOT protecting" in out["line"] and "(hooks)" in out["line"]
+
+    def test_a_tool_call_the_mod_saw_with_no_row_at_all_says_not_protecting(self):
+        self.assertTrue(self._fails("no-row-yet", time.time() - 10))
+
+    def test_a_session_start_row_then_a_tool_call_with_no_row_says_not_protecting(self):
+        self._row("session-start", "S-start", time.time() - 60)
+        self.assertTrue(self._fails("S-start", time.time() - 10))
+
+    def test_an_old_tool_call_row_then_a_tool_call_with_no_row_says_not_protecting(self):
+        self._row("user-prompt", "S-stale", time.time() - 120)
+        self._row("pre-tool", "S-stale", time.time() - 60)
+        self.assertTrue(self._fails("S-stale", time.time() - 10))
+
+    def test_a_tool_call_row_at_the_call_says_protects(self):
+        call = time.time() - 10
+        self._row("pre-tool", "S-fresh", call)
+        self.assertFalse(self._fails("S-fresh", call))
+        # the row has whole seconds: a call that started late in the second of its row still counts
+        self.assertFalse(self._fails("S-fresh", int(call) + 0.9))
+
+    def test_a_tool_call_row_of_the_second_before_the_call_says_not_protecting(self):
+        call = float(int(time.time()) - 10)
+        self._row("pre-tool", "S-before", call - 1)
+        self.assertTrue(self._fails("S-before", call))
+
+    def test_a_tool_call_inside_the_grace_time_is_no_failure_yet(self):
+        self._row("pre-tool", "S-grace", time.time() - 60)
+        self.assertFalse(self._fails("S-grace", time.time() - hub.TOOL_CALL_GRACE / 4))
+
+    def test_a_time_of_the_wrong_type_is_ignored(self):
+        for odd in (True, -1, "5", None, float("inf"), 1e12):
+            with self.subTest(tool_call_at=odd):
+                self.assertFalse(self._fails("no-row-yet", odd))
+
+    def test_a_failed_self_test_says_not_protecting(self):
+        # the prompt hook stopped the test value, and no tool-result hook masked it: the tool path failed
+        (HOME / selftest.FILE).write_text(json.dumps({"result": {"prompt": time.time() - 5}}), encoding="utf-8")
+        out = ask(action="status", session_id="no-row-yet")
+        self.assertIn("NOT protecting", out["line"])
+        self.assertIn("(self-test)", out["line"])
+        self.assertNotIn("hooks", out["line"])
+
+
+
+class CommandNamesTests(unittest.TestCase):
+    def test_the_mod_knows_each_command_of_the_plugin(self):
+        """`/maisecrets WORD` means `/maisecrets:WORD` for each command file, and for nothing else."""
+        import re
+        mod = (ROOT / "claude-mod" / "maisecrets-mod.mjs").read_text(encoding="utf-8")
+        listed = re.search(r"const COMMANDS = \[([^\]]*)\]", mod)
+        self.assertIsNotNone(listed)
+        self.assertEqual(sorted(re.findall(r"'([a-z-]+)'", listed.group(1))),
+                         sorted(f.stem for f in (ROOT / "commands").glob("*.md")))
 
 # every action the panel sends, as a tool call would write it: none may run (C22)
 ACTIONS = [{"action": "set", "key": "rehydration", "value": "automatic"},

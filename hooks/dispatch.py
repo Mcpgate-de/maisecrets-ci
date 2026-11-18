@@ -110,8 +110,10 @@ if len(sys.argv) == 2 and sys.argv[1] == "mod-prompt":
             os.chdir(payload["cwd"])
         answer = rewrite_prompt(payload)
         # whether this session is in the demo: each model step of the mod reads it (maisecrets/demo.py)
-        from maisecrets.demo import active as _in_demo  # noqa: E402
+        from maisecrets.demo import active as _in_demo, damaged as _damaged  # noqa: E402
         answer = {**answer, "inDemo": bool(_in_demo(payload.get("session_id")))}
+        if _damaged():
+            answer["damaged"] = True     # the mod keeps no true of a damaged state (demo off resets it)
     except Exception:  # noqa: BLE001 - no traceback: what passes back goes through other mods
         sys.exit(1)
     # ASCII JSON: ⟦ as \u27e6. A Windows console code page cannot write ⟦, and the answer was a traceback
@@ -171,13 +173,12 @@ if len(sys.argv) == 2 and sys.argv[1] == "mod-demo":
     sys.exit(0)
 
 if len(sys.argv) >= 2 and sys.argv[1] == "pending":
-    from maisecrets.hooks import take_pending  # noqa: E402
+    from maisecrets.hooks import NOTHING_WAITING, take_pending  # noqa: E402
     # Claude Code gives a command the id of its session, the same id its hooks get (measured with the
     # harness, 2026-09-28): with two blocked prompts waiting, /ms found neither and pointed to the
     # clipboard, which does not exist over SSH or in Remote Control (field report on 0.5.8)
     text = take_pending(os.environ.get("CLAUDE_CODE_SESSION_ID") or None)
-    print(text if text is not None else "(maisecrets: no blocked prompt is waiting. A blocked prompt waits 15 "
-          "minutes.)")
+    print(text if text is not None else NOTHING_WAITING)
     sys.exit(0)
 
 if len(sys.argv) >= 2 and sys.argv[1] in ("report", "put", "status", "list", "audit", "expire", "config",
@@ -186,6 +187,12 @@ if len(sys.argv) >= 2 and sys.argv[1] in ("report", "put", "status", "list", "au
                                           "sref"):
     from maisecrets.cli import main as cli_main  # noqa: E402
     sys.exit(cli_main(sys.argv[1:]))
+
+# `run.sh help` printed the hook names; the help of the commands was unreachable (UX test, 2026-11-17). No word stays
+# the hook usage with exit 2: a hook called without its event fails closed
+if len(sys.argv) == 2 and sys.argv[1] in ("help", "-h", "--help"):
+    from maisecrets.cli import main as cli_main  # noqa: E402
+    sys.exit(cli_main(["--help"]))
 
 if len(sys.argv) == 2 and sys.argv[1] == "session-end":
     # the values a server gave this session leave the store now (a crashed session sends no SessionEnd: then they go
@@ -265,9 +272,11 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
         file_reads.prune_sessions()
     except Exception:  # noqa: BLE001 - the note never stops a session start; without it no folder is clean
         pass
+    _ner_starting = False
     try:
         from maisecrets import ner_setup  # noqa: E402
-        ner_setup.restart_local(cfg.get("remote_detector"))     # after a reboot: the container, in the background
+        # after a reboot: the container, in the background
+        _ner_starting = ner_setup.restart_local(cfg.get("remote_detector"))
     except Exception:  # noqa: BLE001 - the session starts without it; the rules work alone until it answers
         pass
     # a blocked prompt older than 15 minutes is never sent; the file goes too (retention)
@@ -338,10 +347,19 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
         if tip:
             lines.append(tip)
     from maisecrets.tips import NOT_PROTECTED, TEST_STORE  # noqa: E402
-    if _not_protected():
+    _unprotected = _not_protected()
+    if _unprotected:
         lines.insert(0, NOT_PROTECTED.format(cmd="maisecrets: status" if codex else "/maisecrets:status"))
     if v.backend.test_mode:
         lines.append(TEST_STORE)
+    # a name source that is set and cannot be used: first, with the cause and the step (ner_health), once per cause
+    try:
+        from maisecrets import ner_health  # noqa: E402
+        _names = ner_health.start_line(cfg, payload, v.backend, starting=_ner_starting, codex=codex)
+    except Exception:  # noqa: BLE001 - a check of the name source never stops a session start
+        _names = None
+    if _names:
+        lines.insert(1 if _unprotected else 0, _names)
     if lines:
         out["systemMessage"] = "\n".join(lines)
     # a newer version in the marketplace copy the client fetched (no network request; maisecrets/status_verdict.py)

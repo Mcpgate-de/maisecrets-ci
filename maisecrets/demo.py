@@ -38,6 +38,7 @@ DEMO_LINE_CODEX = "Demo mode: nothing was sent to the AI. A new session switches
 ON = "Demo mode is on: what you send stays here, nothing goes to the AI. /clear switches it off."
 ON_CODEX = "Demo mode is on: what you send stays here, nothing goes to the AI. A new session switches it off."
 OFF = "The demo ends with /clear: it starts a new conversation, so the demo lines do not go to the AI."
+OFF_ALREADY = "Demo mode is off in this session. Nothing was changed."
 OFF_CODEX = "The demo ends with a new session: the demo lines of this one do not go to the AI."
 NOT_FIRST = "Start the demo in a new session (or after /clear), so this conversation stays as it is."
 NOT_FIRST_CODEX = "Start the demo in a new session, so this conversation stays as it is."
@@ -291,6 +292,8 @@ def switch_typed(verb: str, session: str, route: str, codex: bool, payload: dict
             data, reset = {}, True          # the person's off rewrites it: never locked out
         if verb == "off":
             if not reset:
+                if session not in data and not has_demo_rows(session, (payload or {}).get("transcript_path")):
+                    return OFF_ALREADY
                 return OFF_CODEX if codex else OFF
             _write(data)
         elif session in data or has_demo_rows(session, (payload or {}).get("transcript_path")):
@@ -440,14 +443,17 @@ def mod_answer(payload: dict, cfg: dict) -> dict | None:
     if _INSIDE or not isinstance(prompt, str) or not active(session):
         return None
     typed = payload.get("origin") in ("composer", "bridge")      # `sdk`: claude -p, a program
-    if parse(prompt) or (typed and own_command(prompt)) or _answered_by_the_hook(prompt):
+    if parse(prompt) or _answered_by_the_hook(prompt):
         return {}
+    if typed and own_command(prompt):
+        return {"drop": own_answer(prompt, session)}
     if damaged():
         return {"drop": DAMAGED.format(off="/maisecrets:demo off")}     # before the report pass: none passes
     if _only_reports(prompt):
         return {}
     from . import hooks
     _INSIDE.append(1)
+    hooks.LAST_NAMES_WHY[0] = None
     try:
         out = hooks.rewrite_prompt(payload)
     finally:
@@ -459,7 +465,94 @@ def mod_answer(payload: dict, cfg: dict) -> dict | None:
     else:
         text = prompt       # nothing to mask
     _write_pass(session, text)
-    return {"text": text, "count": out.get("count", 0), "demo": True}
+    return {"text": text, "count": out.get("count", 0), "demo": True, "masked": masked_line(prompt, text),
+            "namesUnchecked": not _names_checked(cfg, hooks.LAST_NAMES_WHY[0])}
+
+
+_KINDS = {"SECRET": ("secret", "secrets"), "EMAIL": ("e-mail", "e-mails"), "NAME": ("name", "names"),
+          "PHONE": ("phone number", "phone numbers"), "IBAN": ("IBAN", "IBANs")}
+
+
+def masked_line(prompt: str, text: str) -> str:
+    """"masked: 1 secret, 1 e-mail" for the placeholders the text has and the typed prompt had not; "" for none."""
+    from collections import Counter
+    from .placeholder import find_refs
+    kinds = Counter(k.rsplit("_c", 1)[0] for k, _s, _e in find_refs(text))
+    kinds.subtract(Counter(k.rsplit("_c", 1)[0] for k, _s, _e in find_refs(prompt)))
+    parts = []
+    for kind, n in kinds.items():
+        if n > 0:
+            one, many = _KINDS.get(kind, (kind.lower(), kind.lower()))
+            parts.append(f"{n} {one if n == 1 else many}")
+    return "masked: " + ", ".join(parts) if parts else ""
+
+
+def _names_checked(cfg: dict, why) -> bool:
+    """Whether a name service read this prompt: one is set for prompts, and it answered (why == "")."""
+    conf = cfg.get("remote_detector")
+    return isinstance(conf, dict) and bool(conf.get("url")) and conf.get("prompts") is not False and why == ""
+
+
+# the person's own commands in the demo: each runs as its command file runs it, without the model. A form that needs
+# the model or a browser does not run, and the line says so
+_OWN_SPLIT = _LazyRx(r"\A\s*(?:/maisecrets:|maisecrets:[ \t]*)(?P<name>[a-z-]+)(?:[ \t]+(?P<args>.*?))?\s*\Z",
+                     re.I | re.S)
+_ARGV = {"status": ["status"], "list": ["list"], "audit": ["audit"], "rules": ["rules"], "ner": ["ner"],
+         "sref": ["sref"], "put": ["put", "--clipboard"], "forget": ["forget"], "guard": ["guard"],
+         "shortcut": ["shortcut"], "settings": ["settings"], "term": ["terms"]}
+NEEDS_THE_AI = ("maisecrets: {cmd} needs the AI or a browser, or it changes your commands, so it did not run in the "
+                "demo. /clear ends the demo; then send it again.")
+OUTPUT_CHARS = 6000
+
+
+def own_argv(prompt: str) -> list | None:
+    """The CLI words of an own command that runs without the model, or None for one that needs the model."""
+    m = _OWN_SPLIT.match(prompt)
+    if not m:
+        return None
+    name, args = m.group("name").lower(), (m.group("args") or "").split()
+    if name not in _ARGV or (name == "status" and args == ["test"]) or (
+            name == "sref" and args[:1] not in ([], ["status"])) or (name == "shortcut" and args != ["status"]):
+        return None
+    return _ARGV[name] + args
+
+
+def own_answer(prompt: str, session) -> str:
+    """The output of the person's own command, run here as its command file runs it; or the line that it needs the
+    AI. The output holds no value (each command prints masked forms only), and it is shown, never sent."""
+    import contextlib
+    import io
+    import os
+    import shlex
+    import sys
+    argv = own_argv(prompt)
+    if argv is None:
+        return NEEDS_THE_AI.format(cmd=" ".join(prompt.split()[:2])[:80])
+    from . import cli
+    old_env = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if isinstance(session, str) and session:
+        os.environ["CLAUDE_CODE_SESSION_ID"] = session       # status names this session (its demo line)
+    out = io.StringIO()
+    old_stdin = sys.stdin
+    sys.stdin = io.StringIO(" ".join(shlex.quote(a) for a in argv[1:]))
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            try:
+                code = cli.main([argv[0], "--args-stdin"])
+            except SystemExit as exc:
+                code = exc.code
+    except Exception as exc:  # noqa: BLE001 - the line names the failure, never a value
+        return f"maisecrets: {argv[0]} failed in the demo ({type(exc).__name__})."
+    finally:
+        sys.stdin = old_stdin
+        if old_env is None:
+            os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
+        else:
+            os.environ["CLAUDE_CODE_SESSION_ID"] = old_env
+    text = out.getvalue().strip()
+    if len(text) > OUTPUT_CHARS:
+        text = text[:OUTPUT_CHARS] + "\n…"
+    return text or f"maisecrets: {argv[0]} ran (exit {code})."
 
 
 def _pass_path(session):
@@ -496,8 +589,17 @@ def _took_pass(session, prompt: str) -> bool:
 
 def mod_demo(payload: dict) -> dict:
     """The mod's question at a model step (dispatch.py mod-demo): is this session in the demo? A damaged state says
-    yes (fail closed)."""
-    return {"demo": bool(active(payload.get("session_id")))}
+    yes (fail closed). With `prompt`, the person's typed own maisecrets command of a session in the demo: `drop` holds
+    what it printed (own_answer), as the mod shows it in place of a model turn."""
+    session = payload.get("session_id")
+    on = bool(active(session))
+    if damaged():
+        return {"demo": True, "damaged": True}      # the mod keeps no true of a damaged state
+    prompt = payload.get("prompt")
+    if (on and isinstance(prompt, str) and payload.get("origin") in ("composer", "bridge")
+            and not parse(prompt) and not _answered_by_the_hook(prompt) and own_command(prompt)):
+        return {"demo": on, "drop": own_answer(prompt, session)}
+    return {"demo": on}
 
 
 _INSIDE: list = []      # the mod's own rewrite runs inside mod_answer: its demo step steps aside
