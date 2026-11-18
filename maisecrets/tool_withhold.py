@@ -24,9 +24,9 @@ def withheld(payload: dict, text: str, codex: bool) -> dict:
 
 
 def with_unchecked_names(payload: dict, result: dict, codex: bool, load_config) -> dict:
-    """A tool result whose names the service of /maisecrets:ner did not check: a line on the person's screen each
-    time (#33), and with `unavailable: withhold` the result kept from the AI. A text over the service's max_chars is
-    named on the screen but not withheld: each long file would be."""
+    """A tool result whose names the service of /maisecrets:ner did not check: a note for the AI each time, a line
+    for the person once per session and cause (ner_health), and with `unavailable: withhold` the result kept from the
+    AI. A text over the service's max_chars is named under that result but not withheld: each long file would be."""
     from . import remote_layer as _rl
     if not _rl.NER_DOWN.get("unchecked"):
         return result
@@ -36,11 +36,27 @@ def with_unchecked_names(payload: dict, result: dict, codex: bool, load_config) 
     if withhold:
         _rl.NER_DOWN["v"] = False      # the note for the AI says the rules masked the result; none did here
     out = withheld(payload, _rl.withhold_text(why), codex) if withhold else dict(result or {})
-    if not withhold and not codex:
+    if not withhold:
+        # Codex too: only additionalContext reaches its model, a systemMessage is a warning for the person
+        # (docs/CLIENTS.md); next to a block's reason the output schema allows it
         hso = dict(out.get("hookSpecificOutput") or {"hookEventName": "PostToolUse"})
         note = _rl.unchecked_context(why)
         hso["additionalContext"] = f"{hso['additionalContext']}\n\n{note}" if hso.get("additionalContext") else note
         out["hookSpecificOutput"] = hso
-    line = _rl.screen_line(why, withhold)
-    out["systemMessage"] = f"{out['systemMessage']} {line}" if out.get("systemMessage") else line
+    lines = []
+    if _rl.NER_DOWN.get("state") == "too_long":
+        lines.append(_rl.screen_line(why, False))   # this result alone is too long: under each one
+    else:
+        # a source that cannot be used: once per session with the cause and the step, again when the cause changes
+        # (ner_health), withheld or not; the AI's note above still comes with each result. It replaces the
+        # once-per-session note of remote_layer.hint, which named no step
+        from . import ner_health
+        _rl.NER_DOWN["v"] = False
+        _rl.NER_DOWN.pop("not_ours", None)
+        lines.append(ner_health.result_line(load_config(), payload, why, codex))
+        if withhold:
+            lines.append(_rl.screen_line(why, True))    # an act on this result: under each one
+    line = " ".join(x for x in lines if x)
+    if line:
+        out["systemMessage"] = f"{out['systemMessage']} {line}" if out.get("systemMessage") else line
     return out

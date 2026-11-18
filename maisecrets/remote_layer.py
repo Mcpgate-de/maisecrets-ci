@@ -184,6 +184,7 @@ def prepare(cfg: dict, strings: list, scan, protect=None, use_fallback: bool = T
     A prompt never goes to the fallback (use_fallback False). Each call adds a line to the NER log (ner_setup.log):
     time, source, kind, characters, names; never text. `deadline` (a prompt): one end for the setup of the source and
     the request; without it the request gets its own `timeout_ms` after the setup."""
+    LAST_CONF["v"] = conf_of(cfg)
     ner, why = from_config(cfg, deadline=deadline)
     if ner is None:
         if not why:
@@ -366,12 +367,14 @@ def screen_line(why: str, withheld: bool) -> str:
 
 
 def unchecked_context(why: str) -> str:
-    """The note for the AI at each tool result whose names the service did not check: the person sees a line about
-    it, the AI does not, and told the person that no warning came (live test of #33)."""
+    """The note for the AI at each tool result whose names the service did not check. It says nothing of the person's
+    screen: a line there comes once per session and cause, and not at all in a subagent or a headless run
+    (ner_health), so the AI must not claim one. Without the note the AI told the person that names were masked
+    (live test of #33)."""
     said = _TOOL_WHY.get(why, "no usable answer")
     return (f"maisecrets: the name service did not check the names in this tool result ({said}); the rules alone "
-            "masked it, so a person's name in it may stand in clear text. The person's screen shows this for each "
-            "such result; do not say that names were masked or that no warning came.")
+            "masked it, so a person's name in it may stand in clear text; do not say that the names in it were "
+            "masked.")
 
 
 def withhold_text(why: str) -> str:
@@ -380,6 +383,9 @@ def withhold_text(why: str) -> str:
     return (f"[maisecrets withheld this tool result: the name service gave no result ({said}), and the person chose "
             "to keep such a result from you (/maisecrets:ner unavailable withhold). The tool ran and finished. Do NOT "
             "run it again to see the output; tell the user, who can check the result in their terminal.]")
+
+# the setting of the source the last prepare() of this process asked (ner_health.clear compares it)
+LAST_CONF: dict = {"v": None}
 
 # the remote detector of the last tool result did not answer (set by hooks.post_tool, read by hint() of the same call)
 NER_DOWN = {"v": False}
@@ -395,6 +401,10 @@ def note_result(layer) -> None:
     if layer is not None:
         from . import ner_setup
         NER_DOWN["fallback"] = ner_setup.LAST["source"] == "fallback"
+        if layer.status.available:
+            from . import ner_health
+            # names were checked: the status no longer names a cause, and it may say "checked" for this source
+            ner_health.clear(None if NER_DOWN["fallback"] else LAST_CONF.get("v"))
 
 
 def hint(payload: dict, codex: bool = False):

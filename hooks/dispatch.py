@@ -272,9 +272,11 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
         file_reads.prune_sessions()
     except Exception:  # noqa: BLE001 - the note never stops a session start; without it no folder is clean
         pass
+    _ner_starting = False
     try:
         from maisecrets import ner_setup  # noqa: E402
-        ner_setup.restart_local(cfg.get("remote_detector"))     # after a reboot: the container, in the background
+        # after a reboot: the container, in the background
+        _ner_starting = ner_setup.restart_local(cfg.get("remote_detector"))
     except Exception:  # noqa: BLE001 - the session starts without it; the rules work alone until it answers
         pass
     # a blocked prompt older than 15 minutes is never sent; the file goes too (retention)
@@ -345,10 +347,19 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
         if tip:
             lines.append(tip)
     from maisecrets.tips import NOT_PROTECTED, TEST_STORE  # noqa: E402
-    if _not_protected():
+    _unprotected = _not_protected()
+    if _unprotected:
         lines.insert(0, NOT_PROTECTED.format(cmd="maisecrets: status" if codex else "/maisecrets:status"))
     if v.backend.test_mode:
         lines.append(TEST_STORE)
+    # a name source that is set and cannot be used: first, with the cause and the step (ner_health), once per cause
+    try:
+        from maisecrets import ner_health  # noqa: E402
+        _names = ner_health.start_line(cfg, payload, v.backend, starting=_ner_starting, codex=codex)
+    except Exception:  # noqa: BLE001 - a check of the name source never stops a session start
+        _names = None
+    if _names:
+        lines.insert(1 if _unprotected else 0, _names)
     if lines:
         out["systemMessage"] = "\n".join(lines)
     # a newer version in the marketplace copy the client fetched (no network request; maisecrets/status_verdict.py)

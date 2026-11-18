@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT / "harness"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
 
-from maisecrets import ner_gateway, ner_setup, remote_layer, sref_client as S  # noqa: E402
+from maisecrets import ner_gateway, ner_health, ner_setup, remote_layer, sref_client as S  # noqa: E402
 from maisecrets.vault import JsonFileBackend  # noqa: E402
 
 HAS_OPENSSL = shutil.which("openssl") is not None
@@ -155,6 +155,11 @@ class GatewaySourceTests(unittest.TestCase):
         self.origin = conf["gateway"]
         self.addCleanup(S.forget, self.backend, self.origin)
         self.addCleanup(lambda: ner_gateway.CACHE.unlink(missing_ok=True))
+        # first of all (cleanups run last in, first out): a renewal in the background ends before its login goes
+        self.addCleanup(lambda: [p.wait(30) for p in S._renewals])
+        for f in (ner_health.STATE, ner_health._WARNED, S._ended_path()):
+            f.unlink(missing_ok=True)
+            self.addCleanup(f.unlink, missing_ok=True)
 
     def browser(self, url: str) -> None:
         ctx = ssl.create_default_context(cafile=self.srv.cert)
@@ -203,7 +208,17 @@ class GatewaySourceTests(unittest.TestCase):
     def test_a_source_that_cannot_be_asked_leaves_its_results_unchecked_on_the_screen_and_withheld(self):
         conf = self.cfg["remote_detector"]           # no login: from_config gives a reason, no detector
         out = self.post_tool(conf)
-        self.assertIn("names not checked: the name service cannot be asked", out.get("systemMessage", ""))
+        self.assertEqual(out.get("systemMessage"), "\u26a0\ufe0f maisecrets: names are NOT checked \u2014 not logged "
+                         "in at the gateway \u2192 /maisecrets:sref login", "the cause and the step")
+        note = out["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("did not check the names", note, "the AI knows")
+        self.assertIn("may stand in clear text", note)
+        self.assertNotIn("for each", note, "no claim of a warning under each result: the person hears it once")
+        for claim in ("screen", "told the person", "warning"):
+            self.assertNotIn(claim, note, "nothing of the screen: a subagent or a headless run shows no line")
+        out = self.post_tool(conf)
+        self.assertNotIn("NOT checked", out.get("systemMessage", ""), "once per session")
+        self.assertIn("did not check the names", out["hookSpecificOutput"]["additionalContext"], "AI: each time")
         out = self.post_tool(ner_setup.updated(conf, "unavailable:withhold"))
         self.assertNotIn("Okafor", json.dumps(out["hookSpecificOutput"]["updatedToolOutput"]))
         self.assertEqual(self.srv.ner_texts, [])
@@ -353,7 +368,7 @@ class GatewaySourceTests(unittest.TestCase):
         for text in ("/maisecrets:ner prompts on", "/maisecrets:ner prompts off"):
             self.assertEqual(ner_setup.parse(text), "other:" + text[16:])
 
-    def post_tool(self, conf: dict, tool: str = "Bash") -> dict:
+    def post_tool(self, conf: dict, tool: str = "Bash", **extra) -> dict:
         import json
         from maisecrets import hooks
         from maisecrets.home import CONFIG
@@ -365,35 +380,85 @@ class GatewaySourceTests(unittest.TestCase):
                     else {"type": "text", "file": {"filePath": "/w/notes.txt", "content": TEXT}})
         return hooks._post_tool_guarded_rest({"hook_event_name": "PostToolUse", "session_id": "s-ner-gw",
                                                "tool_name": tool, "tool_input": {"command": "cat notes.txt"},
-                                               "tool_response": response})
+                                               "tool_response": response, **extra})
 
     def test_each_result_whose_names_were_not_checked_says_so_on_the_screen(self):
         self.login(self.cfg)
         self.srv.ner_answer = (503, {"error": "busy"})
         conf = self.cfg["remote_detector"]
-        for _ in range(2):                   # each time, not once per session
+        line = "names are NOT checked \u2014 the gateway's name service is busy \u2192 /maisecrets:ner"
+        for shown in (True, False):          # once per session, when the state turns bad
             out = self.post_tool(conf)
-            self.assertIn("⚠ names not checked: the name service was busy", out.get("systemMessage", ""))
+            self.assertEqual(line in out.get("systemMessage", ""), shown, out.get("systemMessage"))
             self.assertNotIn("updatedToolOutput", out.get("hookSpecificOutput") or {}, "the output stays as it is")
-        self.assertIn("did not check the names", out["hookSpecificOutput"]["additionalContext"], "the AI knows too")
+            self.assertIn("did not check the names", out["hookSpecificOutput"]["additionalContext"], "AI: each time")
+        self.assertEqual(ner_health.recorded(conf), "busy", "the status can name it")
         self.srv.ner_answer = None
         out = self.post_tool(conf)
-        self.assertNotIn("names not checked", out.get("systemMessage", ""))
+        self.assertNotIn("NOT checked", out.get("systemMessage", ""))
         self.assertNotIn("did not check the names", json.dumps(out))
+        self.assertIsNone(ner_health.recorded(conf), "names checked again: the status names no cause")
+        self.srv.ner_answer = (503, {"error": "busy"})
+        self.assertNotIn("NOT checked", self.post_tool(conf).get("systemMessage", ""), "the same cause: not again")
+        self.srv.ner_answer = (429, {"error": "rate_limited"})
+        self.assertIn("limit per minute was reached", self.post_tool(conf).get("systemMessage", ""), "a new cause")
+
+    def test_codex_gives_its_model_the_note_at_each_unchecked_result(self):
+        # Codex sends only additionalContext to the model; a systemMessage is a warning for the person (CLIENTS.md)
+        self.login(self.cfg)
+        self.srv.ner_answer = (503, {"error": "busy"})
+        conf = self.cfg["remote_detector"]
+        for _ in range(2):
+            out = self.post_tool(conf, turn_id="t-1", session_id="s-ner-codex")
+            hso = out.get("hookSpecificOutput") or {}
+            self.assertIn("did not check the names", hso.get("additionalContext", ""), out)
+            self.assertEqual(hso.get("hookEventName"), "PostToolUse")
+
+    def test_a_failed_discovery_has_its_own_cause_and_only_a_read_document_without_ner_is_no_ner(self):
+        self.login(self.cfg)
+        conf = self.cfg["remote_detector"]
+        real = S._request
+
+        def answer(result):
+            def request(cfg, method, url, *a, **kw):
+                if "/.well-known/" in url:
+                    if isinstance(result, BaseException):
+                        raise result
+                    return result
+                return real(cfg, method, url, *a, **kw)
+            return request
+        cases = (("timeout", TimeoutError("slow"), "slow"), ("refused", ConnectionRefusedError("down"), "no_answer"),
+                 ("http 500", (500, {}, b""), "no_answer"),
+                 ("bad json", (200, {"content-type": "application/json"}, b"{not json"), "other"),
+                 ("no sensitive references", (200, {"content-type": "application/json"}, b"{}"), "no_ner"))
+        for name, result, cause in cases:
+            with self.subTest(name):
+                ner_gateway.CACHE.unlink(missing_ok=True)
+                with mock.patch.object(S, "_request", answer(result)):
+                    det, why = ner_gateway.detector(self.cfg, conf, lambda *a: object())
+                self.assertIsNone(det)
+                self.assertEqual(ner_gateway.LAST["cause"], cause, why)
+        ner_gateway.CACHE.unlink(missing_ok=True)
+        self.srv.ner = False                  # the document is read and names no name detection
+        det, _why = ner_gateway.detector(self.cfg, conf, lambda *a: object())
+        self.assertEqual((det, ner_gateway.LAST["cause"]), (None, "no_ner"))
 
     def test_withhold_keeps_an_unchecked_result_from_the_ai(self):
         self.login(self.cfg)
         conf = ner_setup.updated(self.cfg["remote_detector"], "unavailable:withhold")
         self.assertEqual(conf["unavailable"], "withhold")
         self.srv.ner_answer = (503, {"error": "busy"})
-        for tool in ("Bash", "Read"):
+        cause = "names are NOT checked \u2014 the gateway's name service is busy \u2192 /maisecrets:ner"
+        for first, tool in ((True, "Bash"), (False, "Read")):
             with self.subTest(tool=tool):
                 out = self.post_tool(conf, tool)
                 given = json.dumps(out["hookSpecificOutput"]["updatedToolOutput"])
                 self.assertNotIn("Okafor", given)
                 self.assertIn("withheld this tool result", given)
-                self.assertIn("withheld this result from the AI", out["systemMessage"])
+                self.assertIn("withheld this result from the AI", out["systemMessage"], "under each withheld result")
+                self.assertEqual(cause in out["systemMessage"], first, "the cause and the step: once per session")
                 self.assertNotIn("the rules alone masked", out["hookSpecificOutput"].get("additionalContext", ""))
+        self.assertEqual(ner_health.recorded(conf), "busy", "the status learns the cause of a withheld result too")
         self.srv.ner_answer = None
         out = self.post_tool(conf)
         self.assertNotIn("withheld", json.dumps(out), "an answered result passes")

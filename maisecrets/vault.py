@@ -268,6 +268,14 @@ def is_quiet(kind: str, value: str, tool: bool) -> bool:
 
 
 # ---------------------------------------------------------------- backends --
+def _file_store_lock():
+    """The store lock (HOME/.lock, the lock of every Vault write) around each read-modify-write of a store that is one
+    file: a writer that does not hold it (a login renewal, a released value, the name service's secret) would else
+    write back a snapshot it read before another writer's change, a spent refresh token for one. Re-entrant for the
+    thread that holds it, so the Vault's own writes go on as they are."""
+    return _lock_for(HOME / ".lock")
+
+
 class JsonFileBackend:
     test_mode = True
 
@@ -288,17 +296,19 @@ class JsonFileBackend:
         atomic_write(self.path, json.dumps(data))
 
     def put(self, key: str, value: str, label: str | None = None, comment: str | None = None) -> None:
-        d = self._load(for_write=True)
-        d[key] = value
-        self._save(d)
+        with _file_store_lock():
+            d = self._load(for_write=True)
+            d[key] = value
+            self._save(d)
 
     def get(self, key: str) -> str | None:
         return self._load().get(key)
 
     def delete(self, key: str) -> None:
-        d = self._load(for_write=True)
-        d.pop(key, None)
-        self._save(d)
+        with _file_store_lock():
+            d = self._load(for_write=True)
+            d.pop(key, None)
+            self._save(d)
 
     def keys(self) -> list[str]:
         return list(self._load())
@@ -515,9 +525,10 @@ class EncryptedFileBackend:
         import base64
         self._key()
         blob = self._openssl([], value.encode())
-        d = self._load(for_write=True)
-        d[key] = {"c": base64.b64encode(blob).decode(), "t": self._tag(blob)}
-        self._save(d)
+        with _file_store_lock():
+            d = self._load(for_write=True)
+            d[key] = {"c": base64.b64encode(blob).decode(), "t": self._tag(blob)}
+            self._save(d)
 
     def get(self, key: str) -> str | None:
         import base64
@@ -536,9 +547,10 @@ class EncryptedFileBackend:
             return None
 
     def delete(self, key: str) -> None:
-        d = self._load(for_write=True)
-        d.pop(key, None)
-        self._save(d)
+        with _file_store_lock():
+            d = self._load(for_write=True)
+            d.pop(key, None)
+            self._save(d)
 
 
 class WindowsVaultBackend:

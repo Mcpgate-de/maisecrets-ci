@@ -215,15 +215,12 @@ def _bounded(lock, deadline: float | None):
     """`with lock`, with a wait that ends at the deadline (time.monotonic) of the step at the latest: the lock's own
     wait (6 s) is longer than the budget of a hook step. A lock this process holds already is entered at once.
     Raises LockTimeout as the lock does. Without a deadline, the lock as it is."""
-    if deadline is None or lock.depth > 0:
+    if deadline is None or lock.held_here():
         with lock:
             yield lock
         return
-    lock.LOCK_DEADLINE = max(0.0, min(type(lock).LOCK_DEADLINE, deadline - time.monotonic()))
-    try:
-        lock.__enter__()
-    finally:
-        del lock.LOCK_DEADLINE               # the wait of every other step stays the lock's own
+    # the wait of this call only, as an argument: a shared attribute was overwritten by a second waiter
+    lock.enter(max(0.0, min(type(lock).LOCK_DEADLINE, deadline - time.monotonic())))
     try:
         yield lock
     finally:

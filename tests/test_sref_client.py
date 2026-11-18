@@ -58,6 +58,9 @@ class SrefClientTests(unittest.TestCase):
         self.backend = JsonFileBackend()           # the store of the temp home of tests/_isolate.py
         self.found = S.discover(self.cfg, self.srv.url + "/mcp")
         self.addCleanup(S.forget, self.backend, self.found["origin"])
+        for f in (S._inflight_path(), S._ended_path()):
+            f.unlink(missing_ok=True)
+            self.addCleanup(f.unlink, missing_ok=True)
 
     def browser(self, url: str, state: str | None = None) -> None:
         """The person in the browser: the authorize URL answers with a redirect to the loopback, which the browser
@@ -193,10 +196,415 @@ class SrefClientTests(unittest.TestCase):
             if url == self.found["token"]:
                 raise TimeoutError("the server took too long")
             return real(cfg, method, url, *a, **kw)
-        with mock.patch.object(S, "_request", slow):
+        # the refresh in this process (no child can start): its timeout keeps the login
+        with mock.patch.object(S, "_request", slow), mock.patch.object(S, "_spawn", side_effect=OSError):
             with self.assertRaises(S.Refused):
                 S.resolve(self.cfg, self.backend, self.found, [self.srv.mint("email", VALUE_MAIL)], "process", "mail")
         self.assertTrue(S.logged_in(self.backend, self.found["origin"]))
+
+    def _wait_children(self) -> None:
+        for p in list(S._renewals):
+            p.wait(timeout=40)
+            if p.stdout:
+                p.stdout.close()
+
+    def test_a_refresh_slower_than_the_hook_still_keeps_the_new_pair_and_the_spent_token_is_never_sent(self):
+        # field report 0.9.15: the hook gave up after 2 s, the gateway rotated the token and answered later, the new
+        # refresh token was lost, the next refresh sent the spent one, and the gateway ended the login
+        self.login()
+        old = json.loads(self.backend.get(S._entry(self.found["origin"])))["refresh"]
+        self.srv.access.clear()
+        self.srv.refresh_delay = 1.5
+        stale = json.loads(self.backend.get(S._entry(self.found["origin"])))["access"]   # the gateway answered 401
+        with self.assertRaises(S.Renewing):
+            S._access(self.cfg, self.backend, self.found, time.monotonic() + 0.3, stale=stale)
+        self._wait_children()
+        new = json.loads(self.backend.get(S._entry(self.found["origin"])))["refresh"]
+        self.assertNotEqual(new, old, "the child kept the pair the gateway gave after the hook's deadline")
+        self.srv.refresh_delay = 0.0
+        ref = self.srv.mint("email", VALUE_MAIL)
+        self.assertEqual(S.resolve(self.cfg, self.backend, self.found, [ref], "process", "mail"), {ref: VALUE_MAIL})
+        self.assertEqual(self.srv.refreshes, [old], "one refresh, and the spent token was never sent again")
+        self.assertTrue(S.logged_in(self.backend, self.found["origin"]))
+
+    def test_a_call_that_comes_while_a_refresh_runs_waits_for_it_and_sends_the_old_token_never(self):
+        import threading
+        self.login()
+        self.srv.access.clear()
+        self.srv.refresh_delay = 0.8
+        ref = self.srv.mint("email", VALUE_MAIL)
+        got: list = []
+
+        def call() -> None:
+            try:
+                got.append(S.resolve(self.cfg, self.backend, self.found, [ref], "process", "mail",
+                                     deadline=time.monotonic() + 15))
+            except S.Refused as exc:
+                got.append(str(exc))
+        threads = [threading.Thread(target=call) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(30)
+        self._wait_children()
+        self.assertEqual(got, [{ref: VALUE_MAIL}] * 2)
+        self.assertEqual(len(self.srv.refreshes), 1, "the second call took the pair of the first")
+
+    def test_a_token_near_its_end_is_renewed_ahead_in_the_background_once(self):
+        self.login()
+        rec = json.loads(self.backend.get(S._entry(self.found["origin"])))
+        self.assertFalse(S.renew_ahead(self.cfg, self.backend, self.found), "a fresh token is left alone")
+        rec["expires"] = time.time() + 300                       # five minutes left
+        S._keep(self.backend, self.found["origin"], rec)
+        self.assertTrue(S.renew_ahead(self.cfg, self.backend, self.found))
+        self.assertFalse(S.renew_ahead(self.cfg, self.backend, self.found), "one child per origin at a time")
+        self._wait_children()
+        after = json.loads(self.backend.get(S._entry(self.found["origin"])))
+        self.assertNotEqual(after["refresh"], rec["refresh"])
+        self.assertGreater(after["expires"] - time.time(), 3000)
+        self.assertEqual(self.srv.refreshes, [rec["refresh"]])
+
+    def test_a_refresh_that_did_not_finish_is_never_sent_again_and_ends_the_login_loudly(self):
+        # Gate A: with rotation and no grace window a lost answer spends the login; the client must not reuse the
+        # token in silence, it says at once that the login ended
+        import signal
+        self.login()
+        old = json.loads(self.backend.get(S._entry(self.found["origin"])))["refresh"]
+        self.srv.access.clear()
+        self.srv.refresh_delay = 3.0
+        stale = json.loads(self.backend.get(S._entry(self.found["origin"])))["access"]
+        with self.assertRaises(S.Renewing):
+            S._access(self.cfg, self.backend, self.found, time.monotonic() + 0.3, stale=stale)
+        child = S._renewals[-1]
+        deadline = time.monotonic() + 10
+        while not self.srv.refreshes and time.monotonic() < deadline:
+            time.sleep(0.05)
+        os.kill(child.pid, signal.SIGKILL)               # killed after the request went out, before the answer
+        child.wait(10)
+        child.stdout.close()
+        self.assertEqual(S._inflight(self.found["origin"]), S._digest(old), "the unfinished refresh is recorded")
+        self.srv.refresh_delay = 0.0
+        with self.assertRaises(S.Refused) as cm:
+            S.resolve(self.cfg, self.backend, self.found, [self.srv.mint("email", VALUE_MAIL)], "process", "mail",
+                      deadline=time.monotonic() + 10)
+        self.assertIn("did not finish", str(cm.exception))
+        self.assertEqual(self.srv.refreshes, [old], "the possibly spent token was not sent a second time")
+        self.assertFalse(S.logged_in(self.backend, self.found["origin"]))
+        self.assertTrue(S.ended(self.found["origin"]), "the person is told to log in again")
+        self.assertEqual(S.ended_why(self.found["origin"]), "uncertain", "not 'the gateway ended the login'")
+        self.assertIsNone(S._inflight(self.found["origin"]))
+
+    def test_only_a_request_that_never_left_clears_the_record_of_a_refresh(self):
+        self.login()
+        origin = self.found["origin"]
+        real = S._request
+        for exc, kept in ((TimeoutError("slow"), True), (ConnectionRefusedError("down"), False)):
+            with self.subTest(exc=type(exc).__name__):
+                S._set_inflight(origin, None)
+                rec = json.loads(self.backend.get(S._entry(origin)))
+                S._keep(self.backend, origin, {**rec, "expires": 0})
+
+                def failing(cfg, method, url, *a, _exc=exc, **kw):
+                    if url == self.found["token"]:
+                        raise _exc
+                    return real(cfg, method, url, *a, **kw)
+                with mock.patch.object(S, "_request", failing), mock.patch.object(S, "_spawn", side_effect=OSError):
+                    with self.assertRaises(S.Refused):
+                        S._access(self.cfg, self.backend, self.found, time.monotonic() + 5)
+                self.assertEqual(S._inflight(origin) is not None, kept)
+        # an answer that may come after the gateway rotated (a 5xx, a cut 200 without the refresh token): kept
+        for answer in ((503, {"error": "busy"}), (200, {"access_token": "srefr_cut"})):
+            with self.subTest(status=answer[0]):
+                S._set_inflight(origin, None)
+                self.srv.token_answer = answer
+                with mock.patch.object(S, "_spawn", side_effect=OSError), self.assertRaises(S.Refused):
+                    S._access(self.cfg, self.backend, self.found, time.monotonic() + 5)
+                self.assertIsNotNone(S._inflight(origin), "unclear: the token is never sent again")
+        self.srv.token_answer = None
+        S._set_inflight(origin, None)
+        S._access(self.cfg, self.backend, self.found, time.monotonic() + 10)   # a refresh that finished
+        self._wait_children()
+        self.assertIsNone(S._inflight(origin))
+        self.assertTrue(S.logged_in(self.backend, origin))
+
+    def _start_slow_refresh(self) -> None:
+        """A refresh in a detached child that is inside the gateway's token endpoint now."""
+        self.srv.access.clear()
+        self.srv.refresh_delay = 1.5
+        stale = json.loads(self.backend.get(S._entry(self.found["origin"])))["access"]
+        with self.assertRaises(S.Renewing):
+            S._access(self.cfg, self.backend, self.found, time.monotonic() + 0.2, stale=stale)
+        deadline = time.monotonic() + 10
+        while not self.srv.refreshes and time.monotonic() < deadline:
+            time.sleep(0.02)
+
+    def test_a_logout_during_a_refresh_is_not_undone_by_it(self):
+        self.login()
+        self._start_slow_refresh()
+        t0 = time.monotonic()
+        S.forget(self.backend, self.found["origin"])          # the person logs out while the child refreshes
+        self.assertGreater(time.monotonic() - t0, 0.7, "the logout waited for the refresh lock")
+        self._wait_children()
+        self.assertFalse(S.logged_in(self.backend, self.found["origin"]), "the refresh did not restore the login")
+
+    def test_a_login_during_a_refresh_is_not_overwritten_by_it(self):
+        self.login()
+        self._start_slow_refresh()
+        self.srv.refresh_delay = 0.0
+        t0 = time.monotonic()
+        self.login()                                           # a new login while the child refreshes the old one
+        self.assertGreater(time.monotonic() - t0, 0.7, "the login waited for the refresh lock")
+        self._wait_children()
+        rec = json.loads(self.backend.get(S._entry(self.found["origin"])))
+        self.assertEqual(rec["client_id"], list(self.srv.clients)[-1], "the new login stays")
+
+    def test_a_refresh_drops_its_result_when_the_record_changed_under_it(self):
+        # a login or a logout whose wait for the lock ended goes on without it: the refresh then finds another record
+        self.login()
+        origin = self.found["origin"]
+        rec = json.loads(self.backend.get(S._entry(origin)))
+        S._keep(self.backend, origin, {**rec, "expires": 0})
+        real = S._token
+        newer = {**rec, "refresh": "srefr_newer_login_" + "x" * 20, "access": "srefr_newer_access", "expires": 0}
+
+        def token_then_a_new_login(*a, **kw):
+            got = real(*a, **kw)
+            S._keep(self.backend, origin, newer)                # written without the lock, during the request
+            return got
+        with mock.patch.object(S, "_token", token_then_a_new_login), mock.patch.object(S, "_spawn",
+                                                                                         side_effect=OSError):
+            with self.assertRaises(S.Refused) as cm:
+                S._access(self.cfg, self.backend, self.found, time.monotonic() + 5)
+        self.assertIn("changed while it was renewed", str(cm.exception))
+        self.assertEqual(json.loads(self.backend.get(S._entry(origin)))["refresh"], newer["refresh"])
+        self.assertIsNone(S._inflight(origin))
+
+    def test_the_refresh_in_this_process_has_the_same_cap(self):
+        # no child can start: the refresh runs in a thread, and a request that hangs never holds the caller
+        self.login()
+        origin = self.found["origin"]
+        rec = json.loads(self.backend.get(S._entry(origin)))
+        S._keep(self.backend, origin, {**rec, "expires": 0})
+        release = __import__("threading").Event()
+        real = S._request
+
+        def hangs(cfg, method, url, *a, **kw):
+            if url == self.found["token"]:
+                release.wait(20)                    # ignores every deadline, as a hung store or socket would
+                raise TimeoutError("hung")
+            return real(cfg, method, url, *a, **kw)
+        with mock.patch.object(S, "_request", hangs), mock.patch.object(S, "_spawn", side_effect=OSError), \
+                mock.patch.object(S, "CHILD_LIFETIME", 1.0):
+            t0 = time.monotonic()
+            with self.assertRaises(S.Renewing):
+                S._access(self.cfg, self.backend, self.found, time.monotonic() + 30)
+            self.assertLess(time.monotonic() - t0, 5, "the cap, not the caller's 30 s, ended the wait")
+            release.set()
+            time.sleep(0.3)
+        self.assertEqual(S._inflight(origin), S._digest(rec["refresh"]), "the attempt left its record")
+
+    def test_two_processes_that_change_the_ended_file_at_once_keep_both_changes(self):
+        import subprocess
+        code = ("import sys, time\nsys.path.insert(0, sys.argv[1])\nfrom maisecrets import sref_client as S\n"
+                "time.sleep(max(0.0, float(sys.argv[2]) - time.time()))\n"
+                "for i in range(25):\n    S._mark_ended(f'https://p{sys.argv[3]}-{i}.example.test')\n"
+                "    S._clear_ended('https://gone.example.test')\n")
+        S._mark_ended("https://gone.example.test")
+        start = str(time.time() + 1.5)
+        procs = [subprocess.Popen([sys.executable, "-c", code, str(ROOT), start, str(n)], stderr=subprocess.PIPE,
+                                  text=True) for n in range(4)]
+        errs = [p.communicate(timeout=60)[1] for p in procs]
+        self.assertEqual([p.returncode for p in procs], [0] * 4, [e[-300:] for e in errs])
+        data = json.loads(S._ended_path().read_text(encoding="utf-8"))
+        self.assertEqual(len(data), 100, "no mark was lost to another process's write")
+        self.assertNotIn("https://gone.example.test", data)
+
+    def test_two_threads_that_refresh_in_this_process_send_one_request(self):
+        # no child can start: two hooks' threads of one process renew at once; the refresh token is sent once
+        import threading
+        self.login()
+        origin = self.found["origin"]
+        rec = json.loads(self.backend.get(S._entry(origin)))
+        S._keep(self.backend, origin, {**rec, "expires": 0})
+        self.srv.refresh_delay = 0.8
+        got: list = []
+
+        def call() -> None:
+            try:
+                got.append(S._access(self.cfg, self.backend, self.found, time.monotonic() + 10))
+            except S.Refused as exc:
+                got.append(str(exc))
+        with mock.patch.object(S, "_spawn", side_effect=OSError):
+            threads = [threading.Thread(target=call) for _ in range(2)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(30)
+        self.assertEqual(len(got), 2, "both calls ended with an answer")
+        self.assertEqual(len(self.srv.refreshes), 1, got)
+        self.assertEqual(len(set(got)), 1, "both got the one new access token")
+        self.assertTrue(got[0].startswith("srefr_"), got)
+
+    def _drop_new_store_entries(self) -> None:
+        """The entries a test adds to the store of the temp home go when it ends: a later module counts them."""
+        before = set(self.backend.keys())
+        self.addCleanup(lambda: [self.backend.delete(k) for k in set(self.backend.keys()) - before])
+
+    def _race_a_raw_writer(self, write) -> None:
+        """`write(backend)` writes the store without the Vault (no lock of its own): it reads the file, a renewal
+        stores its new pair meanwhile, and then it saves. The renewal's pair must stay."""
+        import threading
+        from maisecrets.vault import JsonFileBackend
+        self._drop_new_store_entries()
+        self.login()
+        origin = self.found["origin"]
+        old = json.loads(self.backend.get(S._entry(origin)))
+        S._keep(self.backend, origin, {**old, "expires": 0})
+        read, go = threading.Event(), threading.Event()
+        real_load = JsonFileBackend._load
+
+        def slow_load(backend, for_write=False):
+            d = real_load(backend, for_write)
+            if for_write and threading.current_thread().name == "raw-writer":
+                read.set()                             # the raw writer holds a snapshot with the old login
+                go.wait(10)
+            return d
+        errors: list = []
+
+        def writer() -> None:
+            try:
+                write(JsonFileBackend())
+            except Exception as exc:  # noqa: BLE001 - reported below
+                errors.append(repr(exc))
+        got: list = []
+        with mock.patch.object(JsonFileBackend, "_load", slow_load), mock.patch.object(S, "_spawn",
+                                                                                         side_effect=OSError):
+            w = threading.Thread(target=writer, name="raw-writer")
+            w.start()
+            self.assertTrue(read.wait(10))
+            r = threading.Thread(target=lambda: got.append(
+                S._access(self.cfg, self.backend, self.found, time.monotonic() + 20)))
+            r.start()
+            time.sleep(0.8)                            # the renewal reached the gateway and waits for the store
+            go.set()
+            w.join(15)
+            r.join(25)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(got), 1, "the renewal ended")
+        now = json.loads(self.backend.get(S._entry(origin)))["refresh"]
+        self.assertNotEqual(now, old["refresh"], "the spent token was not written back")
+
+    def test_a_released_value_written_during_a_renewal_never_puts_the_spent_token_back(self):
+        from maisecrets import vault_refs
+        self._race_a_raw_writer(lambda b: vault_refs.remember_released(
+            b, "s-race", {"vref:synthetic-" + "a" * 20: ("synthetic-released-value-9", "https://vault.example.test")}))
+
+    def test_the_name_services_secret_written_during_a_renewal_never_puts_the_spent_token_back(self):
+        from maisecrets import ner_secret
+        ep = ner_secret.endpoint("http://127.0.0.1:59999/")
+        self.addCleanup(lambda: ner_secret._containers_path().unlink(missing_ok=True))
+        self._race_a_raw_writer(lambda b: ner_secret.keep(b, ep, "k" * 40, "container-synthetic"))
+
+    def test_a_vault_write_during_a_renewal_never_puts_the_spent_token_back(self):
+        # the jsonfile store rewrites the whole file: a Vault write that read it before the renewal stored its pair
+        # wrote the old login back, and the next renewal sent the spent token
+        import threading
+        from maisecrets.vault import JsonFileBackend, Vault
+        self._drop_new_store_entries()
+        self.login()
+        origin = self.found["origin"]
+        old = json.loads(self.backend.get(S._entry(origin)))
+        S._keep(self.backend, origin, {**old, "expires": 0})
+        read, go = threading.Event(), threading.Event()
+        real_put = JsonFileBackend.put
+
+        def slow_put(backend, key, value, *a, **kw):
+            if key.startswith(S._STORE_PREFIX):
+                return real_put(backend, key, value, *a, **kw)
+            d = backend._load(for_write=True)          # the Vault write read the file, with the old login in it
+            read.set()
+            go.wait(10)
+            d[key] = value
+            backend._save(d)
+        errors: list = []
+
+        def vault_write() -> None:
+            try:
+                Vault({"backend": "jsonfile", "allow_plaintext_store": True}).put("synthetic-value-q7", "SECRET",
+                                                                                  "test")
+            except Exception as exc:  # noqa: BLE001 - reported below
+                errors.append(repr(exc))
+        got: list = []
+        with mock.patch.object(JsonFileBackend, "put", slow_put), mock.patch.object(S, "_spawn", side_effect=OSError):
+            v = threading.Thread(target=vault_write)
+            v.start()
+            self.assertTrue(read.wait(10))
+            r = threading.Thread(target=lambda: got.append(
+                S._access(self.cfg, self.backend, self.found, time.monotonic() + 20)))
+            r.start()
+            time.sleep(0.8)                            # the renewal reached the gateway and waits for the store
+            go.set()
+            v.join(15)
+            r.join(25)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(got), 1, "the renewal ended")
+        now = json.loads(self.backend.get(S._entry(origin)))["refresh"]
+        self.assertNotEqual(now, old["refresh"], "the spent token was not written back")
+        self.assertEqual(self.srv.refreshes, [old["refresh"]])
+
+    def test_a_login_clears_the_ended_mark_in_the_same_section_as_its_pair(self):
+        # a renewal marks a login as ended under the refresh lock; a login that cleared the mark after it released
+        # that lock could erase a newer "ended"
+        from maisecrets.vault import _lock_for
+        from maisecrets.vault_refs import DIR
+        seen: list = []
+        real = S._clear_ended
+
+        def clear(origin):
+            seen.append(_lock_for(DIR / ".sref-refresh.lock").held_here())
+            return real(origin)
+        S._mark_ended(self.found["origin"])
+        with mock.patch.object(S, "_clear_ended", clear):
+            self.login()
+        self.assertEqual(seen, [True], "cleared while the refresh lock is held")
+        self.assertFalse(S.ended(self.found["origin"]))
+
+    def test_the_child_has_a_hard_lifetime(self):
+        import subprocess
+        code = ("import sys, time\nsys.path.insert(0, sys.argv[1])\nfrom maisecrets.sref_client import _hard_cap\n"
+                "_hard_cap(1)\ntime.sleep(20)\n")
+        t0 = time.monotonic()
+        r = subprocess.run([sys.executable, "-c", code, str(ROOT)], timeout=15)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertLess(time.monotonic() - t0, 10)
+        self.assertGreater(S.CHILD_LIFETIME, S.RENEW_BUDGET)
+
+    def test_one_process_claims_an_early_renewal_however_many_start_at_once(self):
+        import subprocess
+        code = ("import sys, time\nsys.path.insert(0, sys.argv[1])\nfrom maisecrets import sref_client as S\n"
+                "time.sleep(max(0.0, float(sys.argv[2]) - time.time()))\nprint(S._claim_renewal(sys.argv[3]))\n")
+        origin = "https://claim.example.test"
+        start = str(time.time() + 1.5)
+        procs = [subprocess.Popen([sys.executable, "-c", code, str(ROOT), start, origin], stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, text=True) for _ in range(6)]
+        outs = [p.communicate(timeout=30) for p in procs]
+        self.assertEqual(sorted(o.strip() for o, _e in outs), ["False"] * 5 + ["True"], [e[-200:] for _o, e in outs])
+        self.assertFalse(S._claim_renewal(origin), "within 30 s: not again")
+
+    def test_a_login_the_gateway_ended_is_forgotten_and_named_until_the_next_login(self):
+        self.login()
+        self.assertFalse(S.ended(self.found["origin"]))
+        self.srv.access.clear()
+        self.srv.token_answer = (400, {"error": "invalid_grant"})
+        with self.assertRaises(S.Refused) as cm:
+            S.resolve(self.cfg, self.backend, self.found, [self.srv.mint("email", VALUE_MAIL)], "process", "mail")
+        self.assertIn("no longer accepts the login", str(cm.exception))
+        self.assertFalse(S.logged_in(self.backend, self.found["origin"]))
+        self.assertTrue(S.ended(self.found["origin"]), "the end is recorded for the warning")
+        self.assertEqual(S.ended_why(self.found["origin"]), "revoked", "the gateway refused it: invalid_grant")
+        self.srv.token_answer = None
+        self.login()
+        self.assertFalse(S.ended(self.found["origin"]), "a new login clears it")
 
     def test_many_silent_local_connections_hold_few_threads_and_the_login_goes_on(self):
         # a process of the same user can always disturb its own login (C22); what the listener must not do is grow

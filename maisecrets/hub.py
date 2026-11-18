@@ -106,6 +106,9 @@ def pane_status(session: str, tool_call_at: float = 0.0) -> dict:
               sv._guarded(sv.store_verdict),
               sv._guarded(sv.incidents_verdict),
               sv._guarded(lambda: selftest.verdict(None, [session] if session else [], version, client="claude"))]
+    names = sv.names_verdict()          # the name source: a warn when it is set and cannot be used
+    if names:
+        checks.append(names)
     head = sv.head_line(version, checks, "claude").split(" \u00b7 ")[0]
     failed = [c.name for c in checks if c.state == "FAIL"]
     if failed:

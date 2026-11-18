@@ -233,11 +233,41 @@ class _Lock:
     LOCK_DEADLINE = 6.0
 
     def __init__(self, path: Path) -> None:
+        import threading
         self.path = path
         self.fd = None
         self.depth = 0
+        # re-entrant for the thread that holds it, never for another thread of the process: two threads that both
+        # "re-entered" ran one critical section at once (Gate A of the sref refresh)
+        self._owner = threading.RLock()
+
+    def held_here(self) -> bool:
+        """True when the current thread holds this lock."""
+        return self.depth > 0 and self._owner._is_owned()
 
     def __enter__(self):
+        return self.enter(None)
+
+    def held(self, timeout: float | None = None):
+        """`with lock.held(seconds):` the lock with a wait of its own for this call. The wait is an argument, never a
+        shared attribute: two threads that each set one overwrote each other's (Gate A of the sref refresh)."""
+        import contextlib
+
+        @contextlib.contextmanager
+        def ctx():
+            self.enter(timeout)
+            try:
+                yield self
+            finally:
+                self.__exit__(None, None, None)
+        return ctx()
+
+    def enter(self, timeout: float | None = None):
+        """Take the lock, waiting at most `timeout` seconds (None: LOCK_DEADLINE). Raises LockTimeout."""
+        wait = max(0.0, self.LOCK_DEADLINE if timeout is None else timeout)
+        deadline = time.time() + wait
+        if not self._owner.acquire(timeout=wait):
+            raise LockTimeout(f"vault lock busy for {wait:.0f}s ({self.path})")
         self.depth += 1
         if self.depth > 1:
             return self
@@ -246,8 +276,8 @@ class _Lock:
             fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
         except BaseException:
             self.depth -= 1                  # no lock was taken: a later enter must try again (codex review)
+            self._owner.release()
             raise
-        deadline = time.time() + self.LOCK_DEADLINE
         try:
             while True:
                 try:
@@ -260,11 +290,12 @@ class _Lock:
                     break
                 except OSError:
                     if time.time() > deadline:
-                        raise LockTimeout(f"vault lock busy for {self.LOCK_DEADLINE:.0f}s ({self.path})")
+                        raise LockTimeout(f"vault lock busy for {wait:.0f}s ({self.path})")
                     time.sleep(0.02)
         except BaseException:
             os.close(fd)
             self.depth -= 1
+            self._owner.release()
             raise
         self.fd = fd
         return self
@@ -272,6 +303,7 @@ class _Lock:
     def __exit__(self, *exc) -> None:
         self.depth -= 1
         if self.depth > 0 or self.fd is None:
+            self._owner.release()
             return
         try:
             try:
@@ -285,6 +317,7 @@ class _Lock:
         finally:
             os.close(self.fd)
             self.fd = None
+            self._owner.release()
 
 
 class ConfigError(RuntimeError):

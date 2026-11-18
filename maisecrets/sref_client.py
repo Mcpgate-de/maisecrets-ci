@@ -58,18 +58,30 @@ def find(text: str) -> list:
             for m in SREF_RE.finditer(text)]
 
 
+# why the last discover() of this process found no resolver: "timeout", "network" (no connection), "http" (an
+# answer other than 200 JSON), "json" (a body that is no JSON object), "absent" (a document that was read and names
+# none), or "" when it found one
+DISCOVERY = {"why": ""}
+
+
 def _get_json(cfg: dict, url: str, deadline: float) -> dict | None:
     try:
         status, headers, body = _request(cfg, "GET", url, {"Accept": "application/json"}, None, deadline)
-    except _net_errors():
+    except _net_errors() as exc:
+        DISCOVERY["why"] = "timeout" if isinstance(exc, TimeoutError) else "network"
         return None
     if status != 200 or not _is_json(headers):
+        DISCOVERY["why"] = "http"
         return None
     try:
         data = json.loads(body.decode("utf-8"))
-    except (ValueError, RecursionError):
+    except (ValueError, RecursionError, UnicodeError):
+        DISCOVERY["why"] = "json"
         return None
-    return data if isinstance(data, dict) else None
+    if not isinstance(data, dict):
+        DISCOVERY["why"] = "json"
+        return None
+    return data
 
 
 _SCOPE_RE = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
@@ -95,18 +107,26 @@ def discover(cfg: dict, mcp_url: str, deadline: float | None = None) -> dict | N
     """The resolver of the gateway behind an MCP URL: {"origin", "resolve", "scope", "sinks", "authorize", "token",
     "register"}, or None when the gateway names none. Every endpoint must be https on the same origin."""
     deadline = deadline if deadline is not None else time.monotonic() + BUDGET
+    DISCOVERY["why"] = ""
     origin = origin_of(mcp_url)
     if not origin:
+        DISCOVERY["why"] = "absent"
         return None
     path = urlsplit(mcp_url).path
     path = "" if path == "/" else path
     meta = _get_json(cfg, f"{origin}/.well-known/oauth-protected-resource{path}", deadline)
-    block = meta.get("sensitive_references") if meta else None
+    if meta is None:
+        return None                                   # DISCOVERY names why
+    block = meta.get("sensitive_references")
     if not isinstance(block, dict) or origin_of(block.get("resolve_endpoint")) != origin:
+        DISCOVERY["why"] = "absent"
         return None
-    auth = _get_json(cfg, f"{origin}/.well-known/oauth-authorization-server", deadline) or {}
+    auth = _get_json(cfg, f"{origin}/.well-known/oauth-authorization-server", deadline)
+    if auth is None:
+        return None
     ends = {k: auth.get(f"{k}_endpoint") for k in ("authorization", "token", "registration")}
     if any(origin_of(v) != origin for v in ends.values()):
+        DISCOVERY["why"] = "absent"
         return None
     sinks = block.get("sink_profiles")
     sinks = [x for x in sinks if isinstance(x, str)] if isinstance(sinks, list) else []
@@ -163,16 +183,53 @@ def _load(backend, origin: str) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+# Lock order, everywhere: the refresh lock (vault_refs.DIR/.sref-refresh.lock) first, then the store lock (HOME/.lock).
+# The store lock guards every write of a login record: the jsonfile and encrypted-file stores rewrite the whole file,
+# so a Vault write that read the file before a renewal stored its pair would put the spent token back.
+STORE_WAIT = 30.0          # a Vault write holds it for moments; a rotated pair must never be dropped for it
+
+
+def _store_lock():
+    from .vault import HOME, _lock_for
+    return _lock_for(HOME / ".lock").held(STORE_WAIT)
+
+
 def _keep(backend, origin: str, data: dict) -> None:
-    backend.put(_entry(origin), json.dumps(data), label=f"maisecrets resolver login {origin}")
+    with _store_lock():
+        backend.put(_entry(origin), json.dumps(data), label=f"maisecrets resolver login {origin}")
+
+
+def _refresh_lock_held(wait: float):
+    """The refresh lock for a login or a logout: they wait for a running refresh (at most `wait` seconds), so a
+    refresh never restores a login that was just logged out, or overwrites a new one. When the wait ends, they go on
+    without it: the refresh then finds another record than it read and drops its result (_refresh_locked)."""
+    import contextlib
+    from .vault import LockTimeout, _lock_for
+    from .vault_refs import DIR
+
+    @contextlib.contextmanager
+    def held():
+        lock = _lock_for(DIR / ".sref-refresh.lock")
+        try:
+            lock.enter(wait)
+            entered = True
+        except (LockTimeout, OSError):
+            entered = False
+        try:
+            yield entered
+        finally:
+            if entered:
+                lock.__exit__(None, None, None)
+    return held()
 
 
 def forget(backend, origin: str) -> None:
-    """Log out of one gateway: the tokens and the client id go."""
-    try:
-        backend.delete(_entry(origin))
-    except (KeyError, AttributeError):
-        pass
+    """Log out of one gateway: the tokens and the client id go, after a refresh that runs."""
+    with _refresh_lock_held(LOCK_WAIT), _store_lock():
+        try:
+            backend.delete(_entry(origin))
+        except (KeyError, AttributeError):
+            pass
 
 
 def logged_in(backend, origin: str) -> bool:
@@ -220,13 +277,27 @@ def authorize_url(found: dict, client_id: str, redirect: str, challenge: str, st
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), ""))
 
 
+def _gaierror():
+    import socket
+    return socket.gaierror
+
+
+def _cert_error():
+    import ssl
+    return ssl.SSLCertVerificationError
+
+
 def _token(cfg: dict, found: dict, form: dict, deadline: float) -> dict:
     try:
         status, headers, raw = _request(cfg, "POST", found["token"],
                                         {"Content-Type": "application/x-www-form-urlencoded",
                                          "Accept": "application/json"}, urlencode(form).encode(), deadline)
     except _net_errors() as exc:
-        raise Refused(f"the gateway could not be reached ({type(exc).__name__})") from None
+        err = Refused(f"the gateway could not be reached ({type(exc).__name__})")
+        # the request surely never reached the gateway: no connection, no address, a certificate refused in the
+        # handshake. Anything else (a timeout, a connection that broke) may have reached it
+        err.unsent = isinstance(exc, (ConnectionRefusedError, _gaierror(), _cert_error()))
+        raise err from None
     try:
         data = json.loads(raw.decode("utf-8")) if _is_json(headers) else None
     except (ValueError, RecursionError):
@@ -248,10 +319,14 @@ def finish_login(cfg: dict, backend, found: dict, client_id: str, redirect: str,
     deadline = deadline if deadline is not None else time.monotonic() + BUDGET
     data = _token(cfg, found, {"grant_type": "authorization_code", "code": code, "redirect_uri": redirect,
                                "client_id": client_id, "code_verifier": verifier}, deadline)
-    _keep(backend, found["origin"], {"client_id": client_id, "access": data["access_token"],
-                                     "refresh": data["refresh_token"], "scope": _granted(data, found["scope"]),
-                                     "account": _hint(data),
-                                     "expires": time.time() + float(data.get("expires_in") or 3600)})
+    # the pair and the end of the "login ended" mark in one section under the refresh lock: a renewal that ends a
+    # login marks it under the same lock, so a newer "ended" is never erased by an older login
+    with _refresh_lock_held(LOCK_WAIT):
+        _keep(backend, found["origin"], {"client_id": client_id, "access": data["access_token"],
+                                         "refresh": data["refresh_token"], "scope": _granted(data, found["scope"]),
+                                         "account": _hint(data),
+                                         "expires": time.time() + float(data.get("expires_in") or 3600)})
+        _clear_ended(found["origin"])
 
 
 def _hint(data: dict) -> str:
@@ -307,45 +382,410 @@ _FORBIDDEN = {"insufficient_scope": "the login lacks the resolve scope", "not_en
               "resolve references", "ineligible_sink": "this sink is not allowed"}
 
 
-def _fresh(rec: dict, stale: str | None) -> str | None:
-    """The access token of the record while it holds a minute, and is not the one the gateway just refused."""
-    if rec.get("access") and rec["access"] != stale and float(rec.get("expires") or 0) - time.time() > 60:
+def _digest(token: str | None) -> str | None:
+    return hashlib.sha256(token.encode()).hexdigest() if token else None
+
+
+def _fresh(rec: dict, stale: str | None, margin: float = 60.0) -> str | None:
+    """The access token of the record while it holds `margin` seconds, and is not the one the gateway just refused.
+    `stale` is the sha256 of that token (_digest): the renewing child gets the digest, never a token, on its stdin."""
+    if rec.get("access") and _digest(rec["access"]) != stale and float(rec.get("expires") or 0) - time.time() > margin:
         return rec["access"]
     return None
 
 
-def _access(cfg: dict, backend, found: dict, deadline: float, stale: str | None = None) -> str:
-    """An access token for the resolve. `stale` is a token the gateway answered 401 to. The refresh token rotates on
-    each use, so the refresh runs under a file lock, and the record is read again under it: a session that waited
-    takes the pair another session just got, and two sessions never present the same refresh token (#1743 H2)."""
-    from .vault import LockTimeout, _lock_for
-    from .vault_refs import DIR, _bounded
-    host = urlsplit(found["origin"]).hostname
-    got = _fresh(_load(backend, found["origin"]), stale)
-    if got:
-        return got
+# ---------------------------------------------------------------- the login that ended --
+# A refresh token the gateway refused for good (invalid_grant) ends the login: the record goes, and the time it ended
+# is kept here, so the warning of a name source can say "the gateway ended the login" instead of "not logged in".
+# The origin and a time only, no token.
+def _ended_path():
+    from .vault import HOME
+    return HOME / "sref-ended.json"
+
+
+def _update_ended(origin: str, mark: bool, why: str = "revoked") -> None:
+    """Mark or clear one origin, read and written under the lock of this file: two processes that change two
+    origins at once keep both changes."""
+    from .vault import HOME, LockTimeout, _lock_for, atomic_write
     try:
-        with _bounded(_lock_for(DIR / ".sref-refresh.lock"), deadline):
-            rec = _load(backend, found["origin"])
-            if not rec.get("refresh"):
-                raise Refused(f"maisecrets is not logged in at {host}; the person runs /maisecrets:sref login")
-            got = _fresh(rec, stale)
-            if got:
-                return got
-            # a refused refresh token is forgotten, so the next call asks for a login instead of trying it again
+        with _lock_for(HOME / ".sref-ended.lock"):
             try:
-                data = _token(cfg, found, {"grant_type": "refresh_token", "refresh_token": rec["refresh"],
-                                           "client_id": rec.get("client_id", "")}, deadline)
-            except _Revoked:
-                forget(backend, found["origin"])
-                raise
+                data = json.loads(_ended_path().read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                data = {}
+            data = data if isinstance(data, dict) else {}
+            if mark:
+                data[origin] = {"at": time.time(), "why": why}
+            elif data.pop(origin, None) is None:
+                return
+            atomic_write(_ended_path(), json.dumps(data))
+    except (OSError, LockTimeout):
+        pass
+
+
+def _mark_ended(origin: str, why: str = "revoked") -> None:
+    """why: "revoked" (the gateway refused the refresh token: invalid_grant) or "uncertain" (a renewal of this token
+    did not finish, so it may be spent, and it is not sent again)."""
+    _update_ended(origin, True, why)
+
+
+def _clear_ended(origin: str) -> None:
+    _update_ended(origin, False)
+
+
+def ended_why(origin: str) -> str | None:
+    """Why the login at this origin ended, while no login came since: "revoked" (the gateway refused the refresh
+    token) or "uncertain" (a renewal did not finish); None when it did not end."""
+    try:
+        data = json.loads(_ended_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    entry = data.get(origin) if isinstance(data, dict) else None
+    if entry is None:
+        return None
+    why = entry.get("why") if isinstance(entry, dict) else None      # a bare time: a mark of an older version
+    return why if why in ("revoked", "uncertain") else "revoked"
+
+
+def ended(origin: str) -> bool:
+    """True when the login at this origin ended (ended_why) and no login came since."""
+    return ended_why(origin) is not None
+
+
+# ---------------------------------------------------------------- the refresh --
+RENEW_BUDGET = 30.0        # the renewing child: its wait for the lock, then the token request
+LOCK_WAIT = RENEW_BUDGET + 5.0
+# the exit codes of the renewing child
+_OK, _NO_LOGIN, _REVOKED, _FAILED, _BUSY = 0, 2, 3, 4, 5
+_renewals: list = []       # the children of this process, kept so that a poll reaps each
+
+
+def _refresh_locked(cfg: dict, backend, found: dict, stale: str | None, deadline: float, margin: float = 60.0) -> str:
+    """The refresh itself, under the refresh lock with a wait up to `deadline`: the record is read again under the
+    lock, so a process that waited takes the pair another one just got, and two never present the same refresh token
+    (#1743 H2). A refused refresh token is forgotten and marked as ended. Raises Refused, _Revoked or LockTimeout."""
+    from .vault import _lock_for
+    from .vault_refs import DIR
+    host = urlsplit(found["origin"]).hostname
+    lock = _lock_for(DIR / ".sref-refresh.lock")
+    lock.enter(max(0.0, deadline - time.monotonic()))     # longer than the lock's own 6 s: a slow refresh
+    try:
+        rec = _load(backend, found["origin"])
+        if not rec.get("refresh"):
+            raise Refused(f"maisecrets is not logged in at {host}; the person runs /maisecrets:sref login")
+        got = _fresh(rec, stale, margin)
+        if got:
+            return got
+        # The limit of a rotating refresh token without a grace window (ai-gateway #1933, closed as specified): when
+        # the answer of a refresh is lost after the gateway rotated (a kill, a crash, a broken connection), the new
+        # token is gone and the old one is spent, so no client can keep that login. An unfinished refresh of this
+        # very token is therefore never sent again (the gateway would end the login without a word): the login is
+        # forgotten and marked as ended, and the person is told at once to log in again.
+        old = _digest(rec["refresh"])
+        if _inflight(found["origin"]) == old:
+            forget(backend, found["origin"])
+            _mark_ended(found["origin"], "uncertain")
+            _set_inflight(found["origin"], None)
+            raise _Revoked(f"the last renewal of the login at {host} did not finish, so its token may be spent; "
+                           "send /maisecrets:sref login again")
+        _set_inflight(found["origin"], old)
+        try:
+            data = _token(cfg, found, {"grant_type": "refresh_token", "refresh_token": rec["refresh"],
+                                       "client_id": rec.get("client_id", "")}, deadline)
+        except _Revoked:
+            forget(backend, found["origin"])
+            _mark_ended(found["origin"])
+            _set_inflight(found["origin"], None)
+            raise
+        except Refused as exc:
+            # only a request that surely never reached the gateway leaves the token unspent. Any answer may come
+            # after the gateway rotated (a 5xx, a cut or malformed 200, a 4xx), so the record stays for it
+            if getattr(exc, "unsent", False):
+                _set_inflight(found["origin"], None)
+            raise
+        # a login or a logout that did not wait for this refresh (its wait ended) changed the record: this result
+        # belongs to a login that is gone, and it never overwrites the newer state
+        # under the store lock: the record read again, the new pair stored and the in-flight record cleared, with no
+        # Vault write in between that could put the spent token back (lock order: refresh, then store)
+        with _store_lock():
+            if _digest(_load(backend, found["origin"]).get("refresh")) != old:
+                _set_inflight(found["origin"], None)
+                raise Refused(f"the login at {host} changed while it was renewed; the new state stays")
+            # the new pair goes into the store before the lock is released: no other process can read the spent
+            # token once the gateway rotated it (the gateway ends a login whose spent refresh token comes back,
+            # ai-gateway #1933: by design, no grace window)
             _keep(backend, found["origin"], {**rec, "access": data["access_token"], "refresh": data["refresh_token"],
                                              "scope": _granted(data, str(rec.get("scope") or SCOPE)),
                                              "account": _hint(data) or rec.get("account", ""),
                                              "expires": time.time() + float(data.get("expires_in") or 3600)})
-            return data["access_token"]
-    except LockTimeout:
-        raise Refused(f"another session renews the login at {host} right now; try again") from None
+            _set_inflight(found["origin"], None)        # only after the new pair is in the store
+        return data["access_token"]
+    finally:
+        lock.__exit__(None, None, None)
+
+
+def _inflight_path():
+    from .vault import HOME
+    return HOME / "sref-inflight.json"
+
+
+def _inflight(origin: str) -> str | None:
+    """The digest of the refresh token a refresh at this origin sent and did not finish, or None."""
+    try:
+        data = json.loads(_inflight_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    got = data.get(origin) if isinstance(data, dict) else None
+    return got.get("old") if isinstance(got, dict) and isinstance(got.get("old"), str) else None
+
+
+def _set_inflight(origin: str, old: str | None) -> None:
+    """Record (old: the digest of the refresh token, never the token) or clear the refresh in flight. Under the
+    refresh lock. A record that cannot be written stops the refresh: without it a lost answer would go unnoticed."""
+    from .vault import atomic_write
+    path = _inflight_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except (OSError, ValueError):
+        data = {}
+    data = data if isinstance(data, dict) else {}
+    if old is None and origin not in data:
+        return
+    if old is None:
+        data.pop(origin, None)
+    else:
+        data[origin] = {"old": old, "at": time.time()}
+    try:
+        atomic_write(path, json.dumps(data))
+    except OSError:
+        if old is not None:
+            raise Refused("the record of a renewal cannot be written; nothing was sent") from None
+
+
+CHILD_LIFETIME = RENEW_BUDGET + 5.0
+
+
+def _hard_cap(seconds: float) -> None:
+    """End this process after `seconds`, whatever it waits for: SIGALRM (its default action ends the process) where
+    there is one, else a watchdog thread that calls os._exit."""
+    import os
+    import signal
+    if hasattr(signal, "alarm"):
+        signal.signal(signal.SIGALRM, signal.SIG_DFL)
+        signal.alarm(max(1, int(seconds + 0.999)))
+        return
+    import threading
+    t = threading.Timer(seconds, os._exit, (_FAILED,))
+    t.daemon = True
+    t.start()
+
+
+_CHILD = ("import sys\nsys.path.insert(0, sys.argv[1])\nfrom maisecrets.sref_client import _renew_child\n"
+          "sys.exit(_renew_child())\n")
+
+
+def _renew_child() -> int:
+    """The detached child of _access: {"cfg", "found", "stale"} on stdin (stale: a digest, no token), the refresh
+    with its own budget, the new pair into the store, the exit code and one line of fixed text on stdout. A hard
+    lifetime ends the child however it hangs (a lock, the network, a store that does not return): a child killed
+    mid-refresh leaves its in-flight record, so the next refresh ends the login loudly instead of reusing the token."""
+    import sys
+    _hard_cap(CHILD_LIFETIME)
+    try:
+        job = json.loads(sys.stdin.read())
+        cfg, found, stale = job["cfg"], job["found"], job.get("stale")
+        from .vault import LockTimeout, make_backend
+        try:
+            # the store of the parent, by its kind: never the default of a cfg that names none
+            backend = make_backend({"backend": job["backend"]})
+            _refresh_locked(cfg, backend, found, stale, time.monotonic() + RENEW_BUDGET,
+                            float(job.get("margin") or 60.0))
+            code, why = _OK, ""
+        except _Revoked as exc:
+            code, why = _REVOKED, str(exc)
+        except LockTimeout:
+            code, why = _BUSY, ""
+        except Refused as exc:
+            code, why = (_NO_LOGIN if "not logged in" in str(exc) else _FAILED), str(exc)
+    except Exception as exc:  # noqa: BLE001 - the parent names the failure by its code
+        code, why = _FAILED, type(exc).__name__
+    try:
+        sys.stdout.write(why[:500])
+        sys.stdout.flush()
+    except (OSError, ValueError):
+        pass                                   # the parent gave up and closed the pipe; the store has the pair
+    return code
+
+
+# the store kinds a child can open again by name (vault.make_backend); another backend refreshes in this process
+_KINDS = {"JsonFileBackend": "jsonfile", "EncryptedFileBackend": "encrypted-file",
+          "WindowsVaultBackend": "windows-vault", "KeychainBackend": "keychain"}
+
+
+def _spawn(cfg: dict, found: dict, stale: str | None, kind: str, margin: float = 60.0):
+    """The renewing child, detached: its own session (process group), so the end of the hook and the client's kill
+    of the hook's group do not end the refresh it started; a refresh token the gateway rotated is always kept."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+    root = str(Path(__file__).resolve().parent.parent)
+    flags: dict = {"start_new_session": True}
+    if os.name == "nt":
+        flags = {"creationflags": getattr(subprocess, "DETACHED_PROCESS", 0)
+                 | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+    proc = subprocess.Popen([sys.executable, "-I", "-c", _CHILD, root], stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, **flags)
+    try:
+        job = {"cfg": cfg, "found": found, "stale": stale, "backend": kind, "margin": margin}
+        proc.stdin.write(json.dumps(job, default=str).encode())
+        proc.stdin.close()
+    except OSError:
+        pass
+    _renewals[:] = [p for p in _renewals if p.poll() is None] + [proc]
+    return proc
+
+
+RENEW_AHEAD = 900.0        # a token with less left than this is renewed early, in the background
+_RENEW_EVERY = 30.0        # one early renewal per origin and this many seconds, however many hooks run
+
+
+def renew_ahead(cfg: dict, backend, found: dict, margin: float = RENEW_AHEAD) -> bool:
+    """At a calm moment (the session start, after a hook got its token): when the access token of a login has less
+    than `margin` seconds left, a detached child renews it now, so that a renewal rarely falls into the short budget
+    of a hook. Never waits. True when a child started."""
+    try:
+        rec = _load(backend, found["origin"])
+        if not rec.get("refresh") or _fresh(rec, None, margin):
+            return False
+        kind = _KINDS.get(type(backend).__name__)
+        if kind is None:
+            return False
+        if not _claim_renewal(found["origin"]):
+            return False
+        _spawn(cfg, found, None, kind, margin)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _claim_renewal(origin: str) -> bool:
+    """True for one process per origin and _RENEW_EVERY seconds: the time of the last claim is read and written under
+    a lock, so two hooks at once never both claim it. False when the lock is busy or the record cannot be written."""
+    from .vault import HOME, LockTimeout, _lock_for, atomic_write
+    mark = HOME / f".sref-renew-{_entry(origin)[-16:]}"
+    lock = _lock_for(HOME / ".sref-renew.lock")
+    try:
+        with lock.held(0.5):            # a hook never waits long for an early renewal
+            try:
+                last = float(mark.read_text(encoding="utf-8") or 0)
+            except (OSError, ValueError):
+                last = 0.0
+            if abs(time.time() - last) < _RENEW_EVERY:
+                return False
+            atomic_write(mark, repr(time.time()))
+            return True
+    except (OSError, LockTimeout):
+        return False
+
+
+_INLINE: dict = {}
+
+
+def _inline_gate(origin: str):
+    """The process-local lock of the inline renewal of one origin."""
+    import threading
+    return _INLINE.setdefault(origin, threading.Lock())
+
+
+def _refresh_inline(cfg: dict, backend, found: dict, stale_d: str | None, deadline: float, host: str) -> str:
+    """The refresh in a thread of this process, for when no child can start: the caller waits up to its deadline and
+    never past CHILD_LIFETIME, whatever the store or the network do. A thread cannot be killed: one that hangs goes on
+    in the background and ends with the process; its in-flight record makes the next refresh end the login loudly
+    rather than reuse a token that may be spent."""
+    import threading
+    from .vault import LockTimeout
+    end = min(deadline, time.monotonic() + CHILD_LIFETIME)
+    box: dict = {}
+
+    gate = _inline_gate(found["origin"])
+
+    def run() -> None:
+        # one refresh per origin in this process at a time, whatever the file lock does for threads
+        if not gate.acquire(timeout=max(0.0, end - time.monotonic())):
+            box["err"] = LockTimeout("an inline renewal of this origin runs")
+            return
+        try:
+            box["ok"] = _refresh_locked(cfg, backend, found, stale_d, end)
+        except BaseException as exc:  # noqa: BLE001 - handed to the caller
+            box["err"] = exc
+        finally:
+            gate.release()
+    t = threading.Thread(target=run, name="maisecrets-sref-refresh", daemon=True)
+    t.start()
+    t.join(max(0.0, end - time.monotonic()))
+    if t.is_alive():
+        raise Renewing(f"the login at {host} is being renewed (it takes longer than this call may wait)")
+    if "err" in box:
+        if isinstance(box["err"], LockTimeout):
+            raise Refused(f"another session renews the login at {host} right now; try again") from None
+        raise box["err"]
+    return box["ok"]
+
+
+class Renewing(Refused):
+    """The refresh outlasted the caller's deadline; it goes on in a detached child, and the next call uses its pair."""
+
+
+def _access(cfg: dict, backend, found: dict, deadline: float, stale: str | None = None) -> str:
+    """An access token for the resolve. `stale` is a token the gateway answered 401 to. The refresh token rotates on
+    each use, and a refresh that the caller abandons halfway loses the new token while the gateway already spent the
+    old one: the next refresh then presents a spent token, and the gateway ends the login (field report, 0.9.15, a
+    hook with a 2 s budget on a slow network). So the refresh runs in a detached child with its own budget
+    (RENEW_BUDGET) under the refresh lock; the caller waits for it up to its own deadline and otherwise goes on
+    without a token (Renewing), while the child keeps the new pair."""
+    host = urlsplit(found["origin"]).hostname
+    stale_d = _digest(stale)
+    rec = _load(backend, found["origin"])
+    got = _fresh(rec, stale_d)
+    if got:
+        if not _fresh(rec, stale_d, RENEW_AHEAD):
+            renew_ahead(cfg, backend, found)      # less than RENEW_AHEAD left: renewed now, in the background
+        return got
+    if not rec.get("refresh"):
+        raise Refused(f"maisecrets is not logged in at {host}; the person runs /maisecrets:sref login")
+    try:
+        kind = _KINDS.get(type(backend).__name__)
+        if kind is None:
+            raise ValueError("a store a child cannot open")
+        proc = _spawn(cfg, found, stale_d, kind)
+    except (OSError, ValueError):
+        # no child can start: the refresh in this process, with the same hard cap
+        return _refresh_inline(cfg, backend, found, stale_d, deadline, host)
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            break
+        time.sleep(0.02)
+    code = proc.poll()
+    if code is None:
+        raise Renewing(f"the login at {host} is being renewed (the gateway answers slowly); the next call uses it")
+    try:
+        why = proc.stdout.read(500).decode("utf-8", "replace") if proc.stdout else ""
+        if proc.stdout:
+            proc.stdout.close()
+    except (OSError, ValueError):
+        why = ""
+    if code == _OK:
+        got = _fresh(_load(backend, found["origin"]), stale_d)
+        if got:
+            return got
+        raise Refused(f"the gateway gave no token for {host}; try again")
+    if code == _REVOKED:
+        raise _Revoked(why or f"the gateway no longer accepts the login at {host}")
+    if code == _BUSY:
+        raise Refused(f"another session renews the login at {host} right now; try again")
+    # a fixed text of this module (Refused), or the error's type name: never a string of the gateway
+    raise Refused(why or f"the login at {host} could not be renewed")
 
 
 # ---------------------------------------------------------------- resolve --

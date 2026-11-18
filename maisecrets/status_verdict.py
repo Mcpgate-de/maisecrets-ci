@@ -31,7 +31,7 @@ WIDTH = 80           # no check line wider than this with realistic facts (tests
 
 class Check(NamedTuple):
     state: str                  # ok, warn, FAIL, n/a
-    name: str                   # one of NAMES
+    name: str                   # one of NAMES, or an optional note: demo, names
     fact: str                   # short: what was checked
     next: Optional[str]         # the next command, for warn and FAIL
     detail: Optional[str]       # the longer fact, for `status all`
@@ -389,10 +389,24 @@ def report(root: Path, claude_dir: Path | None = None, codex_home: Path | None =
               _guarded(store_verdict),
               _guarded(incidents_verdict),
               _guarded(lambda: selftest.verdict(None, sessions, version, client=client))]
+    names = names_verdict()
+    if names:
+        checks.append(names)
     dm = demo_verdict(sessions)
     if dm:
         checks.append(dm)
     return {"checks": checks, "client": client, "version": version}
+
+
+def names_verdict() -> Check | None:
+    """The name source of /maisecrets:ner (ner_health.verdict): a warn with the cause and the step when it is set and
+    cannot be used, never a FAIL. None without a source, or when the check itself fails."""
+    try:
+        from . import ner_health
+        from .home import load_config
+        return ner_health.verdict(load_config())
+    except Exception:  # noqa: BLE001 - a note that cannot be read is no check
+        return None
 
 
 def demo_verdict(sessions) -> Check | None:
@@ -427,6 +441,9 @@ def head_line(version: str, checks: list, client: str | None) -> str:
         return f"maisecrets {version} · status outside a client session{tail}"
     if fails:
         return f"\u26a0\ufe0f maisecrets {version} is NOT protecting this session{tail}"
+    if any(c.name == "names" and c.state == "warn" for c in checks):
+        # secrets are protected; a person's name in a tool result is left to the rules (ner_health)
+        return f"\U0001F512 maisecrets {version} protects secrets in this session; names are not checked{tail}"
     return f"\U0001F512 maisecrets {version} protects this session{tail or ' · all checks ok'}"
 
 

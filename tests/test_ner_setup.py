@@ -40,7 +40,8 @@ def tearDownModule():  # noqa: N802 - unittest hook
 
 def _reset(**user) -> None:
     CONFIG.write_text(json.dumps({**TEST_CONFIG, **user}))
-    for p in (events.EVENTS, Path(HOME, "ner-down-notes.json")):
+    for p in (events.EVENTS, Path(HOME, "ner-down-notes.json"), Path(HOME, "ner-warned.json"),
+              Path(HOME, "ner-state.json")):
         try:
             os.unlink(p)
         except FileNotFoundError:
@@ -416,13 +417,26 @@ class DownNoteTests(unittest.TestCase):
                                         "tool_response": {"stdout": "a plain line of text", "stderr": ""}})
         return json.dumps(out)
 
-    def test_the_first_unanswered_result_of_a_session_tells_the_model_once(self):
-        self.assertIn("gave no result", self.post("A"))
-        self.assertNotIn("gave no result", self.post("A"))
-        self.assertIn("gave no result", self.post("B"))
+    # Windows answers a connection to a closed local port only after its SYN retries, so the cause there can be
+    # "answers too slowly"; both name the service and the step
+    LINE = "names are NOT checked \u2014 the name service "
+
+    def assertNoted(self, message: str) -> None:
+        self.assertIn(self.LINE, message)
+        self.assertTrue(message.endswith("\u2192 /maisecrets:ner"), message)
+        if os.name != "nt":
+            self.assertIn("does not answer", message)
+
+    def test_the_first_unanswered_result_of_a_session_tells_the_person_once_with_the_cause_and_the_step(self):
+        self.assertNoted(json.loads(self.post("A"))["systemMessage"])
+        again = json.loads(self.post("A"))
+        self.assertNotIn("NOT checked", again.get("systemMessage", ""))
+        self.assertIn("did not check the names", json.dumps(again), "the AI still hears it at each result")
+        self.assertNoted(json.loads(self.post("B"))["systemMessage"])
 
     def test_a_service_that_is_off_gives_no_note(self):
         _reset()
+        self.assertNotIn("NOT checked", self.post("A"))
         self.assertNotIn("gave no result", self.post("A"))
 
 
