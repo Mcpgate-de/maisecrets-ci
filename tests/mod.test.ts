@@ -495,7 +495,8 @@ test('an own command of a session known not to be in the demo asks nothing and g
   await step($)                                                     // the step learned: not in the demo
   const r = await $.prompt.submit({ text: '/maisecrets:list', wait: false, origin: { kind: 'composer' } })
   expect(r.text).toBe('/maisecrets:list')
-  expect(asked).toEqual(['mod-' + 'demo'])
+  // no second demo question; the prompt check asks once, and with no run in its answer the command file runs
+  expect(asked).toEqual(['mod-' + 'demo', 'mod-' + 'prompt'])
 })
 
 test('the demo answer adds one line: what was masked, and once that names were not checked', async ($, on) => {
@@ -740,4 +741,329 @@ test('a command with a value goes into the box masked, and with no check nothing
     await settleFill()
     expect(seen.filled).toEqual([])
   }
+})
+
+// ---- the person's own commands, run by the mod without the AI (0.9.19): prompt_commands.run_plan in Python decides,
+// with the prompt hook's own check; the mod drops the prompt and starts the CLI entry in the background
+
+const until = async (cond: () => boolean, ms = 2000) => {
+  const end = Date.now() + ms
+  while (Date.now() < end) {
+    if (cond()) return true
+    await new Promise(resolve => setTimeout(resolve, 5))
+  }
+  return cond()
+}
+
+const KEY1 = 'SECRET_' + 'c1'
+const KEY3 = 'SECRET_' + 'c3'
+
+// opts.answer: what mod-prompt answers; opts.gate: a promise the spawned entry waits for (a login in the browser);
+// opts.chunks: what it prints; opts.code: its exit code; opts.placed: whether a pane is placed; opts.spawnFails
+function runSetup(on, opts: any = {}) {
+  const st: any = { checks: [], spawns: [], statuses: [], toasts: [], logs: [], fills: [], opens: [], downstream: 0,
+    ended: 0 }
+  on('clock.now', () => ({ value: clock.t }))
+  on('session.id', () => ({ value: 'sess-1' }))
+  on('session.cwd', () => ({ value: '/work' }))
+  on('env.get', () => { throw new Error('the mod read an environment variable') })
+  on('ui.log', ($, e) => { st.logs.push(String(e.text)); return { value: undefined } })
+  on('ui.status', ($, e) => { st.statuses.push(e.text); return { value: undefined } })
+  on('ui.toast', ($, e) => { st.toasts.push(String(e.text)); return { value: undefined } })
+  on('ui.open', ($, e) => { st.opens.push(e); return { value: { isPlaced: opts.placed ?? true } } })
+  on('ui.close', () => ({ value: undefined }))
+  on('ui.invalidate', () => ({ value: undefined }))
+  // a wait of $.clock.after never ends here: the run's own timeout is not part of these tests
+  on('clock.after', () => new Promise(() => {}))
+  on('prompt.fill', ($, e) => { st.fills.push(e.text); return { isFilled: true } })
+  on('process.run', ($, e) => {
+    st.checks.push(e)
+    const answer = typeof opts.answer === 'function' ? opts.answer(JSON.parse(e.init.stdin), e) : opts.answer
+    if (answer === null) return { value: { exitCode: 1, stderr: 'boom', stdout: '' } }
+    return { value: { exitCode: 0, stderr: '', stdout: JSON.stringify({ maisecrets: e.argv[2], ...answer }) } }
+  })
+  on('process.spawn', async function * ($, e) {
+    st.spawns.push(e)
+    if (opts.spawnFails) return { deny: 'cannot start' }
+    const pick = (v, d) => (typeof v === 'function' ? v(e) : v) ?? d
+    for (const text of pick(opts.early, [])) yield { stream: 'stdout', text }
+    if (opts.gate) await opts.gate
+    for (const text of pick(opts.chunks, ['Stored values: 0\n'])) yield { stream: 'stdout', text }
+    st.ended += 1
+    return { value: { code: opts.code ?? 0, signal: null } }
+  })
+  on('prompt.submit', ($, e) => { st.downstream += 1; return { text: e.text } })
+  return st
+}
+
+const LIST = { run: { argv: ['list', '--args-stdin'], stdin: '' } }
+const LOGIN = { run: { argv: ['sref', '--args-stdin'], stdin: 'login team-gw', long: true, server: 'team-gw' } }
+const paneOf = (flight: string) => 'maisecrets-out-' + flight.replace(/[^a-z0-9-]/g, '-')
+const OUTPUT = { plugin: 'maisecrets', component: 'Pane', requestId: paneOf('cmd:list'), surface: 'terminal',
+  props: { title: 'maisecrets', isFocused: true, bodyColumns: 100, placement: 'dock', scroll: { offset: 0, bodyRows: 30 },
+    view: {} } }
+const BUSY = 'maisecrets: a login runs already; the status line shows it. Nothing else was started.'
+
+test('a command the person typed runs without a model turn: the prompt is dropped and the output opens in a pane',
+  async ($, on) => {
+    const st = runSetup(on, { answer: LIST })
+    const r = await $.prompt.submit({ text: '/maisecrets:list', wait: false, origin: { kind: 'composer' } })
+    expect(r.drop).toBe('maisecrets: /maisecrets:list runs without the AI; its output opens in a panel.')
+    expect(r.text).toBeUndefined()
+    expect(st.downstream).toBe(0)                  // nothing reaches the model
+    // the prompt hook's own check first, with the person's origin: the same call as for the command file
+    const check = st.checks.find(c => c.argv[2] === 'mod-prompt')
+    expect(JSON.parse(check.init.stdin)).toEqual({ prompt: '/maisecrets:list', session_id: 'sess-1', cwd: '/work',
+      origin: 'composer' })
+    expect(await until(() => st.opens.some(o => o.id.startsWith('maisecrets-out-')))).toBe(true)
+    // the entry of the command file, by the Python that answered, the arguments on stdin, the session in the env
+    expect(st.spawns[0].argv).toEqual(['python3', 'hooks/dispatch.py', 'list', '--args-stdin'])
+    expect(st.spawns[0].input).toBe('')
+    expect(st.spawns[0].env).toEqual({ PYTHONUTF8: '1', CLAUDE_CODE_SESSION_ID: 'sess-1' })
+    const ui = await $.ui.mount(OUTPUT as any)
+    expect(await ui.find({ type: 'Text', text: 'Stored values: 0' })).toBeDefined()
+    await ui.unmount()
+  })
+
+test('a prompt that is not the person\'s own keeps the command file: nothing runs', async ($, on) => {
+  const st = runSetup(on, { answer: LOGIN })
+  for (const kind of ['sdk', 'task-notification', 'channel', 'peer', 'scheduled-trigger']) {
+    const r = await $.prompt.submit({ text: '/maisecrets:sref login team-gw', wait: false, origin: { kind } })
+    expect(r.text).toBe('/maisecrets:sref login team-gw')
+  }
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(st.spawns.length).toBe(0)
+  expect(st.downstream).toBe(5)
+})
+
+test('claude -p (origin sdk) keeps the command file even when Python would plan a run', async ($, on) => {
+  const st = runSetup(on, { answer: LIST })
+  const r = await $.prompt.submit({ text: '/maisecrets:list', wait: false, origin: { kind: 'sdk' } })
+  expect(r.text).toBe('/maisecrets:list')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(st.spawns.length).toBe(0)
+})
+
+test('the login: the status line waits for the consent and clears; the end is a toast', async ($, on) => {
+  let release: () => void = () => {}
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const st = runSetup(on, { answer: LOGIN, gate,
+    chunks: ['maisecrets: log in to gw.example in your browser and give the consent.\n',
+      'maisecrets: logged in to gw.example. A reference that this gateway shows in a session now gets its value.\n'] })
+  const t0 = Date.now()
+  const r = await $.prompt.submit({ text: '/maisecrets:sref login team-gw', wait: false, origin: { kind: 'composer' } })
+  // the hook returns while the login still waits: the box is free at once
+  expect(Date.now() - t0).toBeLessThan(1000)
+  expect(r.drop).toBe('maisecrets: /maisecrets:sref login opens your browser; the status line shows the wait.')
+  expect(await until(() => st.spawns.length === 1)).toBe(true)
+  expect(st.spawns[0].argv).toEqual(['python3', 'hooks/dispatch.py', 'sref', '--args-stdin'])
+  expect(st.spawns[0].input).toBe('login team-gw')
+  expect(st.statuses).toContain('maisecrets: waiting for your consent in the browser (team-gw)')
+  expect(st.ended).toBe(0)
+  release()
+  expect(await until(() => st.toasts.length > 0)).toBe(true)
+  expect(st.toasts).toEqual(['maisecrets: logged in at team-gw'])
+  expect(st.statuses[st.statuses.length - 1]).toBeUndefined()      // the status line is cleared
+  expect(st.downstream).toBe(0)
+})
+
+test('a failed login says why in the CLI\'s own words', async ($, on) => {
+  const st = runSetup(on, { answer: LOGIN, code: 1,
+    chunks: ['maisecrets: the login to gw.example did not complete: the consent was refused\n'] })
+  await $.prompt.submit({ text: '/maisecrets:sref login team-gw', wait: false, origin: { kind: 'composer' } })
+  expect(await until(() => st.toasts.length > 0)).toBe(true)
+  expect(st.toasts).toEqual(['maisecrets: the login to gw.example did not complete: the consent was refused'])
+})
+
+test('a start that fails reports it, clears the status line and frees the next login', async ($, on) => {
+  const st = runSetup(on, { answer: LOGIN, spawnFails: true })
+  await $.prompt.submit({ text: '/maisecrets:sref login team-gw', wait: false, origin: { kind: 'composer' } })
+  expect(await until(() => st.toasts.length > 0)).toBe(true)
+  expect(st.toasts).toEqual(['maisecrets could not run /maisecrets:sref login. Send it again.'])
+  expect(st.statuses[st.statuses.length - 1]).toBeUndefined()
+  await $.prompt.submit({ text: '/maisecrets:sref login team-gw', wait: false, origin: { kind: 'composer' } })
+  expect(await until(() => st.spawns.length === 2)).toBe(true)
+})
+
+test('a second login while one waits starts no second flow, also when both prompts come at once', async ($, on) => {
+  let release: () => void = () => {}
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const st = runSetup(on, { answer: LOGIN, gate })
+  const [a, b] = await Promise.all([
+    $.prompt.submit({ text: '/maisecrets:sref login team-gw', wait: false, origin: { kind: 'composer' } }),
+    $.prompt.submit({ text: '/maisecrets sref login team-gw', wait: false, origin: { kind: 'composer' } })])
+  const c = await $.prompt.submit({ text: '/maisecrets:sref logout team-gw', wait: false, origin: { kind: 'composer' } })
+  expect([a.drop, b.drop, c.drop].filter(d => d === BUSY).length).toBe(2)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(st.spawns.length).toBe(1)
+  expect(st.downstream).toBe(0)
+  release()
+  expect(await until(() => st.toasts.length > 0)).toBe(true)
+  // after the end the next login can start
+  await $.prompt.submit({ text: '/maisecrets:sref login team-gw', wait: false, origin: { kind: 'composer' } })
+  expect(await until(() => st.spawns.length === 2)).toBe(true)
+})
+
+test('the space form runs as the colon form', async ($, on) => {
+  const st = runSetup(on, { answer: LIST })
+  const r = await $.prompt.submit({ text: '/maisecrets list', wait: false, origin: { kind: 'composer' } })
+  expect(r.drop).toBe('maisecrets: /maisecrets:list runs without the AI; its output opens in a panel.')
+  expect(JSON.parse(st.checks.find(c => c.argv[2] === 'mod-prompt').init.stdin).prompt).toBe('/maisecrets:list')
+  expect(await until(() => st.spawns.length === 1)).toBe(true)
+})
+
+test('the space form with no answer from Python runs nothing and empties the box (offer of fix/ux-0918)',
+  async ($, on) => {
+    const st = runSetup(on, { answer: null })
+    const r = await $.prompt.submit({ text: '/maisecrets sref login', wait: false, origin: { kind: 'composer' } })
+    expect(r.drop).toBe('maisecrets could not check the text, so it removed it from the input box. Type it again.')
+    expect(st.spawns.length).toBe(0)
+    expect(st.downstream).toBe(0)
+  })
+
+test('the prompt hook\'s block (a value in the arguments) drops the command and nothing runs', async ($, on) => {
+  const BLOCK = 'maisecrets kept a secret from the AI.'
+  const st = runSetup(on, { answer: { drop: BLOCK } })
+  const r = await $.prompt.submit({ text: '/maisecrets:sref login TOKENWORD', wait: false, origin: { kind: 'composer' } })
+  expect(r.drop).toBe(BLOCK)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(st.spawns.length).toBe(0)
+  expect(st.statuses.length).toBe(0)
+})
+
+test('no plan from Python (status test, an older Python) keeps the command file', async ($, on) => {
+  const st = runSetup(on, { answer: {} })
+  const r = await $.prompt.submit({ text: '/maisecrets:status test', wait: false, origin: { kind: 'composer' } })
+  expect(r.text).toBe('/maisecrets:status test')
+  expect(st.downstream).toBe(1)
+  expect(st.spawns.length).toBe(0)
+})
+
+for (const run of [{ argv: ['list', 'x; rm'] }, { argv: ['wipe', '--yes'] }, { argv: [] }, { argv: 'list' }]) {
+  test(`a plan ${JSON.stringify(run)} with a word that is no fixed word or an entry not listed runs nothing`,
+    async ($, on) => {
+      const st = runSetup(on, { answer: { run } })
+      const r = await $.prompt.submit({ text: '/maisecrets:list', wait: false, origin: { kind: 'composer' } })
+      expect(r.text).toBe('/maisecrets:list')
+      expect(st.spawns.length).toBe(0)
+    })
+}
+
+test('/maisecrets:send puts the cleaned prompt into the box; nothing goes to the model', async ($, on) => {
+  const st = runSetup(on, { answer: { run: { argv: ['pending'], fill: true } },
+    chunks: ['deploy with \u27e6' + KEY1 + '\u27e7\n'] })
+  const r = await $.prompt.submit({ text: '/maisecrets:send', wait: false, origin: { kind: 'composer' } })
+  expect(typeof r.drop).toBe('string')
+  expect(await until(() => st.toasts.length > 0)).toBe(true)
+  expect(st.toasts).toEqual(['maisecrets: the cleaned prompt is in your input box. Press Enter to send it.'])
+  expect(st.spawns[0].argv).toEqual(['python3', 'hooks/dispatch.py', 'pending'])
+  expect(st.spawns[0].input).toBeUndefined()
+  expect(st.downstream).toBe(0)
+})
+
+for (const [typed, argv, input] of [
+  ['/maisecrets:status', ['status'], undefined],
+  ['/maisecrets:status all', ['status', 'all'], undefined],
+  ['/maisecrets:audit 5', ['audit', '--args-stdin'], '5'],
+  ['/maisecrets:rules', ['rules'], undefined],
+  ['/maisecrets:term', ['terms'], undefined],
+  ['/maisecrets:forget ' + KEY3, ['forget', '--args-stdin'], KEY3],
+  ['/maisecrets:put', ['put', '--clipboard', '--args-stdin'], ''],
+  ['/maisecrets:shortcut status', ['shortcut', '--args-stdin'], 'status'],
+  ['/maisecrets:guard status', ['guard', '--args-stdin'], 'status'],
+  ['/maisecrets:report bug the pane is slow', ['report', '--args-stdin'], 'bug the pane is slow'],
+  ['/maisecrets:sref', ['sref', '--args-stdin'], ''],
+  ['/maisecrets:sref status', ['sref', '--args-stdin'], 'status'],
+  ['/maisecrets:ner all', ['ner', 'all'], undefined],
+  ['/maisecrets:settings ssh_consent on', ['settings', '--args-stdin'], 'ssh_consent on'],
+] as const) {
+  test(`${typed}: the person's prompt runs its entry with no model turn; another origin keeps the command file`,
+    async ($, on) => {
+      const run: any = { argv }
+      if (input !== undefined) run.stdin = input
+      const st = runSetup(on, { answer: { run } })
+      const r = await $.prompt.submit({ text: typed, wait: false, origin: { kind: 'composer' } })
+      expect(typeof r.drop).toBe('string')
+      expect(st.downstream).toBe(0)
+      expect(await until(() => st.opens.some(o => o.id.startsWith('maisecrets-out-')))).toBe(true)
+      expect(st.spawns[0].argv).toEqual(['python3', 'hooks/dispatch.py', ...argv])
+      expect(st.spawns[0].input).toBe(input)
+      const other = await $.prompt.submit({ text: typed, wait: false, origin: { kind: 'peer' } })
+      expect(other.text).toBe(typed)
+      expect(st.spawns.length).toBe(1)
+    })
+}
+
+test('without a placed pane the output goes above the prompt, never to the model', async ($, on) => {
+  const st = runSetup(on, { answer: LIST, placed: false, chunks: [KEY1 + '  password  2h\n', 'the second row\n'] })
+  await $.prompt.submit({ text: '/maisecrets:list', wait: false, origin: { kind: 'composer' } })
+  expect(await until(() => st.logs.includes('the second row'))).toBe(true)
+  expect(st.downstream).toBe(0)
+})
+
+test('ner: the change of the prompt hook shows in the panel\'s name-service view, and a start shows its status line',
+  async ($, on) => {
+    const st = runSetup(on, { answer: (q, e) => e.argv[2] === 'mod-prompt'
+      ? { run: { argv: ['ner'], view: 'ner', starting: true, note: 'maisecrets: names from a service' } }
+      : { groups: [], source: 'local', lines: [], servers: [], starting: true } })
+    const r = await $.prompt.submit({ text: '/maisecrets:ner local', wait: false, origin: { kind: 'composer' } })
+    expect(typeof r.drop).toBe('string')
+    expect(await until(() => st.statuses.includes('maisecrets: loading the name service (starting)'))).toBe(true)
+    expect(await until(() => st.opens.some(o => o.id === 'maisecrets-settings'))).toBe(true)
+    expect(st.spawns.length).toBe(0)
+    expect(st.downstream).toBe(0)
+  })
+
+test('without a pane the login writes each line above the prompt as it comes: the URL before the consent',
+  async ($, on) => {
+    let release: () => void = () => {}
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const URL_LINE = 'https://gw.example/auth/authorize?client_id=c1&state=s1'
+    const st = runSetup(on, { answer: LOGIN, gate, placed: false,
+      early: ['maisecrets: log in to gw.example in your browser and give the consent. If no browser opened, open:\n',
+        URL_LINE + '\n'],
+      chunks: ['maisecrets: logged in to gw.example.\n'] })
+    await $.prompt.submit({ text: '/maisecrets:sref login team-gw', wait: false, origin: { kind: 'composer' } })
+    expect(await until(() => st.logs.includes(URL_LINE))).toBe(true)
+    expect(st.ended).toBe(0)                       // the consent is not given yet
+    release()
+    expect(await until(() => st.toasts.length > 0)).toBe(true)
+    expect(st.logs.filter(l => l === URL_LINE).length).toBe(1)
+    expect(st.logs).toContain('maisecrets: logged in to gw.example.')
+  })
+
+test('a login that waits and a list keep their own panes, titles and lines', async ($, on) => {
+  let release: () => void = () => {}
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const st = runSetup(on, { answer: (q, e) => (q.prompt ?? '').includes('sref') ? LOGIN : LIST, gate,
+    early: (e) => e.argv.includes('sref') ? ['LOGIN-LINE\n'] : [],
+    chunks: (e) => e.argv.includes('sref') ? ['LOGIN-END\n'] : ['LIST-LINE\n'] })
+  await $.prompt.submit({ text: '/maisecrets:sref login team-gw', wait: false, origin: { kind: 'composer' } })
+  expect(await until(() => st.opens.some(o => o.id === paneOf('sref-login')))).toBe(true)
+  expect(await until(() => st.spawns.length === 1)).toBe(true)
+  // the list's run waits for the same gate, so both run at once
+  await $.prompt.submit({ text: '/maisecrets:list', wait: false, origin: { kind: 'composer' } })
+  expect(await until(() => st.spawns.length === 2)).toBe(true)
+  release()
+  expect(await until(() => st.opens.some(o => o.id === paneOf('cmd:list')))).toBe(true)
+  const login = st.opens.filter(o => o.id === paneOf('sref-login')).pop()
+  const list = st.opens.filter(o => o.id === paneOf('cmd:list')).pop()
+  expect(login.title).toBe('maisecrets: /maisecrets:sref login')
+  expect(list.title).toBe('maisecrets: /maisecrets:list')
+  const props = { title: 'maisecrets', isFocused: true, bodyColumns: 100, placement: 'dock',
+    scroll: { offset: 0, bodyRows: 30 }, view: {} }
+  const a = await $.ui.mount({ plugin: 'maisecrets', component: 'Pane', requestId: paneOf('sref-login'),
+    surface: 'terminal', props } as any)
+  expect(await a.find({ type: 'Text', text: 'LOGIN-LINE' })).toBeDefined()
+  await a.unmount()
+  const b = await $.ui.mount({ plugin: 'maisecrets', component: 'Pane', requestId: paneOf('cmd:list'),
+    surface: 'terminal', props } as any)
+  expect(await b.find({ type: 'Text', text: 'LOGIN-LINE' })).toBeUndefined()
+  expect(await b.find({ type: 'Text', text: 'LIST-LINE' })).toBeDefined()
+  const c = await $.ui.mount({ plugin: 'maisecrets', component: 'Pane', requestId: paneOf('sref-login'),
+    surface: 'terminal', props } as any)
+  expect(await c.find({ type: 'Text', text: 'LIST-LINE' })).toBeUndefined()
+  expect(await c.find({ type: 'Text', text: 'LOGIN-END' })).toBeDefined()
+  await c.unmount()
+  await b.unmount()
 })

@@ -176,9 +176,10 @@ opens at once: no model turn, nothing goes to the AI. From top to bottom:
   `[ forget all… ]` deletes every stored value after its own question; the logs
   and records stay (the full wipe is `run.sh wipe --yes` in a terminal). The
   panel never shows a value.
-- **Name service.** The source as buttons: `off`, `local` (it asks first: the
-  image is about 690 MB and runs on 127.0.0.1 only; then it starts it and
-  shows `starting…`), `url…` (puts `/maisecrets:ner url ` into the prompt box
+- **Name service.** The source as buttons: `off`, `local` (it starts the
+  service at once and says so: the image is about 690 MB, 1 to 2 GB on disk,
+  and runs on 127.0.0.1 only; `off` turns the source off, and a download
+  that runs ends by itself first), `url…` (puts `/maisecrets:ner url ` into the prompt box
   for you to complete) and `gateway…` (the MCP servers of your configuration
   that have an https address; after a pick, `[ log in ]` puts
   `/maisecrets:sref login NAME` into the prompt box). Under them, the checks
@@ -223,15 +224,45 @@ after `maisecrets:` that is no command name (`maisecrets: why …`) is an
 ordinary prompt. In Codex, in `claude -p` and without the mod, the prompt
 hook answers these commands as before.
 
+With the mod, the commands that only show something or run one maisecrets
+step also run without the AI, when you type them yourself (or send them
+through Remote Control): `/maisecrets:status` (and `status all`), `list`,
+`audit`, `rules`, `term` (the lists), `sref` (`status`, `login NAME`, `logout
+NAME`), `ner` (and `ner all`; after a change such as `ner local`), `settings
+KEY` and `settings KEY VALUE`, `forget KEY`, `put`, `shortcut`, `guard`,
+`report` and `send`. The prompt hook checks the command first, exactly as for
+the command file: a value in the arguments blocks it, and a settings or `ner`
+change is made there. Then the mod runs the maisecrets command itself, in the
+background, and the input box is free at once. The output opens in a panel
+(Esc closes it); where no panel can open, it stands above the prompt. The
+output holds no value, and it never goes to the AI.
+
+- `/maisecrets:sref login NAME` opens the browser at once. While the login
+  waits for your consent (up to 110 seconds), the status line says
+  `maisecrets: waiting for your consent in the browser (NAME)`, and you can
+  go on working. At the end a note says `maisecrets: logged in at NAME`, or
+  why the login did not complete. A second login while one waits starts
+  nothing.
+- `/maisecrets:ner` and its changes open the name-service view of the panel.
+- `/maisecrets:send` puts the cleaned prompt into the input box: press Enter
+  to send it.
+- `/maisecrets:status test` keeps its old way: its test value comes only from
+  the hook of a tool call, and the test proves the path of the tool output.
+
+The form with a space, such as `/maisecrets sref login NAME`, runs the same
+(see below). In Codex, in `claude -p` and without the mod, each command runs
+through its command file, as before.
+
 `/maisecrets demo on` is `/maisecrets:demo on`: the Tab completion of
 `/maise` gives `/maisecrets` and a space, so a command after `/maisecrets`
 with a space counts as the command with its colon, when you type it as your
 own prompt. The commands maisecrets answers itself (the panel of `settings`,
 `term`, `not-a-secret`, `demo`, `forget import:ID`, `report incident`, and
 every command in a demo session) run at once, with the same checks as the
-colon form. A command that the AI runs from its command file (`status`,
-`list`, a settings change and the others) runs only from the typed form with
-the colon. maisecrets puts that form into the input box and says so in one
+colon form; so do the commands above that the mod runs without the AI. A
+command that still needs the AI and its command file (`status test`, or any
+command when maisecrets cannot check it in time) runs only from the typed form
+with the colon. maisecrets puts that form into the input box and says so in one
 line, for example `maisecrets: I put /maisecrets:status into the input box.
 Press Enter to run it, or clear the box.` Before that, it masks each value in
 the command, as it does for a prompt, so the box never gets a value back; the

@@ -45,6 +45,9 @@ os.environ["MAISECRETS_GUARD_CLIPBOARD"] = "off"
 # on a German Mac and one in a C-locale container expect the same rules. A test of the lookup
 # itself sets or removes MAISECRETS_LOCALE with mock.patch.dict.
 os.environ["MAISECRETS_LOCALE"] = "de_DE"
+# a test that types `ner local` never starts a real container (docker may run on the machine of the tests); a test of
+# the start sets a fake docker on PATH and removes this with mock.patch.dict
+os.environ["MAISECRETS_NO_CONTAINER_START"] = "1"
 # the fake clipboard tools are shell scripts; under a loaded run they took longer than the 3 s of a real one
 os.environ["MAISECRETS_CLIPBOARD_TIMEOUT"] = "30"
 

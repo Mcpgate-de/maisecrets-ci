@@ -134,7 +134,7 @@ claude --plugin-dir /path/to/maisecrets                 # one session, straight 
 python3 -m unittest discover -s tests -v               # about 30 seconds
 python3 harness/run.py                                 # 60 scenarios against a fake upstream (4 for the PowerShell tool of Windows)
 python3 harness/codex.py [--real]                      # 19 scenarios through codex exec (five need --real)
-python3 scripts/replay_can_fail.py                     # 436 proofs: each control's test, and each path of the seven invariants, goes red without its guard
+python3 scripts/replay_can_fail.py                     # 437 proofs: each control's test, and each path of the seven invariants, goes red without its guard
 python3 scripts/derived_counts.py                      # the numbers in the docs, measured again
 python3 scripts/lint_plugin.py                         # frontmatter YAML, manifests, hook paths (pre-commit, CI)
 scripts/install-hooks.sh                               # git pre-commit / pre-push
@@ -935,9 +935,16 @@ maisecrets does not verify that it is `mcpgate/ner`.
 
 - **local**: the service is the container `mcpgate/ner` (the model D3 of the
   NER experiment as ONNX; AFL-3.0 and Apache-2.0, its notices are in the
-  image). If it does not answer, `/maisecrets:ner` gives the command that
-  starts it with docker or podman; the AI asks you first (about 690 MB to download, about 250 MB of memory
-  while it runs, at most 1.5 GB and half the cores, 2 to 4) and then runs it:
+  image). When the person types `/maisecrets:ner local` (in Codex `maisecrets: ner local`) or presses
+  `local` in the panel, maisecrets starts it at once in the background with docker or podman, with no
+  question first, and says so (about 690 MB to download, 1 to 2 GB on disk, about 250 MB of memory
+  while it runs, at most 1.5 GB and half the cores, 2 to 4). No second download or container start runs at
+  the same time: a start holds the lock of the start, and a second one that comes while it runs waits for
+  it or ends with a note. `/maisecrets:ner off` turns the source off, as before; it
+  does not stop a download or a start that runs. While one runs, the answer says that the start ends by itself
+  and to send `/maisecrets:ner off` again after it. Only that typed choice starts a
+  download: a source set by a policy or in an earlier session does not, and the session start then says that
+  the service is not running and names `/maisecrets:ner local`. The start is
   `run.sh ner start`, which runs the container `ner` with a secret of its own
   (in its environment, never on a command line) and keeps that secret in your
   store. Before each text the container must prove the secret (a fresh

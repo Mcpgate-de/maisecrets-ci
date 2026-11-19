@@ -232,7 +232,7 @@ class ReportTests(unittest.TestCase):
             code, out = self.run_ner()
         self.assertEqual(code, 3)
         # a container with a secret (#1699)
-        self.assertRegex(out, r"\n \u2717 service +not running +\u2192  run\.sh ner start \(podman\)\n")
+        self.assertRegex(out, r"\n \u2717 service +not running +\u2192  /maisecrets:ner local \(podman\)\n")
         self.assertIn("rules alone mask a tool result", self.run_ner("all")[1])
 
     def test_without_docker_it_names_the_three_ways(self):
@@ -352,7 +352,9 @@ class RestartTests(unittest.TestCase):
         return asked, popen
 
     def test_the_local_service_is_kept_in_the_background(self):
-        asked, popen = self.run_restart({"url": ner_setup.LOCAL_URL}, tool="/usr/local/bin/docker")
+        from maisecrets import ner_secret
+        with mock.patch.object(ner_secret, "container_of", return_value="c0ffee"):
+            asked, popen = self.run_restart({"url": ner_setup.LOCAL_URL}, tool="/usr/local/bin/docker")
         self.assertTrue(asked)
         argv = popen.call_args.args[0]
         # the plugin's Python, isolated, the plugin folder and the tool by its absolute path: no shell

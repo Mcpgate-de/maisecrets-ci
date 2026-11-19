@@ -1,0 +1,10 @@
+# c22-only-a-typed-choice-starts-the-name-service: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c22-only-a-typed-choice-starts-the-name-service"
+control = "C22"
+statement = "Only the person's typed choice `ner local` (a typed prompt, the slash command or a press in the panel) starts the download and start of the local name service; a setting of a policy or of an earlier session never starts one."
+runner = ["tests/test_ner_typed_start.py::TypedStartTests::test_a_setting_alone_never_starts_a_download"]
+
+[proof]
+file = "maisecrets/ner_setup.py"
+find = "    if route not in TYPED_ROUTES or os.environ.get(NO_START_ENV) == \"1\":"
+replace = "    if os.environ.get(NO_START_ENV) == \"1\":"

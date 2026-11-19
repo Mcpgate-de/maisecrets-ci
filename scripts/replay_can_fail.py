@@ -26,6 +26,7 @@ Never run it inside the test suite.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import signal
@@ -68,28 +69,58 @@ def unittest_id(test_id: str) -> str:
     return module + ("." + rest.replace("::", ".") if rest else "")
 
 
-def run_tests(ids: list[str], root: Path = ROOT) -> tuple[int, dict[str, str]]:
+def _drop_cache(cache: str, ended: float) -> bool:
+    """Remove the bytecode cache of one run; True when a process still wrote into it after the runner ended (a test
+    that left a child process running). Never raises: a leaking test is a warning, not the end of the replay (CI job
+    of !600: `OSError: Directory not empty` in the cleanup of a TemporaryDirectory stopped the whole replay)."""
+    import shutil
+    import time
+    time.sleep(0.3)
+    late = False
+    for top, _dirs, files in os.walk(cache):
+        for f in files:
+            try:
+                late = late or os.path.getmtime(os.path.join(top, f)) > ended
+            except OSError:
+                late = True
+    try:
+        shutil.rmtree(cache)
+    except OSError:
+        late = True
+        shutil.rmtree(cache, ignore_errors=True)
+    return late
+
+
+def run_tests(ids: list[str], root: Path = ROOT, belief: str = "") -> tuple[int, dict[str, str]]:
     """Run the owning tests once; return the exit code and each test's outcome.
 
     Each run gets a fresh bytecode cache. A mutation of the same length written in the same
     second as the green run's compile left a .pyc that Python took for current (size and mtime
     match), so the tests ran the unmutated code and stayed green (2026-09-27)."""
     import json
-    import os
     import tempfile
+    import time
     if any(is_mod_test(t) for t in ids):
         return run_mod_tests(ids, root)
-    with tempfile.TemporaryDirectory(prefix="maisecrets-pyc-") as cache:
+    cache = tempfile.mkdtemp(prefix="maisecrets-pyc-")
+    ended = time.time()
+    try:
         report = os.path.join(cache, "outcomes.json")
         cmd = [sys.executable, str(root / "scripts" / "_run_tests_json.py"), report] + [unittest_id(t) for t in ids]
         env = dict(os.environ, PYTHONPYCACHEPREFIX=cache)
         r = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=600, env=env)
+        ended = time.time()
         try:
             with open(report, encoding="utf-8") as fh:
                 outcomes = json.load(fh)
         except (OSError, ValueError):
             # the runner itself died (the mutation broke an import); every test counts as red
             outcomes = {unittest_id(t): "broken" for t in ids}
+    finally:
+        if _drop_cache(cache, ended):
+            print(f"[WARN] {belief or ', '.join(ids)}: a process of its tests still ran after the test runner ended "
+                  "(it wrote into the bytecode cache of the run); a test leaves a child process behind",
+                  file=sys.stderr, flush=True)
     # a skipped owning test is no evidence either way: without git in the CI image the skill's
     # tests were skipped, the replay read the skip as green and failed C17 for the wrong reason,
     # and read it as "green before the mutation" too (2026-09-27)
@@ -211,7 +242,7 @@ def _replay_one(belief: dict, proof: dict, root: Path = ROOT) -> tuple[bool, str
         bad = _check_mutation(target, mutated)
         if bad:
             return False, bad, set()
-        rc, outcomes = run_tests(belief["runner"], root)
+        rc, outcomes = run_tests(belief["runner"], root, belief["belief"])
     if target.read_text(encoding="utf-8") != original:
         return False, "the file was not restored", set()
     if rc == SKIPPED:
@@ -232,7 +263,7 @@ def replay(belief: dict, root: Path = ROOT) -> tuple[bool, str]:
         n = target.read_text(encoding="utf-8").count(proof["find"])
         if n != 1:
             return False, f"anchor occurs {n} times in {proof['file']} (must be exactly once)"
-    first, _ = run_tests(belief["runner"], root)
+    first, _ = run_tests(belief["runner"], root, belief["belief"])
     if first == SKIPPED:
         return False, "an owning test was skipped here (a missing tool?); a skip is no evidence"
     if first == BROKEN:
@@ -275,7 +306,7 @@ def _baseline(belief: dict, root: Path) -> str | None:
         n = (root / proof["file"]).read_text(encoding="utf-8").count(proof["find"])
         if n != 1:
             return f"anchor occurs {n} times in {proof['file']} (must be exactly once)"
-    first, _ = run_tests(belief["runner"], root)
+    first, _ = run_tests(belief["runner"], root, belief["belief"])
     if first == SKIPPED:
         return "an owning test was skipped here (a missing tool?); a skip is no evidence"
     if first == BROKEN:

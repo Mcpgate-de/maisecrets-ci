@@ -770,6 +770,11 @@ def apply_typed(key: str, word: str, route: str = "typed prompt", cwd: str = "")
         ner_setup.claim_prompts_note()      # the answer says it: the session start need not say it again
     if ner_change and word == "ner:local":
         note = " " + ner_setup.LOCAL_NOTE
+        # the person's typed choice starts the service at once, with no question first (start_typed checks the route)
+        if ner_setup.start_typed(route):
+            note += " " + ner_setup.START_NOTE
+    if ner_change and word == "ner:off" and ner_setup.start_running():
+        note = " " + ner_setup.STILL_RUNS
     if ner_change and word.startswith("ner:unavailable:"):
         return True, f"maisecrets: {ner_setup.unavailable_line(after.get(key) or {})}"
     if ner_change and word.startswith("ner:updates:"):

@@ -24,4 +24,6 @@ If `${CLAUDE_PLUGIN_ROOT}` is still written like that when the command runs, put
 
 The arguments go in the quoted heredoc as they are, so the shell never reads them as code. Do not move them onto the command line, and do not add quotes.
 
+In Claude Code with the mod, the user's own `/maisecrets:sref` prompt runs without this file: the mod starts the same command itself and shows its output to the user. This file runs for every other case.
+
 `login` opens the browser and waits up to 110 seconds: the user logs in there and gives the consent. If no browser opens, the output names the URL; tell the user to open it. If the output lists one command per server, show the list and let the user send the one they want; do not pick a server for them. Start a login only when the user asked for it with this command. Do not open the URL yourself, and do not run the command again on your own if it ends without a login.

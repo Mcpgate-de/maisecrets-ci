@@ -517,7 +517,8 @@ def restart_local(conf) -> bool:
     if not tool:
         return False
     from . import ner_secret
-    if not ner_secret.container_of(ner_secret.endpoint(LOCAL_URL)):
+    recorded = bool(ner_secret.container_of(ner_secret.endpoint(LOCAL_URL)))
+    if not recorded:
         ok, _line = probe(conf, timeout=0.3)
         if ok:
             return False
@@ -531,7 +532,9 @@ def restart_local(conf) -> bool:
         flags = {"start_new_session": True}
     subprocess.Popen([sys.executable, "-I", "-c", _KEEP, root, tool], stdin=subprocess.DEVNULL,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **flags)
-    return True
+    # follow_pin never makes a first container (no download from a setting alone): without a container that
+    # maisecrets set up, the session start says the service is not running and names /maisecrets:ner local
+    return recorded
 
 
 # the container's share of this computer: without a limit the service starts one worker per core and can take the
@@ -697,6 +700,66 @@ def start_local(cfg: dict) -> tuple[int, list]:
                    "minutes). Run /maisecrets:ner again in a minute."]
 
 
+# the person's typed choice `ner local` starts the service at once, in the background, by the start of
+# `run.sh ner start` (no question first, 0.9.19). Only a typed route does it: a setting of a policy or of an earlier
+# session never starts a download (the session start only starts a container that exists, follow_pin)
+TYPED_ROUTES = ("typed prompt", "slash command", "settings pane")
+START_NOTE = ("maisecrets: I am loading the name service mcpgate/ner (about 690 MB, 1 to 2 GB on disk) and starting "
+              "it on 127.0.0.1:8765 only. That takes a few minutes. To turn it off: /maisecrets:ner off (a download "
+              "that runs ends by itself first).")
+STILL_RUNS = ("The start of the name service still runs and ends by itself; send /maisecrets:ner off again after "
+              "it.")
+START_LOG = "ner-start.log"
+# the test suite sets it (tests/_isolate.py): a test that types `ner local` never starts a real container (docker may
+# run on the machine of the tests)
+NO_START_ENV = "MAISECRETS_NO_CONTAINER_START"
+
+
+def start_running() -> bool:
+    """Whether a start or an update of the local service runs now: it holds the lock of start_local and follow_pin."""
+    from .home import LockTimeout, _Lock
+    from .vault import HOME
+    lock = _Lock(HOME / ".ner-update.lock")
+    try:
+        lock.enter(0)
+    except (LockTimeout, OSError):
+        return True
+    lock.__exit__(None, None, None)
+    return False
+
+
+def start_typed(route: str) -> bool:
+    """The start after the person typed `ner local` (settings.apply_typed): `run.sh ner start` in the background, as
+    the panel started it in 0.9.18. True when a start runs now. Nothing starts for a route that is not the person's
+    typed choice, without docker or podman, when the service answers already, or while a start runs."""
+    if route not in TYPED_ROUTES or os.environ.get(NO_START_ENV) == "1":
+        return False
+    if not container_tool():
+        return False
+    if start_running():
+        return True
+    ok, _line = probe({"url": LOCAL_URL}, timeout=0.3)
+    if ok:
+        return False
+    from .vault import HOME
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    flags = ({"creationflags": getattr(subprocess, "DETACHED_PROCESS", 0)
+              | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)} if os.name == "nt"
+             else {"start_new_session": True})
+    try:
+        HOME.mkdir(mode=0o700, parents=True, exist_ok=True)
+        # no bytecode from the detached start: not into the plugin folder (Codex binds its hook trust to the folder's
+        # contents) and not into a cache folder of the caller, which may be gone before the start ends
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONPYCACHEPREFIX"}
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        with open(HOME / START_LOG, "w", encoding="utf-8") as f:
+            subprocess.Popen([sys.executable, "-m", "maisecrets.cli", "ner", "start"], cwd=root, stdout=f,
+                             stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=env, **flags)
+    except OSError:
+        return False
+    return True
+
+
 def _start_local(cfg: dict, tool: str) -> tuple[int, list]:
     from . import ner_secret
     from .vault import make_backend
@@ -807,9 +870,15 @@ def report(conf, wait: float = 0.0, facts: dict | None = None) -> tuple[int, lis
     if local:
         tool = container_tool()
         facts["tool"] = os.path.basename(tool) if tool else ""
+        if tool and start_running():
+            # a start runs (it holds the lock of start_local): no second start
+            facts["starting"] = True
+            lines.append("starting: maisecrets loads the image mcpgate/ner and starts it in the background; that takes "
+                         "a few minutes.")
+            return 1, lines
         if tool:
-            # commands/ner.md runs `run.sh ner start` on exit code 3 (a container with a secret, #1699)
-            lines.append(f"start: run.sh ner start (with {os.path.basename(tool)})")
+            # exit code 3: only the person's typed `ner local` starts it (commands/ner.md)
+            lines.append(f"start: /maisecrets:ner local (with {os.path.basename(tool)})")
             return 3, lines
         lines.append("Neither docker nor podman is installed. Install one of them (Docker Desktop, OrbStack, Podman), "
                      f"then run: {START}. Or use a service of your team: /maisecrets:ner url URL. Or turn it off: "

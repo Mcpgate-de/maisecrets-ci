@@ -157,7 +157,7 @@ class ViewTests(unittest.TestCase):
             code, lines = self.render(conf)
         self.assertEqual(code, 3)
         self.assertEqual(lines[0], "names: local 127.0.0.1:8765 · does not answer")
-        self.assertIn(" ✗ service     not running  →  run.sh ner start (docker)", lines)
+        self.assertIn(" ✗ service     not running  →  /maisecrets:ner local (docker)", lines)
 
     def test_a_url_shows_whether_it_is_reachable(self):
         conf = {"url": "http://10.0.0.5:8765/", "format": "hf", "allow_network": True}

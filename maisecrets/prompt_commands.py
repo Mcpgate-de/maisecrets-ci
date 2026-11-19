@@ -159,6 +159,52 @@ _TYPED_FORM_RE = LazyRx(r"\A\s*maisecrets[ \t]*:[ \t]*(?P<name>[a-z][a-z-]*)(?:[
                         re.I)
 
 
+# the slash form of a maisecrets command, one line
+_SLASH_FORM_RE = LazyRx(r"\A\s*/maisecrets:(?P<name>[a-z][a-z-]*)(?:[ \t]+(?P<args>[^\r\n]*?))?\s*\Z", re.I)
+# the commands whose command file only runs one CLI entry with the typed arguments and shows its output: the entry and
+# whether the arguments go on stdin (--args-stdin, as the command file passes them)
+_STDIN_ENTRIES = {"list": ["list"], "audit": ["audit"], "report": ["report"], "guard": ["guard"],
+                  "shortcut": ["shortcut"], "forget": ["forget"], "settings": ["settings"], "sref": ["sref"],
+                  "put": ["put", "--clipboard"]}
+
+
+def run_plan(prompt) -> dict | None:
+    """What the mod runs for a slash command the person typed, in place of its command file: {"argv": the CLI words
+    after hooks/dispatch.py (fixed words only), "stdin": the typed arguments for --args-stdin, "long": a run of up to
+    two minutes (the login), "server": the server a login names, "view": "ner" for the panel's name-service view,
+    "fill": the output goes into the prompt box (/maisecrets:send), "markdown": the output is Markdown}. None keeps
+    the command file: a form that needs the model or its tool hooks, such as `status test`, whose value only the
+    PreToolUse hook makes and whose proof is the tool output path."""
+    m = _SLASH_FORM_RE.match(prompt) if isinstance(prompt, str) else None
+    if not m:
+        return None
+    name, args = m.group("name").lower(), (m.group("args") or "").strip()
+    words = args.split()
+    if name == "status":
+        return {"argv": ["status", *words]} if words in ([], ["all"]) else None
+    if name == "rules":
+        return {"argv": ["rules"]} if not words else None
+    if name == "term":
+        return {"argv": ["terms"]} if not words else None          # add and remove: the prompt hook answers them
+    if name == "send":
+        return {"argv": ["pending"], "fill": True} if not words else None
+    if name == "ner":
+        # the prompt hook made the change; the output is the view of the source (`all`: its details)
+        return {"argv": ["ner", "all"]} if [w.lower() for w in words] == ["all"] else {"argv": ["ner"], "view": "ner"}
+    if name not in _STDIN_ENTRIES:
+        return None
+    if name == "forget" and any(w.lower().startswith("import:") for w in words):
+        return None                                                  # the prompt hook answers it
+    plan = {"argv": [*_STDIN_ENTRIES[name], "--args-stdin"], "stdin": args}
+    if name == "sref" and words[:1] == ["login"]:
+        plan["long"] = True
+        if len(words) == 2:
+            plan["server"] = words[1][:64]
+    if name == "settings":
+        plan["markdown"] = True
+    return plan
+
+
 def mod_command(payload: dict) -> dict | None:
     """The mod's answer to the person's own maisecrets command in Claude Code, so that none reaches the model and none
     reads as a block (night UX test, findings C and F): {"drop": answer} for a command the prompt hook answers (the
@@ -190,6 +236,24 @@ def mod_command(payload: dict) -> dict | None:
         if out.get("decision") == "block" and isinstance(out.get("reason"), str):
             return {"drop": out["reason"]}
         return {}
+    plan = run_plan(prompt) if slash else None
+    if plan is not None:
+        # a command file that only runs its CLI entry: the mod runs that entry itself, with no model turn. The prompt
+        # hook decides first, with the same call as for the slash command (its value check, a settings or ner change
+        # the person typed, the note of a typed forget); its block drops the command
+        session = payload.get("session_id")
+        found = demo._find_transcript(session) if isinstance(session, str) and session else None
+        out = h.user_prompt({**payload, "prompt_id": "mod", "transcript_path": found or ""})
+        if out.get("decision") == "block":
+            reason = out.get("reason")
+            return {"drop": reason if isinstance(reason, str) and reason else "maisecrets: this command did not run."}
+        context = (out.get("hookSpecificOutput") or {}).get("additionalContext")
+        if isinstance(context, str) and context:
+            plan["note"] = context
+        if plan.get("view") == "ner":
+            from . import ner_setup
+            plan["starting"] = ner_setup.start_running()
+        return {"run": plan}
     m = _TYPED_FORM_RE.match(prompt)
     name = m.group("name").lower() if m else ""
     # the command names of commands/*.md and the skill (demo.FORMS and the names it leaves out): another word after

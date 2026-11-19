@@ -72,8 +72,10 @@ def _local_checks(f: dict, code: int) -> list:
     again = f"{tool} rm -f ner, then /maisecrets:ner"
     if not f.get("answers"):
         probe = str(f.get("probe") or "")
+        if f.get("starting"):
+            return [Check("warn", "service", "loading and starting (a few minutes)", "/maisecrets:ner", None)]
         if code == 3:
-            return [Check("FAIL", "service", "not running", f"run.sh ner start ({tool})", None)]
+            return [Check("FAIL", "service", "not running", f"/maisecrets:ner local ({tool})", None)]
         if "not asked" in probe:
             return [Check("FAIL", "service", probe.split("not asked; ", 1)[-1][:FACT_MAX] or "not asked",
                           "/maisecrets:ner all", None)]

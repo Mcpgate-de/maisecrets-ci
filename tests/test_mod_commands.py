@@ -214,5 +214,78 @@ class InlineMarkTests(_Base):
         self.assertIsNone(Vault().get(KEY, session=SESSION)[0])
 
 
+class RunPlanTests(_Base):
+    """0.9.19: a slash command whose command file only runs one CLI entry runs in the mod, with no model turn. The
+    prompt hook decides first, with the call it makes for the command file; the plan names fixed words only."""
+
+    TABLE = {
+        "/maisecrets:status": {"argv": ["status"]},
+        "/maisecrets:status all": {"argv": ["status", "all"]},
+        "/maisecrets:list": {"argv": ["list", "--args-stdin"], "stdin": ""},
+        "/maisecrets:list uses 5": {"argv": ["list", "--args-stdin"], "stdin": "uses 5"},
+        "/maisecrets:audit 5": {"argv": ["audit", "--args-stdin"], "stdin": "5"},
+        "/maisecrets:rules": {"argv": ["rules"]},
+        "/maisecrets:term": {"argv": ["terms"]},
+        "/maisecrets:send": {"argv": ["pending"], "fill": True},
+        "/maisecrets:put": {"argv": ["put", "--clipboard", "--args-stdin"], "stdin": ""},
+        "/maisecrets:guard status": {"argv": ["guard", "--args-stdin"], "stdin": "status"},
+        "/maisecrets:shortcut status": {"argv": ["shortcut", "--args-stdin"], "stdin": "status"},
+        "/maisecrets:report bug the pane is slow": {"argv": ["report", "--args-stdin"],
+                                                    "stdin": "bug the pane is slow"},
+        "/maisecrets:sref": {"argv": ["sref", "--args-stdin"], "stdin": ""},
+        "/maisecrets:sref logout team-gw": {"argv": ["sref", "--args-stdin"], "stdin": "logout team-gw"},
+        "/maisecrets:sref login team-gw": {"argv": ["sref", "--args-stdin"], "stdin": "login team-gw", "long": True,
+                                           "server": "team-gw"},
+        "/maisecrets:ner all": {"argv": ["ner", "all"]},
+        "/maisecrets:ner": {"argv": ["ner"], "view": "ner", "starting": False},
+        "/maisecrets:forget " + KEY: {"argv": ["forget", "--args-stdin"], "stdin": KEY},
+    }
+
+    def test_each_command_gets_the_entry_of_its_command_file(self):
+        for prompt, plan in self.TABLE.items():
+            with self.subTest(prompt):
+                self.assertEqual(_mod(prompt), {"run": plan})
+
+    def test_a_form_that_needs_the_model_or_its_tool_hooks_keeps_the_command_file(self):
+        # status test: only the PreToolUse hook makes its value, and its proof is the tool output path
+        for prompt in ("/maisecrets:status test", "/maisecrets:secret-hygiene", "/maisecrets:rules check /tmp"):
+            with self.subTest(prompt):
+                self.assertNotIn("run", _mod(prompt))
+
+    def test_a_prompt_the_person_did_not_type_keeps_the_command_file(self):
+        for origin in ("sdk", None, "peer", "task-notification"):
+            with self.subTest(origin):
+                self.assertNotIn("run", _mod("/maisecrets:sref login team-gw", origin=origin))
+
+    def test_a_value_in_the_arguments_is_the_prompt_hooks_block_and_nothing_runs(self):
+        token = "glpat-" + "Zq8wLr2KxN4vB7mT1pYc"
+        out = _mod("/maisecrets:report bug it failed with " + token)
+        self.assertNotIn("run", out)
+        self.assertIn("drop", out)
+        self.assertNotIn(token, out["drop"])
+
+    def test_a_settings_change_is_made_once_by_the_hook_and_the_run_shows_it(self):
+        out = _mod("/maisecrets:settings ssh_consent on")
+        self.assertEqual(out["run"]["argv"], ["settings", "--args-stdin"])
+        self.assertEqual(out["run"]["note"], "maisecrets: SSH consent is on (set by you).")
+        self.assertTrue(json.loads(CONFIG.read_text(encoding="utf-8")).get("ssh_consent"))
+
+    def test_a_typed_forget_runs_as_the_slash_command_would(self):
+        Vault().put(PASSWORD, "SECRET", "manual", session=SESSION)
+        plan = _mod("/maisecrets:forget " + KEY)["run"]
+        # the entry exactly as the mod starts it: the plugin's dispatch.py, the words of the plan, the arguments on
+        # stdin, and the session id that the client gives a command file
+        import subprocess
+        env = {**os.environ, "CLAUDE_CODE_SESSION_ID": SESSION, "PYTHONUTF8": "1"}
+        r = subprocess.run([sys.executable, str(ROOT / "hooks" / "dispatch.py"), *plan["argv"]], input=plan["stdin"],
+                           capture_output=True, text=True, env=env, cwd=str(ROOT), timeout=120)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f"Deleted {KEY}.", r.stdout)
+        self.assertNotIn(PASSWORD, r.stdout + r.stderr)
+        # the prompt hook noted the typed key for this session, and the run took the note
+        from maisecrets import events
+        self.assertFalse(events.take_typed_forget(KEY, [SESSION]))
+
+
 if __name__ == "__main__":
     unittest.main()

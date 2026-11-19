@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import os
 import re
-from pathlib import Path
 
 from .home import HOME, load_config
 from .settings import (_CHOICES, _LIST_KEYS, LABEL, MAIN_GROUPS, MORE_GROUPS, TITLE, TTL_LABELS,
@@ -191,12 +190,14 @@ def pane_ner() -> dict:
     servers = sorted(n for n, u in ner_setup._servers().items()
                      if re.fullmatch(r"[\w.-]{1,64}", n) and str(u).lower().startswith("https://"))
     try:
-        _code, lines = ner_view.render(conf, 0.0, False, "claude")
+        code, lines = ner_view.render(conf, 0.0, False, "claude")
     except Exception as exc:  # noqa: BLE001 - the view shows the failure, never a traceback
-        lines = [f"the check failed ({type(exc).__name__})"]
+        code, lines = 1, [f"the check failed ({type(exc).__name__})"]
     lines = [ln for ln in lines if not ln.startswith(("all details:", "to turn it on:"))]
+    # answers: the source can be used now; starting: a start of the local service runs in the background
     return {"source": source, "locked": "remote_detector" in (cfg.get("policy_keys") or []),
-            "servers": servers, "lines": lines, "gateway_name": next(
+            "servers": servers, "lines": lines, "answers": code == 0, "starting": ner_setup.start_running(),
+            "gateway_name": next(
                 (n for n, u in ner_setup._servers().items() if url and str(u).rstrip("/") == str(url).rstrip("/")),
                 None)}
 
@@ -209,18 +210,10 @@ def pane_ner_set(value: str) -> dict:
         return {"note": "That source cannot be set here."}
     changed, text = apply_typed("remote_detector", "ner:" + value, route=PANE_ROUTE)
     out = {"note": text.replace("maisecrets: ", "", 1), "changed": changed}
+    # the press is the person's typed choice: apply_typed started the service (ner_setup.start_typed)
     if changed and value == "local":
-        import subprocess
-        import sys
-        log = HOME / "ner-start.log"
-        try:
-            with open(log, "w", encoding="utf-8") as f:
-                subprocess.Popen([sys.executable, "-m", "maisecrets.cli", "ner", "start"],
-                                 cwd=str(Path(__file__).resolve().parent.parent), stdout=f, stderr=subprocess.STDOUT,
-                                 stdin=subprocess.DEVNULL, start_new_session=True)
-            out["starting"] = True
-        except OSError as exc:
-            out["note"] += f" The start failed ({type(exc).__name__}); run /maisecrets:ner local again."
+        from . import ner_setup
+        out["starting"] = ner_setup.start_running()
     if changed and value.startswith("gateway:"):
         out["login"] = value[len("gateway:"):]
     return out
