@@ -1,0 +1,10 @@
+# c1-a-reserved-word-in-another-case-or-a-longer-value-stays-a-value: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c1-a-reserved-word-in-another-case-or-a-longer-value-stays-a-value"
+control = "C1"
+statement = "Only a listed reserved word in ASCII lower case or capitals is skipped: Readonly, readonly7, xreadonly and a Unicode spelling that lowers to a listed word stay values (#29, Gate A)."
+runner = ["tests/test_reserved_words.py::SpellingTests::test_another_case_a_longer_value_and_unicode_are_no_reserved_word", "tests/test_reserved_words.py::ScanTests::test_another_case_or_a_longer_value_is_found_as_before", "tests/test_detect_rules.py::LabelValueTests::test_a_value_that_only_holds_a_reserved_word_stays_a_value"]
+
+[proof]
+file = "maisecrets/detection/value_checks.py"
+find = '''    return (w if w.islower() else w.lower() if w.isupper() else "") in _RESERVED_WORDS'''
+replace = '''    return w.lower() in _RESERVED_WORDS'''

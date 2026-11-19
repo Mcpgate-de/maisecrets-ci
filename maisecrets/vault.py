@@ -222,6 +222,13 @@ def code_word_spellings() -> list[str]:
     return [s for w in sorted(code_words()) for b in (w, w.capitalize(), w.upper()) for s in (b, b + ";")]
 
 
+def reserved_word_spellings() -> list[str]:
+    """The spellings of a reserved word that the two code rules stored before #29: the same spellings the detector
+    skips now (detect.reserved_word_spellings), so a stored `Readonly` stays live. Found by fingerprint."""
+    from .detect import reserved_word_spellings as spellings
+    return spellings()
+
+
 # the kinds of a value the person chose: stored by hand (`maisecrets put`), a term of a term list, an imported value
 CHOSEN_KINDS = ("manual", "term:", "import:")
 
@@ -1556,15 +1563,25 @@ class Vault:
         its placeholder still resolves: nothing is deleted without the person (Codex review, 2026-09-29, of a
         version that deleted). The entries are found by fingerprint: no value is read. Returns the keys marked."""
         entries = self._index["entries"]
-        if not any(str(m.get("kind", "")).startswith("ds-keyword") and not m.get("purged") and not m.get("weak")
-                   for m in entries.values()):
+        from .detect import RESERVED_WORD_RULES
+
+        def code_word_kind(kind: str) -> bool:
+            return kind.startswith("ds-keyword")
+
+        def reserved_word_kind(kind: str) -> bool:
+            return kind in RESERVED_WORD_RULES
+
+        if not any((code_word_kind(str(m.get("kind", ""))) or reserved_word_kind(str(m.get("kind", ""))))
+                   and not m.get("purged") and not m.get("weak") for m in entries.values()):
             return []   # no fingerprint key is made for a store that has no such entry
         quieted = []
-        for word in code_word_spellings():
+        # a statement keyword from a ds-keyword rule; a reserved word from each rule of RESERVED_WORD_RULES, which skip
+        # it now. Another rule took it quoted, a string, and its entry stays hunted (#29)
+        for word, kind_ok in [(w, code_word_kind) for w in code_word_spellings()] + [
+                (w, reserved_word_kind) for w in reserved_word_spellings()]:
             key = self._index["by_fingerprint"].get(self.fingerprint(word))
             meta = entries.get(key) if key else None
-            if (not meta or meta.get("purged") or meta.get("weak")
-                    or not str(meta.get("kind", "")).startswith("ds-keyword")):
+            if not meta or meta.get("purged") or meta.get("weak") or not kind_ok(str(meta.get("kind", ""))):
                 continue
             meta["weak"] = True
             quieted.append(key)

@@ -137,7 +137,7 @@ def hits(text: str) -> list:
     """(start, end, kind, type) of a name (#43), a password and an id number (#45) after a key, and a user name after
     a user-id key or a cue in prose (#51)."""
     from .personal import ADDRESS, ID_NUMBER, NAME, USERNAME, _THING_PARENTS, _xml_parent
-    from .core import _references
+    from .core import _references, unquoted_reserved_word
     from .role_names import key_names
     from .user_forms import USER_ID_KEYS, user_id_matches, user_id_ok, user_names
     refs = _references()
@@ -161,6 +161,8 @@ def hits(text: str) -> list:
             if not is_key(key) or not ok(m.group(4)) or _JOINED_RE.match(text, m.end(4)) \
                     or refs.hit_is_a_reference(text, m.start(4), m.group(4)):
                 continue   # a reference in a form of the detector's sources is no value
+            if typ == "SECRET" and unquoted_reserved_word(text, m.start(4), m.group(4)):
+                continue   # `password = procedure`: a reserved word of a language (#29)
             if typ == ID_NUMBER and not _a_persons_id(text, m, key, _THING_PARENTS, _xml_parent):
                 continue
             if typ == ADDRESS and _a_business_near(text, m.start(), m.end()):

@@ -141,6 +141,7 @@ Passwords, keys and tokens: label words, and words that make a value code, prose
 | `passwords/password-label-words.txt` | more | the last word of a password label, and the words before it that make the label name something else. |
 | `passwords/password-translations.txt` | more | words that the English list lacks: short words, code identifiers, algorithm names, German words of developer p … |
 | `passwords/prose-about-a-password.txt` | less | prose about a password, not one: a hyphen compound whose last part says what was done to it (SHA256-hashed,. |
+| `passwords/reserved-words.txt` | less | a reserved word of a programming language, as the whole unquoted value after a secret label: `const s … |
 | `passwords/revision-label-ends.txt` | less | the last word of a label of a revision: a hex value after commit or sha is no secret. |
 | `passwords/secret-key-words.txt` | more | a word in a field name that names a secret: password, secret, token. |
 | `passwords/secret-name-parts.txt` | more | a part of a variable name that names a secret: a random value after it is masked. |

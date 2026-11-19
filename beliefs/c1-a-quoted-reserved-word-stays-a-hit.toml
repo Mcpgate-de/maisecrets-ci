@@ -1,0 +1,10 @@
+# c1-a-quoted-reserved-word-stays-a-hit: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c1-a-quoted-reserved-word-stays-a-hit"
+control = "C1"
+statement = "A quoted reserved word after a secret label is a string and a hit as before #29, in each rule that found it; the check changes the hits of no other rule and of no quoted value (Gate A)."
+runner = ["tests/test_reserved_words.py::ScanTests::test_a_quoted_listed_word_is_still_a_hit", "tests/test_reserved_words.py::ScanTests::test_the_check_changes_only_unquoted_values_of_the_listed_rules"]
+
+[proof]
+file = "maisecrets/detection/value_checks.py"
+find = '''    return text[start - 1:start] not in ("'", '"', "`") and is_reserved_word(value)'''
+replace = '''    return is_reserved_word(value)'''

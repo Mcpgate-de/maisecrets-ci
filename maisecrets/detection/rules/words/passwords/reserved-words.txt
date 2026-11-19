@@ -1,0 +1,59 @@
+# Effect: a word here makes maisecrets mask LESS. Add one when a value is masked wrongly.
+# Format: one entry per line, lower case; a comment line opens a block; each block sorted.
+# a reserved word of a programming language or of SQL that a person would not choose as a password, as the whole
+# unquoted value after a secret label: `const secret = readonly;`, `let password = function;`
+# (Mcpgate-de/maisecrets#29). Only a word that code made (a compound, an abbreviation, a changed spelling: readonly,
+# nullptr, typeof, varchar) and a few technical words that code uses far more often than a person chooses them
+# (abstract, distinct, excluded, function, implements, interval, procedure, savepoint). Never an everyday English
+# word: PASSWORD=unique in a .env file is a string (Gate A of #29). tests/test_reserved_words.py names each keyword
+# that stays out.
+# Read as _RESERVED_WORDS in maisecrets/detection/value_checks.py, for the rules of RESERVED_WORD_RULES only.
+abstract
+accessor
+alignas
+alignof
+async
+bigint
+boolean
+const
+constexpr
+current_date
+current_timestamp
+current_user
+distinct
+elif
+enum
+excluded
+extern
+fallthrough
+foreach
+func
+function
+goto
+ilike
+implements
+instanceof
+interval
+keyof
+nameof
+namespace
+nonlocal
+nullptr
+procedure
+readonly
+savepoint
+sbyte
+session_user
+sizeof
+stackalloc
+static_assert
+strictfp
+struct
+typedef
+typeof
+typeof_unqual
+uint
+ulong
+unsigned
+ushort
+varchar
