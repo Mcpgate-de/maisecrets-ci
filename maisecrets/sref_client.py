@@ -539,6 +539,8 @@ def _refresh_locked(cfg: dict, backend, found: dict, stale: str | None, deadline
                                              "account": _hint(data) or rec.get("account", ""),
                                              "expires": time.time() + float(data.get("expires_in") or 3600)})
             _set_inflight(found["origin"], None)        # only after the new pair is in the store
+        from . import older_versions
+        older_versions.mark_run("refresh")      # versions.json: this version renewed a login (no value, never raises)
         return data["access_token"]
     finally:
         lock.__exit__(None, None, None)

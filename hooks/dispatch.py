@@ -399,6 +399,14 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
         loosened = None
     if loosened:
         out["systemMessage"] = (_sep(out) + loosened).strip()
+    # this version ran (versions.json), and once a day a line when an older maisecrets still runs in another session
+    try:
+        from maisecrets import older_versions  # noqa: E402
+        older = older_versions.start()
+    except Exception:  # noqa: BLE001 - the session start must not fail on it
+        older = None
+    if older:
+        out["systemMessage"] = (_sep(out) + older).strip()
     if broken:
         out["systemMessage"] = _sep(out) + broken
     if _clean_note:

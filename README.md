@@ -120,7 +120,8 @@ In Claude Code (Codex has no plugin slash commands; [docs/USING.md](docs/USING.m
 - `/maisecrets:status`: does it protect this session? One short line per check; `/maisecrets:status all` adds the details.
 - `ms:(your value)`: would this value be caught? Nothing is sent. [More](docs/USING.md#check-a-value-first-ms).
 - `/maisecrets:demo on`, in a new session: try it with real data. Your messages show with their values locked,
-  and nothing goes to the AI until `/clear`. [More](docs/USING.md#try-it-with-real-data-the-demo-mode).
+  and no prompt goes to the AI until `/clear` (a managed Claude Code may still send `/compact`, with placeholders).
+  [More](docs/USING.md#try-it-with-real-data-the-demo-mode).
 - `/maisecrets`: one panel in Claude Code for your settings, stored values and the name service, with no model turn. [More](docs/USING.md#the-maisecrets-panel-claude-code).
 - `/maisecrets:settings`: the choices you make. [More](docs/USING.md#options).
 - `/maisecrets:list`: the stored values in masked form, never a secret. [More](docs/USING.md#vault).

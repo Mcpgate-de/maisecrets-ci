@@ -711,6 +711,8 @@ def rewrite_prompt(payload: dict) -> dict:
     the prompt as it is, and the settings hook, which runs after the mod on what the mod passes on,
     decides it as without the mod: a clean prompt, an @file mention, a subagent report, a setting
     that turns the rewrite off. The answer carries placeholders, never a value."""
+    if payload.get("fill_check") is True:
+        return _pc().fill_check(payload)     # a command the mod puts into the box: its values masked, nothing run
     own = _pc().mod_command(payload)
     if own is not None:
         return own
@@ -1017,6 +1019,9 @@ def user_prompt(payload: dict) -> dict:
     rewritten, entries, values, stored, matches = _take_values_out(prompt, matches, cfg, vault, session)
     entries, values = inline + entries, inline_values + values
     if not matches and not stored["n"] and not inline:
+        spaced = _pc().spaced_answer(payload)     # `/maisecrets demo on`: the form with the colon, nothing sent
+        if spaced:
+            return spaced
         if typed:
             # the model has never seen the bracket syntax; without this it asks the user for the
             # value, and that value is blocked again (agent review, 2026-09-26)

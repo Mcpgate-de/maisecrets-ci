@@ -628,6 +628,9 @@ async function loudAgain($) {
 const DEMO_DENY = 'maisecrets demo: nothing goes to the AI. /clear to switch it off.'
 
 function registerDemo(on) {
+  // Where an organization manages Claude Code (2.1.327 and later), the http.fetch{origin=engine} and session.compact
+  // hooks of a plugin the person installed do not run: /compact and the side requests then go out, with placeholders
+  // only. on() gives no sign of it, so the demo start says it as a condition (maisecrets/demo.py ORG_NOTE, ADMIN.md)
   // every request the engine sends raises http.fetch (origin "engine"): the turns, and each side request a client
   // command makes outside a turn (/btw side_question, /rename, /recap away_summary, the title, the next-prompt guess,
   // measured on Claude Code 2.1.326). In a session in the demo none goes out, with a body or without (a URL can carry
@@ -691,6 +694,74 @@ function meantCommand(text) {
   const m = SPACED_CMD.exec(typeof text === 'string' ? text : '')
   if (!m || !COMMANDS.includes(m[1].toLowerCase())) return null
   return `/maisecrets:${m[1].toLowerCase()}${m[2].replace(/\s+$/, '')}`
+}
+// the number of single-letter changes (insert, delete, replace, swap of two neighbours) from a to b
+function editDistance(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)])
+  for (let j = 1; j <= b.length; j++) d[0][j] = j
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1))
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1)
+      }
+    }
+  }
+  return d[a.length][b.length]
+}
+// the commands a mistyped name may become: they only show. A command that deletes, weakens, changes a setting, starts
+// something or sends a prompt (forget, term, not-a-secret, settings, ner, demo, sref, put, send, guard, shortcut,
+// report) needs its exact name: `/maisecrets forger SECRET_c1` must not become a forget for a reflex Enter (Gate A)
+const NEAR_ONLY = ['status', 'list', 'audit', 'rules']
+// `/maisecrets stauts`: the one command name closest to a mistyped word (at most 2 changes, 1 for a short word), as
+// `/maisecrets:status REST`; null for a known name, a word near none or near two, and a word nearest to a command
+// outside NEAR_ONLY
+function nearCommand(text) {
+  const m = SPACED_CMD.exec(typeof text === 'string' ? text : '')
+  if (!m) return null
+  const word = m[1].toLowerCase()
+  if (COMMANDS.includes(word) || word.length < 3 || word.length > 20) return null
+  const most = word.length < 5 ? 1 : 2
+  const near = COMMANDS.map(c => [c, editDistance(word, c)]).filter(([, n]) => n <= most).sort((x, y) => x[1] - y[1])
+  if (!near.length || (near.length > 1 && near[1][1] === near[0][1]) || !NEAR_ONLY.includes(near[0][0])) return null
+  return `/maisecrets:${near[0][0]}${m[2].replace(/\s+$/, '')}`
+}
+// what the person reads when a command went into the input box: what happened, and how to go on
+const NEW_SESSION = /^\/maisecrets:demo\s+on\b/i
+const filledNote = (command) => `maisecrets: I put ${command} into the input box. Press Enter to run it, or clear ` +
+  'the box.' + (NEW_SESSION.test(command) ? ' The demo starts only in a new session (or after /clear).' : '')
+// a prompt of claude -p or an SDK host (origin sdk) has no input box: the line names the command to send instead
+const typeNote = (command) => `maisecrets: send ${command} with the colon to run it. Nothing was sent.`
+// a command goes into the box only with its values masked, as the prompt hook masks a prompt that carries one: the
+// box never gets a value back (prompt_commands.fill_check, Gate A of !591). null: Python gave no answer
+async function checkFill($, text, origin) {
+  let r = null
+  try {
+    r = await runDispatch($, JSON.stringify({ prompt: text, session_id: await $.session.id(),
+      cwd: await $.session.cwd(), origin, fill_check: true }))
+  } catch { return null }
+  if (!r) return null
+  let a = null
+  try { a = JSON.parse(r.stdout) } catch { return null }
+  return a?.maisecrets === MARK && typeof a.masked === 'string' && a.masked.startsWith('/maisecrets:') &&
+    !/[\r\n]/.test(a.masked) ? a : null
+}
+const CHECK_FAILED = 'maisecrets could not check this command. Nothing was sent; type it again with the colon.'
+// the engine puts a dropped prompt back into the box: a text that could not be checked may hold a value, so the box is
+// emptied once the drop landed (Gate A round 2 of !591)
+const FILL_FAILED = 'maisecrets could not check the text, so it removed it from the input box. Type it again.'
+const maskedNote = (a) => (Number(a.count) > 0 ? ` maisecrets masked ${Number(a.count)} value(s) in it.` : '')
+// the drop of a person's prompt whose command goes into the box (or, without a box, is named): the masked form only
+async function offer($, e, command) {
+  const a = await checkFill($, command, e.origin?.kind)
+  if (!a) {
+    if (e.origin?.kind === 'sdk') return { drop: CHECK_FAILED }     // no box (claude -p, an SDK host)
+    fillSoon($, '')
+    return { drop: FILL_FAILED }
+  }
+  if (e.origin?.kind === 'sdk') return { drop: typeNote(a.masked) }
+  fillSoon($, a.masked)
+  return { drop: filledNote(a.masked) + maskedNote(a) }
 }
 const firstWord = (args) => (typeof args === 'string' ? args.trim().split(/\s+/)[0] : '') || ''
 const unknownLine = (word) => `"${word.slice(0, 40)}" is no maisecrets command. Try: status, settings, ner, ` +
@@ -1145,12 +1216,15 @@ function registerSettingsPane(on) {
   // command file: the typeahead would turn it into the first /maisecrets:… command on Enter)
   on('command.run', { command: 'maisecrets' }, async ($, e) => {
     const t0 = await $.clock.now()
-    // `/maisecrets sref login` that no person's prompt brought (the prompt.submit hook drops a person's): the box
-    // gets the command with its colon
-    const meant = meantCommand(`/maisecrets ${e?.args ?? ''}`)
+    // `/maisecrets sref login` that no person's prompt brought (the prompt.submit hook drops a person's), or a
+    // mistyped name: the box gets the command with its colon, and the person decides
+    const spaced = `/maisecrets ${e?.args ?? ''}`
+    const meant = meantCommand(spaced) ?? nearCommand(spaced)
     if (meant) {
-      try { await $.prompt.fill({ text: meant }) } catch { /* the line names it */ }
-      return { text: `Did you mean ${meant}? Press Enter.` }
+      const a = await checkFill($, meant, e?.origin?.kind)
+      if (!a) return { text: CHECK_FAILED }      // a command run: nothing was put into the box
+      try { await $.prompt.fill({ text: a.masked }) } catch { /* the line names it */ }
+      return { text: filledNote(a.masked) + maskedNote(a) }
     }
     const word = firstWord(e?.args)
     pane.hint = word ? unknownLine(word) : null
@@ -1171,23 +1245,26 @@ export function register(on) {
   registerShowValues(on)
   registerSettingsPane(on)
   on('prompt.submit', async ($, e, next) => {
+    const person = PERSON.has(e.origin?.kind)
+    // `/maisecrets demo on`, typed by the person, is `/maisecrets:demo on`: the steps below read `own`, the colon
+    // form, with the person's origin as it came, so it has the same path and checks as the colon form and no more. Any
+    // other origin keeps its text (the hook path, and the menu command only fills the box)
+    const meant = person ? meantCommand(e.text) : null
+    const own = meant ?? e.text
     // only the demo command changes whether a session is in the demo: the next model step asks again then. A demo
     // session is left only with /clear, a new session id, which asks anew
-    if (DEMO_CMD.test(e.text ?? '')) {
+    if (DEMO_CMD.test(own ?? '')) {
       try { demo.delete(await $.session.id()) } catch { /* the step asks */ }
     }
-    if (!PERSON.has(e.origin?.kind)) return next(e)
-    afterPrompt($, e.text)
-    const meant = meantCommand(e.text)
-    if (meant) {
-      // the engine puts a dropped prompt back into the box: the corrected command goes there once the drop landed.
-      // The person's Enter sends it, so a command that wants the person's own prompt still gets it
-      try {
-        $.clock.after(60, () => { void $.prompt.fill({ text: meant }).catch(() => {}) })
-      } catch { /* the line names it */ }
-      return { drop: `Did you mean ${meant}? Press Enter.` }
+    if (!person) return next(e)
+    afterPrompt($, own)
+    const near = meant ? null : nearCommand(e.text)
+    if (near) {
+      // a mistyped name: the engine puts a dropped prompt back into the box, and the closest command goes there once
+      // the drop landed. The person's Enter sends it
+      return await offer($, e, near)
     }
-    const asked = SETTINGS_CMD.exec(e.text)
+    const asked = SETTINGS_CMD.exec(own)
     if (asked) {
       pane.hint = null
       // the panel in place of the text view; the command never renders, so the model gets no turn
@@ -1201,20 +1278,26 @@ export function register(on) {
         return { drop: 'maisecrets: the panel is open. Esc closes it.' }
       }
     }
-    if (OWN_SLASH.test(e.text) && !DEMO_CMD.test(e.text)) {
-      let own = null
-      try { own = await ownInDemo($, e.text, e.origin?.kind) } catch { own = null }
-      if (own !== null) return { drop: showOwn($, own) }
+    if (OWN_SLASH.test(own) && !DEMO_CMD.test(own)) {
+      let shown = null
+      try { shown = await ownInDemo($, own, e.origin?.kind) } catch { shown = null }
+      if (shown !== null) return { drop: showOwn($, shown) }
     }
     let ownAnswer = null      // Python's answer to an own-command shape: the steps below use it, not a second ask
-    if (OWN_CMD.test(e.text)) {
-      try { ownAnswer = await askOwn($, e.text, e.origin?.kind) } catch { ownAnswer = null }
+    if (OWN_CMD.test(own)) {
+      try { ownAnswer = await askOwn($, own, e.origin?.kind) } catch { ownAnswer = null }
       if (ownAnswer === null) return { drop: OWN_FAILED }
       if (typeof ownAnswer.drop === 'string') {
         fillSoon($, typeof ownAnswer.fill === 'string' ? ownAnswer.fill : '')
         return { drop: showOwn($, ownAnswer.drop, OWN_ABOVE) }
       }
       // no command of the mod's: the steps below, as for any prompt
+    }
+    if (meant) {
+      // a command that a command file runs (status, list, a settings change …): only a typed slash line makes the
+      // engine render it with the person's authority, and the engine throws away a change of a slash line (#44). Its
+      // colon form goes into the box once the drop landed, and the person's Enter sends it
+      return await offer($, e, meant)
     }
     if (SLASH.test(e.text)) return next(e)
     if (CHECK.test(e.text)) {

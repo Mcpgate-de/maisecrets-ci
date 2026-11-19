@@ -152,15 +152,23 @@ class SrefClientTests(unittest.TestCase):
         self.assertEqual(self.srv.resolved, [], "nothing released")
 
     def test_an_expired_access_token_is_refreshed_once_and_the_refresh_token_rotates(self):
+        from maisecrets import older_versions
         self.login()
         old = json.loads(self.backend.get(S._entry(self.found["origin"])))["refresh"]
         self.srv.access.clear()                      # the access token died early on the server
         ref = self.srv.mint("email", VALUE_MAIL)
+        older_versions.MARKER.unlink(missing_ok=True)
+        self.addCleanup(older_versions.MARKER.unlink, missing_ok=True)
         self.assertEqual(S.resolve(self.cfg, self.backend, self.found, [ref], "process", "mail"), {ref: VALUE_MAIL})
         new = json.loads(self.backend.get(S._entry(self.found["origin"])))["refresh"]
         self.assertNotEqual(old, new, "a new refresh token is kept")
         self.assertNotIn(old, self.srv.refresh, "the old refresh token is spent")
         self.assertIn(new, self.srv.refresh)
+        # the renewal names its version in versions.json (maisecrets/older_versions.py): a time, no token
+        marker = older_versions.MARKER.read_text(encoding="utf-8")
+        self.assertIn("refresh", json.loads(marker)["versions"][older_versions._current()])
+        for token in (old, new):
+            self.assertNotIn(token, marker)
 
     def test_two_sessions_that_refresh_at_once_present_the_refresh_token_once(self):
         # the refresh token rotates: without the lock both processes present it, the second gets invalid_grant and

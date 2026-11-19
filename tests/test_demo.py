@@ -41,7 +41,10 @@ FILES = ("index.json", "vault.json", "audit.log", "events.log", "demo.json", "de
 PENDING = Path(HOME, "pending")
 LINE = "Demo mode: nothing was sent to the AI. /clear to switch it off."
 LINE_CODEX = "Demo mode: nothing was sent to the AI. A new session switches it off."
-ON = "Demo mode is on: what you send stays here, nothing goes to the AI. /clear switches it off."
+ON = ("Demo mode is on: what you send stays here, no prompt goes to the AI. /clear switches it off. If an "
+      "organization manages this Claude Code, /compact and side requests (a title by /rename, /btw, /recap, "
+      "suggestions) can still go to the AI, with placeholders only; an administrator stops them by installing "
+      "maisecrets as the organization's own plugin.")
 
 
 def _reset(**user) -> None:
@@ -129,6 +132,77 @@ class _Base(unittest.TestCase):
         self.addCleanup(lambda: [p.unlink() for p in d.glob("*")] and None or d.rmdir())
         return d
 
+
+
+# ------------------------------------------------------------ `/maisecrets demo on`, with a space --
+class SpacedCommandTests(_Base):
+    """Without the mod (Codex, claude -p, a client without mods) the prompt hook sees `/maisecrets demo on` as text: it
+    keeps it from the AI and names the form that runs it. It changes nothing (prompt_commands.spaced_answer); with the
+    mod, the person's own prompt runs as the colon form (tests/mod.test.ts)."""
+
+    def test_a_known_command_with_a_space_is_kept_from_the_ai_with_the_colon_form(self):
+        for typed, form in (("/maisecrets demo on", "/maisecrets:demo on"),
+                            ("  /maisecrets Status all ", "/maisecrets:status all"),
+                            ("/maisecrets not-a-secret SECRET_c1", "/maisecrets:not-a-secret SECRET_c1"),
+                            ("/maisecrets settings rehydration confirm", "/maisecrets:settings rehydration confirm")):
+            for source in ("user", None, "cron"):
+                out = _prompt(typed, source=source)
+                self.assertEqual(out["decision"], "block", typed)
+                self.assertEqual(out["reason"], f"maisecrets: send {form} with the colon to run it. This prompt was "
+                                                "not sent to the AI.")
+                self.assertTrue(out["hookSpecificOutput"]["suppressOriginalPrompt"])
+        self.assertFalse(demo.active(SESSION), "the space form switches nothing")
+        self.assertEqual(load_config().get("rehydration", "automatic"), "automatic", "and changes no setting")
+
+    def test_codex_gets_its_own_form(self):
+        out = _prompt("/maisecrets demo on", source=None, client=CODEX)
+        self.assertEqual(out, {"decision": "block", "reason": "maisecrets: in Codex, send maisecrets: demo on. This "
+                                                             "prompt was not sent to the AI."})
+        self.assertFalse(demo.active(SESSION))
+
+    def test_other_prompts_keep_their_way(self):
+        for typed in ("/maisecrets", "/maisecrets wibble on", "/maisecrets secret-hygiene",
+                      "/maisecrets-demo on", "please run /maisecrets demo on", "/maisecrets demo on\nand more"):
+            out = _prompt(typed)
+            self.assertNotEqual(out.get("decision"), "block", typed)
+
+    def test_a_value_in_it_is_blocked_as_a_value(self):
+        out = _prompt(f"/maisecrets settings rehydration {TOKEN}")
+        self.assertEqual(out["decision"], "block")
+        self.assertNotIn("with the colon", out["reason"])
+        self.assertNotIn(TOKEN, json.dumps(out))
+
+
+class FillCheckTests(_Base):
+    """The mod's value check of a command it puts into the input box (prompt_commands.fill_check, Gate A of !591): the
+    colon form with each value masked and stored, the transcript record scrubbed later; no command runs."""
+
+    def test_a_value_in_a_command_the_mod_fills_is_masked_and_stored(self):
+        session = UUID.format(7)
+        out = _mod_fill(f"/maisecrets:status {TOKEN}", session)
+        self.assertEqual(out["count"], 1)
+        self.assertNotIn(TOKEN, json.dumps(out))
+        self.assertTrue(out["masked"].startswith("/maisecrets:status " + OPEN + "SECRET_c"), out)
+        self.assertTrue(any(e["session"] == session for e in _entries().values()), "stored for this session")
+
+    def test_a_command_with_no_value_comes_back_as_it_is_and_runs_nothing(self):
+        session = UUID.format(8)
+        for text in ("/maisecrets:status all", "/maisecrets:demo on", "/maisecrets:settings rehydration block"):
+            self.assertEqual(_mod_fill(text, session), {"masked": text, "count": 0})
+        self.assertFalse(demo.active(session), "the demo was not switched")
+        self.assertEqual(load_config().get("rehydration", "automatic"), "automatic", "no setting changed")
+
+    def test_no_answer_for_another_text_or_a_session_of_another_shape(self):
+        for text, session in ((f"status {TOKEN}", UUID.format(9)), (f"/maisecrets:status {TOKEN}", "a b/c"),
+                              ("/maisecrets:status a\nb", UUID.format(9))):
+            self.assertEqual(_mod_fill(text, session), {})
+        self.assertEqual(_entries(), {}, "nothing stored")
+
+
+def _mod_fill(prompt: str, session: str) -> dict:
+    hooks._live_cache.clear()
+    return hooks.rewrite_prompt({"prompt": prompt, "session_id": session, "cwd": "", "origin": "composer",
+                                 "fill_check": True})
 
 # ------------------------------------------------------------ switching it on --
 class SwitchTests(_Base):

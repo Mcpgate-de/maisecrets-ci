@@ -395,7 +395,20 @@ def report(root: Path, claude_dir: Path | None = None, codex_home: Path | None =
     dm = demo_verdict(sessions)
     if dm:
         checks.append(dm)
+    old = older_verdict()
+    if old:
+        checks.append(old)
     return {"checks": checks, "client": client, "version": version}
+
+
+def older_verdict() -> Check | None:
+    """A note while an older maisecrets ran in the last day (it may still be open) and a gateway login was used
+    (maisecrets/older_versions.py): a warn, never a FAIL. None otherwise."""
+    from . import older_versions
+    found = older_versions.status()
+    if not found:
+        return None
+    return Check("warn", "older", f"{found[0]} ran in 24 h"[:FACT_COL], "restart the old sessions", found[1])
 
 
 def names_verdict() -> Check | None:
