@@ -1,0 +1,11 @@
+# c33-no-hook-opens-a-network-connection-by-default: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c33-no-hook-opens-a-network-connection-by-default"
+control = "C33"
+statement = "No hook opens a network connection unless the person set up a name service: with the default settings, the prompt, pre-tool and post-tool hooks try no connect, no name lookup and no URL fetch (PRIVACY.md)."
+runner = ["tests/test_promises.py::NoNetworkTests::test_no_hook_reaches_for_the_network_in_process",
+          "tests/test_promises.py::NoNetworkTests::test_no_hook_entry_point_reaches_for_the_network_as_a_subprocess"]
+
+[proof]
+file = "maisecrets/home.py"
+find = '''    "remote_detector": {},           # a named-entity service for names in tool results (remote_layer.py); off: {}'''
+replace = '''    "remote_detector": {"url": "http://127.0.0.1:9/detect"},'''

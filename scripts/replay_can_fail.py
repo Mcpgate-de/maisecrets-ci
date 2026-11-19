@@ -10,6 +10,11 @@ beliefs layer, cut to what a repository this size needs: no provenance vocabular
     python3 scripts/replay_can_fail.py             # every belief
     python3 scripts/replay_can_fail.py --belief X  # one
     python3 scripts/replay_can_fail.py --list
+    python3 scripts/replay_can_fail.py --mod       # the beliefs whose tests are the mod's (*.test.ts)
+
+A belief whose runners are tests of the Claude Code mod (`tests/<name>.test.ts::<test name>`) runs through
+`claude plugin test`, which needs the client binary: the default run leaves those beliefs to `--mod`, which the
+harness_claude job runs (its image has the binary), and says how many it left.
 
 Each belief: the owning tests run once unmutated and must pass (a red baseline is not
 evidence about the mutation), then the file is mutated, the tests run again and must fail,
@@ -21,6 +26,7 @@ Never run it inside the test suite.
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import signal
 import subprocess
@@ -42,6 +48,19 @@ def load() -> list[dict]:
     return out
 
 
+def is_mod_test(test_id: str) -> bool:
+    return test_id.partition("::")[0].endswith(".test.ts")
+
+
+def is_mod_belief(belief: dict) -> bool:
+    return any(is_mod_test(t) for t in belief["runner"])
+
+
+def outcome_id(test_id: str) -> str:
+    """The key of a test in the outcomes: the unittest id of a Python test, the runner id itself of a mod test."""
+    return test_id if is_mod_test(test_id) else unittest_id(test_id)
+
+
 def unittest_id(test_id: str) -> str:
     """tests/test_gates.py::Class::method -> tests.test_gates.Class.method"""
     file, _, rest = test_id.partition("::")
@@ -58,6 +77,8 @@ def run_tests(ids: list[str], root: Path = ROOT) -> tuple[int, dict[str, str]]:
     import json
     import os
     import tempfile
+    if any(is_mod_test(t) for t in ids):
+        return run_mod_tests(ids, root)
     with tempfile.TemporaryDirectory(prefix="maisecrets-pyc-") as cache:
         report = os.path.join(cache, "outcomes.json")
         cmd = [sys.executable, str(root / "scripts" / "_run_tests_json.py"), report] + [unittest_id(t) for t in ids]
@@ -81,6 +102,34 @@ def run_tests(ids: list[str], root: Path = ROOT) -> tuple[int, dict[str, str]]:
 
 SKIPPED = -1
 BROKEN = -2
+_MOD_LINE = re.compile(r"^\((pass|fail|skip|todo)\) (.*?)(?: \[[0-9.]+m?s\])?$")
+
+
+def run_mod_tests(ids: list[str], root: Path = ROOT) -> tuple[int, dict[str, str]]:
+    """Run the mod's tests (`claude plugin test`, every *.test.ts of the tree: 106 tests in about 3 s) and read each
+    owning test's outcome from its line under its file's heading. A test whose line is missing (renamed, or a file
+    that did not load) is broken, not green."""
+    import shutil as _sh
+    claude = _sh.which("claude")
+    if claude is None:
+        return BROKEN, {t: "broken" for t in ids}
+    r = subprocess.run([claude, "plugin", "test", str(root)], cwd=root, capture_output=True, text=True, timeout=600)
+    seen: dict[str, str] = {}
+    current = ""
+    for line in (r.stdout + "\n" + r.stderr).splitlines():
+        line = line.rstrip()
+        if line.endswith(".test.ts:") and not line.startswith("("):
+            current = line[:-1].strip()
+            continue
+        m = _MOD_LINE.match(line)
+        if m and current:
+            seen[f"{current}::{m.group(2)}"] = {"pass": "pass", "fail": "fail"}.get(m.group(1), "skip")
+    outcomes = {t: seen.get(t, "broken") for t in ids}
+    if "skip" in outcomes.values():
+        return SKIPPED, outcomes
+    if "broken" in outcomes.values():
+        return BROKEN, outcomes
+    return (1 if "fail" in outcomes.values() else 0), outcomes
 
 
 @contextmanager
@@ -124,6 +173,22 @@ def _check_mutation(target: Path, mutated: str) -> str | None:
             compile(mutated, str(target), "exec")
         except SyntaxError as exc:
             return f"the mutation does not compile ({exc.msg}, line {exc.lineno}); a red proves nothing"
+    if target.suffix in (".mjs", ".js", ".ts"):
+        # a mutation that the module loader cannot parse makes every mod test fail for the wrong reason
+        import shutil as _sh
+        node = _sh.which("node")
+        if node and target.suffix != ".ts":
+            import os
+            import tempfile
+            fd, tmp = tempfile.mkstemp(suffix=target.suffix)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    fh.write(mutated)
+                r = subprocess.run([node, "--check", tmp], capture_output=True, text=True, timeout=60)
+            finally:
+                os.unlink(tmp)
+            if r.returncode:
+                return "the mutation does not parse (node --check); a red proves nothing"
     if target.suffix == ".json":
         import json
         try:
@@ -185,7 +250,7 @@ def replay(belief: dict, root: Path = ROOT) -> tuple[bool, str]:
         # a test that no mutation turns red proves nothing about the goal; it is ballast that
         # reads like coverage
         idle = [t for t in belief["runner"]
-                if not any(k == unittest_id(t) or k.startswith(unittest_id(t) + ".") for k in killed)]
+                if not any(k == outcome_id(t) or k.startswith(outcome_id(t) + ".") for k in killed)]
         if idle:
             return False, "no mutation turns these owning tests red: " + ", ".join(idle)
         return True, f"red under each of {len(proofs)} mutations, every owning test killed, green restored"
@@ -231,7 +296,7 @@ def _verdict(belief: dict, results: list[tuple[bool, str, set[str]]]) -> tuple[b
             return False, (f"{label} ({proof['file']}): {why}" if len(proofs) > 1 else why)
     if is_invariant(belief):
         idle = [t for t in belief["runner"]
-                if not any(k == unittest_id(t) or k.startswith(unittest_id(t) + ".") for k in killed)]
+                if not any(k == outcome_id(t) or k.startswith(outcome_id(t) + ".") for k in killed)]
         if idle:
             return False, "no mutation turns these owning tests red: " + ", ".join(idle)
         return True, f"red under each of {len(proofs)} mutations, every owning test killed, green restored"
@@ -305,13 +370,20 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--belief")
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--jobs", type=int, default=None, help="parallel workers (default: one per CPU, up to 8)")
+    ap.add_argument("--mod", action="store_true", help="only the beliefs whose tests are the mod's (*.test.ts)")
     args = ap.parse_args(argv)
     beliefs = load()
+    left = []
     if args.belief:
         beliefs = [b for b in beliefs if b["belief"] == args.belief]
         if not beliefs:
             print(f"no belief named {args.belief}")
             return 2
+    elif args.mod:
+        beliefs = [b for b in beliefs if is_mod_belief(b)]
+    else:
+        left = [b for b in beliefs if is_mod_belief(b)]
+        beliefs = [b for b in beliefs if not is_mod_belief(b)]
     if args.list:
         for b in beliefs:
             files = ", ".join(sorted({p["file"] for p in proofs_of(b)}))
@@ -331,6 +403,8 @@ def main(argv: list[str]) -> int:
             if not ok:
                 print(f"failed: {b['belief']}: {why}")
     print(f"{len(beliefs) - failures} of {len(beliefs)} beliefs proven; failures: {failures} ({jobs} job(s))")
+    if left:
+        print(f"{len(left)} belief(s) of the mod left to --mod, which needs the claude binary (the harness_claude job)")
     return 1 if failures else 0
 
 

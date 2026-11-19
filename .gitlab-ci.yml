@@ -290,6 +290,8 @@ harness_claude:
     - export HOME=$(mktemp -d)
     # the mod's own tests (tests/mod.test.ts), with $.process.run stubbed: the fallback order and every failure path
     - claude plugin test .
+    # the beliefs whose tests are the mod's: beliefs_can_fail_replay has no claude binary and leaves them here
+    - python3 scripts/replay_can_fail.py --mod --jobs 2
     - python3 harness/run.py
     # the values on the person's screen: the interactive client in a pty (show_values, harness/screen.py)
     - apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends python3-pyte >/dev/null

@@ -129,7 +129,8 @@ class ReleaseTreeTests(unittest.TestCase):
     # the files the plugin never runs, named here and not taken from the builder: every other tracked
     # file must ship, so a runtime folder missing from the allowlist, or a new file nobody classified,
     # turns this red
-    DEV_ONLY_PREFIXES = ("tests/", "scripts/", "harness/", "beliefs/", "bench/", ".github/", ".githooks/", "examples/",
+    DEV_ONLY_PREFIXES = ("tests/", "scripts/", "harness/", "beliefs/", "mission/", "bench/", ".github/", ".githooks/",
+                         "examples/",
                          # Codex installs from main; the directory held versions over the image refs in it
                          ".codex-plugin/")
     DEV_ONLY_FILES = {".gitlab-ci.yml", ".gitignore", ".gitattributes", ".ci-known-hosts-github",

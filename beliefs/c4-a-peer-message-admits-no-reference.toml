@@ -1,0 +1,10 @@
+# c4-a-peer-message-admits-no-reference: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c4-a-peer-message-admits-no-reference"
+control = "C4"
+statement = "A reference in a message of another Claude session does not let this session resolve it; the same reference typed by the person does."
+runner = ["tests/test_peer_messages.py::PeerMessageTests::test_a_reference_in_a_peer_message_is_not_admitted_to_this_session"]
+
+[proof]
+file = "maisecrets/hooks.py"
+find = '''        if settings_mod.peer_sender(prompt) is None and not payload.get("agent_id"):'''
+replace = '''        if not payload.get("agent_id"):'''

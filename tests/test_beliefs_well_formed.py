@@ -31,9 +31,17 @@ class BeliefsWellFormedTests(unittest.TestCase):
                     self.assertIn(key, b)
                 self.assertEqual(b["belief"], path.stem)
                 self.assertTrue(b["runner"], "a belief without an owning test is prose")
+                mod = [t for t in b["runner"] if t.partition("::")[0].endswith(".test.ts")]
+                # the replay runs a belief's tests in one runner: the mod's (claude plugin test) or Python's
+                self.assertIn(len(mod), (0, len(b["runner"])), f"{path.name}: mod and Python tests in one belief")
                 for test_id in b["runner"]:
                     file, _, rest = test_id.partition("::")
                     self.assertTrue((ROOT / file).exists(), test_id)
+                    if test_id in mod:
+                        text = (ROOT / file).read_text(encoding="utf-8")
+                        self.assertTrue(f"test('{rest}'" in text or f'test("{rest}"' in text,
+                                        f"{test_id}: no test of that name in {file}")
+                        continue
                     module = importlib.import_module(file[:-3].replace("/", "."))
                     obj = module
                     for part in rest.split("::"):
@@ -65,7 +73,7 @@ class BeliefsWellFormedTests(unittest.TestCase):
         # C11 (TTL) is a data rule with no single removable line; every other control is enforced
         # by code that a mutation can remove, and each one needs a proof
         for control in ("C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C12", "C13", "C14", "C15", "C16",
-                        "C17", "C24", "C25", "C26", "C28", "C29"):
+                        "C17", "C20", "C24", "C25", "C26", "C28", "C29", "C31", "C33"):
             self.assertIn(control, covered, f"{control} has no belief")
 
 

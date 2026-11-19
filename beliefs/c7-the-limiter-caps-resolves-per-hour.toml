@@ -1,0 +1,10 @@
+# c7-the-limiter-caps-resolves-per-hour: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c7-the-limiter-caps-resolves-per-hour"
+control = "C7"
+statement = "More than max_resolves_per_hour resolves in the last hour are refused, and the refusal names the setting."
+runner = ["tests/test_gates.py::GrantTests::test_limiter_caps_distinct_keys_per_session_and_resolves_per_hour"]
+
+[proof]
+file = "maisecrets/vault.py"
+find = '''        if len(rec) >= per_hour:'''
+replace = '''        if False:'''

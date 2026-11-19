@@ -1,0 +1,22 @@
+# M4: a product promise. See M1 for what checks it.
+mission = "M4"
+promise = "The agent cannot read the store or loosen the protection, and a copy of the disk does not reveal a value."
+actors = ["A2", "A4"]
+controls = ["C8", "C10", "C11", "C12", "C15", "C22", "C25"]
+invariants = ["I3"]
+ends = "Not A3: every store hands a value to any process of the same user; a process that runs as the person, or an agent that builds the store path at run time (C8 is text matching)."
+
+[[part]]
+says = "No tool of the agent reads the store or the vault home."
+beliefs = ["c8-*", "inv-no-agent-tool-reads-vault-material"]
+
+[[part]]
+says = "Only the person's own typed prompt changes a setting, a term or a rule folder; a machine policy wins over both."
+beliefs = ["c22-*", "c15-*", "c25-*"]
+
+[[part]]
+says = "A copy of the disk reveals no short value, and a value expires."
+beliefs = ["c10-*", "c12-*", "vault-*"]
+
+[measure]
+none = "a read of the store is refused or not; invariant I3 checks every tool and every spelling of the path"

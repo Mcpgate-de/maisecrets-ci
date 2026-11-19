@@ -1,0 +1,12 @@
+# c33-no-answer-from-the-plugin-sends-no-request: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c33-no-answer-from-the-plugin-sends-no-request"
+control = "C33"
+statement = "When the plugin's Python gives no answer about the demo, the mod's http.fetch hook refuses the request: an unknown demo state is not \"not in the demo\" (README, \"The demo\")."
+runner = ["tests/fetch.test.ts::when the plugin gives no answer, the request is refused and never goes out"]
+
+[proof]
+file = "claude-mod/maisecrets-mod.mjs"
+find = '''    if (await inDemo($) === false) return next(e)
+    return { deny: DEMO_DENY }'''
+replace = '''    if (await inDemo($) !== true) return next(e)
+    return { deny: DEMO_DENY }'''

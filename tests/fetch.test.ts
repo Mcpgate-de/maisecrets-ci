@@ -52,6 +52,17 @@ test('in a demo session every engine request is refused, with a body or without'
   }
 })
 
+test('when the plugin gives no answer, the request is refused and never goes out', async () => {
+  // README, "The demo": when the Python gives no answer, the hooks refuse, so nothing goes out by mistake. A Python
+  // that exits with an error leaves the demo state unknown: unknown is not "not in the demo"
+  const h = hooks()['http.fetch']
+  const c = { n: 0 }
+  const r = await h.fn(world(null), { url: 'https://api.example.com/v1/x', init: { method: 'POST', body: '{}' } },
+                       engineNext(c))
+  expect(r.deny).toContain('maisecrets demo')
+  expect(c.n).toBe(0)
+})
+
 test('outside the demo the request goes on; a failure after it went out is not sent again', async () => {
   const h = hooks()['http.fetch']
   const c = { n: 0 }

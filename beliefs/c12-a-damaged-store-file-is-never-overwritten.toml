@@ -1,0 +1,14 @@
+# c12-a-damaged-store-file-is-never-overwritten: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c12-a-damaged-store-file-is-never-overwritten"
+control = "C12"
+statement = "An encrypted store file that does not parse is never replaced by one with the new entry only: the write is refused and the other values stay."
+runner = ["tests/test_vault.py::EncryptedFileBackendTests::test_a_corrupt_store_file_is_never_overwritten"]
+
+[proof]
+file = "maisecrets/vault.py"
+find = '''            # other value would be lost without a message (review, 2026-09-26)
+            if for_write:
+                raise CodedError("vault store file unreadable; not overwritten", "store.file-read", "parse")'''
+replace = '''            # other value would be lost without a message (review, 2026-09-26)
+            if False:
+                raise CodedError("vault store file unreadable; not overwritten", "store.file-read", "parse")'''

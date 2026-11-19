@@ -1,0 +1,11 @@
+# c33-the-demo-sends-no-request: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c33-the-demo-sends-no-request"
+control = "C33"
+statement = "In a session in the demo, the mod's http.fetch hook refuses every request Claude Code sends, with a body or without, and the request never goes out."
+runner = ["tests/fetch.test.ts::in a demo session every engine request is refused, with a body or without"]
+
+[proof]
+file = "claude-mod/maisecrets-mod.mjs"
+find = '''    if (await inDemo($) === false) return next(e)
+    return { deny: DEMO_DENY }'''
+replace = '''    return next(e)'''

@@ -16,6 +16,7 @@ python3 scripts/derived_counts.py >/dev/null || { python3 scripts/derived_counts
 python3 -m unittest discover -s tests -q || fail "unit tests"
 if [ -x /usr/bin/python3 ]; then /usr/bin/python3 -m unittest discover -s tests -q || fail "unit tests on /usr/bin/python3"; fi
 python3 scripts/replay_can_fail.py || fail "belief replay"
+python3 scripts/replay_can_fail.py --mod || fail "belief replay of the mod"
 if [ "${MAISECRETS_SKIP_HARNESS:-0}" != "1" ] && command -v claude >/dev/null 2>&1; then
   python3 harness/run.py || fail "harness"
 fi

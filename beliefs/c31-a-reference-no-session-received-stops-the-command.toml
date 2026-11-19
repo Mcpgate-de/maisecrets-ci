@@ -1,0 +1,10 @@
+# c31-a-reference-no-session-received-stops-the-command: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c31-a-reference-no-session-received-stops-the-command"
+control = "C31"
+statement = "A command with a Sensitive Reference that no session received is refused with its cause (and the login step), with or without a login; it never runs with the reference's text."
+runner = ["tests/test_sref_hooks.py::SrefBashTests::test_a_reference_no_session_received_is_refused_with_its_cause"]
+
+[proof]
+file = "maisecrets/hooks.py"
+find = '''        return _deny(_sref_never_reason(sref_never) + " The command did not run.")'''
+replace = '''        pass'''

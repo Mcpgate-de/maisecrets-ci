@@ -1,0 +1,11 @@
+# c31-a-reference-resolves-only-in-the-session-that-received-it: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c31-a-reference-resolves-only-in-the-session-that-received-it"
+control = "C31"
+statement = "A Sensitive Reference that an MCP result gave to one session is refused in another session with a reason, and the gateway is not asked for its value."
+runner = ["tests/test_sref_hooks.py::SrefBashTests::test_another_session_gets_a_reason_and_the_gateway_is_not_asked"]
+
+[proof]
+file = "maisecrets/sref_notes.py"
+find = '''            if isinstance(note, dict) and isinstance(note.get("t"), (int, float)) and note["t"] > now - NOTE_TTL \
+                    and session in (note.get("sessions") or []):'''
+replace = '''            if isinstance(note, dict) and isinstance(note.get("t"), (int, float)) and note["t"] > now - NOTE_TTL:'''
