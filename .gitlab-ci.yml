@@ -31,7 +31,12 @@ stages:
 workflow:
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
+    # a red job decides a merge request: the rest of its pipeline stops at once and frees the runner (15 runner
+    # minutes after the first red job in !591). The GitHub matrix it started runs on (public repository, free
+    # minutes) and a green run of the same tree is reused. Main and the tags run every job to the end.
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      auto_cancel:
+        on_job_failure: all
     - if: $CI_COMMIT_TAG
     - if: $CI_COMMIT_BRANCH == "main"
 
