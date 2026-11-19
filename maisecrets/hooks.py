@@ -47,6 +47,7 @@ from .shell_commands import (  # noqa: F401
     _value_reaches, _refusal_for, _SSH_ARG_FLAGS, _SSH_REFUSED_FLAGS, _SSH_REFUSED_OPTIONS, _ssh_options, _ssh_way,
     _remote_refusal, READ_ONLY_REMOTE, _JOURNALCTL_STATEFUL, _READ_ONLY_WRAPPERS, _SORT_OK, _UNIQ_OK,
     _remote_is_read_only, _ssh_route, _HOOK_ENTRIES, _calls_a_hook_entry, _only_prints, _parse_for_consent,
+    only_mentions,
 )
 from .tool_output import (  # noqa: F401
     _TOKEN_SPLIT_RE, _FINE_SPLIT_RE, _EXACT_MIN_LEN, _candidates, _HEX_RE, _B64_RE, _decoded, _derived_forms,
@@ -710,6 +711,8 @@ def rewrite_prompt(payload: dict) -> dict:
     the prompt as it is, and the settings hook, which runs after the mod on what the mod passes on,
     decides it as without the mod: a clean prompt, an @file mention, a subagent report, a setting
     that turns the rewrite off. The answer carries placeholders, never a value."""
+    if payload.get("fill_check") is True:
+        return _pc().fill_check(payload)     # a command the mod puts into the box: its values masked, nothing run
     own = _pc().mod_command(payload)
     if own is not None:
         return own
@@ -1016,6 +1019,9 @@ def user_prompt(payload: dict) -> dict:
     rewritten, entries, values, stored, matches = _take_values_out(prompt, matches, cfg, vault, session)
     entries, values = inline + entries, inline_values + values
     if not matches and not stored["n"] and not inline:
+        spaced = _pc().spaced_answer(payload)     # `/maisecrets demo on`: the form with the colon, nothing sent
+        if spaced:
+            return spaced
         if typed:
             # the model has never seen the bracket syntax; without this it asks the user for the
             # value, and that value is blocked again (agent review, 2026-09-26)
@@ -1334,6 +1340,13 @@ def _store_refusal(command: str, windows_paths: bool = False) -> dict | None:
 _SETTINGS_IN_A_COMMAND = ("maisecrets: this command carries a maisecrets settings change; only the person makes one, "
                           "as their own prompt (/maisecrets:settings KEY VALUE). The command did not run. Tell the "
                           "user the prompt to send.")
+
+
+def _carries(command: str, found) -> bool:
+    """A Bash command that carries a text `found` matches and does not only mention it (only_mentions, #84)."""
+    return bool(found(command)) and not only_mentions(command, found)
+
+
 _HOOK_ENTRY_TEXT_RE = _LazyRx(r"(?:run\.sh|run\.cmd|dispatch\.py)[\"']?\s+[\"']?"
                                  r"(?:session-start|user-prompt|pre-tool|post-tool(?:-failure)?|mod-prompt|"
                                  r"mod-values|mod-reveal|mod-settings|mod-demo)\b", re.I)
@@ -1645,13 +1658,15 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
     if elsewhere:
         return _deny(_elsewhere_reason(elsewhere) + " The command did not run.")
     from . import settings as settings_mod
-    if settings_mod.IN_A_COMMAND_RE.search(command):
+    # a weakening command counts only where the line runs it; in the body of an issue comment or a commit message it
+    # is a mention (only_mentions, #84). The ssh consent sentence below keeps every mention refused (C21 is frozen)
+    if _carries(command, lambda t: bool(settings_mod.IN_A_COMMAND_RE.search(t))):
         return _deny(_SETTINGS_IN_A_COMMAND)
-    if value_files.removal_in_command(command):
+    if _carries(command, value_files.removal_in_command):
         return _deny(value_files.IN_A_COMMAND)
-    if not_a_secret.in_a_command(command):
+    if _carries(command, not_a_secret.in_a_command):
         return _deny(not_a_secret.IN_A_COMMAND)
-    if demo.in_a_command(command):
+    if _carries(command, demo.in_a_command):
         return _deny(demo.IN_A_COMMAND)
     # ssh consent (#8), before any value is recorded or served: a refusal leaves no audit line
     if cfg.get("ssh_consent") and re.search(r"maisecrets:\s*allow\s+ssh\s+\S|allow\s+ssh\s+\S+\s+\d{6}", command,
@@ -2760,6 +2775,8 @@ def _failure(event: str, payload: dict, exc: BaseException) -> dict:
             f"no write access to {where}. Another program may hold it open (an antivirus scan, a second copy of "
             "maisecrets), or it belongs to another user. maisecrets blocks until it can write; to work without its "
             "protection meanwhile, switch its hooks off in the client's hook settings."), hint=False)
+    if vault_mod.is_store_timeout(exc):
+        return _fail_closed(event, payload, vault_mod.timeout_reason(exc))
     return _fail_closed(event, payload, f"an internal error ({type(exc).__name__}).")
 
 
@@ -2840,6 +2857,8 @@ def _post_tool_guarded(payload: dict) -> dict:
             # before the redaction, from the result as the server sent it; the result itself does not change
             _count, notice = vault_refs.note_result(noted_payload, cfg, Vault(cfg).backend)
     except Exception as exc:  # noqa: BLE001 - a token not noted stays text; the output must not be withheld for it
+        if vault_mod.is_store_timeout(exc):
+            raise                       # a store that does not answer fails the hook closed (C12)
         _debug(f"post-tool vault-refs: {type(exc).__name__}")
     try:
         # a Sensitive Reference of the gateway, noted for this session; a hint once when there is no login (sref_hooks)
@@ -2847,6 +2866,8 @@ def _post_tool_guarded(payload: dict) -> dict:
         if hint:
             notice = (notice + " " + hint) if notice else hint
     except Exception as exc:  # noqa: BLE001 - a note that fails leaves the reference as text; the output goes on
+        if vault_mod.is_store_timeout(exc):
+            raise                       # a store that does not answer fails the hook closed (C12)
         _debug(f"post-tool sref notes: {type(exc).__name__}")
     result = _post_tool_guarded_rest(payload)
     result = _selftest().after(payload, result, client_of(payload) == "codex")     # after the detection: selftest.py
@@ -3344,6 +3365,7 @@ def main(argv: list[str]) -> int:
     answered = {"v": False}
     answering = {"v": False}
     seconds = _test_watchdog_seconds(WATCHDOG_SECONDS[event])
+    vault_mod.hook_deadline(seconds)                 # every store call ends before the watchdog (#76)
 
     def answer(obj: dict, how: str) -> bool:
         """Write the one answer of this process; True when this call wrote it. Exactly one JSON object leaves the
@@ -3429,6 +3451,7 @@ def main(argv: list[str]) -> int:
         return 0
     finally:
         _disarm_alarm(alarm)
+        vault_mod.hook_deadline(None)
         # the recorder runs after the answer and never raises out of here: an exception would end the process
         # with exit 1, and a client ignores the JSON answer of a hook that exits 1
         if won:

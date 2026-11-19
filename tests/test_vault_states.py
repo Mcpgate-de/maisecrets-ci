@@ -26,7 +26,7 @@ import test_vault_refs as base  # noqa: E402
 from test_vault_refs import CLAUDE, HOME, VALUES, tok  # noqa: E402
 
 from maisecrets import hooks, vault_refs  # noqa: E402
-from maisecrets.vault import Vault, load_config  # noqa: E402
+from maisecrets.vault import CodedError, Vault, load_config  # noqa: E402
 
 RECONNECT = "header written — type /mcp reconnect demo (or start Claude Code again)"
 WAITING = (r"waiting for activation until \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ — activate it on the server's connections "
@@ -371,15 +371,82 @@ class States(base.OnlineBase):
         real = vault_refs.atomic_write
 
         def keys_fail(path, text):
-            if path == vault_refs.KEYS:
+            # the write of the new kid fails; the mark of the new kid as `rotating` before the key write goes through
+            if path == vault_refs.KEYS and '"rotating"' not in text:
                 raise OSError("disk full")
             return real(path, text)
         with mock.patch.object(vault_refs, "atomic_write", keys_fail):
             self.assertNotIn("made a new key", self.start() or "")
         self.assertEqual(vault_refs._key(Vault().backend, origin, create=False), old, "the store and keys.json agree")
         self.assertEqual(vault_refs.kid_of(old), vault_refs._kid_now(origin))
+        self.assertIn("rotating", vault_refs._known_keys()[origin], "premise: the new key was written")
         self.assertIn("made a new key", self.start() or "", "the next start tries again")
         self.assertNotEqual(vault_refs._key(Vault().backend, origin, create=False), old)
+
+    def put_key_without_proof(self, takes: bool):
+        """_put_key as a keychain whose read-back fails after the add: the new key is stored (takes) or not; the put
+        of the old key back fails the same way and writes nothing."""
+        real = vault_refs._put_key
+        calls = []
+
+        def put(backend, origin, k):
+            calls.append(k)
+            if takes and len(calls) == 1:
+                real(backend, origin, k)
+            raise CodedError("keychain call timed out", "store.timeout-keychain", "timeout")
+        return mock.patch.object(vault_refs, "_put_key", put)
+
+    def test_a_new_key_stored_without_proof_is_settled_by_the_store_at_the_next_start(self):
+        """Gate A round 3 of #75: the add took, its read-back did not answer. keys.json kept the old kid, the store held
+        the new key, and no later start replaced or named it: every reference of the server stayed unreadable."""
+        old = self.lose_the_key()
+        origin = vault_refs.origin_of(self.srv.url)
+        backend = Vault().backend
+        with self.put_key_without_proof(takes=True):
+            with self.assertRaises(CodedError):
+                vault_refs.rotate_lost(backend)
+        new = vault_refs._key(backend, origin, create=False)
+        self.assertNotEqual(new, old, "premise: the add took")
+        self.assertEqual(vault_refs._kid_now(origin), vault_refs.kid_of(old), "premise: keys.json names the old kid")
+        self.start()                                     # the next start settles it by the store
+        self.assertEqual(vault_refs._kid_now(origin), vault_refs.kid_of(new))
+        self.assertNotIn("rotating", vault_refs._known_keys()[origin])
+        self.assertEqual(vault_refs._key(backend, origin, create=False), new, "no second new key")
+        self.login()
+        self.assertEqual(self.write(tok("EMAIL_1"))["hookSpecificOutput"]["updatedInput"]["content"], VALUES[0])
+
+    def test_a_late_answer_for_the_old_key_does_not_keep_an_unsettled_new_key(self):
+        """Gate A round 4 of #75: the new key was stored without proof, and a late answer for the old key set the
+        state to active. rotate_lost then skipped the origin before it settled, and `rotating` stayed for good."""
+        old = self.lose_the_key()
+        origin = vault_refs.origin_of(self.srv.url)
+        backend = Vault().backend
+        with self.put_key_without_proof(takes=True):
+            with self.assertRaises(CodedError):
+                vault_refs.rotate_lost(backend)
+        new = vault_refs._key(backend, origin, create=False)
+        vault_refs._set_state(origin, "active", kid=vault_refs.kid_of(old))    # the late answer
+        self.assertEqual(vault_refs.state_of(origin).get("state"), "active", "premise: the old kid looks active")
+        self.assertEqual(vault_refs.rotate_lost(backend), [], "no second new key")
+        self.assertNotIn("rotating", vault_refs._known_keys()[origin])
+        self.assertEqual(vault_refs._kid_now(origin), vault_refs.kid_of(new))
+        self.assertEqual(vault_refs._key(backend, origin, create=False), new)
+
+    def test_a_new_key_that_was_not_stored_is_made_again_at_the_next_start(self):
+        old = self.lose_the_key()
+        origin = vault_refs.origin_of(self.srv.url)
+        backend = Vault().backend
+        with self.put_key_without_proof(takes=False):
+            with self.assertRaises(CodedError):
+                vault_refs.rotate_lost(backend)
+        self.assertEqual(vault_refs._key(backend, origin, create=False), old)
+        self.assertIn("rotating", vault_refs._known_keys()[origin], "keys.json names both kids")
+        vault_refs._settle_rotation(backend, origin)     # the store holds the old key: only `rotating` goes
+        self.assertNotIn("rotating", vault_refs._known_keys()[origin])
+        self.assertEqual(vault_refs._kid_now(origin), vault_refs.kid_of(old))
+        self.assertIn("made a new key", self.start() or "")
+        self.assertNotIn("rotating", vault_refs._known_keys()[origin])
+        self.assertEqual(vault_refs._kid_now(origin), vault_refs.kid_of(vault_refs._key(backend, origin, create=False)))
 
     def test_a_late_answer_for_the_old_key_does_not_change_the_new_one(self):
         old = self.lose_the_key()

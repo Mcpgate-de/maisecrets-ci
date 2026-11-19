@@ -801,6 +801,23 @@ class LabelValueTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(kinds(text), [])
 
+    def test_a_reserved_word_after_a_secret_label_is_not_a_value(self):
+        # Mcpgate-de/maisecrets#29: a reserved word of TypeScript or SQL after a secret name in source code was taken
+        # for a secret, stored, and masked in every later file that holds the word
+        for text in ("const sec§ret = readonly;", "let pass§word = function;", "const api§Key = abstract;",
+                     "pass§word: DISTINCT", "const sec§ret = INTERVAL;", "pass§word: interval",
+                     "api§_key=unsigned", "sec§ret = nullptr;", "tok§en = None", "pass§word: excluded"):
+            with self.subTest(text=text):
+                self.assertEqual(kinds(text), [])
+
+    def test_a_value_that_only_holds_a_reserved_word_stays_a_value(self):
+        # #29 is narrow: the whole value, as code writes it. A strong value, a reserved word inside a longer value and
+        # a reserved word in another case stay values
+        for value in (PW12, "readonly" + PW11[:5], PW11[:4] + "function", "Readonly", "Function"):
+            for form in ("const sec§ret = {v};", "pass§word: {v}"):
+                with self.subTest(form=form, value=value):
+                    self.assertIn(value, [m.value for m in scan(form.format(v=value))])
+
     def test_a_line_that_starts_like_code_still_carries_its_value(self):
         # a check of the whole line ("it opens a block") skipped every one of these (review, 2026-09-29)
         v = "Xk9" + "mQ2vLp8r"

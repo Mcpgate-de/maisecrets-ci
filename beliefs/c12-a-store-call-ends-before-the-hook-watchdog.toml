@@ -1,0 +1,10 @@
+# c12-a-store-call-ends-before-the-hook-watchdog: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c12-a-store-call-ends-before-the-hook-watchdog"
+control = "C12"
+statement = "In a hook, a store call never waits longer than the hook's time that is left (#76): a keychain that does not answer fails the hook closed with a reason that names the keychain, before the watchdog."
+runner = ["tests/test_keychain_process.py::HookFailsClosedTests::test_a_prompt_with_a_value_and_a_keychain_that_waits"]
+
+[proof]
+file = "maisecrets/vault.py"
+find = "        kw[\"timeout\"] = min(kw.get(\"timeout\") or left, left)\n"
+replace = "        pass\n"

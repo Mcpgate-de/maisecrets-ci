@@ -1,0 +1,10 @@
+# c20-only-the-three-flags-keep-their-tags: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c20-only-the-three-flags-keep-their-tags"
+control = "C20"
+statement = "Tag characters after a black flag stay only for England, Scotland and Wales; a fake flag that carries other tags loses them."
+runner = ["tests/test_hidden_characters.py::HiddenCharacterTests::test_a_fake_flag_goes_and_only_the_three_flags_keep_their_tags"]
+
+[proof]
+file = "maisecrets/tool_output.py"
+find = '''        if m.start() > 0 and m.string[m.start() - 1] == "\U0001F3F4" and run in _FLAG_TAGS:'''
+replace = '''        if m.start() > 0 and m.string[m.start() - 1] == "\U0001F3F4":'''

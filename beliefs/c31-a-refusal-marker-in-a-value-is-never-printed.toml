@@ -1,0 +1,12 @@
+# c31-a-refusal-marker-in-a-value-is-never-printed: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c31-a-refusal-marker-in-a-value-is-never-printed"
+control = "C31"
+statement = "A served value that starts with the refusal marker is delivered as an empty value: the command stops, and the text after the marker never reaches its output."
+runner = ["tests/test_sref_hooks.py::SrefBashTests::test_a_value_that_starts_with_the_refusal_marker_is_never_printed"]
+
+[proof]
+file = "maisecrets/hooks.py"
+find = '''        "            if spec['value'].startswith(SREF_REFUSED):\n"
+        "                spec['value'] = ''\n"'''
+replace = '''        "            if False:\n"
+        "                spec['value'] = ''\n"'''

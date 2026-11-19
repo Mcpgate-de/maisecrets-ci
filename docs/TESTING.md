@@ -8,6 +8,7 @@ What runs, where, and what makes it fail. The history of each finding is in the 
 |---|---|---|
 | unit tests | `python3 -m unittest discover -s tests` (or `scripts/run_tests_parallel.py`, one file per process) | GitLab `unit` (Linux, 3.12 and 3.9, the parallel runner), GitHub on Windows and macOS (merge request: GitLab `windows_macos`; release: branch `ci`); locally `scripts/check_all.sh` |
 | beliefs | `python3 scripts/replay_can_fail.py` (one worker per CPU, each in a copy of the tree; `--jobs 1` for serial) | GitLab `beliefs_can_fail_replay`; locally `scripts/check_all.sh` |
+| beliefs of the mod | `python3 scripts/replay_can_fail.py --mod` (runners `tests/<name>.test.ts::<test name>`, run by `claude plugin test`; the default run leaves them here) | GitLab `harness_claude`, which has the claude binary |
 | stated numbers | `python3 scripts/derived_counts.py` | pre-push hook, GitLab `manifests` |
 | repository scan | `python3 scripts/scan_tree.py` | GitLab `no_secrets_in_tree` |
 | Claude Code harness | `python3 harness/run.py` | GitLab `harness_claude`; locally `scripts/check_all.sh` (needs `claude`) |

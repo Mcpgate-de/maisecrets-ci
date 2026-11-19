@@ -1092,7 +1092,10 @@ class TypedSettings(_Work):
                             "block")
 
     def test_a_tool_call_cannot_set_them(self):
-        for cmd in ("echo '/maisecrets:settings read_pdf allow'", "echo 'maisecrets: set clean_dirs add /tmp'"):
+        # a command that hands the change to a client; a plain echo only mentions it and passes (#84)
+        for cmd in ("claude -p '/maisecrets:settings read_pdf allow'",
+                    "codex exec 'maisecrets: set clean_dirs add /tmp'",
+                    "echo 'maisecrets: set clean_dirs add /tmp' | codex exec -"):
             with self.subTest(cmd):
                 out = run_hook("pre-tool", {"tool_name": "Bash", "tool_input": {"command": cmd}, "session_id": "S1",
                                             "prompt_id": "p1", "cwd": self.cwd})

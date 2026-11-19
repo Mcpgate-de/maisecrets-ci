@@ -29,7 +29,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from .vault import _DEFAULT_HOME, HOME, LockTimeout, _lock_for, atomic_write
+from .vault import _DEFAULT_HOME, HOME, LockTimeout, _lock_for, atomic_write, is_store_timeout
 
 OPEN, CLOSE = "⟦", "⟧"
 # the server range: no `c`, a counter from 1 (PROTOCOL.md section 1); the display part is for humans only
@@ -847,15 +847,17 @@ def _cafile(cfg: dict) -> str | None:
     return f if isinstance(f, str) and f else None
 
 
-def _request(cfg: dict, method: str, url: str, headers: dict, body: bytes | None, deadline: float):
+def _request(cfg: dict, method: str, url: str, headers: dict, body: bytes | None, deadline: float,
+             patient: bool = False):
     """_send in a thread that the caller waits for until the deadline only: a socket timeout bounds one read, not a
-    server that sends one header line every few seconds."""
+    server that sends one header line every few seconds. `patient`: only the deadline bounds the connection and each
+    read (a command the person typed on a slow network); else CONNECT_TIMEOUT and SOCKET_TIMEOUT do too."""
     import threading
     box: dict = {}
 
     def run() -> None:
         try:
-            box["ok"] = _send(cfg, method, url, headers, body, deadline)
+            box["ok"] = _send(cfg, method, url, headers, body, deadline, patient)
         except BaseException as exc:  # noqa: BLE001 - handed to the caller
             box["err"] = exc
     t = threading.Thread(target=run, daemon=True)
@@ -868,7 +870,8 @@ def _request(cfg: dict, method: str, url: str, headers: dict, body: bytes | None
     raise TimeoutError("the server took too long")
 
 
-def _send(cfg: dict, method: str, url: str, headers: dict, body: bytes | None, deadline: float):
+def _send(cfg: dict, method: str, url: str, headers: dict, body: bytes | None, deadline: float,
+          patient: bool = False):
     """One HTTPS request with no redirect and no proxy. Returns (status, headers, body) with the body cut above
     MAX_ANSWER_BYTES + 1, so a longer body is seen as too long."""
     import http.client
@@ -879,11 +882,12 @@ def _send(cfg: dict, method: str, url: str, headers: dict, body: bytes | None, d
         raise TimeoutError("no time left")
     ctx = ssl.create_default_context(cafile=_cafile(cfg))
     conn = http.client.HTTPSConnection(parts.hostname, 443 if parts.port is None else parts.port,
-                                       timeout=min(CONNECT_TIMEOUT, left),
+                                       timeout=left if patient else min(CONNECT_TIMEOUT, left),
                                        context=ctx)
     try:
         conn.connect()
-        conn.sock.settimeout(min(SOCKET_TIMEOUT, max(0.2, deadline - time.monotonic())))
+        left = max(0.2, deadline - time.monotonic())
+        conn.sock.settimeout(left if patient else min(SOCKET_TIMEOUT, left))
         path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
         conn.request(method, path, body=body, headers=headers)
         answer = conn.getresponse()
@@ -1254,6 +1258,34 @@ def _put_key(backend, origin: str, k: bytes) -> None:
                 comment="maisecrets: the key that gets values back from a server; not a placeholder value.")
 
 
+def _settle_rotation(backend, origin: str) -> None:
+    """Under the own lock and the store lock. A new key whose store write ended without proof (a read-back that
+    failed or timed out after the add) is named in keys.json as `rotating`, beside the kid of the old key. Here the
+    store decides: the kid of the key it holds becomes the kid of keys.json, and `rotating` goes. A store that does
+    not answer raises, and both kids stay until a later call can read it (Gate A round 3, #75)."""
+    data = _read_json(KEYS) or {}
+    mine = data.get(profile())
+    rec = mine.get(origin) if isinstance(mine, dict) else None
+    new = rec.get("rotating") if isinstance(rec, dict) else None
+    if not isinstance(new, str):
+        return
+    k = _key_locked(backend, origin, create=False)
+    held = kid_of(k) if k is not None else None
+    if held == new:
+        rec["kid"], rec["created"] = new, _now_iso()        # the add took: the new key is the key
+    elif held != rec.get("kid"):
+        return                                               # neither kid: keys.json is not changed on a guess
+    rec.pop("rotating")
+    atomic_write(KEYS, json.dumps(data, indent=1))
+
+
+def _mark_rotating(origin: str, new: str) -> None:
+    """keys.json names the kid of the new key before the store changes (under the own lock)."""
+    data = _read_json(KEYS) or {}
+    data[profile()][origin]["rotating"] = new
+    atomic_write(KEYS, json.dumps(data, indent=1))
+
+
 def rotate_lost(backend, deadline: float | None = None) -> list[str]:
     """At a session start: a new K for each origin whose server no longer accepts its key (quarantined or revoked). A
     vault must not use that K again (SPEC 6.4). The entries stay enabled, so the header write that follows puts the
@@ -1264,6 +1296,13 @@ def rotate_lost(backend, deadline: float | None = None) -> list[str]:
     out = []
     servers = None
     for origin, entries in _enabled().items():
+        rec = _known_keys().get(origin)
+        if isinstance(rec, dict) and isinstance(rec.get("rotating"), str):
+            # before every check below: a late answer for the old key can set the state to active meanwhile, and the
+            # skip would then keep `rotating` and the new key for good (Gate A round 4, #75)
+            with _own_lock(deadline):
+                with _store_lock(deadline):
+                    _settle_rotation(backend, origin)
         if state_of(origin).get("state") != "lost":
             continue
         servers = user_servers() if servers is None else servers
@@ -1272,13 +1311,17 @@ def rotate_lost(backend, deadline: float | None = None) -> list[str]:
         import secrets
         with _own_lock(deadline):
             with _store_lock(deadline):
+                _settle_rotation(backend, origin)       # a new key of an earlier start whose write had no proof
                 old = _key_locked(backend, origin, create=False)
                 kid = _kid_now(origin)
                 if old is None or kid_of(old) != kid or state_of(origin).get("state") != "lost":
                     continue
                 k = secrets.token_bytes(32)
-                _put_key(backend, origin, k)
+                # A put that raises may have stored the new key (a read-back that failed after the add): keys.json
+                # then names both kids, and the next call settles it by what the store holds.
+                _mark_rotating(origin, kid_of(k))
                 try:
+                    _put_key(backend, origin, k)
                     data = _read_json(KEYS) or {}
                     mine = data.get(profile()) if isinstance(data.get(profile()), dict) else {}
                     rec = mine.get(origin)
@@ -1290,7 +1333,8 @@ def rotate_lost(backend, deadline: float | None = None) -> list[str]:
                 except BaseException:
                     # keys.json still names the old kid: the old key goes back, so the store and keys.json agree and
                     # the next start tries again. Kept, the new key would never match keys.json, and no start would
-                    # replace it again (Gate A and Gate B review, round 2)
+                    # replace it again (Gate A and Gate B review, round 2). When the old key cannot go back either,
+                    # `rotating` stays and the next call settles it by the store.
                     _put_key(backend, origin, old)
                     raise
         out.append(origin)
@@ -1344,7 +1388,9 @@ def _prune(backend, data: dict, now: float) -> dict:
             elif isinstance(item, dict) and isinstance(item.get("name"), str):
                 try:
                     backend.delete(item["name"])
-                except (RuntimeError, OSError):
+                except (RuntimeError, OSError) as exc:
+                    if is_store_timeout(exc):
+                        raise                    # a store that does not answer fails the hook, never a skip (C12)
                     keep.append(item)            # tried again at the next prune
         if keep:
             out[sess] = keep
@@ -1434,8 +1480,10 @@ def end_session(backend, session: str | None) -> int:
         try:
             backend.delete(name)
             gone.add(name)
-        except (RuntimeError, OSError):
-            pass                                  # expired and indexed: the next prune tries the delete again
+        except (RuntimeError, OSError) as exc:
+            if is_store_timeout(exc):
+                raise                             # no wait per name: the next prune deletes them (C12)
+            # expired and indexed: the next prune tries the delete again
     with _lock_for(DIR / ".lock"):
         data = _read_json(RELEASED) or {}
         keep = [i for i in data.get(session) or [] if not (isinstance(i, dict) and i.get("name") in gone)]

@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
+import _hygiene  # noqa: E402
 
 HAS_GIT = shutil.which("git") is not None and (ROOT / ".git").exists()
 
@@ -93,14 +94,16 @@ def _assert_the_hooks_block_and_clean(case: unittest.TestCase, plugin_root: Path
         token = "glpat-" + "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(20))
         payload = json.dumps({"prompt": f"use {token}", "session_id": "S1", "transcript_path": "",
                               "prompt_id": "p1"})
-        r = subprocess.run([sys.executable, str(plugin_root / "hooks" / "dispatch.py"), "user-prompt"],
-                           input=payload, capture_output=True, text=True, encoding="utf-8", env=env,
-                           timeout=60, cwd=str(home))
-        case.assertEqual(r.returncode, 0, r.stderr)
-        case.assertEqual(json.loads(r.stdout).get("decision"), "block", r.stdout)
+        # the first run in a new tree compiles each module: on a busy Windows runner the watchdog answered (#67)
+        r = _hygiene.past_the_watchdog(lambda: subprocess.run(
+            [sys.executable, str(plugin_root / "hooks" / "dispatch.py"), "user-prompt"], input=payload,
+            capture_output=True, text=True, encoding="utf-8", env=env, timeout=60, cwd=str(home)))
+        said = f"stdout: {r.stdout!r} stderr: {r.stderr!r}"
+        case.assertEqual(r.returncode, 0, said)
+        case.assertEqual(json.loads(r.stdout).get("decision"), "block", said)
         case.assertNotIn(token, r.stdout)
         cleaned = home / "pending" / "S1.txt"
-        case.assertTrue(cleaned.exists(), "no cleaned prompt: the detector of the tree did not run")
+        case.assertTrue(cleaned.exists(), f"no cleaned prompt: the detector of the tree did not run; {said}")
         text = cleaned.read_text(encoding="utf-8")
         case.assertIn("use ", text)
         case.assertNotIn(token, text)
@@ -126,7 +129,8 @@ class ReleaseTreeTests(unittest.TestCase):
     # the files the plugin never runs, named here and not taken from the builder: every other tracked
     # file must ship, so a runtime folder missing from the allowlist, or a new file nobody classified,
     # turns this red
-    DEV_ONLY_PREFIXES = ("tests/", "scripts/", "harness/", "beliefs/", "bench/", ".github/", ".githooks/", "examples/",
+    DEV_ONLY_PREFIXES = ("tests/", "scripts/", "harness/", "beliefs/", "mission/", "bench/", ".github/", ".githooks/",
+                         "examples/",
                          # Codex installs from main; the directory held versions over the image refs in it
                          ".codex-plugin/")
     DEV_ONLY_FILES = {".gitlab-ci.yml", ".gitignore", ".gitattributes", ".ci-known-hosts-github",

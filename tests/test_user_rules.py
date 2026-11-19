@@ -297,7 +297,7 @@ class RuleDirsSetting(Base):
                 self._prompt(text, **extra)
                 self.assertEqual(self._dirs(), [])
         refused = hooks.pre_tool({"tool_name": "Bash", "session_id": "S1", **CLAUDE,
-                                  "tool_input": {"command": f"echo '/maisecrets:settings rule_dirs add {team}'"}})
+                                  "tool_input": {"command": f"claude -p '/maisecrets:settings rule_dirs add {team}'"}})
         self.assertEqual(refused["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def test_a_file_ignored_for_a_wrong_type_keeps_its_folders(self):

@@ -31,7 +31,12 @@ stages:
 workflow:
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
+    # a red job decides a merge request: the rest of its pipeline stops at once and frees the runner (15 runner
+    # minutes after the first red job in !591). The GitHub matrix it started runs on (public repository, free
+    # minutes) and a green run of the same tree is reused. Main and the tags run every job to the end.
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      auto_cancel:
+        on_job_failure: all
     - if: $CI_COMMIT_TAG
     - if: $CI_COMMIT_BRANCH == "main"
 
@@ -46,6 +51,10 @@ variables:
   MAISECRETS_DIRECTORY_HOLD: "0"
   # the PyPI publish of the detection core (jobs pypi_*): a project CI variable of the same name overrides it
   MAISECRETS_PYPI: "off"
+  # the runner tries the fetch of the sources up to 3 times: a short gitlab.com outage (an HTTP 520 at the fetch,
+  # MR !595, 2026-11-19) failed a job as script_failure, which no retry rule covers, and the merge request rule
+  # (auto_cancel on_job_failure) then cancelled every other job
+  GET_SOURCES_ATTEMPTS: "3"
 
 default:
   image: python:3.12-slim
@@ -281,6 +290,8 @@ harness_claude:
     - export HOME=$(mktemp -d)
     # the mod's own tests (tests/mod.test.ts), with $.process.run stubbed: the fallback order and every failure path
     - claude plugin test .
+    # the beliefs whose tests are the mod's: beliefs_can_fail_replay has no claude binary and leaves them here
+    - python3 scripts/replay_can_fail.py --mod --jobs 2
     - python3 harness/run.py
     # the values on the person's screen: the interactive client in a pty (show_values, harness/screen.py)
     - apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends python3-pyte >/dev/null

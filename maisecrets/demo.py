@@ -35,7 +35,15 @@ PASS_SECONDS = 120
 DEMO_LINE = "Demo mode: nothing was sent to the AI. /clear to switch it off."
 TITLE = "maisecrets demo"
 DEMO_LINE_CODEX = "Demo mode: nothing was sent to the AI. A new session switches it off."
-ON = "Demo mode is on: what you send stays here, nothing goes to the AI. /clear switches it off."
+# Claude Code 2.1.327 and later: where an organization manages Claude Code, the hooks of a plugin the person installed
+# do not run on session.compact and on the engine's http.fetch (the plugin page says so). The mod then cannot stop
+# /compact and the side requests; they carry only placeholders. docs/ADMIN.md, "The demo where an organization manages
+# Claude Code". A mod cannot learn that its hooks are passed over (on() returns no state), so the sentence is always
+# there, as a condition
+ORG_NOTE = ("If an organization manages this Claude Code, /compact and side requests (a title by /rename, "
+            "/btw, /recap, suggestions) can still go to the AI, with placeholders only; an administrator stops "
+            "them by installing maisecrets as the organization's own plugin.")
+ON = "Demo mode is on: what you send stays here, no prompt goes to the AI. /clear switches it off. " + ORG_NOTE
 ON_CODEX = "Demo mode is on: what you send stays here, nothing goes to the AI. A new session switches it off."
 OFF = "The demo ends with /clear: it starts a new conversation, so the demo lines do not go to the AI."
 OFF_ALREADY = "Demo mode is off in this session. Nothing was changed."
@@ -331,7 +339,7 @@ def answer(payload: dict, verb: str, typed: bool, codex: bool) -> dict:
             return _block(DAMAGED.format(off="maisecrets: demo off" if codex else "/maisecrets:demo off"), codex)
         reason = ((ON_CODEX if codex else ON) if active(session, payload.get("transcript_path")) else
                   "Demo mode is off in this session. /maisecrets:demo on, in a new session, keeps what you send here "
-                  "and sends nothing to the AI (Codex: maisecrets: demo on).")
+                  "and sends no prompt to the AI (Codex: maisecrets: demo on).")
     elif not typed:
         from .settings import came_from
         reason = ("maisecrets: /maisecrets:demo counts only when you type it as your prompt; this one came from "

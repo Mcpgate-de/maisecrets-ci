@@ -705,12 +705,16 @@ class KeychainBackendTests(BackendContract, unittest.TestCase):
         self.backend.put("SECRET_c1", "short-fake-value-99")
         stored = "b64:" + base64.b64encode(b"short-fake-value-99").decode()
         self.assertNotIn(stored, self.fake.values_on_argv())
-        self.assertEqual(self.fake.calls[0][0], ["security", "-i"])
-        self.assertIn(stored.encode(), self.fake.calls[0][1])
+        adds = [c for c in self.fake.calls if c[0] == ["security", "-i"]]
+        self.assertEqual(len(adds), 1)
+        self.assertIn(stored.encode(), adds[0][1])
 
-    def test_a_value_above_the_line_limit_goes_on_the_command_line_whole(self):
+    def test_a_value_above_the_line_limit_goes_through_stdin_in_parts(self):
+        # #75: before 0.9.18 it went to `security add-generic-password -w <value>`, visible to `ps`
         self.backend.put("SECRET_c1", LONG)
-        self.assertEqual(self.fake.calls[0][0][:2], ["security", "add-generic-password"])
+        self.assertFalse([c for c in self.fake.calls if c[0][1] == "add-generic-password"])
+        self.assertFalse([a for a in self.fake.values_on_argv() if len(a) > 200])
+        self.assertGreater(len([c for c in self.fake.calls if c[0] == ["security", "-i"]]), 1)
         self.assertEqual(self.backend.get("SECRET_c1"), LONG)
 
     def test_the_value_is_stored_base64_so_an_umlaut_does_not_come_back_as_hex(self):
@@ -732,7 +736,7 @@ class KeychainBackendTests(BackendContract, unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, r"\(rc 1\)"):
             self.backend.put("SECRET_c1", LONG)
         del self.fake.rc["add-generic-password"]
-        with mock.patch.object(KeychainBackend, "get", return_value="something else"):
+        with mock.patch.object(KeychainBackend, "_raw", return_value=(0, "b64:c29tZXRoaW5nIGVsc2U=")):
             with self.assertRaisesRegex(RuntimeError, "read-back differs"):
                 self.backend.put("SECRET_c1", "fail-fake-value-32")
         self.backend.delete("SECRET_c7")        # rc 44
@@ -742,7 +746,8 @@ class KeychainBackendTests(BackendContract, unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.backend.wipe()
         self.fake.rc["dump-keychain"] = 1
-        self.assertEqual(self.backend.keys(), [])
+        with self.assertRaisesRegex(RuntimeError, r"\(rc 1\)"):   # never an empty store (Gate A round 3, #75)
+            self.backend.keys()
 
     def test_wipe_deletes_every_item_of_this_service_and_no_other(self):
         for k in ("SECRET_c1", "SECRET_c2", FP_KEY_ENTRY):
@@ -973,6 +978,27 @@ class LifeCycleTests(unittest.TestCase):
         self.assertEqual(self.v().get(old.key, "A"), ("continue", "ok"), "its placeholder still resolves")
         self.assertEqual(sorted(self.v().live_fingerprints().values()), sorted([real.key, other.key]))
         self.assertEqual(self.v().quiet_code_words(), [], "a second run finds nothing")
+
+    def test_a_reserved_word_stored_by_an_old_detector_is_quieted(self):
+        # #29: before the fix a rule stored `readonly` from `const secret = readonly;` and masked the word in every
+        # later file. The start marks it weak for each rule that skips it now; a real value next to it stays hunted
+        v = self.v()
+        legacy = [v.put(word, "SECRET", kind, session="A") for word, kind in (
+            ("readonly", "ds-keyword-equal-signs"), ("DISTINCT", "ds-keyword-colon"),
+            ("nullptr", "label-pw-literal"), ("typeof", "label-secret-literal"), ("implements", "password-after-key"))]
+        live = [v.put(word, "SECRET", kind, session="A") for word, kind in (
+            ("readonly" + "Xk9mQ2", "ds-keyword-equal-signs"),
+            # the detector still takes `Readonly` as a value (Gate A of #29)
+            ("Readonly", "ds-keyword-equal-signs"),
+            # a rule that needs quotes took the word as a string, and the detector still does
+            ("function", "ds-keyword-arrow-function-sign-quotes-required"),
+            # an everyday word is a value, also after a password key in a .env file (Gate A round 2)
+            ("unique", "ds-keyword-equal-signs"))]
+        for e in legacy + live:
+            v._index["entries"][e.key].pop("weak", None)      # as a version before #29 stored it
+        v._save_index()
+        self.assertEqual(sorted(self.v().quiet_code_words()), sorted(e.key for e in legacy))
+        self.assertEqual(sorted(self.v().live_fingerprints().values()), sorted(e.key for e in live))
 
     def test_the_plugins_own_name_is_never_hunted_whoever_stored_it(self):
         # #53: the plugin's name stored as a value masked its own commands and paths, and blocked the forget prompt

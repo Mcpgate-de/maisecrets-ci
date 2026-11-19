@@ -1,0 +1,10 @@
+# c20-selectors-that-carry-bytes-leave-the-output: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c20-selectors-that-carry-bytes-leave-the-output"
+control = "C20"
+statement = "Variation selectors that no character needs (a run that encodes bytes, also with gaps) leave a tool result; the selectors that text needs stay."
+runner = ["tests/test_hidden_characters.py::HiddenCharacterTests::test_selectors_that_carry_bytes_go_also_with_gaps"]
+
+[proof]
+file = "maisecrets/tool_output.py"
+find = '''            if _VS_RE.match(ch) and not _selector_kept(out, i):'''
+replace = '''            if False:'''

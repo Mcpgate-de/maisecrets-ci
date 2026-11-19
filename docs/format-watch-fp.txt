@@ -293,7 +293,9 @@ notion-api-token	acd871eb7a39
 npm-access-token	dc4b83b104c4
 nuget-api-key	6281ed9d4458
 nuget-config-password	7f643158368e
-nvidia-api-key	ec96e1cd6084
+nvidia-api-key	e9509c602911
+nx-cloud-access-token	05b1ff5fb5a7
+nx-cloud-access-token-nx-json	95be68be9180
 nylas-api-key.1	0f8a0243cc51
 nytimes-access-token	ac57ba3d7cc1
 octopus-deploy-api-key	16820ad12d6b
@@ -472,7 +474,9 @@ zendesk-secret-key	35ca9e8c32c0
 zoho-client-id.1	730a79d2c3bc
 zoho-client-secret.1	b315704f8e24
 zoho-oauth-token.1	687c512ea4c1
-zoho-zapi-key.1	586aea1e0980
+zoho-zapi-key.1	13b816fa96a5
+zoom-client-id	a001016973d0
+zoom-client-secret	5e85b45fec61
 zuplo-consumer-api-key.1	3aa76eb4f2a7
 
 [github]

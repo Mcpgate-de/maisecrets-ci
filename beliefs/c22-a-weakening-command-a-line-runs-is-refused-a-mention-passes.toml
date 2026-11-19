@@ -1,0 +1,11 @@
+# c22-a-weakening-command-a-line-runs-is-refused-a-mention-passes: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c22-a-weakening-command-a-line-runs-is-refused-a-mention-passes"
+control = "C22"
+statement = "A weakening command in a Bash call is a mention only when each program of the line is on the allow list of programs that print, write or store a text, with their allowed options; any other line is refused (#84)."
+runner = ["tests/test_mention_is_no_call.py::NotASecretMentions::test_each_form_that_runs_the_command_is_refused",
+          "tests/test_mention_is_no_call.py::EachRuleOfTheReader::test_each_rule"]
+
+[proof]
+file = "maisecrets/shell_commands.py"
+find = "    cmd, args = words[0], words[1:]\n"
+replace = "    cmd, args = words[0], words[1:]\n    return True\n"

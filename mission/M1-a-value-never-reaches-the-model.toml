@@ -1,0 +1,50 @@
+# M1: a product promise. scripts/mission_coverage.py counts the beliefs of each part (an id or a glob of
+# beliefs/*.toml); replay_can_fail.py proves that each belief can fail.
+mission = "M1"
+promise = "A value the person stored, or one a rule finds, never reaches the AI in clear text."
+actors = ["A1"]
+controls = ["C1", "C2", "C17", "C19", "C26", "C28", "C29", "C30", "C32"]
+invariants = ["I1"]
+ends = "A value with no known shape that is not stored and on no list; a name without a label; a value a command encodes before it prints it; the output of a failed command in Claude Code; a client without hooks (chat, web and mobile apps); an agent that evades."
+
+[[part]]
+says = "A prompt that carries a value is blocked or rewritten: the model gets a placeholder, never the value."
+beliefs = ["c1-a-prompt-with-a-hit-is-blocked", "c1-a-prompt-with-a-hit-is-rewritten-by-the-mod",
+           "c1-a-sent-prompt-is-the-own-sessions", "c1-a-message-to-another-session-goes-out-with-placeholders",
+           "c1-a-typed-prompt-*", "inv-a-stored-value-never-reaches-model-output"]
+
+[[part]]
+says = "Tool output (files, commands, MCP results) is masked before the model reads it."
+beliefs = ["c2-*", "c1-the-tool-channel-looks-through-terminal-and-encoding-disguises",
+           "inv-a-stored-value-never-reaches-model-output"]
+
+[[part]]
+says = "The rules, the person's terms and lists, and the optional name service find the values to mask."
+beliefs = ["c1-*", "detector-*", "c26-*", "c30-*"]
+
+[[part]]
+says = "A PDF or an image reaches the model as masked text only, or the person is asked first."
+beliefs = ["c28-*"]
+
+[[part]]
+says = "What the mod draws on the person's screen never goes to the model."
+beliefs = ["c32-*"]
+
+[[part]]
+says = "ms:(value) tells the person whether a value is caught, without sending it."
+beliefs = ["c29-*"]
+
+[[part]]
+says = "A subagent's report or a background notice passes without stopping the session."
+beliefs = ["c19-*"]
+
+[[part]]
+says = "The leak audit (secret-hygiene) never shows the model a value it finds."
+beliefs = ["c17-*", "skill-*"]
+
+[measure]
+what = "Holdout V2 recall, strict: the share of values on the sealed holdout that the detection finds whole"
+source = "bench/HOLDOUT-LOG.md"
+row = "holdout-v2"
+column = 5
+gate = "scripts/release_gate.py --holdout: a release candidate may not fall below the last row"

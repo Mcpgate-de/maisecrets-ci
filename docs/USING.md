@@ -223,6 +223,32 @@ after `maisecrets:` that is no command name (`maisecrets: why …`) is an
 ordinary prompt. In Codex, in `claude -p` and without the mod, the prompt
 hook answers these commands as before.
 
+`/maisecrets demo on` is `/maisecrets:demo on`: the Tab completion of
+`/maise` gives `/maisecrets` and a space, so a command after `/maisecrets`
+with a space counts as the command with its colon, when you type it as your
+own prompt. The commands maisecrets answers itself (the panel of `settings`,
+`term`, `not-a-secret`, `demo`, `forget import:ID`, `report incident`, and
+every command in a demo session) run at once, with the same checks as the
+colon form. A command that the AI runs from its command file (`status`,
+`list`, a settings change and the others) runs only from the typed form with
+the colon. maisecrets puts that form into the input box and says so in one
+line, for example `maisecrets: I put /maisecrets:status into the input box.
+Press Enter to run it, or clear the box.` Before that, it masks each value in
+the command, as it does for a prompt, so the box never gets a value back; the
+line then adds how many it masked. If it cannot check the command, it empties
+the box and says so. The prompt hook checks the command again
+when you send it. For `demo on` the line adds that the demo starts only in a
+new session. A mistyped name gets the closest command the same way, but only
+for the commands that only show something (`status`, `list`, `audit`,
+`rules`, at most two letters wrong). A mistyped name of a command that
+deletes, weakens, changes a setting or sends something (`forget`, `term`,
+`not-a-secret`, `settings`, `ner`, `demo`, `sref` and the others) gets no
+suggestion: the panel opens with a line that names the commands, as for any
+other word. A prompt that is not your own (a subagent, another session, a
+program) gets none of this. In Codex, in `claude -p` without the mod and in a
+client without mods, the prompt hook keeps such a prompt from the AI and names
+the form that runs it (`/maisecrets:demo on`, in Codex `maisecrets: demo on`).
+
 ### Settings you decide
 
 Without the panel (Codex, `claude -p`, a client without the mod),
@@ -536,7 +562,7 @@ demo mode on. Type it as your own prompt:
 /maisecrets:demo on          (Codex: maisecrets: demo on)
 ```
 
-From then on, what you send stays in this session, and nothing goes to the AI.
+From then on, what you send stays in this session, and no prompt goes to the AI.
 In Claude Code your message shows as you typed it, with each value it masks
 locked, and one line answers it:
 
@@ -557,6 +583,16 @@ locked, and one line answers it:
   of the demo). Every other request Claude Code makes on its own is refused
   too: `/btw`, `/rename`, `/recap` and `/insights` send nothing, and Claude
   Code says that a mod stopped the request (measured on Claude Code 2.1.326).
+- **Where an organization manages Claude Code** (managed settings, or a Team
+  or Enterprise organization), Claude Code 2.1.327 and later do not run the
+  hooks of a plugin you installed yourself on `/compact` and on its own
+  requests. Then `/compact`, `/rename`, `/btw`, `/recap` and the next-prompt
+  suggestion can still go to the AI. They carry only what the conversation
+  holds: your prompts with placeholders and the demo lines, never a value. The
+  plugin page (`/plugin`) says so for maisecrets, and the demo start says it
+  as a condition, because a plugin cannot see whether this applies. An
+  administrator stops these requests: install maisecrets as the
+  organization's own plugin ([ADMIN.md](ADMIN.md#the-demo-where-an-organization-manages-claude-code)).
 - **One line under your message says what was masked**, for example
   `maisecrets: demo · masked: 1 secret, 1 e-mail`. Once per session it adds
   `names: not checked` when no name service read the prompt.

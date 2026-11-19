@@ -219,6 +219,13 @@ class StoreLineTests(unittest.TestCase):
     def setUp(self):
         HOME.mkdir(parents=True, exist_ok=True)
         (HOME / "config.json").write_text('{"backend": "jsonfile", "allow_plaintext_store": true}')
+        # an empty store of its own: the line counts the values, and a module before this one may have left some (#65)
+        for name in ("index.json", "vault.json"):
+            path = HOME / name
+            if path.exists():
+                kept = path.read_bytes()
+                self.addCleanup(path.write_bytes, kept)
+                path.unlink()
 
     def test_the_test_store_answers_and_says_test_mode(self):
         state, text = st(sv.store_verdict())

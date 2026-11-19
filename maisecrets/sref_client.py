@@ -49,6 +49,13 @@ _PROFILE_TYPES = {"local-file-1": "local_file", "process-1": "process", "mcpgate
 MAX_REFS = 100
 MAX_REQUEST_BYTES = 64 * 1024
 BUDGET = 8.0
+# a command the person typed (sref login, sref status): no hook watchdog waits, and a slow mobile network needed more
+# than 8 s for the two documents (field report, 2026-11-19). Each try gets this budget; one more try after a timeout
+# or no connection
+TYPED_BUDGET = 30.0
+TYPED_TRIES = 2
+# the last good discovery of an MCP URL stands in for a timeout or no connection this long
+LAST_GOOD_KEEP = 7 * 86400
 _STORE_PREFIX = "_maisecrets_sref_"
 
 
@@ -65,11 +72,14 @@ def find(text: str) -> list:
 DISCOVERY: dict = {"why": "", "status": None, "named": False}
 
 
-def _get_json(cfg: dict, url: str, deadline: float) -> dict | None:
+def _get_json(cfg: dict, url: str, deadline: float, patient: bool = False) -> dict | None:
     try:
-        status, headers, body = _request(cfg, "GET", url, {"Accept": "application/json"}, None, deadline)
+        status, headers, body = _request(cfg, "GET", url, {"Accept": "application/json"}, None, deadline,
+                                         **({"patient": True} if patient else {}))
     except _net_errors() as exc:
-        DISCOVERY["why"] = "timeout" if isinstance(exc, TimeoutError) else "network"
+        import socket
+        # socket.timeout is no TimeoutError before Python 3.10
+        DISCOVERY["why"] = "timeout" if isinstance(exc, (TimeoutError, socket.timeout)) else "network"
         return None
     DISCOVERY["status"] = status
     if status != 200 or not _is_json(headers):
@@ -105,9 +115,10 @@ def login_scope(resolve_scope: str, process_scope: object, windows: bool | None 
     return " ".join(scopes)
 
 
-def discover(cfg: dict, mcp_url: str, deadline: float | None = None) -> dict | None:
+def discover(cfg: dict, mcp_url: str, deadline: float | None = None, patient: bool = False) -> dict | None:
     """The resolver of the gateway behind an MCP URL: {"origin", "resolve", "scope", "sinks", "authorize", "token",
-    "register"}, or None when the gateway names none. Every endpoint must be https on the same origin."""
+    "register"}, or None when the gateway names none. Every endpoint must be https on the same origin. `patient`:
+    only the deadline bounds each request (vault_refs._request)."""
     deadline = deadline if deadline is not None else time.monotonic() + BUDGET
     DISCOVERY.update(why="", status=None, named=False)
     origin = origin_of(mcp_url)
@@ -116,7 +127,7 @@ def discover(cfg: dict, mcp_url: str, deadline: float | None = None) -> dict | N
         return None
     path = urlsplit(mcp_url).path
     path = "" if path == "/" else path
-    meta = _get_json(cfg, f"{origin}/.well-known/oauth-protected-resource{path}", deadline)
+    meta = _get_json(cfg, f"{origin}/.well-known/oauth-protected-resource{path}", deadline, patient)
     if meta is None:
         return None                                   # DISCOVERY names why
     block = meta.get("sensitive_references")
@@ -124,7 +135,7 @@ def discover(cfg: dict, mcp_url: str, deadline: float | None = None) -> dict | N
         DISCOVERY["why"] = "absent"
         return None
     DISCOVERY["named"] = True
-    auth = _get_json(cfg, f"{origin}/.well-known/oauth-authorization-server", deadline)
+    auth = _get_json(cfg, f"{origin}/.well-known/oauth-authorization-server", deadline, patient)
     if auth is None:
         return None
     ends = {k: auth.get(f"{k}_endpoint") for k in ("authorization", "token", "registration")}
@@ -172,6 +183,69 @@ def discover(cfg: dict, mcp_url: str, deadline: float | None = None) -> dict | N
             "authorize": ends["authorization"], "token": ends["token"], "register": ends["registration"]}
 
 
+def _same_origin(found: object, origin: str | None) -> bool:
+    """A discovery record that discover() could have returned for this origin: every endpoint https on it."""
+    if not origin or not isinstance(found, dict) or found.get("origin") != origin \
+            or not isinstance(found.get("scope"), str) or not isinstance(found.get("sinks"), list):
+        return False
+    ends = [found.get(k) for k in ("resolve", "authorize", "token", "register")]
+    ner = found.get("ner")
+    if ner is not None:
+        if not isinstance(ner, dict):
+            return False
+        ends += [ner.get("endpoint")] + ([ner["status"]] if "status" in ner else [])
+    return all(origin_of(e) == origin for e in ends)
+
+
+def _seconds(budgets: list) -> str:
+    """"30 s, twice", "30 s" or "30 s and 4 s": the budget of each try."""
+    words = [f"{b:.0f} s" for b in budgets]
+    if len(words) == 2 and words[0] == words[1]:
+        return f"{words[0]}, twice"
+    return " and ".join(words)
+
+
+NO_TIME = "not checked: no time left"
+
+
+def discover_typed(cfg: dict, mcp_url: str, budget: float = TYPED_BUDGET, tries: int = TYPED_TRIES,
+                   end: float | None = None, keep: float = LAST_GOOD_KEEP) -> tuple:
+    """discover() for a command the person typed: (found, note). Each try gets `budget` seconds (never past `end`,
+    the end of the command's whole discovery), and a timeout or no connection gets one more try. When every try
+    failed that way, the last good discovery of this MCP URL (ner_gateway's cache, younger than `keep`) stands in,
+    checked again as discover() checks a fresh one; `note` then says so. A failure that is no timeout and no lost
+    connection (no document, an HTTP error, a broken answer) never uses it. found None: `note` names the failure for
+    a timeout or no connection, else it is "" and DISCOVERY names why. `end` is hard: with less than 1 s left
+    before it, no request goes out, and the note is NO_TIME. A login with a record from the cache still runs the
+    whole OAuth flow against its endpoints."""
+    from . import ner_gateway
+    budgets: list = []
+    for _ in range(max(1, tries)):
+        left = budget if end is None else min(budget, end - time.monotonic())
+        if left < 1.0:
+            if budgets:
+                break                              # no time left for one more try
+            DISCOVERY.update(why="", status=None, named=False)
+            return None, NO_TIME
+        budgets.append(left)
+        found = discover(cfg, mcp_url, time.monotonic() + left, True)
+        if found:
+            ner_gateway._keep(found["origin"], found, mcp_url)
+            return found, ""
+        if DISCOVERY.get("why") not in ("timeout", "network"):
+            return None, ""
+    origin = origin_of(mcp_url)
+    old = ner_gateway.last_good(origin, mcp_url, keep) if origin else None
+    timeout = DISCOVERY.get("why") == "timeout"
+    if old and _same_origin(old[0], origin):
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(old[1]))
+        return old[0], (f"the gateway {'did not answer in time' if timeout else 'could not be reached'}; maisecrets "
+                        f"used the discovery from {when}")
+    if timeout:
+        return None, f"the gateway did not answer within {_seconds(budgets)}"
+    return None, "no connection to the gateway" + (", twice" if len(budgets) == 2 else "")
+
+
 def discovery_failed() -> bool:
     """The last discover() found no resolver because of a failure, not because the server offers none: no answer, a
     server error, a redirect, a broken document, or any failure after the gateway named a resolver. A 4xx answer or a
@@ -191,9 +265,12 @@ def _entry(origin: str) -> str:
     return _STORE_PREFIX + hashlib.sha256(origin.encode()).hexdigest()[:16]
 
 
-def _load(backend, origin: str) -> dict:
+def _load(backend, origin: str, deadline: float | None = None) -> dict:
+    """The login record of `origin`. `deadline`: the read ends then, or the store raises its timeout (#76)."""
+    from .vault import store_deadline
     try:
-        raw = backend.get(_entry(origin))
+        with store_deadline(deadline):
+            raw = backend.get(_entry(origin))
         data = json.loads(raw) if raw else {}
     except (ValueError, TypeError, AttributeError):
         data = {}
@@ -261,16 +338,29 @@ def pkce() -> tuple:
     return verifier, challenge
 
 
-def register(cfg: dict, found: dict, redirect: str, deadline: float) -> str:
-    """A client id from the gateway's registration endpoint (RFC 7591) for this loopback redirect."""
+def _unsent(exc: BaseException) -> bool:
+    """The request surely never reached the gateway: no connection, no address, a certificate refused in the
+    handshake. Anything else (a timeout, a connection that broke) may have reached it."""
+    return isinstance(exc, (ConnectionRefusedError, _gaierror(), _cert_error()))
+
+
+def register(cfg: dict, found: dict, redirect: str, deadline: float, patient: bool = False) -> str:
+    """A client id from the gateway's registration endpoint (RFC 7591) for this loopback redirect. `patient` (a
+    typed login): only the deadline bounds the request, and a request that surely never reached the gateway is sent
+    once more inside the same deadline."""
     body = json.dumps({"client_name": "maisecrets resolver", "redirect_uris": [redirect],
                        "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"],
                        "token_endpoint_auth_method": "none", "scope": found["scope"]}).encode()
-    try:
-        status, headers, raw = _request(cfg, "POST", found["register"], {"Content-Type": "application/json",
-                                                                         "Accept": "application/json"}, body, deadline)
-    except _net_errors() as exc:
-        raise Refused(f"the gateway could not be reached ({type(exc).__name__})") from None
+    for attempt in (0, 1):
+        try:
+            status, headers, raw = _request(cfg, "POST", found["register"],
+                                            {"Content-Type": "application/json", "Accept": "application/json"},
+                                            body, deadline, **({"patient": True} if patient else {}))
+            break
+        except _net_errors() as exc:
+            if patient and attempt == 0 and _unsent(exc) and deadline - time.monotonic() > 0.5:
+                continue
+            raise Refused(f"the gateway could not be reached ({type(exc).__name__})") from None
     try:
         client_id = json.loads(raw.decode("utf-8")).get("client_id") if _is_json(headers) else None
     except (ValueError, RecursionError, AttributeError):
@@ -304,16 +394,15 @@ def _cert_error():
     return ssl.SSLCertVerificationError
 
 
-def _token(cfg: dict, found: dict, form: dict, deadline: float) -> dict:
+def _token(cfg: dict, found: dict, form: dict, deadline: float, patient: bool = False) -> dict:
     try:
         status, headers, raw = _request(cfg, "POST", found["token"],
                                         {"Content-Type": "application/x-www-form-urlencoded",
-                                         "Accept": "application/json"}, urlencode(form).encode(), deadline)
+                                         "Accept": "application/json"}, urlencode(form).encode(), deadline,
+                                        **({"patient": True} if patient else {}))
     except _net_errors() as exc:
         err = Refused(f"the gateway could not be reached ({type(exc).__name__})")
-        # the request surely never reached the gateway: no connection, no address, a certificate refused in the
-        # handshake. Anything else (a timeout, a connection that broke) may have reached it
-        err.unsent = isinstance(exc, (ConnectionRefusedError, _gaierror(), _cert_error()))
+        err.unsent = _unsent(exc)
         raise err from None
     try:
         data = json.loads(raw.decode("utf-8")) if _is_json(headers) else None
@@ -331,11 +420,19 @@ def _token(cfg: dict, found: dict, form: dict, deadline: float) -> dict:
 
 
 def finish_login(cfg: dict, backend, found: dict, client_id: str, redirect: str, code: str, verifier: str,
-                 deadline: float | None = None) -> None:
-    """The code from the loopback redirect, exchanged for the tokens, which go into the store."""
+                 deadline: float | None = None, patient: bool = False) -> None:
+    """The code from the loopback redirect, exchanged for the tokens, which go into the store. `patient` (a typed
+    login): only the deadline bounds the request. The code is good for one use: the exchange is sent once more only
+    when the first request surely never reached the gateway, never after a lost answer."""
     deadline = deadline if deadline is not None else time.monotonic() + BUDGET
-    data = _token(cfg, found, {"grant_type": "authorization_code", "code": code, "redirect_uri": redirect,
-                               "client_id": client_id, "code_verifier": verifier}, deadline)
+    form = {"grant_type": "authorization_code", "code": code, "redirect_uri": redirect, "client_id": client_id,
+            "code_verifier": verifier}
+    try:
+        data = _token(cfg, found, form, deadline, patient)
+    except Refused as exc:
+        if not (patient and getattr(exc, "unsent", False) and deadline - time.monotonic() > 0.5):
+            raise
+        data = _token(cfg, found, form, deadline, patient)
     # the pair and the end of the "login ended" mark in one section under the refresh lock: a renewal that ends a
     # login marks it under the same lock, so a newer "ended" is never erased by an older login
     with _refresh_lock_held(LOCK_WAIT):
@@ -536,6 +633,8 @@ def _refresh_locked(cfg: dict, backend, found: dict, stale: str | None, deadline
                                              "account": _hint(data) or rec.get("account", ""),
                                              "expires": time.time() + float(data.get("expires_in") or 3600)})
             _set_inflight(found["origin"], None)        # only after the new pair is in the store
+        from . import older_versions
+        older_versions.mark_run("refresh")      # versions.json: this version renewed a login (no value, never raises)
         return data["access_token"]
     finally:
         lock.__exit__(None, None, None)
@@ -763,7 +862,13 @@ def _access(cfg: dict, backend, found: dict, deadline: float, stale: str | None 
     without a token (Renewing), while the child keeps the new pair."""
     host = urlsplit(found["origin"]).hostname
     stale_d = _digest(stale)
-    rec = _load(backend, found["origin"])
+    from .vault import is_store_timeout
+    try:
+        rec = _load(backend, found["origin"], deadline)
+    except RuntimeError as exc:
+        if not is_store_timeout(exc):
+            raise
+        raise Refused(f"the store of this computer did not answer in time for the login at {host}; try again")
     got = _fresh(rec, stale_d)
     if got:
         if not _fresh(rec, stale_d, RENEW_AHEAD):
@@ -884,10 +989,13 @@ def resolve(cfg: dict, backend, found: dict, refs: list, sink_type: str, destina
     raise Refused(f"{host} gave no usable answer (HTTP {status})")
 
 
-def login(cfg: dict, backend, found: dict, open_browser, wait: float = 300.0) -> None:
+def login(cfg: dict, backend, found: dict, open_browser, wait: float = 300.0, budget: float = BUDGET,
+          patient: bool = False, end: float | None = None) -> None:
     """The whole login: a loopback listener on 127.0.0.1 (a free port), the registration for its redirect, the
     browser at the authorize URL (`open_browser(url)`), the code back from the redirect (its state must match), and
-    the tokens into the store. The listener answers one request and closes."""
+    the tokens into the store. The listener answers one request and closes. The registration and the token exchange
+    get `budget` seconds each (`patient`: only that deadline bounds them). `end`: the whole login ends by then, so the
+    wait for the browser leaves `budget` seconds for the token exchange."""
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from urllib.parse import parse_qs
@@ -951,12 +1059,13 @@ def login(cfg: dict, backend, found: dict, open_browser, wait: float = 300.0) ->
     # review, 2026-11-02, two rounds)
     t = threading.Thread(target=httpd.serve_forever, kwargs={"poll_interval": 0.2}, daemon=True)
     try:
-        deadline = time.monotonic() + BUDGET
-        client_id = register(cfg, found, redirect, deadline)
+        client_id = register(cfg, found, redirect, time.monotonic() + budget, patient)
+        if end is not None:
+            wait = min(wait, end - budget - time.monotonic())
         verifier, challenge = pkce()
         t.start()
         open_browser(authorize_url(found, client_id, redirect, challenge, state))
-        done.wait(wait)
+        done.wait(max(0.0, wait))
     finally:
         if t.is_alive():
             httpd.shutdown()
@@ -964,4 +1073,4 @@ def login(cfg: dict, backend, found: dict, open_browser, wait: float = 300.0) ->
     if "code" not in box:
         raise Refused("the login did not complete: " + ("the person declined it" if box.get("denied") else
                                                          "no matching answer from the browser in time"))
-    finish_login(cfg, backend, found, client_id, redirect, box["code"], verifier)
+    finish_login(cfg, backend, found, client_id, redirect, box["code"], verifier, time.monotonic() + budget, patient)

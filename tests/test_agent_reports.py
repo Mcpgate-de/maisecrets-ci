@@ -37,6 +37,15 @@ def _line(rec: dict) -> str:
     return json.dumps(rec) + "\n"
 
 
+def _empty_store() -> None:
+    """No value in the store of the temp home and no file of a session: a block stores the value it found."""
+    import shutil
+    for name in ("index.json", "vault.json", "audit.log", "events.log", "hooks.log"):
+        Path(_TMP, name).unlink(missing_ok=True)
+    shutil.rmtree(Path(_TMP, "pending"), ignore_errors=True)
+    hooks._live_cache.clear()
+
+
 class Session:
     """A session folder as Claude Code writes it: <id>.jsonl and <id>/subagents/agent-<n>.jsonl."""
 
@@ -74,10 +83,8 @@ class AgentReportTests(unittest.TestCase):
     def setUp(self):
         import shutil
         _hygiene.watch_children(self)
-        for name in ("index.json", "vault.json", "audit.log", "events.log", "hooks.log"):
-            Path(_TMP, name).unlink(missing_ok=True)
-        shutil.rmtree(Path(_TMP, "pending"), ignore_errors=True)
-        hooks._live_cache.clear()
+        _empty_store()
+        self.addCleanup(_empty_store)      # a later module counts the values a block stored (#65)
         _hygiene.patch(self, hooks, "_clipboard", lambda text: True)
         # a block starts a child that scrubs the transcript once the client wrote the prompt into it; these
         # transcripts are fixtures, and the child waited for a line that never comes
@@ -504,6 +511,7 @@ class CommandNoticeTests(unittest.TestCase):
     def setUp(self):
         import shutil
         _hygiene.watch_children(self)
+        self.addCleanup(_empty_store)      # a later module counts the values a block stored (#65)
         _hygiene.patch(self, hooks, "_clipboard", lambda text: True)
         _hygiene.patch(self, hooks, "_scrub_transcript_later", lambda *a, **kw: None)
         self.root = Path(tempfile.mkdtemp(prefix="maisecrets-command-notice-"))
@@ -514,9 +522,7 @@ class CommandNoticeTests(unittest.TestCase):
     def fresh(self) -> None:
         """An empty store and a new session folder: a block stores the value and masks it in the transcript, so a
         case after a block would be blocked for that reason alone."""
-        for name in ("index.json", "vault.json", "audit.log", "events.log", "hooks.log"):
-            Path(_TMP, name).unlink(missing_ok=True)
-        hooks._live_cache.clear()
+        _empty_store()
         self.dir = Path(tempfile.mkdtemp(dir=self.root))
         self.agent = Session(self.dir, f"found {VALUE}")
         with open(self.agent.transcript, "a", encoding="utf-8") as f:

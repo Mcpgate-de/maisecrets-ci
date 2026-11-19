@@ -35,6 +35,10 @@ and OpenAI plugin directories.
   harness and the Codex harness against their fake upstreams, with an empty
   HOME and a dummy key, versions pinned), mirror, release. Runner capability
   tag `docker` on the netcup host.
+- A merge request pipeline stops at its first red job (`auto_cancel: on_job_failure: all`), so it frees
+  the runner (15 runner minutes after the first red job in !591). The GitHub matrix that `windows_macos`
+  started runs on: the repository is public, its minutes are free, and a green run of the same tree is
+  reused. Pipelines on `main`, tags and schedules run every job to the end.
 - Release gate: the `release` job waits until the GitHub Actions matrix
   (Windows, macOS; Linux runs on GitLab) is green for the tested SHA on the public mirror
   (`scripts/wait_for_github_checks.py`, public API, no token). Windows was

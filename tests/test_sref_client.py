@@ -44,6 +44,26 @@ def _cert() -> tuple:
     return _CERT
 
 
+def _drop_new_store_entries(case: unittest.TestCase) -> None:
+    """The entries a test adds to the temp home go when it ends: the values in the store and their rows in the vault
+    index. A later module counts the rows (`test_status_verdict`, #79); the store keys alone left them."""
+    from maisecrets import vault
+    backend = JsonFileBackend()
+    before = set(backend.keys())
+    index = vault.INDEX.read_bytes() if vault.INDEX.exists() else None
+
+    def drop() -> None:
+        for k in set(backend.keys()) - before:
+            backend.delete(k)
+        if index is None:
+            vault.INDEX.unlink(missing_ok=True)
+        else:
+            vault.INDEX.write_bytes(index)
+        if "maisecrets.hooks" in sys.modules:
+            sys.modules["maisecrets.hooks"]._live_cache.clear()   # the values it read from the rows
+    case.addCleanup(drop)
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *a, **kw):
         return None
@@ -132,15 +152,23 @@ class SrefClientTests(unittest.TestCase):
         self.assertEqual(self.srv.resolved, [], "nothing released")
 
     def test_an_expired_access_token_is_refreshed_once_and_the_refresh_token_rotates(self):
+        from maisecrets import older_versions
         self.login()
         old = json.loads(self.backend.get(S._entry(self.found["origin"])))["refresh"]
         self.srv.access.clear()                      # the access token died early on the server
         ref = self.srv.mint("email", VALUE_MAIL)
+        older_versions.MARKER.unlink(missing_ok=True)
+        self.addCleanup(older_versions.MARKER.unlink, missing_ok=True)
         self.assertEqual(S.resolve(self.cfg, self.backend, self.found, [ref], "process", "mail"), {ref: VALUE_MAIL})
         new = json.loads(self.backend.get(S._entry(self.found["origin"])))["refresh"]
         self.assertNotEqual(old, new, "a new refresh token is kept")
         self.assertNotIn(old, self.srv.refresh, "the old refresh token is spent")
         self.assertIn(new, self.srv.refresh)
+        # the renewal names its version in versions.json (maisecrets/older_versions.py): a time, no token
+        marker = older_versions.MARKER.read_text(encoding="utf-8")
+        self.assertIn("refresh", json.loads(marker)["versions"][older_versions._current()])
+        for token in (old, new):
+            self.assertNotIn(token, marker)
 
     def test_two_sessions_that_refresh_at_once_present_the_refresh_token_once(self):
         # the refresh token rotates: without the lock both processes present it, the second gets invalid_grant and
@@ -446,9 +474,7 @@ class SrefClientTests(unittest.TestCase):
         self.assertTrue(got[0].startswith("srefr_"), got)
 
     def _drop_new_store_entries(self) -> None:
-        """The entries a test adds to the store of the temp home go when it ends: a later module counts them."""
-        before = set(self.backend.keys())
-        self.addCleanup(lambda: [self.backend.delete(k) for k in set(self.backend.keys()) - before])
+        _drop_new_store_entries(self)
 
     def _race_a_raw_writer(self, write) -> None:
         """`write(backend)` writes the store without the Vault (no lock of its own): it reads the file, a renewal
@@ -764,6 +790,260 @@ class SrefClientTests(unittest.TestCase):
             S.resolve(self.cfg, self.backend, self.found, [ref], "local_file", "/tmp/a.txt")
         self.assertIn("not logged in", str(cm.exception))
 
+    # ------------------------------------------------ a command the person typed, on a slow network (2026-11-19) --
+    def typed(self, **kw) -> tuple:
+        from maisecrets import ner_gateway
+        self.addCleanup(ner_gateway.CACHE.unlink, missing_ok=True)
+        return S.discover_typed(self.cfg, self.srv.url + "/mcp", **kw)
+
+    def test_a_slow_gateway_fails_the_hook_budget_and_passes_the_budget_of_a_typed_command(self):
+        from maisecrets import vault_refs
+        # a read that stalls longer than the socket timeout of a hook: only the deadline bounds a typed command
+        with mock.patch.object(vault_refs, "SOCKET_TIMEOUT", 0.3):
+            self.srv.discovery_delays = [0.8]
+            self.assertIsNone(S.discover(self.cfg, self.srv.url + "/mcp", time.monotonic() + 3.0))
+            self.assertEqual(S.DISCOVERY["why"], "timeout")
+            self.srv.discovery_delays = [0.8, 0.8]
+            before = self.srv.discovery_gets
+            found, note = self.typed(budget=3.0)
+        self.assertEqual(found, self.found)
+        self.assertEqual((note, self.srv.discovery_gets - before), ("", 1), "the first try waited for the answer")
+
+    def test_a_slow_handshake_waits_for_the_budget_of_a_typed_command_not_the_connect_timeout(self):
+        import socket
+        from maisecrets import vault_refs
+        silent = socket.socket()
+        silent.bind(("127.0.0.1", 0))
+        silent.listen(4)                             # accepts the connection and never starts the TLS handshake
+        self.addCleanup(silent.close)
+        url = f"https://127.0.0.1:{silent.getsockname()[1]}/mcp"
+        with mock.patch.object(vault_refs, "CONNECT_TIMEOUT", 0.2):
+            t0 = time.monotonic()
+            self.assertIsNone(S.discover(self.cfg, url, t0 + 1.5))
+            self.assertLess(time.monotonic() - t0, 1.0, "a hook keeps its connect timeout")
+            t0 = time.monotonic()
+            found, note = S.discover_typed(self.cfg, url, budget=1.5, tries=1)
+            waited = time.monotonic() - t0
+        self.assertIsNone(found)
+        self.assertEqual(note, "the gateway did not answer within 2 s")
+        self.assertGreater(waited, 1.2, "a typed command waits for its whole budget")
+
+    def test_a_typed_command_tries_once_more_after_a_lost_connection(self):
+        self.srv.discovery_drops = 1
+        before = self.srv.discovery_gets
+        found, note = self.typed(budget=3.0)
+        self.assertEqual(found, self.found)
+        self.assertEqual((note, self.srv.discovery_gets - before), ("", 2))
+
+    def test_a_typed_command_names_the_budget_and_the_retry_when_the_gateway_stays_silent(self):
+        self.srv.discovery_delays = [1.6, 1.6]
+        before = self.srv.discovery_gets
+        found, note = self.typed(budget=1.0)
+        self.assertIsNone(found)
+        self.assertEqual(note, "the gateway did not answer within 1 s, twice")
+        self.assertEqual(self.srv.discovery_gets - before, 2)
+        self.assertTrue(S.discovery_failed())
+
+    def test_a_timeout_uses_the_last_good_discovery_and_the_login_still_runs_the_whole_flow(self):
+        from maisecrets import ner_gateway
+        self.assertEqual(self.typed(budget=3.0), (self.found, ""))
+        self.srv.discovery_delays = [1.6, 1.6]
+        found, note = self.typed(budget=1.0)
+        self.assertEqual(found, self.found)
+        self.assertRegex(note, r"^the gateway did not answer in time; maisecrets used the discovery from "
+                               r"\d{4}-\d\d-\d\d \d\d:\d\d$")
+        clients = len(self.srv.clients)
+        S.login(self.cfg, self.backend, found, self.browser, wait=10)
+        self.assertTrue(S.logged_in(self.backend, self.found["origin"]))
+        self.assertEqual(len(self.srv.clients), clients + 1, "the login registered at the gateway again")
+        self.assertNotIn("srefr_", ner_gateway.CACHE.read_text(encoding="utf-8"), "the cache holds no token")
+
+    def test_the_last_good_discovery_never_stands_in_for_an_answer_that_names_no_resolver(self):
+        self.assertEqual(self.typed(budget=3.0), (self.found, ""))
+        json_type = {"content-type": "application/json"}
+        for name, answer in (("no block", (200, json_type, b'{"resource": "x"}')), ("404", (404, {}, b"")),
+                             ("server error", (503, {}, b"")), ("broken", (200, json_type, b"[1]"))):
+            with self.subTest(name), mock.patch.object(S, "_request", return_value=answer) as req:
+                self.assertEqual(self.typed(budget=3.0), (None, ""))
+                self.assertEqual(req.call_count, 1, "no second try for an answer")
+
+    def test_a_cached_discovery_of_another_url_or_too_old_or_on_another_origin_is_not_used(self):
+        from maisecrets import ner_gateway
+        url, origin = self.srv.url + "/mcp", self.found["origin"]
+        silent = mock.patch.object(S, "_request", side_effect=TimeoutError())
+        for name, url_kept, found, age in (
+                ("another URL", self.srv.url + "/other", self.found, 0),
+                ("too old", url, self.found, S.LAST_GOOD_KEEP + 60),
+                ("token endpoint elsewhere", url, {**self.found, "token": "https://elsewhere.example/token"}, 0),
+                ("authorize over http", url, {**self.found, "authorize": self.found["authorize"].replace(
+                    "https:", "http:")}, 0)):
+            with self.subTest(name), silent:
+                ner_gateway._keep(origin, found, url_kept)
+                data = json.loads(ner_gateway.CACHE.read_text(encoding="utf-8"))
+                data[origin]["at"] -= age
+                ner_gateway.CACHE.write_text(json.dumps(data), encoding="utf-8")
+                found_now, note = self.typed(budget=1.0)
+                self.assertIsNone(found_now)
+                self.assertTrue(note.startswith("the gateway did not answer within"), note)
+
+    def test_a_typed_login_waits_for_a_slow_registration_and_a_slow_code_exchange(self):
+        from maisecrets import vault_refs
+        # each answer stalls longer than the read timeout of a hook: only the deadline bounds a typed login
+        with mock.patch.object(vault_refs, "SOCKET_TIMEOUT", 0.3):
+            self.srv.register_delays, self.srv.code_delays = [0.8], [0.8]
+            S.login(self.cfg, self.backend, self.found, self.browser, wait=10, budget=3.0, patient=True)
+        self.assertTrue(S.logged_in(self.backend, self.found["origin"]))
+        self.assertEqual(self.srv.code_exchanges, 1)
+
+    def test_a_login_with_the_hook_limits_fails_on_a_slow_registration(self):
+        from maisecrets import vault_refs
+        with mock.patch.object(vault_refs, "SOCKET_TIMEOUT", 0.3):
+            self.srv.register_delays = [0.8]
+            with self.assertRaises(S.Refused):
+                S.login(self.cfg, self.backend, self.found, self.browser, wait=10, budget=3.0)
+        self.assertFalse(S.logged_in(self.backend, self.found["origin"]))
+
+    def test_a_code_exchange_whose_answer_is_lost_is_never_sent_again(self):
+        # the gateway spent the code, and its answer came too late: a second exchange would only get invalid_grant
+        self.srv.code_delays = [1.6]
+        with self.assertRaises(S.Refused) as cm:
+            S.login(self.cfg, self.backend, self.found, self.browser, wait=10, budget=1.0, patient=True)
+        self.assertIn("could not be reached", str(cm.exception))
+        self.assertEqual(self.srv.code_exchanges, 1)
+        self.assertFalse(S.logged_in(self.backend, self.found["origin"]))
+
+    def test_a_request_of_a_typed_login_that_never_left_is_sent_once_more(self):
+        real, calls = S._request, []
+
+        def first_refused(cfg, method, url, headers, body, deadline, **kw):
+            calls.append(url)
+            if method == "POST" and calls.count(url) == 1:
+                raise ConnectionRefusedError()
+            return real(cfg, method, url, headers, body, deadline, **kw)
+        with mock.patch.object(S, "_request", side_effect=first_refused):
+            S.login(self.cfg, self.backend, self.found, self.browser, wait=10, budget=3.0, patient=True)
+        self.assertTrue(S.logged_in(self.backend, self.found["origin"]))
+        self.assertEqual(calls.count(self.found["register"]), 2)
+        self.assertEqual(calls.count(self.found["token"]), 2)
+        self.assertEqual(self.srv.code_exchanges, 1, "the refused request never reached the gateway")
+
+    def test_a_request_of_a_typed_login_that_may_have_reached_the_gateway_is_not_sent_again(self):
+        real = S._request
+        for step in ("register", "token"):
+            calls = []
+
+            def broken(cfg, method, url, headers, body, deadline, **kw):
+                calls.append(url)
+                if url == self.found[step]:
+                    raise ConnectionResetError()         # the connection broke after the request went out
+                return real(cfg, method, url, headers, body, deadline, **kw)
+            with self.subTest(step), mock.patch.object(S, "_request", side_effect=broken):
+                with self.assertRaises(S.Refused):
+                    S.login(self.cfg, self.backend, self.found, self.browser, wait=10, budget=3.0, patient=True)
+                self.assertEqual(calls.count(self.found[step]), 1)
+                self.assertFalse(S.logged_in(self.backend, self.found["origin"]))
+
+    def test_the_end_of_a_login_shortens_the_wait_for_the_browser_and_keeps_time_for_the_exchange(self):
+        t0 = time.monotonic()
+        with self.assertRaises(S.Refused) as cm:
+            S.login(self.cfg, self.backend, self.found, lambda url: None, wait=20, budget=3.0, patient=True,
+                    end=t0 + 4.5)
+        self.assertIn("no matching answer from the browser in time", str(cm.exception))
+        self.assertLess(time.monotonic() - t0, 3.5, "the wait ended `budget` seconds before the end")
+
+    # ------------------------------------------------ the time of a whole /maisecrets:sref command (Gate A) --
+    def silent_server(self) -> tuple:
+        """An https URL whose server accepts the connection and never starts the TLS handshake, and a function that
+        says whether any client connected."""
+        import socket
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        sock.listen(8)
+        self.addCleanup(sock.close)
+
+        def reached() -> bool:
+            sock.setblocking(False)
+            try:
+                sock.accept()[0].close()
+                return True
+            except BlockingIOError:
+                return False
+        return f"https://127.0.0.1:{sock.getsockname()[1]}/mcp", reached
+
+    def sref_command(self, args: list, servers: dict, **consts) -> tuple:
+        import io
+        from contextlib import ExitStack, redirect_stdout
+        from maisecrets import cli, ner_gateway, vault_refs
+        self.addCleanup(ner_gateway.CACHE.unlink, missing_ok=True)
+        out = io.StringIO()
+        with ExitStack() as stack:
+            stack.enter_context(mock.patch.object(vault_refs, "user_servers", return_value=servers))
+            stack.enter_context(mock.patch.object(cli, "load_config", return_value={
+                **self.cfg, "backend": "jsonfile", "allow_plaintext_store": True}))
+            for k, v in consts.items():
+                stack.enter_context(mock.patch.object(cli, k, v))
+            stack.enter_context(redirect_stdout(out))
+            t0 = time.monotonic()
+            code = cli.cmd_sref(args)
+            took = time.monotonic() - t0
+        return code, out.getvalue(), took
+
+    def test_a_slow_server_takes_only_its_share_and_the_gateway_after_it_is_still_asked(self):
+        slow, _reached = self.silent_server()
+        code, text, took = self.sref_command(["status"], {"slow": slow, "gw": self.srv.url + "/mcp"},
+                                             SREF_DISCOVERY_S=4.0)
+        self.assertLess(took, 4.6, "the discovery of the command ends at its deadline")
+        self.assertEqual(code, 1, text)
+        self.assertIn("failed for slow (the gateway did not answer within 2 s)", text)
+        self.assertIn("gw (127.0.0.1): not logged in", text)
+
+    def test_no_request_goes_out_after_the_deadline_and_each_server_not_asked_is_named(self):
+        slow, reached = self.silent_server()
+        before = self.srv.discovery_gets
+        code, text, took = self.sref_command(["status"], {"slow": slow, "gw": self.srv.url + "/mcp"},
+                                             SREF_DISCOVERY_S=0.0)
+        self.assertLess(took, 0.5)
+        self.assertEqual(code, 1, text)
+        for server in ("slow", "gw"):
+            self.assertIn(f"failed for {server} (not checked: no time left)", text)
+        self.assertEqual(self.srv.discovery_gets, before)
+        self.assertFalse(reached())
+
+    def test_a_login_with_a_name_asks_only_that_server_and_ends_inside_the_two_minutes(self):
+        slow, reached = self.silent_server()
+        calls = []
+        t0 = time.monotonic()
+        with mock.patch.object(S, "login", side_effect=lambda *a, **kw: calls.append((a[2]["origin"], kw))):
+            code, text, took = self.sref_command(["login", "gw"], {"slow": slow, "gw": self.srv.url + "/mcp"})
+        self.assertEqual(code, 0, text)
+        self.assertLess(took, 2.0)
+        self.assertFalse(reached(), "a login with a name never waits for another server")
+        self.assertEqual(len(calls), 1)
+        origin, kw = calls[0]
+        self.assertEqual(origin, self.found["origin"])
+        self.assertEqual((kw["budget"], kw["patient"], kw["wait"]), (15.0, True, 110.0))
+        # the login ends 115 s after the command started: inside the 2 minutes of the client
+        self.assertAlmostEqual(kw["end"] - t0, 115.0, delta=took + 0.1)
+
+    def test_the_discovery_of_a_login_has_less_time_than_a_status_so_the_browser_keeps_its_time(self):
+        slow, _reached = self.silent_server()
+        with mock.patch.object(S, "login") as login:
+            code, text, took = self.sref_command(["login", "slow"], {"slow": slow}, SREF_DISCOVERY_S=4.0,
+                                                 SREF_LOGIN_DISCOVERY_S=2.0)
+        self.assertEqual(code, 1, text)
+        self.assertIn("failed for slow (the gateway did not answer within 2 s)", text)
+        self.assertLess(took, 3.0)
+        login.assert_not_called()
+
+    def test_the_fresh_name_source_cache_takes_only_a_record_of_its_own_url(self):
+        from maisecrets import ner_gateway
+        self.addCleanup(ner_gateway.CACHE.unlink, missing_ok=True)
+        origin, url = self.found["origin"], self.srv.url + "/mcp"
+        ner_gateway._keep(origin, self.found, url)
+        self.assertEqual(ner_gateway._cached(origin, url), self.found)
+        self.assertEqual(ner_gateway._cached(origin), self.found, "the scope check of a source asks by origin")
+        self.assertIsNone(ner_gateway._cached(origin, self.srv.url + "/other"))
+
 
 class LoginScopeTests(unittest.TestCase):
     def test_the_process_scope_is_asked_for_on_top_where_command_output_is_masked(self):
@@ -924,6 +1204,7 @@ class StoredIdIsNotReplacedTests(unittest.TestCase):
         from maisecrets import hooks
         from maisecrets.vault import Vault
         rid = "reference-id-of-plain-words"   # no shape the detector finds: the exact replacement alone
+        _drop_new_store_entries(self)
         Vault().put(rid + "⟧", "SECRET", "manual", session="s1")
         ref = f"\u27e6sref:secret:{rid}\u27e7"
         from maisecrets import sref_notes
@@ -957,7 +1238,7 @@ class StatusWithoutReferencesTests(unittest.TestCase):
         from contextlib import redirect_stdout
         from maisecrets import cli, vault_refs
 
-        def request(cfg, method, url, headers, body, deadline):
+        def request(cfg, method, url, headers, body, deadline, **kw):
             if isinstance(answer, BaseException):
                 raise answer
             return answer
@@ -1012,5 +1293,37 @@ class StatusWithoutReferencesTests(unittest.TestCase):
             code = cli.cmd_sref(["status"])
         text = out.getvalue()
         self.assertEqual(code, 1, text)
-        self.assertIn("discovery of Sensitive References failed for slow-mcp (timeout)", text)
+        self.assertIn("discovery of Sensitive References failed for slow-mcp (the gateway did not answer within "
+                      "30 s, twice)", text)
         self.assertIn("good-gw (gw.example.com): not logged in", text)
+
+    def test_a_silent_gateway_with_a_good_discovery_of_this_week_is_used_and_said(self):
+        import io
+        from contextlib import redirect_stdout
+        from maisecrets import cli, ner_gateway, vault_refs
+        url, origin = "https://gw.example.com/mcp", "https://gw.example.com"
+        good = {"origin": origin, "resolve": origin + "/sensitive-references/resolve", "ner": None,
+                "scope": S.SCOPE, "process_scope": None, "display_scope": None, "sinks": ["local-file-1"],
+                "sink_types": ["local_file"], "authorize": origin + "/auth/authorize", "token": origin + "/auth/token",
+                "register": origin + "/register"}
+        ner_gateway._keep(origin, good, url)
+        self.addCleanup(ner_gateway.CACHE.unlink, missing_ok=True)
+        calls = []
+
+        def discover(cfg, u, *a):
+            calls.append(a)
+            S.DISCOVERY.update(why="timeout", status=None, named=False)
+            return None
+        out = io.StringIO()
+        with mock.patch.object(vault_refs, "user_servers", return_value={"gw": url}), \
+                mock.patch.object(S, "discover", side_effect=discover), \
+                mock.patch.object(cli, "load_config", return_value={"backend": "jsonfile",
+                                                                    "allow_plaintext_store": True}), \
+                redirect_stdout(out):
+            code = cli.cmd_sref(["status"])
+        text = out.getvalue()
+        self.assertEqual(code, 0, text)
+        self.assertIn("maisecrets: gw: the gateway did not answer in time; maisecrets used the discovery from ", text)
+        self.assertIn("gw (gw.example.com): not logged in", text)
+        self.assertEqual(len(calls), 2, "one more try after the timeout")
+        self.assertTrue(all(d - time.monotonic() > 20 for d, _p in calls), "each try has the budget of a command")

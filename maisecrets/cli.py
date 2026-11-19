@@ -1139,6 +1139,14 @@ def cmd_ner(args: list[str]) -> int:
     return code
 
 
+# a command ends inside the 2 minutes a client gives it: the discovery of all servers (less for a login, which also
+# registers, waits for the browser and exchanges the code, each request with SREF_LOGIN_REQUEST_S)
+SREF_DISCOVERY_S = 60.0
+SREF_LOGIN_DISCOVERY_S = 40.0
+SREF_LOGIN_REQUEST_S = 15.0
+SREF_LOGIN_END_S = 115.0
+
+
 def cmd_sref(args: list[str]) -> int:
     """Sensitive References (/maisecrets:sref): `status` (the default) names each user-scope server whose gateway
     offers a resolver and whether maisecrets is logged in there; `login [NAME]` logs in in the browser (the person
@@ -1161,13 +1169,22 @@ def cmd_sref(args: list[str]) -> int:
         if not servers:
             print(f"maisecrets: no MCP server named {name} in your user configuration.")
             return 1
+    start = time.monotonic()
+    # the whole discovery ends after this, however many servers are slow: the client ends a command after 2 minutes,
+    # and a login waits for the browser after it. Each server gets an equal share of the time that is left, so a slow
+    # server never takes the time of the gateway after it (a login with a NAME asks that server only)
+    phase_end = start + (SREF_LOGIN_DISCOVERY_S if action == "login" else SREF_DISCOVERY_S)
     found, failed = {}, []
-    for server, url in servers.items():
-        f = sref_client.discover(cfg, url)
+    for i, (server, url) in enumerate(servers.items()):
+        now = time.monotonic()
+        share = max(0.0, phase_end - now) / (len(servers) - i)
+        f, note = sref_client.discover_typed(cfg, url, end=now + share)
         if f:
             found[server] = f
-        elif sref_client.discovery_failed():
-            failed.append(f"{server} ({sref_client.DISCOVERY.get('why')})")
+            if note:
+                print(f"maisecrets: {server}: {note}.")
+        elif note or sref_client.discovery_failed():
+            failed.append(f"{server} ({note or sref_client.DISCOVERY.get('why')})")
     for server in failed:
         # each failure is said, also next to a server that works: a status that hid it exited 0 (Gate A)
         print(f"maisecrets: the discovery of Sensitive References failed for {server}. Check that the server answers, "
@@ -1224,8 +1241,9 @@ def cmd_sref(args: list[str]) -> int:
         except Exception:  # noqa: BLE001 - the printed URL is the way then
             pass
     try:
-        # 110 s: inside the 2 minutes a client gives a command
-        sref_client.login(cfg, backend, f, open_browser, wait=110.0)
+        # the browser gets up to 110 s, less the time of a slow discovery and registration
+        sref_client.login(cfg, backend, f, open_browser, wait=110.0, budget=SREF_LOGIN_REQUEST_S, patient=True,
+                          end=start + SREF_LOGIN_END_S)
     except sref_client.Refused as exc:
         print(f"maisecrets: the login to {host} did not complete: {exc}")
         return 1

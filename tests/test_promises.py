@@ -181,9 +181,11 @@ class LauncherFailsClosedTests(unittest.TestCase):
 _STALLING_PYTHONS = {
     # a wrapper that never answers
     "hangs": "#!/bin/sh\nexec sleep 60\n",
-    # a wrapper that fails and leaves a job in the background on the descriptors it got (a shim, a version manager)
+    # a wrapper that fails and leaves a job in the background on the descriptors it got (a shim, a version manager).
+    # The job holds stdout and stderr. A case with a job on stderr alone went (#81): run.sh sends stderr to /dev/null
+    # twice (the probe line and the find_python call), and the one mutation that hands the probe the hook's stderr,
+    # both removed, turns this case red too
     "leaves_a_job_on_its_stdout": "#!/bin/sh\n( sleep 60 ) &\nexit 1\n",
-    "leaves_a_job_on_its_stderr": "#!/bin/sh\n( sleep 60 >/dev/null ) &\nexit 1\n",
     # a wrapper that reads its stdin: the payload is the hook's stdin
     "reads_stdin": "#!/bin/sh\ncat >/dev/null\nexit 1\n",
     # a wrapper that prints a wrong version and fails
@@ -254,8 +256,7 @@ class LauncherProbeHoldsNothingTests(unittest.TestCase):
         return subprocess.CompletedProcess(p.args, p.returncode, out, err), time.monotonic() - t0
 
     def test_a_probe_that_fails_or_holds_a_descriptor_does_not_hold_the_hook(self):
-        for case in ("leaves_a_job_on_its_stdout", "leaves_a_job_on_its_stderr", "reads_stdin",
-                     "prints_a_wrong_version"):
+        for case in ("leaves_a_job_on_its_stdout", "reads_stdin", "prints_a_wrong_version"):
             with self.subTest(case):
                 r, took = self.launch(_STALLING_PYTHONS[case], budget=RESULT_BUDGET)
                 said = f"stdout: {r.stdout!r} stderr: {r.stderr!r}"

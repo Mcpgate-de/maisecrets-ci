@@ -38,6 +38,7 @@ _TMP = str(HOME)
 
 
 def tearDownModule():  # noqa: N802 - unittest hook
+    _reset()                     # a later module counts the stored values or reads each one from its store (#78)
     _hygiene.assert_pristine()
     alive = _hygiene.wait_for_no_serving_child()
     if alive:

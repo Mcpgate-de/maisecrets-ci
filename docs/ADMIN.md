@@ -134,7 +134,7 @@ claude --plugin-dir /path/to/maisecrets                 # one session, straight 
 python3 -m unittest discover -s tests -v               # about 30 seconds
 python3 harness/run.py                                 # 60 scenarios against a fake upstream (4 for the PowerShell tool of Windows)
 python3 harness/codex.py [--real]                      # 19 scenarios through codex exec (five need --real)
-python3 scripts/replay_can_fail.py                     # 414 proofs: each control's test, and each path of the seven invariants, goes red without its guard
+python3 scripts/replay_can_fail.py                     # 436 proofs: each control's test, and each path of the seven invariants, goes red without its guard
 python3 scripts/derived_counts.py                      # the numbers in the docs, measured again
 python3 scripts/lint_plugin.py                         # frontmatter YAML, manifests, hook paths (pre-commit, CI)
 scripts/install-hooks.sh                               # git pre-commit / pre-push
@@ -200,13 +200,16 @@ resolve (time, session, key, tool, the command with placeholders; capped at
 type). `pending/` holds a blocked prompt with placeholders for 15 minutes.
 `incidents.json` holds maisecrets' own internal failures as closed codes (at most
 50 groups; see ["Reporting an internal failure"](USING.md#reporting-an-internal-failure)).
+`versions.json` holds, per plugin version, the time of its first and last session start and of its last gateway
+renewal (no value, no session id): the newest version warns when an older one ran in the last day and may still be open.
 `hooks.log` holds one line per hook run (capped at 2000); the client column names
 the entry point, `claude/local-agent` for a Cowork session. The FIFOs a value
 is delivered through live in `$XDG_RUNTIME_DIR/maisecrets` or
 `maisecrets-<uid>` in the temp directory, for up to 120 s. The values live in
-the store of the platform; on macOS a value longer than about 2.8 KB (a private
-key) is passed to `security` on its command line, visible to `ps` for the
-milliseconds of the call, because the stdin form has a line limit. maisecrets itself sends nothing to a
+the store of the platform; on macOS every value goes to `security` on stdin, never
+on its command line. A value longer than one stdin line (about 2.8 KB, a private
+key) is split over several keychain items, and a value above about 160 KB is
+refused. maisecrets itself sends nothing to a
 server: no hook opens a network connection. Two exceptions to state to a data-protection
 officer: the Windows Credential Locker can roam through a Microsoft account on
 a machine that is not domain-joined (set `backend` to `encrypted-file` by
@@ -228,6 +231,37 @@ deleted, the counters continue). `hooks.log` in `~/.maisecrets` records every
 hook run (time, event, client, session, tool, decision, duration; no value and
 no command), so "the plugin did nothing" can be told from "the hook did not
 run".
+
+### The demo where an organization manages Claude Code
+
+Claude Code 2.1.327 and later run a built-in security plugin (`sec-default`) on a machine with managed
+settings and for Team and Enterprise organizations. It lets the hooks of a plugin that a person installed
+run on most events, but not on two of them. For maisecrets, the plugin page (`/plugin`) says:
+
+> Its hooks on session.compact, http.fetch{origin=engine} do not run here: where an organization manages
+> Claude Code, these events pass over the plugins you install. Only a plugin that counts as your
+> organization's own runs hooks on these events. An administrator sets that up in managed settings.
+
+maisecrets has these two hooks only for the demo mode (`/maisecrets:demo on`). In the demo they stop
+`/compact` and the requests Claude Code makes on its own (`/rename`, `/btw`, `/recap`, the next-prompt
+suggestion). Where they do not run, these requests go to the AI. They carry the conversation as it is: the
+prompts with placeholders and the demo lines, never a stored value. The turns of the demo stay local,
+because the `turn.step` hook still runs. The prompt rewrite (`prompt.submit`) and all other protection do
+not change. A plugin cannot see that its hooks are passed over, so the demo start says it as a condition.
+
+To make maisecrets the organization's own plugin, so that these hooks run:
+
+1. In the managed settings, enable it: `"enabledPlugins": {"maisecrets@<your marketplace>": true}`.
+2. In the managed settings, declare that marketplace under `extraKnownMarketplaces` with the source the
+   machines install from. Use a local directory whose `marketplace.json` lists maisecrets by a relative
+   path, or a remote source. Claude Code takes a copy from a remote source as the organization's only when
+   the copy matches a recorded hash.
+3. Start a new session and open `/plugin`. The note above is gone for maisecrets. If it is still there,
+   the debug log (`claude --debug`) names the reason in a line that starts with
+   `maisecrets@<your marketplace> is enabled by managed settings, but`.
+
+Read from the Claude Code 2.1.327 and 2.1.328 binaries (the text of the plugin page and the code that selects
+the plugins). Not yet tested in a managed organization.
 
 ### Settings in config.json only
 

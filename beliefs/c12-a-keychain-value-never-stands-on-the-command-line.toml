@@ -1,0 +1,10 @@
+# c12-a-keychain-value-never-stands-on-the-command-line: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c12-a-keychain-value-never-stands-on-the-command-line"
+control = "C12"
+statement = "A value of any length goes to the macOS `security` tool on stdin, never on its command line, where `ps` of any process of the user shows it (#75): a value longer than one stdin line is split over several items."
+runner = ["tests/test_keychain_process.py::NoValueOnTheCommandLineTests::test_a_long_value_goes_through_stdin_in_parts"]
+
+[proof]
+file = "maisecrets/vault.py"
+find = "                self._add(line, key, \"b64:\" + b64)\n            else:\n"
+replace = "                self._add(line, key, \"b64:\" + b64)\n            else:\n                _run_store(\"keychain\", [\"security\", \"add-generic-password\", \"-U\", \"-s\", SERVICE, \"-a\", key, \"-w\", \"b64:\" + b64], capture_output=True, timeout=5)\n                return\n"

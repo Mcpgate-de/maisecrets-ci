@@ -1,5 +1,5 @@
 ---
-description: "Try maisecrets on real data; nothing reaches the AI until /clear"
+description: "Try maisecrets on real data; no prompt reaches the AI until /clear"
 argument-hint: "on"
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" status), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" status)
 ---

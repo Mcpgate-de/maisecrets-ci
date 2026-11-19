@@ -77,6 +77,7 @@ from .own_rules import (  # noqa: F401
     OWN_RULES, FALLBACK_RULES,
 )
 from .value_checks import (  # noqa: F401
+    RESERVED_WORD_RULES, is_reserved_word, reserved_word_spellings, unquoted_reserved_word, _unquoted_reserved_word,
     _a_version, _a_dotted_date_time, _LABEL_WORDS_TAIL_RE, _bitlocker_key_ok,
     _re2_to_python, _POSIX_CLASSES, shannon_entropy, ENTROPY_BY_ALPHABET, ENTROPY_BY_ALPHABET_RULES, _B62, _ALPHABETS,
     alphabet_of, _base64_of_text, _entropy_ok, _luhn_ok, IBAN_LENGTH, _iban_ok, _RESOLVER_IPS, _public_ip,
@@ -2833,6 +2834,8 @@ def _scan(text: str, enabled: set[str] | None = None, _copy: bool = False,
                 continue   # a word after a password word in a sentence: the cheap check first (else 3x slower)
             if keyword and (is_code_word(secret) or value_is_code(text, start, end, secret)):
                 continue
+            if _unquoted_reserved_word(rule, text, start, secret):
+                continue   # `const secret = readonly;` (#29)
             if "word-path" in filters and _WORD_PATH_RE.fullmatch(secret.strip("'\"")):
                 continue
             if keyword and _names_its_label(text, start, secret):

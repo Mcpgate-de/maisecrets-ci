@@ -294,6 +294,8 @@ npm-access-token
 nuget-api-key
 nuget-config-password
 nvidia-api-key
+nx-cloud-access-token
+nx-cloud-access-token-nx-json
 nylas-api-key.1
 nytimes-access-token
 octopus-deploy-api-key
@@ -473,6 +475,8 @@ zoho-client-id.1
 zoho-client-secret.1
 zoho-oauth-token.1
 zoho-zapi-key.1
+zoom-client-id
+zoom-client-secret
 zuplo-consumer-api-key.1
 
 [github]

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -191,3 +192,21 @@ def without_client_env():
     whatever the process has; the context restores the environment."""
     env = {k: v for k, v in os.environ.items() if k not in _isolate.client_variables()}
     return mock.patch.dict(os.environ, env, clear=True)
+
+
+# the reason of the watchdog's fail-closed answer (hooks.py, on_timeout): the hook ran past its time
+WATCHDOG_ANSWER = re.compile(r"it took longer than [0-9.]+ ?s \(the computer may be busy\)")
+
+
+def past_the_watchdog(run, attempts: int = 3) -> subprocess.CompletedProcess:
+    """``run()`` starts one hook process and returns its CompletedProcess; it runs again while the answer is the
+    watchdog's. On a busy runner a hook can pass its watchdog time (7 s for a prompt). The watchdog then blocks and
+    writes nothing, so a test of what the hook records has no evidence: the Windows runner read no events.log (#62)
+    and no cleaned prompt (#67). Any other answer returns at once, a failure included. The watchdog answer alone in
+    each attempt fails the test, with the answer."""
+    for _ in range(attempts):
+        r = run()
+        if not WATCHDOG_ANSWER.search(r.stdout):
+            return r
+    raise AssertionError(f"the watchdog answered in each of {attempts} runs: the hook ran past its time; "
+                         f"stdout: {r.stdout!r} stderr: {r.stderr!r}")

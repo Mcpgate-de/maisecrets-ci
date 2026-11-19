@@ -1,0 +1,41 @@
+# M3: a product promise. See M1 for what checks it.
+mission = "M3"
+promise = "An agent under injection cannot send a value, or use the person's keys, anywhere the person's own session did not put it."
+actors = ["A2"]
+controls = ["C4", "C5", "C6", "C7", "C14", "C18", "C20", "C21", "C23", "C27", "C31"]
+invariants = ["I2"]
+ends = "The destination of an allowed call, which may pass the value on; a person who pastes a reference into a session that the injection controls."
+
+[[part]]
+says = "A placeholder or a reference resolves only in the session that received it."
+# the twin: tests/test_twin_session_rule.py (a model of this sentence against the real hooks; belief
+# c4-a-tool-result-admits-only-the-values-it-holds)
+beliefs = ["c4-*", "c31-a-reference-resolves-only-in-the-session-that-received-it",
+           "c31-a-reference-no-session-received-stops-the-command"]
+
+[[part]]
+says = "A value goes back in locally only inside the call that names it, and a rewrite grants no more than that call."
+beliefs = ["c5-*", "c6-*", "c14-*", "inv-a-rewrite-grants-no-more-than-the-call"]
+
+[[part]]
+says = "A value that a server masked goes only into the person's file or command, by that server's rules."
+beliefs = ["c27-*", "c31-*"]
+
+[[part]]
+says = "ssh gets a value only on stdin inside the sandbox, and ssh with the person's keys asks first when consent is on."
+beliefs = ["c18-*", "c21-*"]
+
+[[part]]
+says = "Use in bulk is capped."
+beliefs = ["c7-*"]
+
+[[part]]
+says = "A value that goes to a new destination is shown, or asked for first."
+beliefs = ["c23-*"]
+
+[[part]]
+says = "Hidden instructions in invisible characters leave the tool output."
+beliefs = ["c20-*"]
+
+[measure]
+none = "a resolve is right or wrong, not a rate; the twin of M3.1 (tests/test_twin_session_rule.py) and invariant I2 check it"

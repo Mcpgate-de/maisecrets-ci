@@ -1179,11 +1179,14 @@ class HookEventTests(unittest.TestCase):
 
     def test_user_prompt_blocks_and_records_an_event_without_the_value(self):
         value = fake_value("Up")
-        r = self.sb.run("user-prompt", stdin=json.dumps({"prompt": f"password: {value}", "session_id": "S1",
-                                                         "transcript_path": "", "prompt_id": "p"}))
+        stdin = json.dumps({"prompt": f"password: {value}", "session_id": "S1", "transcript_path": "",
+                            "prompt_id": "p"})
+        r = _hygiene.past_the_watchdog(lambda: self.sb.run("user-prompt", stdin=stdin))
+        said = f"stdout: {r.stdout!r} stderr: {r.stderr!r}"
         out = json.loads(r.stdout)
-        self.assertEqual(out["decision"], "block")
+        self.assertEqual(out["decision"], "block", said)
         self.assertNotIn(value, r.stdout + r.stderr)
+        self.assertTrue((self.sb.home / "events.log").exists(), f"the block wrote no events.log; {said}")
         events = (self.sb.home / "events.log").read_text()
         self.assertIn('"hook": "UserPromptSubmit"', events)
         self.assertNotIn(value, events)

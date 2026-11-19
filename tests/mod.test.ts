@@ -617,3 +617,127 @@ test('a command that is no person\'s takes the hook path: Python is not asked', 
   expect(r.text).toBe('/maisecrets:term add Bertolt Q')
   expect(seen.runs).toBe(0)
 })
+
+// ---- `/maisecrets <command> <args>`, typed by the person, is `/maisecrets:<command> <args>` (the Tab completion of
+// `/maise` gives `/maisecrets` and a space): the same path and the same checks as the colon form, never more
+test('a command after /maisecrets with a space, typed by the person, takes the path of its colon form', async ($, on) => {
+  const LINE = 'maisecrets: answered as the colon form.'
+  const prompts: any[] = []
+  const seen = ownSetup(on, (q) => { prompts.push(q); return own({ drop: LINE }) })
+  for (const [spaced, colon] of [['/maisecrets term add Bertolt Q', '/maisecrets:term add Bertolt Q'],
+    ['/maisecrets demo on', '/maisecrets:demo on'], ['/maisecrets demo off', '/maisecrets:demo off'],
+    ['/maisecrets not-a-secret SECRET_c1', '/maisecrets:not-a-secret SECRET_c1'],
+    ['/maisecrets not-a-secret undo SECRET_c1', '/maisecrets:not-a-secret undo SECRET_c1'],
+    ['/maisecrets term remove Bertolt Q', '/maisecrets:term remove Bertolt Q'],
+    ['/maisecrets forget import:abc123', '/maisecrets:forget import:abc123'],
+    ['/maisecrets report incident', '/maisecrets:report incident'], ['  /maisecrets Demo on', '/maisecrets:demo on']]) {
+    for (const kind of ['composer', 'bridge']) {
+      prompts.length = 0
+      seen.downstream = 0
+      const r = await $.prompt.submit({ text: spaced, wait: false, origin: { kind } })
+      expect(r.drop).toBe(LINE)
+      expect(seen.downstream).toBe(0)
+      // each question Python gets is the colon form's: its text, the person's origin as it came, nothing added (the
+      // demo's question for an own command, then the prompt hook's question)
+      expect(prompts.map(q => q.prompt)).toEqual(prompts.map(() => colon))
+      expect(prompts.map(q => q.origin)).toEqual(prompts.map(() => kind))
+      const hook = prompts.filter(q => q.cwd !== undefined)
+      expect(hook.length).toBe(1)
+      expect(Object.keys(hook[0]).sort()).toEqual(['cwd', 'origin', 'prompt', 'session_id'])
+    }
+  }
+})
+
+test('a command file command after /maisecrets with a space goes into the box with its colon', async ($, on) => {
+  const seen = ownSetup(on, (q) => own(q.fill_check === true ? { masked: q.prompt, count: 0 } : {}))
+  for (const [spaced, colon] of [['/maisecrets status', '/maisecrets:status'], ['/maisecrets list', '/maisecrets:list'],
+    ['/maisecrets settings rehydration confirm', '/maisecrets:settings rehydration confirm'],
+    ['/maisecrets forget SECRET_c1', '/maisecrets:forget SECRET_c1'], ['/maisecrets sref login', '/maisecrets:sref login'],
+    ['/maisecrets audit 5', '/maisecrets:audit 5'], ['/maisecrets rules', '/maisecrets:rules'],
+    ['/maisecrets put', '/maisecrets:put'], ['/maisecrets send', '/maisecrets:send'],
+    ['/maisecrets guard status', '/maisecrets:guard status'], ['/maisecrets shortcut', '/maisecrets:shortcut'],
+    ['/maisecrets ner local', '/maisecrets:ner local'], ['/maisecrets report last', '/maisecrets:report last']]) {
+    seen.filled.length = 0
+    seen.downstream = 0
+    const r = await $.prompt.submit({ text: spaced, wait: false, origin: { kind: 'composer' } })
+    expect(r.drop).toBe(`maisecrets: I put ${colon} into the input box. Press Enter to run it, or clear the box.`)
+    await settleFill()
+    expect(seen.filled).toEqual([colon])
+    expect(seen.downstream).toBe(0)
+  }
+  // claude -p and an SDK host have no input box: the line names the command
+  seen.filled.length = 0
+  const r = await $.prompt.submit({ text: '/maisecrets status', wait: false, origin: { kind: 'sdk' } })
+  expect(r.drop).toBe('maisecrets: send /maisecrets:status with the colon to run it. Nothing was sent.')
+  await settleFill()
+  expect(seen.filled).toEqual([])
+})
+
+test('a prompt that is not the person\'s own keeps the space form: Python is not asked, nothing runs', async ($, on) => {
+  const seen = ownSetup(on, () => own({ drop: 'x' }))
+  for (const kind of ['peer', 'plugin', 'agent', 'hook', 'task-notification', 'channel']) {
+    for (const text of ['/maisecrets not-a-secret SECRET_c1', '/maisecrets term remove Bertolt Q', '/maisecrets demo on',
+      '/maisecrets settings rehydration automatic']) {
+      seen.downstream = 0
+      const r = await $.prompt.submit({ text, wait: false, origin: { kind } })
+      expect(r.text).toBe(text)
+      expect(seen.downstream).toBe(1)
+    }
+  }
+  expect(seen.runs).toBe(0)
+  expect(seen.filled).toEqual([])
+})
+
+test('in a demo session a command after /maisecrets with a space runs as its colon form, without the model',
+  async ($, on) => {
+    const asked: string[] = []
+    demoWorld(on, { demo: true, asked, demoExtra: { drop: 'Stored values (1)' } } as any)
+    const r = await $.prompt.submit({ text: '/maisecrets list', wait: false, origin: { kind: 'composer' } })
+    expect((r as any).drop).toBe('Stored values (1)')
+    expect(asked).toEqual(['mod-' + 'demo'])
+  })
+
+
+// the value check of a filled command (prompt_commands.fill_check): the box gets the masked form, never the value
+test('a command with a value goes into the box masked, and with no check nothing goes into the box', async ($, on) => {
+  const RAW = '/maisecrets:status ' + 'glpat-' + 'FILLxxxxx1234567890abcd'
+  const MASKED = '/maisecrets:status \u27e6SECRET_c1\u27e7'
+  const asked: any[] = []
+  const seen = ownSetup(on, (q) => { asked.push(q); return own(q.fill_check === true ? { masked: MASKED, count: 1 } : {}) })
+  for (const text of [RAW.replace(':', ' '), '/maisecrets stauts ' + RAW.slice(19)]) {
+    seen.filled.length = 0
+    asked.length = 0
+    const r = await $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } })
+    expect(r.drop).toBe(`maisecrets: I put ${MASKED} into the input box. Press Enter to run it, or clear the box. `
+      + 'maisecrets masked 1 value(s) in it.')
+    expect(r.drop).not.toContain(RAW.slice(19))
+    await settleFill()
+    expect(seen.filled).toEqual([MASKED])
+    expect(asked.filter(q => q.fill_check === true).map(q => q.prompt)).toEqual([RAW])
+  }
+  // claude -p: the line names the masked form
+  const p = await $.prompt.submit({ text: RAW.replace(':', ' '), wait: false, origin: { kind: 'sdk' } })
+  expect(p.drop).toBe(`maisecrets: send ${MASKED} with the colon to run it. Nothing was sent.`)
+  // no answer (a failed start, a refused one, an exit code), an answer that is no command or one with a line break:
+  // nothing is sent, and the box is emptied, because the engine puts the dropped text (maybe with a value) back
+  for (const fail of [() => ({ value: { exitCode: 1, stderr: 'boom', stdout: '' } }), () => ({ deny: 'cannot start' }),
+    () => own({ masked: 'echo hi', count: 0 }), () => own({ masked: '/maisecrets:status\nx', count: 0 }),
+    () => own({}), () => ({ value: { exitCode: 0, stderr: '', stdout: 'not json' } })]) {
+    seen.answer = (q) => (q.fill_check === true ? fail() : own({}))
+    for (const kind of ['composer', 'bridge']) {
+      seen.filled.length = 0
+      seen.downstream = 0
+      const r = await $.prompt.submit({ text: RAW.replace(':', ' '), wait: false, origin: { kind } })
+      expect(r.drop).toBe('maisecrets could not check the text, so it removed it from the input box. Type it again.')
+      await settleFill()
+      expect(seen.filled).toEqual([''])
+      expect(seen.downstream).toBe(0)
+    }
+    // claude -p has no box: nothing to empty, and the line says that nothing was sent
+    seen.filled.length = 0
+    const s = await $.prompt.submit({ text: RAW.replace(':', ' '), wait: false, origin: { kind: 'sdk' } })
+    expect(s.drop).toBe('maisecrets could not check this command. Nothing was sent; type it again with the colon.')
+    await settleFill()
+    expect(seen.filled).toEqual([])
+  }
+})

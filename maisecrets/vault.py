@@ -19,6 +19,7 @@ import os
 import re
 import platform
 import subprocess
+import threading
 import time
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
@@ -221,6 +222,13 @@ def code_word_spellings() -> list[str]:
     return [s for w in sorted(code_words()) for b in (w, w.capitalize(), w.upper()) for s in (b, b + ";")]
 
 
+def reserved_word_spellings() -> list[str]:
+    """The spellings of a reserved word that the two code rules stored before #29: the same spellings the detector
+    skips now (detect.reserved_word_spellings), so a stored `Readonly` stays live. Found by fingerprint."""
+    from .detect import reserved_word_spellings as spellings
+    return spellings()
+
+
 # the kinds of a value the person chose: stored by hand (`maisecrets put`), a term of a term list, an imported value
 CHOSEN_KINDS = ("manual", "term:", "import:")
 
@@ -335,10 +343,66 @@ _TIMEOUT_CODES = {"keychain": "store.timeout-keychain", "openssl": "store.timeou
                   "Credential Locker": "store.timeout-locker"}
 
 
+_monotonic = time.monotonic        # the tests replace this module's `time` with a clock that has no monotonic
+_STORE_END: dict = {"hook": None}
+_STORE_LOCAL = threading.local()
+STORE_MARGIN = 1.0                 # seconds before the watchdog: the hook still writes its own answer
+
+
+def hook_deadline(seconds: float | None) -> None:
+    """The hook's watchdog answers `seconds` from now (None: no hook runs). Every store call ends STORE_MARGIN
+    before it, so a keychain that waits (a lock dialog, a busy securityd) fails this hook with its own reason
+    instead of holding it to the watchdog (#76)."""
+    _STORE_END["hook"] = None if seconds is None else _monotonic() + seconds - STORE_MARGIN
+
+
+class store_deadline:
+    """Within the block, the store calls of this thread end at `end` (time.monotonic) or earlier: a caller with a
+    shorter budget than the hook (the token of a gateway). None leaves the limit as it is."""
+
+    def __init__(self, end: float | None) -> None:
+        self.end = end
+
+    def __enter__(self) -> None:
+        self.old = getattr(_STORE_LOCAL, "end", None)
+        if self.end is not None:
+            _STORE_LOCAL.end = self.end if self.old is None else min(self.old, self.end)
+
+    def __exit__(self, *exc) -> None:
+        _STORE_LOCAL.end = self.old
+
+
+def store_time_left() -> float | None:
+    """Seconds a store call may still take, or None without a limit."""
+    ends = [e for e in (_STORE_END["hook"], getattr(_STORE_LOCAL, "end", None)) if e is not None]
+    return min(ends) - _monotonic() if ends else None
+
+
+def is_store_timeout(exc: BaseException) -> bool:
+    return isinstance(exc, CodedError) and exc.incident_cause == "timeout"
+
+
+def timeout_reason(exc: BaseException) -> str:
+    """The fail-closed reason of a hook whose store did not answer in its time; it names no value."""
+    code = getattr(exc, "incident_code", "")
+    store = {"store.timeout-keychain": "the macOS keychain", "store.timeout-openssl": "the encrypted store",
+             "store.timeout-locker": "the Windows Credential Locker"}.get(code, "the store")
+    return (f"{store} did not answer within the hook's time limit, so maisecrets could not read or store a value. "
+            + ("If the computer asks to unlock the keychain, unlock it. " if code == "store.timeout-keychain" else "")
+            + "Then try again.")
+
+
 def _run_store(what: str, args: list[str], **kw) -> subprocess.CompletedProcess:
     """subprocess.run for a store call. A call that hits its timeout raised TimeoutExpired, which
     passed every `except RuntimeError` of the sweep, forget and wipe, and whose text lists the
-    argv, the value included on the keychain's long-value path (CLI test agent, 2026-09-27)."""
+    argv, the value included on the keychain's long-value path (CLI test agent, 2026-09-27).
+    In a hook the timeout is never longer than the hook's time that is left (#76)."""
+    left = store_time_left()
+    if left is not None:
+        if left <= 0.05:
+            raise CodedError(f"{what} call not started: no time left",
+                             _TIMEOUT_CODES.get(what, "store.timeout-keychain"), "timeout")
+        kw["timeout"] = min(kw.get("timeout") or left, left)
     if not kw.get("capture_output"):
         # a store tool must never write to the hook's own stdout or stderr: the client reads the hook's answer there,
         # and a child that keeps them open holds the client (Gate A of 0.6.15)
@@ -351,11 +415,79 @@ def _run_store(what: str, args: list[str], **kw) -> subprocess.CompletedProcess:
                          "timeout") from None
 
 
+PARTS_PENDING = HOME / "keychain-parts"   # one marker file per put of a long value (Gate A round 2, #75)
+PENDING_FRESH = 600.0       # seconds: a marker this young belongs to a put that may still run
+_wall = time.time           # the tests replace this module's `time`
+
+
+def _pending_mark(key: str, gen: str, stale: bool = False) -> Path:
+    """A marker that parts of `key` (generation `gen`, "" for any) may stand without their head. A fresh marker is a
+    put that runs: the sweep keeps its parts. A stale one is left for the sweep. One file per put, so one writer
+    never clears the marker of another. Raises when the file cannot be written: parts without a marker would stay
+    in the keychain for good (Gate A round 3, #75)."""
+    import secrets as _secrets
+    try:
+        PARTS_PENDING.mkdir(mode=0o700, exist_ok=True)
+        path = PARTS_PENDING / _secrets.token_hex(8)
+        path.write_text(json.dumps({"key": key, "gen": gen}), encoding="utf-8")
+        if stale:
+            os.utime(path, (0, 0))
+        return path
+    except OSError:
+        raise CodedError("keychain add refused: the marker of a long value cannot be written",
+                         "store.keychain-add", "permission") from None
+
+
+def _pending_stale(path: Path | None) -> None:
+    """The put of this marker ended without its proof: its parts are for the next full sweep."""
+    try:
+        if path is not None:
+            os.utime(path, (0, 0))
+    except OSError:
+        pass
+
+
+def _pending_clear(path: Path | None) -> None:
+    try:
+        if path is not None:
+            path.unlink()
+    except OSError:
+        pass
+
+
+def _pending_marks() -> list[tuple[Path, str, str, bool]]:
+    """(path, key, generation, fresh) of each marker. A damaged marker counts as stale and for every key."""
+    out = []
+    try:
+        paths = list(PARTS_PENDING.iterdir())
+    except OSError:
+        return out
+    for path in paths:
+        try:
+            fresh = _wall() - path.stat().st_mtime < PENDING_FRESH
+            data = json.loads(path.read_text(encoding="utf-8"))
+            out.append((path, str(data["key"]), str(data["gen"]), fresh))
+        except (OSError, ValueError, TypeError, KeyError):
+            out.append((path, "", "", False))
+    return out
+
+
+def _parts_pending() -> bool:
+    """Whether a full sweep has orphan parts to look for: a marker of a put that ended without its proof, or one
+    older than PENDING_FRESH (a process that was stopped)."""
+    return any(not fresh for _p, _k, _g, fresh in _pending_marks())
+
+
 class KeychainBackend:
     """macOS login keychain via the ``security`` CLI. No sync flag is set."""
     test_mode = False
 
     MAX_LINE = 3900   # `security -i` line limit is 4096 bytes; the rest would run as a command
+    # A value longer than one line is split over items: each part on its own line of `security -i`, never on the
+    # command line, where `ps` of any process shows it (#75). The add command has no other stdin form: `-w` last
+    # prompts on the terminal (getpass: /dev/tty first, at most 128 characters), `-X` is hex on the command line.
+    MAX_PARTS = 64    # about 160 KB of value; a longer one is refused, never put on the command line
+    _PART_RE = LazyRx(r"\.part\d{1,3}\.[0-9a-f]{12}\Z")
 
     @staticmethod
     def _q(s: str) -> str:
@@ -368,6 +500,56 @@ class KeychainBackend:
         return _run_store("keychain", ["security", "-i"], input=(line + "\n").encode("utf-8"),
                               capture_output=True, timeout=5)
 
+    def _add_line(self, account: str, stored: str, label: str, comment: str | None) -> str:
+        # `security -i` reads one command per line: a line break in a name, a label or a comment (a gateway origin)
+        # would end the command and start another one (Gate A, #75)
+        for arg in (account, stored, label, comment or ""):
+            if any(c in arg for c in "\0\r\n"):
+                raise CodedError("keychain add refused: a line break in a name, a label or a comment",
+                                 "store.keychain-add", "shape")
+        parts = ["add-generic-password", "-U", "-s", self._q(SERVICE), "-a", self._q(account),
+                 "-l", self._q(label), "-D", self._q("maisecrets placeholder"), "-w", self._q(stored)]
+        if comment:
+            parts += ["-j", self._q(comment)]
+        return " ".join(parts)
+
+    def _add(self, line: str, account: str | None = None, stored: str | None = None) -> None:
+        """One add through `security -i`. Its exit code is not proof: the interactive mode can exit 0 when its
+        command failed (Gate A, #75). With `account`, the item is read back and must hold `stored`."""
+        # no check=True: CalledProcessError prints the argument list, and an error text can reach
+        # the model as a block reason (Codex review, 2026-09-26)
+        r = self._interactive(line)
+        if r.returncode != 0:
+            raise CodedError(f"keychain add failed (rc {r.returncode})", "store.keychain-add", "rc", r.returncode)
+        if account is not None and self._raw(account) != (0, stored):
+            raise CodedError("keychain add failed (read-back differs)", "store.keychain-readback", "shape")
+
+    @staticmethod
+    def _part_name(key: str, i: int, gen: str) -> str:
+        return f"{key}.part{i}.{gen}"
+
+    def _raw(self, account: str) -> tuple[int, str]:
+        r = _run_store(
+            "keychain",
+            ["security", "find-generic-password", "-s", SERVICE, "-a", account, "-w"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return r.returncode, (r.stdout.rstrip("\n") if r.returncode == 0 else "")
+
+    def _read(self, account: str) -> tuple[int, str]:
+        """_raw, but only rc 44 (no such item) reads as absent. Any other failed find (a locked or busy keychain) is
+        raised: a caller that took it as absent made a new fingerprint key over the old one (Gate A round 2, #75)."""
+        rc, raw = self._raw(account)
+        if rc not in (0, 44):
+            raise CodedError(f"keychain read failed (rc {rc})", "store.keychain-readback", "rc", rc)
+        return rc, raw
+
+    @staticmethod
+    def _split_head(raw: str) -> tuple[int, str, str] | None:
+        """(parts, generation, first part) of a head item `b64p:N:GEN:PART`, or None."""
+        m = re.fullmatch(r"b64p:(\d{1,3}):([0-9a-f]{12}):([A-Za-z0-9+/=]*)", raw)
+        return (int(m.group(1)), m.group(2), m.group(3)) if m else None
+
     def put(self, key: str, value: str, label: str | None = None, comment: str | None = None) -> None:
         # -l is the "Name" column in Keychain Access, -j the comment shown in the item's info.
         # The item's ACL trusts /usr/bin/security, the tool that created it, so ANY process of
@@ -378,42 +560,91 @@ class KeychainBackend:
         # the value is stored base64-encoded with a marker: `find-generic-password -w` prints a
         # non-ASCII value as hex, so an umlaut never came back equal (measured 2026-09-26)
         import base64
-        stored = "b64:" + base64.b64encode(value.encode("utf-8")).decode("ascii")
-        parts = ["add-generic-password", "-U", "-s", self._q(SERVICE), "-a", self._q(key),
-                 "-l", self._q(label or f"maisecrets {key}"), "-D", self._q("maisecrets placeholder"),
-                 "-w", self._q(stored)]
-        if comment:
-            parts += ["-j", self._q(comment)]
-        # no check=True: CalledProcessError prints the argument list, and an error text can reach
-        # the model as a block reason (Codex review, 2026-09-26)
-        line = " ".join(parts)
-        if len(line.encode("utf-8")) <= self.MAX_LINE:
-            r = self._interactive(line)
-        else:
-            # `security -i` reads at most 4096 bytes per line and runs the rest as a second
-            # command (review, 2026-09-26: a 4096-bit PEM key). A long value goes on the
-            # command line instead: the value is then visible to `ps` of any local user for the
-            # milliseconds of the call, the trade documented in the README
-            r = _run_store("keychain", ["security", "add-generic-password", "-U", "-s", SERVICE, "-a", key,
-                                "-l", label or f"maisecrets {key}", "-D", "maisecrets placeholder",
-                                "-w", stored] + (["-j", comment] if comment else []),
-                               capture_output=True, timeout=5)
-        if r.returncode != 0:
-            raise CodedError(f"keychain add failed (rc {r.returncode})", "store.keychain-add", "rc", r.returncode)
-        if self.get(key) != value:
-            raise CodedError("keychain add failed (read-back differs)", "store.keychain-readback", "shape")
+        label = label or f"maisecrets {key}"
+        b64 = base64.b64encode(value.encode("utf-8")).decode("ascii")
+        line = self._add_line(key, "b64:" + b64, label, comment)
+        _rc, old = self._read(key)
+        head = self._split_head(old)         # a long value it replaces: its parts go after the new head is proven
+        gen = ""
+        if len(line.encode("utf-8")) > self.MAX_LINE:
+            # The parts first, the head last: the head names the parts by a digest of the whole, so a read sees the
+            # old value or the new one, never a mix, and an add that stops halfway leaves the old value whole.
+            gen = hashlib.sha256(b64.encode("ascii")).hexdigest()[:12]
+            room = self.MAX_LINE - max(len(self._add_line(self._part_name(key, self.MAX_PARTS, gen), "",
+                                                          f"maisecrets part of {key}", None).encode("utf-8")),
+                                       len(self._add_line(key, f"b64p:{self.MAX_PARTS}:{gen}:", label,
+                                                          comment).encode("utf-8")))
+            room -= room % 4                 # each part is whole base64 groups
+            n = -(-len(b64) // room) if room >= 512 else self.MAX_PARTS + 1
+            if n > self.MAX_PARTS:
+                # never the command line: refused, and the caller keeps the value out of the store
+                raise CodedError("keychain add refused: the value is too long for the keychain's stdin form",
+                                 "store.keychain-add", "shape")
+            chunks = [b64[i * room:(i + 1) * room] for i in range(n)]
+        # Each marker is written before the head changes, so a process stopped at any step leaves no part without a
+        # marker, and a marker that cannot be written refuses the put before anything is written (Gate A round 3).
+        # The marker of the old parts is stale at once: the sweep keeps the parts that the head still names.
+        later = _pending_mark(key, head[1], stale=True) if head and head[1] != gen else None
+        mark = None
+        try:
+            if not gen:
+                # the read-back is the proof: a failed add keeps the old value whole
+                self._add(line, key, "b64:" + b64)
+            else:
+                mark = _pending_mark(key, gen)   # a put that stops before its head leaves parts for the sweep
+                for i in range(1, n):
+                    name = self._part_name(key, i, gen)
+                    self._add(self._add_line(name, chunks[i], f"maisecrets part of {key}", None), name, chunks[i])
+                # the new value is proven before anything of the old one goes: the head names the parts by their
+                # digest, and each part was read back
+                head_line = f"b64p:{n}:{gen}:{chunks[0]}"
+                self._add(self._add_line(key, head_line, label, comment), key, head_line)
+        except BaseException:
+            # The head add may have taken or not (a read-back that failed): a read gives the old value or the new
+            # one, whole. The markers stay for the full sweep.
+            _pending_stale(mark)
+            raise
+        _pending_clear(mark)
+        if later is None:
+            return
+        # The new value is stored now. A part of the old one that does not go is left to the full sweep; it is never
+        # a failed put, which the caller would read as "the old value stays" (Gate A round 2, #75).
+        try:
+            rc = self._delete_parts(key, head)
+        except RuntimeError as exc:          # a timeout too: the next store call of the hook fails it closed
+            from . import incidents
+            incidents.note("store.expire", exc)
+            return
+        if rc == 0:
+            _pending_clear(later)
+
+    def _delete_parts(self, key: str, head: tuple[int, str, str]) -> int:
+        """Delete the parts a head names; the return code of the first that refused, else 0."""
+        for i in range(1, min(head[0], self.MAX_PARTS)):
+            r = _run_store("keychain", ["security", "delete-generic-password", "-s", SERVICE, "-a",
+                                        self._part_name(key, i, head[1])], capture_output=True, timeout=5)
+            if r.returncode not in (0, 44):
+                return r.returncode
+        return 0
 
     def get(self, key: str) -> str | None:
-        r = _run_store(
-            "keychain",
-            ["security", "find-generic-password", "-s", SERVICE, "-a", key, "-w"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if r.returncode != 0:
+        rc, raw = self._read(key)
+        if rc != 0:
             return None
-        raw = r.stdout.rstrip("\n")
+        import base64
+        head = self._split_head(raw)
+        if head is not None:
+            n, gen, first = head
+            chunks = [first]
+            for i in range(1, n):
+                rc, part = self._read(self._part_name(key, i, gen))
+                if rc != 0 or not re.fullmatch(r"[A-Za-z0-9+/=]+", part):
+                    return None
+                chunks.append(part)
+            raw = "b64:" + "".join(chunks)
+            if hashlib.sha256(raw[4:].encode("ascii")).hexdigest()[:12] != gen:
+                return None                  # a part of another value: never a mix
         if raw.startswith("b64:"):
-            import base64
             try:
                 return base64.b64decode(raw[4:]).decode("utf-8")
             except (ValueError, UnicodeDecodeError):
@@ -421,6 +652,16 @@ class KeychainBackend:
         return raw   # an entry written before 0.3.22
 
     def delete(self, key: str) -> None:
+        # the parts of a long value first: a delete that stops halfway leaves a head that reads as nothing, and the
+        # next sweep finds the head and its parts again
+        rc, raw = self._raw(key)
+        if rc not in (0, 44):
+            # unknown whether the item has parts: deleting the head alone would hide them (Gate A, #75)
+            raise RuntimeError(f"keychain delete failed (rc {rc})")
+        head = self._split_head(raw) if rc == 0 else None
+        rc = self._delete_parts(key, head) if head else 0
+        if rc:
+            raise RuntimeError(f"keychain delete failed (rc {rc})")
         r = _run_store(
             "keychain",
             ["security", "delete-generic-password", "-s", SERVICE, "-a", key],
@@ -433,11 +674,52 @@ class KeychainBackend:
 
     def keys(self) -> list[str]:
         """Every account of the service, from the attribute dump (no secrets are printed without
-        -d), so a damaged index can be rebuilt and an orphan item found (review, 2026-09-26)."""
+        -d), so a damaged index can be rebuilt and an orphan item found (review, 2026-09-26).
+        The parts of a long value are no keys of their own."""
         r = _run_store("keychain", ["security", "dump-keychain"], capture_output=True, text=True, timeout=20)
         if r.returncode != 0:
-            return []
-        return parse_keychain_dump(r.stdout, SERVICE)
+            # never an empty list: repair rebuilt the index from it and lost every entry (Gate A round 3, #75)
+            raise CodedError(f"keychain dump failed (rc {r.returncode})", "store.expire", "rc", r.returncode)
+        return [k for k in parse_keychain_dump(r.stdout, SERVICE) if not self._PART_RE.search(k)]
+
+    def remove_orphan_parts(self) -> int:
+        """Delete every part that no readable head names (a put that stopped between its parts and its head, a
+        head deleted without its parts). A key whose head cannot be read keeps its parts and gets a marker, so the
+        next full sweep looks again. The parts of a put that runs now (a fresh marker) stay. Returns the count."""
+        r = _run_store("keychain", ["security", "dump-keychain"], capture_output=True, text=True, timeout=20)
+        if r.returncode != 0:
+            raise CodedError(f"keychain dump failed (rc {r.returncode})", "store.expire", "rc", r.returncode)
+        # the markers after the dump: a put makes its marker before its first part, so each part in the dump has one
+        marks = _pending_marks()
+        running = {(k, g) for _p, k, g, fresh in marks if fresh}
+        by_key: dict = {}
+        for acct in parse_keychain_dump(r.stdout, SERVICE):
+            m = self._PART_RE.search(acct)
+            if m:
+                by_key.setdefault(acct[:m.start()], []).append(acct)
+        n = 0
+        unread = set()
+        for key, parts in by_key.items():
+            rc, raw = self._raw(key)
+            if rc not in (0, 44):
+                unread.add(key)
+                continue
+            head = self._split_head(raw) if rc == 0 else None
+            keep = {self._part_name(key, i, head[1]) for i in range(1, head[0])} if head else set()
+            for part in parts:
+                if part in keep or (key, part.rsplit(".", 1)[1]) in running:
+                    continue
+                d = _run_store("keychain", ["security", "delete-generic-password", "-s", SERVICE, "-a", part],
+                               capture_output=True, timeout=5)
+                if d.returncode not in (0, 44):
+                    raise CodedError(f"keychain delete failed (rc {d.returncode})", "store.expire", "rc", d.returncode)
+                n += d.returncode == 0
+        for path, key, gen, fresh in marks:
+            if not fresh and key not in unread:
+                _pending_clear(path)
+        for key in unread - {k for _p, k, _g, fresh in marks if not fresh}:
+            _pending_mark(key, "", stale=True)
+        return n
 
     def wipe(self) -> int:
         """Delete every item of the service, one call per item until none is left: the store is
@@ -542,6 +824,8 @@ class EncryptedFileBackend:
         try:
             return self._openssl(["-d"], blob).decode()
         except RuntimeError as exc:
+            if is_store_timeout(exc):
+                raise                        # no answer is no "expired": the caller fails closed (Gate A)
             from . import incidents
             incidents.note("store.decrypt", exc)
             return None
@@ -789,6 +1073,8 @@ class Vault:
             try:
                 value = self.backend.get(key)
             except RuntimeError as exc:
+                if is_store_timeout(exc):
+                    raise                    # a store that does not answer fails the hook, never a skip (Gate A)
                 from . import incidents
                 incidents.note("store.mark-weak", exc)
                 continue
@@ -812,6 +1098,8 @@ class Vault:
             try:
                 value = self.backend.get(key)
             except RuntimeError as exc:
+                if is_store_timeout(exc):
+                    raise                    # a store that does not answer fails the hook, never a skip (Gate A)
                 from . import incidents
                 incidents.note("store.mark-weak", exc)
                 continue
@@ -835,6 +1123,8 @@ class Vault:
             try:
                 value = self.backend.get(key)
             except RuntimeError as exc:
+                if is_store_timeout(exc):
+                    raise                    # a store that does not answer fails the hook, never a skip (Gate A)
                 from . import incidents
                 incidents.note("store.mark-weak", exc)
                 continue
@@ -1225,6 +1515,8 @@ class Vault:
                 try:
                     self.backend.delete(key)
                 except RuntimeError as exc:
+                    if is_store_timeout(exc):
+                        raise                # a store that does not answer fails the hook, never a skip (Gate A)
                     from . import incidents
                     incidents.note("store.expire", exc)
                     # one item that refuses to go (a locked keychain over SSH) must not block
@@ -1252,6 +1544,14 @@ class Vault:
             from . import destinations
             # where a value went goes with the value: the list shows no purged entry (codex review of 0.6.7)
             destinations.forget(old + purged_now)
+        if limit is None and hasattr(self.backend, "remove_orphan_parts") and _parts_pending():
+            try:
+                self.backend.remove_orphan_parts()   # a put of a long value that stopped before its head
+            except RuntimeError as exc:
+                if is_store_timeout(exc):
+                    raise
+                from . import incidents
+                incidents.note("store.expire", exc)
         return n
 
     @_mutating
@@ -1263,15 +1563,25 @@ class Vault:
         its placeholder still resolves: nothing is deleted without the person (Codex review, 2026-09-29, of a
         version that deleted). The entries are found by fingerprint: no value is read. Returns the keys marked."""
         entries = self._index["entries"]
-        if not any(str(m.get("kind", "")).startswith("ds-keyword") and not m.get("purged") and not m.get("weak")
-                   for m in entries.values()):
+        from .detect import RESERVED_WORD_RULES
+
+        def code_word_kind(kind: str) -> bool:
+            return kind.startswith("ds-keyword")
+
+        def reserved_word_kind(kind: str) -> bool:
+            return kind in RESERVED_WORD_RULES
+
+        if not any((code_word_kind(str(m.get("kind", ""))) or reserved_word_kind(str(m.get("kind", ""))))
+                   and not m.get("purged") and not m.get("weak") for m in entries.values()):
             return []   # no fingerprint key is made for a store that has no such entry
         quieted = []
-        for word in code_word_spellings():
+        # a statement keyword from a ds-keyword rule; a reserved word from each rule of RESERVED_WORD_RULES, which skip
+        # it now. Another rule took it quoted, a string, and its entry stays hunted (#29)
+        for word, kind_ok in [(w, code_word_kind) for w in code_word_spellings()] + [
+                (w, reserved_word_kind) for w in reserved_word_spellings()]:
             key = self._index["by_fingerprint"].get(self.fingerprint(word))
             meta = entries.get(key) if key else None
-            if (not meta or meta.get("purged") or meta.get("weak")
-                    or not str(meta.get("kind", "")).startswith("ds-keyword")):
+            if not meta or meta.get("purged") or meta.get("weak") or not kind_ok(str(meta.get("kind", ""))):
                 continue
             meta["weak"] = True
             quieted.append(key)
@@ -1332,6 +1642,8 @@ class Vault:
         except (ValueError, AttributeError):
             pass
         deleted = 0
+        if hasattr(self.backend, "remove_orphan_parts"):
+            deleted += self.backend.remove_orphan_parts()   # parts no head names (Gate A, #75)
         for key in keys:
             # the fingerprint key and the vault reference keys (vault_refs.py) are no values: a new key would unlink
             # every server
@@ -1363,8 +1675,9 @@ def wipe_everything(cfg: dict, run_dir: str | None = None) -> tuple[int, list[st
             problems.append(f"store: {type(exc).__name__}")
         try:
             keys = backend.keys() if hasattr(backend, "keys") else []
-        except (RuntimeError, OSError):
+        except (RuntimeError, OSError) as exc:
             keys = []
+            problems.append(f"store items not listed: {type(exc).__name__}")   # a value may still be there
         for key in keys:
             try:
                 backend.delete(key)

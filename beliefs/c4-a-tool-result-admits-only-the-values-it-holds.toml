@@ -1,0 +1,14 @@
+# c4-a-tool-result-admits-only-the-values-it-holds: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c4-a-tool-result-admits-only-the-values-it-holds"
+control = "C4"
+statement = "A tool result admits its session only to the stored values it holds, never to every live placeholder; the twin of M3.1 checks this over generated sequences of prompts, peer messages, tool results, forgets and uses."
+runner = ["tests/test_twin_session_rule.py::SessionRuleTwinTests::test_the_twin_and_the_hooks_agree_on_generated_sequences"]
+
+[proof]
+file = "maisecrets/tool_output.py"
+find = '''    vault.admit_many(found, session)
+    return out
+'''
+replace = '''    vault.admit_many(list(live.values()), session)
+    return out
+'''

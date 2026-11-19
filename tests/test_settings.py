@@ -485,7 +485,11 @@ class Hint(unittest.TestCase):
 
     def test_a_decision_in_a_file_that_was_ignored_still_stops_the_hint(self):
         _reset(ssh_consent=False, tips="yes")       # a wrong type elsewhere: load_config ignores the file
-        self.assertNotIn("ssh command that changes", _shown(_post("ssh web1 reboot")))
+        # an ignored file leaves the default store, the keychain: the store of the defaults is the test file here.
+        # The hook read each stored value of the index from the keychain (#78)
+        with mock.patch.dict(DEFAULT_CONFIG, TEST_CONFIG):
+            self.assertIn("the file was ignored", load_config()["config_warning"])
+            self.assertNotIn("ssh command that changes", _shown(_post("ssh web1 reboot")))
 
     def test_an_unwritable_record_gives_no_hint_and_parallel_hooks_give_it_once(self):
         with mock.patch.object(settings, "atomic_write", side_effect=OSError):

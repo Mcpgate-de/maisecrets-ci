@@ -1,0 +1,10 @@
+# c15-the-plaintext-store-needs-an-explicit-opt-in: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c15-the-plaintext-store-needs-an-explicit-opt-in"
+control = "C15"
+statement = "The backend jsonfile without allow_plaintext_store is a configuration error that names the file and changes nothing: the plaintext store is never used by a setting alone."
+runner = ["tests/test_cli_matrix.py::StateMatrixTests::test_a_configuration_error_names_the_file_and_changes_nothing"]
+
+[proof]
+file = "maisecrets/home.py"
+find = '''    if cfg.get("backend") == "jsonfile" and not cfg.get("allow_plaintext_store", False):'''
+replace = '''    if False:'''

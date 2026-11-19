@@ -446,7 +446,7 @@ class InlineNodeTests(unittest.TestCase):
 
     def test_a_word_after_a_password_label_does_not_spread(self):
         # a label rule takes any word after password:, and that word is in the code around it
-        word = "func" + "tion"
+        word = "call" + "back"    # no reserved word of a language (#29)
         obj = {"content": "db:\n  password: " + word + "\n  host: " + word + "\n", "title": "Field " + word + " check"}
         found = [(leaf.path, m.start) for leaf, m in L.findings_by_leaf(D, obj) if leaf is not None]
         self.assertTrue(found, "premise: the word after the label is a finding")

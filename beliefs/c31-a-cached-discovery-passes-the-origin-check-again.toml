@@ -1,0 +1,10 @@
+# c31-a-cached-discovery-passes-the-origin-check-again: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c31-a-cached-discovery-passes-the-origin-check-again"
+control = "C31"
+statement = "When the gateway does not answer a typed /maisecrets:sref command, the last good discovery stands in only for the same MCP URL, for at most 7 days, and only when each endpoint in it is still an https URL on that URL's origin."
+runner = ["tests/test_sref_client.py::SrefClientTests::test_a_cached_discovery_of_another_url_or_too_old_or_on_another_origin_is_not_used"]
+
+[proof]
+file = "maisecrets/sref_client.py"
+find = '''    if old and _same_origin(old[0], origin):'''
+replace = '''    if old:'''

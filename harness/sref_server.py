@@ -64,6 +64,16 @@ class SrefServer:
         self.ner_texts: list = []        # every text the name endpoint got
         self.ner_word = "Okafor"         # the endpoint finds this word as a person
         self.ner_delay = 0.0             # seconds the endpoint waits before it answers
+        # the protected resource document of /mcp: each GET takes the next delay of this list (seconds) before it
+        # answers, and each GET while `discovery_drops` is above 0 closes the connection without an answer
+        self.discovery_delays: list = []
+        self.discovery_drops = 0
+        self.discovery_gets = 0
+        # POST /register and the exchange of a code: each takes the next delay of its list (seconds) before it
+        # answers; every code exchange is counted (a code is spent at once, as on the gateway)
+        self.register_delays: list = []
+        self.code_delays: list = []
+        self.code_exchanges = 0
         # GET /sensitive-references/ner/status (ai-gateway v2.0.3913): the load, the client slot and the quota
         self.ner_status = {"service": {"workers": 4, "busy_workers": 1, "waiting_requests": 0, "in_use_share": 0.25},
                            "client_path": {"free": True, "gateway_lookups_running": False},
@@ -97,6 +107,14 @@ class SrefServer:
                         return self._send(403, {"error": "insufficient_scope"})
                     return self._send(200, server.ner_status)
                 if parts.path == "/.well-known/oauth-protected-resource/mcp":
+                    server.discovery_gets += 1
+                    if server.discovery_drops > 0:
+                        server.discovery_drops -= 1
+                        self.close_connection = True
+                        self.connection.close()
+                        return None
+                    if server.discovery_delays:
+                        time.sleep(server.discovery_delays.pop(0))
                     return self._send(200, {
                         "resource": server.url + "/mcp", "authorization_servers": [server.url],
                         "sensitive_references": {"resolve_endpoint": server.url + "/sensitive-references/resolve",
@@ -141,6 +159,8 @@ class SrefServer:
                 length = int(self.headers.get("Content-Length") or 0)
                 raw = self.rfile.read(length) if length else b""
                 if self.path == "/register":
+                    if server.register_delays:
+                        time.sleep(server.register_delays.pop(0))
                     body = json.loads(raw or b"{}")
                     uris = body.get("redirect_uris") or []
                     target = urlsplit(uris[0]) if len(uris) == 1 else None
@@ -158,7 +178,10 @@ class SrefServer:
                 if self.path == "/auth/token":
                     form = {k: v[0] for k, v in parse_qs(raw.decode()).items()}
                     if form.get("grant_type") == "authorization_code":
+                        server.code_exchanges += 1
                         got = server.codes.pop(form.get("code", ""), None)
+                        if server.code_delays:
+                            time.sleep(server.code_delays.pop(0))
                         verifier = form.get("code_verifier", "")
                         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()) \
                             .rstrip(b"=").decode()

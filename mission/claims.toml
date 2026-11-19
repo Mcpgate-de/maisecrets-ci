@@ -1,0 +1,136 @@
+# The promises README.md and PRIVACY.md make to users, each mapped to the mission that keeps it (kind "promise"),
+# to the mission whose `ends` names it (kind "limit"), or to none (kind "feature": a function, not a protection).
+# scripts/mission_coverage.py checks that each quote still stands in its source, and that every bullet of the
+# README sections in GATED_SECTIONS starts with the quote of a claim: a new or reworded promise turns the check
+# red until someone maps it here.
+
+[[claim]]
+source = "README.md"
+quote = "Keeps passwords, tokens and personal data out of Claude Code and Codex."
+kind = "promise"
+mission = "M1"
+
+[[claim]]
+source = "README.md"
+quote = "goes back in on your machine only where a command or a file needs it"
+kind = "promise"
+mission = "M3"
+
+[[claim]]
+source = "README.md"
+quote = "**Blocks or rewrites a prompt**"
+kind = "promise"
+mission = "M1"
+
+[[claim]]
+source = "README.md"
+quote = "**Masks tool output**"
+kind = "promise"
+mission = "M1"
+
+[[claim]]
+source = "README.md"
+quote = "**Puts the value back locally**"
+kind = "promise"
+mission = "M3"
+
+[[claim]]
+source = "README.md"
+quote = "**Checks a value first:**"
+kind = "promise"
+mission = "M1"
+
+[[claim]]
+source = "README.md"
+quote = "**Finds what leaked before:**"
+kind = "promise"
+mission = "M1"
+
+[[claim]]
+source = "README.md"
+quote = "**Your own rules, terms and imports:**"
+kind = "promise"
+mission = "M1"
+
+[[claim]]
+source = "README.md"
+quote = "**PDFs and images:**"
+kind = "promise"
+mission = "M1"
+
+[[claim]]
+source = "README.md"
+quote = "**Local and deterministic:**"
+kind = "promise"
+mission = "M6"
+
+[[claim]]
+source = "README.md"
+quote = "**What it reads:**"
+kind = "promise"
+mission = "M1"
+
+[[claim]]
+source = "README.md"
+quote = "**What it starts:**"
+kind = "promise"
+mission = "M6"
+
+[[claim]]
+source = "README.md"
+quote = "**What it sends:**"
+kind = "promise"
+mission = "M6"
+
+[[claim]]
+source = "README.md"
+quote = "**The demo**"
+kind = "promise"
+mission = "M6"
+
+[[claim]]
+source = "README.md"
+quote = "**Prompt suggestions in the demo:**"
+kind = "feature"
+
+[[claim]]
+source = "README.md"
+quote = "A process that runs as you, or an agent that deliberately runs code to switch maisecrets off"
+kind = "limit"
+mission = "M4"
+
+[[claim]]
+source = "README.md"
+quote = "A name without a label."
+kind = "limit"
+mission = "M1"
+
+[[claim]]
+source = "README.md"
+quote = "A value that a command changes with an encoding before it prints it."
+kind = "limit"
+mission = "M1"
+
+[[claim]]
+source = "README.md"
+quote = "A client without hooks:"
+kind = "limit"
+mission = "M1"
+
+[[claim]]
+source = "README.md"
+quote = "The output of a failed command in Claude Code"
+kind = "limit"
+mission = "M1"
+
+[[claim]]
+source = "PRIVACY.md"
+quote = "maisecrets has no service of the publisher, no telemetry and no automatic network connection."
+kind = "promise"
+mission = "M6"
+
+[[claim]]
+source = "PRIVACY.md"
+quote = "It never holds a value."
+kind = "promise"
+mission = "M4"

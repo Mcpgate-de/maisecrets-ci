@@ -1,0 +1,22 @@
+# M5: a product promise. See M1 for what checks it.
+mission = "M5"
+promise = "The person sees what left and decides, and a fault of maisecrets shows instead of switching the protection off without a word."
+actors = ["A5"]
+controls = ["C9", "C13", "C16"]
+invariants = []
+ends = "The log is on the same disk; a client that kills a hook before the guard answers."
+
+[[part]]
+says = "Each resolve leaves an audit line, and each hook run a log line, never a value."
+beliefs = ["c9-*", "run-log-*"]
+
+[[part]]
+says = "Without a usable Python, a moved plugin folder or a broken import, every hook blocks and names the cause."
+beliefs = ["c13-*"]
+
+[[part]]
+says = "A stricter policy asks the person before a value leaves."
+beliefs = ["c16-*"]
+
+[measure]
+none = "no rate: each fault either blocks and names its cause or not (C13 beliefs)"

@@ -3,10 +3,11 @@
 /maisecrets:ner gateway URL sets the source: `remote_detector` gets {"gateway": <origin>, "url": <origin>,
 "allow_network": true}. At each tool result, from_config() asks here for the gateway's name endpoint (its protected
 resource metadata names `ner_endpoint`, `ner_scope` and `ner_max_chars`; kept for an hour in ner-gateway.json, never
-a token) and for an access token of the login (sref_client, refreshed under its lock). The login must hold the name
-scope: a login asks for it only while this source is set (sref_client.discover), so the person logs in once more
-after the switch. A typed prompt goes to this source too, as to any source that is set
-(C30a: remote_layer.prompt_names); the rules' findings and the stored values go there as filler, as for a tool result.
+a token; /maisecrets:sref uses an older record of the same MCP URL when the gateway does not answer) and for an
+access token of the login (sref_client, refreshed under its lock). The login must hold the name scope: a login asks
+for it only while this source is set (sref_client.discover), so the person logs in once more after the switch. A
+typed prompt goes to this source too, as to any source that is set (C30a: remote_layer.prompt_names); the rules'
+findings and the stored values go there as filler, as for a tool result.
 """
 from __future__ import annotations
 
@@ -30,23 +31,46 @@ def origin_of(conf) -> str:
     return str(conf.get("gateway") or "") if isinstance(conf, dict) else ""
 
 
-def _cached(origin: str) -> dict | None:
+def _record(origin: str) -> dict | None:
     try:
         data = json.loads(CACHE.read_text(encoding="utf-8"))
         rec = data.get(origin) if isinstance(data, dict) else None
     except (OSError, ValueError):
         return None
-    if isinstance(rec, dict) and time.time() - float(rec.get("at") or 0) < CACHE_S and isinstance(rec.get("found"),
-                                                                                                   dict):
-        return rec["found"]
-    return None
+    return rec if isinstance(rec, dict) and isinstance(rec.get("found"), dict) else None
 
 
-def _keep(origin: str, found: dict) -> None:
+def _cached(origin: str, url: str | None = None) -> dict | None:
+    """The discovery of `origin` while it is fresh. With `url`: only a record of that MCP URL (or of an older version,
+    which kept no URL)."""
+    rec = _record(origin)
+    if rec is None or url is not None and rec.get("url") not in (None, url):
+        return None
+    try:
+        age = time.time() - float(rec.get("at") or 0)
+    except (TypeError, ValueError):
+        return None
+    return rec["found"] if age < CACHE_S else None
+
+
+def last_good(origin: str, url: str, keep: float) -> tuple | None:
+    """(found, time) of the last successful discovery of this MCP URL when it is younger than `keep` seconds, else
+    None. The caller checks the endpoints again (sref_client.discover_typed): the file is not proof."""
+    rec = _record(origin)
+    if rec is None or rec.get("url") != url:
+        return None
+    try:
+        at = float(rec.get("at"))
+    except (TypeError, ValueError):
+        return None
+    return (rec["found"], at) if 0 <= time.time() - at < keep else None
+
+
+def _keep(origin: str, found: dict, url: str | None = None) -> None:
     try:
         data = json.loads(CACHE.read_text(encoding="utf-8")) if CACHE.exists() else {}
         data = data if isinstance(data, dict) else {}
-        data[origin] = {"at": time.time(), "found": found}
+        data[origin] = {"at": time.time(), "found": found, **({"url": url} if url else {})}
         HOME.mkdir(mode=0o700, parents=True, exist_ok=True)
         CACHE.write_text(json.dumps(data), encoding="utf-8")
     except (OSError, ValueError, TypeError):
@@ -56,11 +80,11 @@ def _keep(origin: str, found: dict) -> None:
 def found_for(cfg: dict, origin: str, url: str, deadline: float) -> dict | None:
     """The discovery of the gateway at `url` (sref_client.discover), from the cache while it is fresh."""
     from . import sref_client
-    got = _cached(origin)
+    got = _cached(origin, url)
     if got is None:
         got = sref_client.discover(cfg, url, deadline)
         if got:
-            _keep(origin, got)
+            _keep(origin, got, url)
     return got
 
 
@@ -153,7 +177,14 @@ def detector(cfg: dict, conf: dict, make, deadline: float | None = None) -> tupl
         LAST["cause"] = "no_ner"
         return None, f"{origin} names no name detection (the gateway's admin switch may be off)"
     backend = make_backend(cfg)
-    rec = sref_client._load(backend, origin)
+    from .vault import is_store_timeout
+    try:
+        rec = sref_client._load(backend, origin, deadline)
+    except RuntimeError as exc:
+        if not is_store_timeout(exc):
+            raise
+        LAST["cause"] = "slow"          # as a slow service: the rules alone, the names unchecked (#76)
+        return None, "the store of this computer did not answer in time for the login"
     if not rec.get("refresh"):
         from .ner_health import ended_cause
         LAST["cause"] = ended_cause(origin)
