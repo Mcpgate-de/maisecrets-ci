@@ -134,7 +134,7 @@ claude --plugin-dir /path/to/maisecrets                 # one session, straight 
 python3 -m unittest discover -s tests -v               # about 30 seconds
 python3 harness/run.py                                 # 60 scenarios against a fake upstream (4 for the PowerShell tool of Windows)
 python3 harness/codex.py [--real]                      # 19 scenarios through codex exec (five need --real)
-python3 scripts/replay_can_fail.py                     # 414 proofs: each control's test, and each path of the seven invariants, goes red without its guard
+python3 scripts/replay_can_fail.py                     # 417 proofs: each control's test, and each path of the seven invariants, goes red without its guard
 python3 scripts/derived_counts.py                      # the numbers in the docs, measured again
 python3 scripts/lint_plugin.py                         # frontmatter YAML, manifests, hook paths (pre-commit, CI)
 scripts/install-hooks.sh                               # git pre-commit / pre-push
@@ -204,9 +204,10 @@ type). `pending/` holds a blocked prompt with placeholders for 15 minutes.
 the entry point, `claude/local-agent` for a Cowork session. The FIFOs a value
 is delivered through live in `$XDG_RUNTIME_DIR/maisecrets` or
 `maisecrets-<uid>` in the temp directory, for up to 120 s. The values live in
-the store of the platform; on macOS a value longer than about 2.8 KB (a private
-key) is passed to `security` on its command line, visible to `ps` for the
-milliseconds of the call, because the stdin form has a line limit. maisecrets itself sends nothing to a
+the store of the platform; on macOS every value goes to `security` on stdin, never
+on its command line. A value longer than one stdin line (about 2.8 KB, a private
+key) is split over several keychain items, and a value above about 160 KB is
+refused. maisecrets itself sends nothing to a
 server: no hook opens a network connection. Two exceptions to state to a data-protection
 officer: the Windows Credential Locker can roam through a Microsoft account on
 a machine that is not domain-joined (set `backend` to `encrypted-file` by

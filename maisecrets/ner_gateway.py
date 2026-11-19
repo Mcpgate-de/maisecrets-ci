@@ -153,7 +153,14 @@ def detector(cfg: dict, conf: dict, make, deadline: float | None = None) -> tupl
         LAST["cause"] = "no_ner"
         return None, f"{origin} names no name detection (the gateway's admin switch may be off)"
     backend = make_backend(cfg)
-    rec = sref_client._load(backend, origin)
+    from .vault import is_store_timeout
+    try:
+        rec = sref_client._load(backend, origin, deadline)
+    except RuntimeError as exc:
+        if not is_store_timeout(exc):
+            raise
+        LAST["cause"] = "slow"          # as a slow service: the rules alone, the names unchecked (#76)
+        return None, "the store of this computer did not answer in time for the login"
     if not rec.get("refresh"):
         from .ner_health import ended_cause
         LAST["cause"] = ended_cause(origin)

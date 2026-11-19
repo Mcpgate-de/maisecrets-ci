@@ -1,0 +1,10 @@
+# c12-a-failed-keychain-add-keeps-the-old-value: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c12-a-failed-keychain-add-keeps-the-old-value"
+control = "C12"
+statement = "`security -i` can exit 0 although its command failed, so every keychain add is read back, and the new value is proven before any part of the old one goes: a failed add never loses the stored value (Gate A of #75). Not covered: a read-back that fails after an add that took; the store then holds the old value or the new one, each whole."
+runner = ["tests/test_keychain_process.py::ExitZeroOnFailureTests::test_a_failed_part_or_head_keeps_the_old_long_value"]
+
+[proof]
+file = "maisecrets/vault.py"
+find = "                self._add(self._add_line(key, head_line, label, comment), key, head_line)\n"
+replace = "                self._add(self._add_line(key, head_line, label, comment))\n"

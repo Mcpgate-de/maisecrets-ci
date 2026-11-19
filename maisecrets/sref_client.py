@@ -191,9 +191,12 @@ def _entry(origin: str) -> str:
     return _STORE_PREFIX + hashlib.sha256(origin.encode()).hexdigest()[:16]
 
 
-def _load(backend, origin: str) -> dict:
+def _load(backend, origin: str, deadline: float | None = None) -> dict:
+    """The login record of `origin`. `deadline`: the read ends then, or the store raises its timeout (#76)."""
+    from .vault import store_deadline
     try:
-        raw = backend.get(_entry(origin))
+        with store_deadline(deadline):
+            raw = backend.get(_entry(origin))
         data = json.loads(raw) if raw else {}
     except (ValueError, TypeError, AttributeError):
         data = {}
@@ -763,7 +766,13 @@ def _access(cfg: dict, backend, found: dict, deadline: float, stale: str | None 
     without a token (Renewing), while the child keeps the new pair."""
     host = urlsplit(found["origin"]).hostname
     stale_d = _digest(stale)
-    rec = _load(backend, found["origin"])
+    from .vault import is_store_timeout
+    try:
+        rec = _load(backend, found["origin"], deadline)
+    except RuntimeError as exc:
+        if not is_store_timeout(exc):
+            raise
+        raise Refused(f"the store of this computer did not answer in time for the login at {host}; try again")
     got = _fresh(rec, stale_d)
     if got:
         if not _fresh(rec, stale_d, RENEW_AHEAD):

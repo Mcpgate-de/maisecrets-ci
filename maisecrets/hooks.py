@@ -2760,6 +2760,8 @@ def _failure(event: str, payload: dict, exc: BaseException) -> dict:
             f"no write access to {where}. Another program may hold it open (an antivirus scan, a second copy of "
             "maisecrets), or it belongs to another user. maisecrets blocks until it can write; to work without its "
             "protection meanwhile, switch its hooks off in the client's hook settings."), hint=False)
+    if vault_mod.is_store_timeout(exc):
+        return _fail_closed(event, payload, vault_mod.timeout_reason(exc))
     return _fail_closed(event, payload, f"an internal error ({type(exc).__name__}).")
 
 
@@ -2840,6 +2842,8 @@ def _post_tool_guarded(payload: dict) -> dict:
             # before the redaction, from the result as the server sent it; the result itself does not change
             _count, notice = vault_refs.note_result(noted_payload, cfg, Vault(cfg).backend)
     except Exception as exc:  # noqa: BLE001 - a token not noted stays text; the output must not be withheld for it
+        if vault_mod.is_store_timeout(exc):
+            raise                       # a store that does not answer fails the hook closed (C12)
         _debug(f"post-tool vault-refs: {type(exc).__name__}")
     try:
         # a Sensitive Reference of the gateway, noted for this session; a hint once when there is no login (sref_hooks)
@@ -2847,6 +2851,8 @@ def _post_tool_guarded(payload: dict) -> dict:
         if hint:
             notice = (notice + " " + hint) if notice else hint
     except Exception as exc:  # noqa: BLE001 - a note that fails leaves the reference as text; the output goes on
+        if vault_mod.is_store_timeout(exc):
+            raise                       # a store that does not answer fails the hook closed (C12)
         _debug(f"post-tool sref notes: {type(exc).__name__}")
     result = _post_tool_guarded_rest(payload)
     result = _selftest().after(payload, result, client_of(payload) == "codex")     # after the detection: selftest.py
@@ -3344,6 +3350,7 @@ def main(argv: list[str]) -> int:
     answered = {"v": False}
     answering = {"v": False}
     seconds = _test_watchdog_seconds(WATCHDOG_SECONDS[event])
+    vault_mod.hook_deadline(seconds)                 # every store call ends before the watchdog (#76)
 
     def answer(obj: dict, how: str) -> bool:
         """Write the one answer of this process; True when this call wrote it. Exactly one JSON object leaves the
@@ -3429,6 +3436,7 @@ def main(argv: list[str]) -> int:
         return 0
     finally:
         _disarm_alarm(alarm)
+        vault_mod.hook_deadline(None)
         # the recorder runs after the answer and never raises out of here: an exception would end the process
         # with exit 1, and a client ignores the JSON answer of a hook that exits 1
         if won:

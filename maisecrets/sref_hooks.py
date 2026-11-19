@@ -22,7 +22,10 @@ def note(payload: dict) -> str | None:
             placeholder.TRUSTED.clear()
     try:
         extra = account_notice(payload)
-    except Exception:  # noqa: BLE001 - no account line; the status itself is unchanged
+    except Exception as exc:  # noqa: BLE001 - no account line; the status itself is unchanged
+        from .vault import is_store_timeout
+        if is_store_timeout(exc):
+            raise                       # a store that does not answer fails the hook closed (C12)
         extra = None
     return " ".join(x for x in (out, extra) if x) or None
 
