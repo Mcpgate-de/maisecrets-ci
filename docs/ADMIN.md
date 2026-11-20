@@ -892,7 +892,26 @@ resolve, output that prints the value shows the reference instead.
    renewal did not finish and that you log in again. A login the gateway
    refused is named as "the gateway ended the login".
 2. A reference counts only when a tool result of a gateway that you added
-   yourself (user scope) showed it in the same session in the last 24 hours. A
+   yourself (user scope), or of a claude.ai connector, showed it in the same
+   session in the last 24 hours. A claude.ai connector has no URL in the
+   client's config, and a result's text cannot say which server spoke. So in
+   Claude Code, after a connector showed a reference, the mod asks that
+   connector's tool `sensitive_references_resource` for its gateway at the end
+   of the turn. Its answer is only a proposal (for an hour): the input box
+   gets `/maisecrets:sref login NAME` and a line that names the connector and
+   the host, and only a login you type (or press in the panel) binds the
+   connector to that gateway; the AI cannot run `/maisecrets:sref`. What stays:
+   a connector you added that is not your gateway can name your gateway's URL.
+   Log in only when the named connector is your gateway (a check by the
+   gateway itself is planned). Before that, its
+   references do not count; ask for them again after the login. A binding is
+   never re-pointed, never takes a gateway that a server of your
+   configuration or another connector holds, and never a name of your own
+   configuration (also `claude_ai_…` names); `/maisecrets:sref logout NAME`
+   undoes it. A reference that two gateways showed in a session resolves at
+   neither. The connector's name in commands is its tool-name spelling
+   without `claude_ai_` (`claude.ai Team GW` is `Team_GW`). Codex has no
+   claude.ai connectors in its hooks, so this applies to Claude Code only. A
    reference from another session, or one the AI typed itself, gets a reason
    and no value.
 3. In a Bash command the value is fetched only when the command starts and

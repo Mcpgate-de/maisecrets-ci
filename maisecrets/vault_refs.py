@@ -194,8 +194,10 @@ def _read_json(path: Path) -> dict | None:
 
 
 def user_servers(config: dict | None = None) -> dict[str, str]:
-    """name -> URL of each user-scope server (top-level `mcpServers`) with an https URL. None with an empty
-    CLAUDE_CONFIG_DIR: the client then reads `.config.json` in its own working folder, which a hook cannot know."""
+    """name -> URL of each user-scope server (top-level `mcpServers`) with an https URL, and of each claude.ai
+    connector whose gateway named its URL (connectors(); a user-scope server of the same name wins). None with an
+    empty CLAUDE_CONFIG_DIR: the client then reads `.config.json` in its own working folder, which a hook cannot
+    know."""
     if is_codex():
         from . import codex_vault
         return codex_vault.user_servers(config)
@@ -203,10 +205,174 @@ def user_servers(config: dict | None = None) -> dict[str, str]:
         return {}
     data = config if config is not None else (_read_json(claude_json()) or {})
     servers = data.get("mcpServers")
-    if not isinstance(servers, dict):
+    own = {name: spec["url"] for name, spec in servers.items()
+           if isinstance(spec, dict) and origin_of(spec.get("url"))} if isinstance(servers, dict) else {}
+    return {**(connectors() if config is None else {}), **own}
+
+
+def own_servers() -> set:
+    """The names of the user-scope servers of the client's config (no connectors): a connector never takes one."""
+    data = (_read_json(claude_json()) or {}) if os.environ.get("CLAUDE_CONFIG_DIR") != "" else {}
+    servers = data.get("mcpServers")
+    return set(servers) if isinstance(servers, dict) else set()
+
+
+def configured_names(cwd: object = None) -> set:
+    """Every MCP server name of the client's own config: user scope, local scope of each project, and the project's
+    .mcp.json in `cwd`. A server of these named like a connector ("claude_ai_X") is not one."""
+    data = (_read_json(claude_json()) or {}) if os.environ.get("CLAUDE_CONFIG_DIR") != "" else {}
+    names = set(own_servers())
+    for proj in (data.get("projects") or {}).values() if isinstance(data.get("projects"), dict) else []:
+        if isinstance(proj, dict) and isinstance(proj.get("mcpServers"), dict):
+            names |= set(proj["mcpServers"])
+    if isinstance(cwd, str) and cwd:
+        mcp = _read_json(Path(cwd) / ".mcp.json") or {}
+        if isinstance(mcp.get("mcpServers"), dict):
+            names |= set(mcp["mcpServers"])
+    # in their tool-name spelling: a server named "claude.ai Foo" in a config is spelled as a connector would be
+    return {m for m in map(mangled, names) if m}
+
+
+# claude.ai connectors (source "claudeai" in the hook). The client writes no URL of theirs into its config, and it
+# hands no plugin the `_meta` of a result (Claude Code 2.1.329: a server flag of Anthropic, off), and a result's text
+# cannot say which server spoke. So the mod asks the connector's own tool `sensitive_references_resource` for its
+# gateway. That answer is only a proposal (propose_connector): the connector is bound to the URL when the person's
+# login for it succeeds (bind_connector, from `/maisecrets:sref login NAME`, whose line names the host). A binding is
+# never re-pointed, never takes an origin that a server of the config or another binding holds, never a configured
+# name; `/maisecrets:sref logout NAME` undoes it
+CONNECTOR_TOOL = "sensitive_references_resource"
+_CONNECTOR_KEY = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+def mangled(name: object) -> str | None:
+    """A server name as Claude Code spells it in a tool name: each character outside [A-Za-z0-9_-] becomes `_`."""
+    return re.sub(r"[^A-Za-z0-9_-]", "_", name.strip()) if isinstance(name, str) and name.strip() else None
+
+
+def connector_key(name: object) -> str | None:
+    """The name a command takes for a claude.ai connector: its tool-name spelling without `claude_ai_`, the same from
+    the hook ("claude.ai Team GW") and from the tool name ("claude_ai_Team_GW"): "Team_GW". None for anything else."""
+    m = mangled(name)
+    key = m[len("claude_ai_"):] if m and m.startswith("claude_ai_") else ""
+    return key if _CONNECTOR_KEY.fullmatch(key) else None
+
+
+def _connectors_file() -> Path:
+    return HOME / "sref" / "connectors.json"
+
+
+def _connector_data() -> dict:
+    mine = (_read_json(_connectors_file()) or {}).get(profile())
+    return mine if isinstance(mine, dict) else {}
+
+
+PROPOSAL_TTL = 3600       # a proposal that no login took within an hour is gone
+
+
+def connectors(pending: bool = False) -> dict[str, str]:
+    """key -> MCP URL of each claude.ai connector bound in this profile; with `pending`, of each one proposed in the
+    last PROPOSAL_TTL and not yet bound (a typed login for it binds it)."""
+    part = _connector_data().get("pending" if pending else "bound")
+    if not isinstance(part, dict):
         return {}
-    return {name: spec["url"] for name, spec in servers.items()
-            if isinstance(spec, dict) and origin_of(spec.get("url"))}
+    now = time.time()
+    out = {}
+    for k, v in part.items():
+        url, t = (v.get("url"), v.get("t")) if isinstance(v, dict) else (v, None)
+        if pending and not (isinstance(t, (int, float)) and now - PROPOSAL_TTL < t <= now + 60):
+            continue
+        if isinstance(k, str) and _CONNECTOR_KEY.fullmatch(k) and origin_of(url):
+            out[k] = url
+    return out
+
+
+def _held_origins(skip: str) -> set:
+    """The origins that a server of the config or another bound connector holds."""
+    own = {origin_of(u) for n, u in user_servers().items() if n not in connectors()}
+    return own | {origin_of(u) for k, u in connectors().items() if k != skip}
+
+
+def _write_connectors(change) -> object:
+    path = _connectors_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _lock_for(path.parent / ".connectors.lock"):
+        data = _read_json(path) or {}
+        mine = data.get(profile())
+        mine = mine if isinstance(mine, dict) else {}
+        for part in ("bound", "pending"):
+            mine[part] = mine.get(part) if isinstance(mine.get(part), dict) else {}
+        out = change(mine)
+        data[profile()] = mine
+        atomic_write(path, json.dumps(data, indent=1))
+    return out
+
+
+def propose_connector(server: object, answer: object, cwd: object = None) -> tuple:
+    """The answer of a connector's own CONNECTOR_TOOL, kept as a proposal for its key. Returns (key, url, why): why is
+    None when the key is proposed or bound to that URL."""
+    key = connector_key(server)
+    if not key or mangled(server) != server:
+        return None, None, "not a claude.ai connector"
+    if server in configured_names(cwd) or key in own_servers():
+        return key, None, "a server of your own configuration has that name"
+    try:
+        data = json.loads(answer) if isinstance(answer, str) else None
+    except ValueError:
+        data = None
+    url = data.get("resource").strip() if isinstance(data, dict) and isinstance(data.get("resource"), str) else ""
+    if not origin_of(url):
+        return key, None, "the connector named no https URL"
+    bound = connectors().get(key)
+    if bound:
+        return key, bound, None if bound == url else "this connector is bound to another URL"
+    if origin_of(url) in _held_origins(key):
+        return key, None, "a server of your configuration or another connector holds that gateway"
+
+    def change(mine):
+        mine["pending"][key] = {"url": url, "t": time.time()}
+    _write_connectors(change)
+    return key, url, None
+
+
+def bind_connector(key: str, url: str) -> bool:
+    """The person's login for a proposed connector succeeded: bind it. False when the proposal changed or another
+    binding or server now holds the origin."""
+    if connectors(pending=True).get(key) != url or origin_of(url) in _held_origins(key):
+        return False
+
+    def change(mine):
+        mine["bound"][key] = url
+        mine["pending"].pop(key, None)
+    _write_connectors(change)
+    return True
+
+
+def forget_connector(key: str) -> bool:
+    """`/maisecrets:sref logout NAME` of a connector: its binding and its proposal go."""
+    if key not in connectors() and key not in connectors(pending=True):
+        return False
+
+    def change(mine):
+        mine["bound"].pop(key, None)
+        mine["pending"].pop(key, None)
+    _write_connectors(change)
+    return True
+
+
+def server_key(payload: dict) -> str | None:
+    """The name under which user_servers() holds the MCP server of this tool call: a user-scope server by its own
+    name, a claude.ai connector by its connector_key once bound and when no user-scope server has that name. None for
+    any other source (a project's server is never one)."""
+    server = payload.get("mcp_server") if isinstance(payload.get("mcp_server"), dict) else {}
+    name = server.get("name")
+    if server.get("source") == "user":
+        return name if isinstance(name, str) else None
+    if server.get("source") != "claudeai":
+        return None
+    key = connector_key(name)
+    cwd = payload.get("cwd")
+    return key if key and key in connectors() and key not in own_servers() \
+        and mangled(name) not in configured_names(cwd) else None
 
 
 # ------------------------------------------------------------------- the key --

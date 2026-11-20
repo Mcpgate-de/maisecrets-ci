@@ -96,13 +96,13 @@ def _login_hint(payload: dict) -> str | None:
     from . import sref_client, sref_notes
     from .hooks import client_of
     from .vault import Vault, load_config
-    server = payload.get("mcp_server") if isinstance(payload.get("mcp_server"), dict) else {}
-    if server.get("source") != "user" or not isinstance(server.get("name"), str):
+    key = sref_notes.server_key(payload)
+    if not key:
         return None
-    origin = sref_notes.origin_of(sref_notes.user_servers().get(server["name"]))
+    origin = sref_notes.origin_of(sref_notes.user_servers().get(key))
     if not origin or sref_client.logged_in(Vault(load_config()).backend, origin):
         return None
-    name = server["name"] if _SERVER_NAME_RE.fullmatch(server["name"]) else ""
+    name = key if _SERVER_NAME_RE.fullmatch(key) else ""
     if not sref_notes.first_hint(origin, payload.get("session_id"), sender=name or None):
         return None
     host = urlsplit(origin).hostname
@@ -136,6 +136,27 @@ def login_offer(session: str | None) -> str | None:
             continue
         return f"/maisecrets:sref login {name}"
     return None
+
+
+def connector_answer(session: str | None, server: str, answer: str, cwd: str | None = None) -> dict:
+    """The mod asked a claude.ai connector that showed references for its gateway (vault_refs.CONNECTOR_TOOL). Its
+    answer is kept as a proposal; the login command goes into the input box with a line that names the host, once per
+    session and gateway. The person's Enter on it binds the connector (cli sref login). Returns {"fill", "note"}."""
+    from urllib.parse import urlsplit
+
+    from . import sref_notes
+    from .vault_refs import connectors, propose_connector
+    key, url, why = propose_connector(server, answer, cwd)
+    origin = sref_notes.origin_of(url)
+    if why or not key or not origin or key in connectors() or sref_notes.offered(origin, session) or \
+            not _SERVER_NAME_RE.fullmatch(key):
+        return {"fill": None, "note": None}
+    host = urlsplit(origin).hostname
+    return {"fill": f"/maisecrets:sref login {key}",
+            "note": f"maisecrets: your claude.ai connector {key} names {host} as its gateway for Sensitive References: "
+                    "values that a command or a file of yours can use. Only if this connector is your gateway at "
+                    f"{host}, press Enter on the command in your input box: your browser opens at {host}, and you "
+                    "give your consent there. Only your login binds the connector to that gateway."}
 
 
 def login_offered(session: str | None, command: str) -> bool:

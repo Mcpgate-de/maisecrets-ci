@@ -67,6 +67,10 @@ image). Connections start only from a command you run, or go to a service you se
   sandbox proxy to the host you named, with the proxy login Claude Code sets for that
   sandbox. Before an ssh command that carries a value, a check tries a few direct
   connections that the sandbox must refuse; it sends no data.
+- In Claude Code, after a claude.ai connector of yours showed a gateway reference, the mod asks
+  that connector once per session which gateway it belongs to (its tool
+  `sensitive_references_resource`, with no argument). It sends no text of yours; the answer is a
+  proposal that only a login you type takes.
 - `/maisecrets:report` prints the issue text and a prefilled link to the configured
   `report_url`. It opens no browser and files nothing: the connection starts when you open
   the link, and you decide in GitHub's form. A prefilled GitHub link carries the issue text,

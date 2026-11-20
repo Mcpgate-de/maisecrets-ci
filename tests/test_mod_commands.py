@@ -286,6 +286,15 @@ class RunPlanTests(_Base):
         from maisecrets import events
         self.assertFalse(events.take_typed_forget(KEY, [SESSION]))
 
+    def test_a_typed_sref_login_leaves_the_note_that_lets_it_bind_a_proposed_connector(self):
+        # the mod's run (and its pane button) goes through the prompt hook with the person's origin: it notes the
+        # login, and only that note lets cli sref login bind a proposed claude.ai connector
+        from maisecrets import events
+        out = _mod("/maisecrets:sref login Team_GW")
+        self.assertEqual(out["run"]["argv"], ["sref", "--args-stdin"])
+        self.assertTrue(events.take_typed_login("Team_GW", [SESSION]))
+        self.assertFalse(events.take_typed_login("Team_GW", [SESSION]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -14,7 +14,7 @@ import time
 from . import sref_client
 from .vault import HOME, _lock_for, atomic_write
 from .vault_refs import MAX_NOTES_PER_ORIGIN, MAX_SESSIONS_PER_NOTE, NOTE_BUDGET, NOTE_TTL, _bounded, _read_json, \
-    origin_of, profile, user_servers
+    origin_of, profile, server_key, user_servers
 
 DIR = HOME / "sref"
 NOTES = DIR / "notes.json"            # profile -> origin -> "kind:id" -> {"t", "sessions": [ids], "url": MCP URL}
@@ -106,8 +106,9 @@ def displays(refs: list, session: str | None) -> dict:
 def note_result(payload: dict, deadline: float | None = None) -> int:
     """PostToolUse of an MCP tool: note each reference of the result for this session. Returns the number noted."""
     tool = str(payload.get("tool_name") or "")
-    server = payload.get("mcp_server") if isinstance(payload.get("mcp_server"), dict) else {}
-    if not tool.startswith("mcp__") or server.get("source") != "user" or not isinstance(server.get("name"), str):
+    # a server of the person's own configuration, or a claude.ai connector (vault_refs.server_key)
+    key = server_key(payload)
+    if not tool.startswith("mcp__") or not key:
         return 0
     found: set = set()
     asked: set = set()
@@ -116,7 +117,7 @@ def note_result(payload: dict, deadline: float | None = None) -> int:
     _displays(payload.get("tool_response"), shown)
     _keys(payload.get("tool_input"), asked)     # sent now: filtered below by the sent list, as later ones
     session = payload.get("session_id")
-    url = user_servers().get(server["name"])
+    url = user_servers().get(key)
     origin = origin_of(url)
     if not (found or asked) or not origin or not isinstance(session, str) or not session:
         return 0
@@ -220,12 +221,16 @@ def noted(refs: list, session: str | None) -> dict:
         return out
     for ref in refs:
         k = ref_key(ref)
+        seen = []
+        # a reference that two gateways showed this session resolves at neither: which one may resolve it is not
+        # known (review of the connector source)
         for origin, notes in mine.items():
             note = notes.get(k) if isinstance(notes, dict) and k else None
             if isinstance(note, dict) and isinstance(note.get("t"), (int, float)) and note["t"] > now - NOTE_TTL \
                     and session in (note.get("sessions") or []):
-                out[ref] = (origin, note.get("url") if isinstance(note.get("url"), str) else "")
-                break
+                seen.append((origin, note.get("url") if isinstance(note.get("url"), str) else ""))
+        if len(seen) == 1:
+            out[ref] = seen[0]
     return out
 
 

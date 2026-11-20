@@ -49,16 +49,18 @@ async function mountWhen($, query) {
 // opts: a clock the test moves, a status line per ask, the waits of $.clock.after (a recorded wait never ends)
 function engine(on, calls: any[], opened: { placed: boolean },
   opts: { clock?: { t: number }, line?: (n: number) => string, waits?: number[], delay?: (n: number) => number,
-    offer?: string | null } = {}) {
+    offer?: string | null, connector?: any, logs?: string[] } = {}) {
   let asked = 0
   on('clock.now', () => ({ value: opts.clock ? opts.clock.t : 1_000_000 }))
   on('session.id', () => ({ value: 'sess-1' }))
   on('session.cwd', () => ({ value: '/work' }))
-  on('ui.log', () => ({ value: undefined }))
+  on('ui.log', ($, e) => { opts.logs?.push(String(e.text)); return { value: undefined } })
   on('ui.invalidate', () => ({ value: undefined }))
   on('ui.open', () => ({ value: opened.placed ? { isPlaced: true } : { isPlaced: false, reason: 'no surface' } }))
   on('ui.close', () => ({ value: undefined }))
   on('clock.after', ($, e) => {
+    // a wait of 10 s or more (the connector's answer time) does not end within a test
+    if (e.ms >= 10000) return new Promise(() => {})
     if (!opts.waits) return { value: undefined }
     opts.waits.push(e.ms)
     return new Promise(() => {})
@@ -85,6 +87,7 @@ function engine(on, calls: any[], opened: { placed: boolean },
       live: true }], total: 1, offset: 0 }
     if (q.action === 'values') return answer(VALUES)
     if (q.action === 'login_offer') return answer({ fill: opts.offer ?? null })
+    if (q.action === 'connector') return answer(opts.connector ?? { fill: null, note: null })
     if (q.action === 'forget') return answer({ note: 'Forgot SECRET_c1.', rows: [], total: 0, offset: 0 })
     const NER = { source: 'off', locked: false, servers: ['team-gw'], lines: ['names: off (the rules alone)'] }
     if (q.action === 'ner') return answer(NER)
@@ -425,6 +428,41 @@ test('no login offer without a gateway reference, from a tool that is no MCP too
     await settle()
     expect(offers(calls).length).toBe(1)
     expect(filled).toEqual([])                         // an answer that is not the plain login command fills nothing
+  })
+
+test('a claude.ai connector that showed a reference is asked for its gateway by its own tool at the end of the turn',
+  async ($, on) => {
+    const calls: any[] = []
+    const asked: any[] = []
+    const logs: string[] = []
+    filled.length = 0
+    engine(on, calls, { placed: true }, { connector: { fill: '/maisecrets:sref login Team_GW',
+      note: 'maisecrets: gw.example (your claude.ai connector Team_GW) offers Sensitive References' }, logs })
+    on('prompt.read', () => ({ value: { text: '', cursor: 0 } }))
+    on('mcp.call', ($, e) => {
+      asked.push(e)
+      return { value: { content: [{ type: 'text', text: '{"resource": "https://gw.example/mcp"}' }] } }
+    })
+    on('tool.call', () => GW_RESULT)
+    on('turn.complete', ($, e) => ({ text: e.answer }))
+    // a server of the person's config: no connector question
+    await $.tool.call({ tool: 'mcp__team-gw__jira_read_actions', action: 'get' } as any)
+    await $.tool.call({ tool: 'mcp__claude_ai_Team_GW__jira_read_actions', action: 'get' } as any)
+    expect(asked.length).toBe(0)                       // nothing while the turn runs
+    await $.turn.complete({ answer: 'done', reason: 'answer' } as any)
+    await settle()
+    expect(asked.map(a => [a.server, a.tool])).toEqual([['claude_ai_Team_GW', 'sensitive_references_resource']])
+    const q = JSON.parse(offers(calls, 'connector')[0].init.stdin)
+    expect(q).toEqual({ action: 'connector', session_id: 'sess-1', server: 'claude_ai_Team_GW',
+      answer: '{"resource": "https://gw.example/mcp"}', cwd: '/work' })
+    expect(filled).toEqual(['/maisecrets:sref login Team_GW'])
+    expect(logs.some(l => l.includes('your claude.ai connector Team_GW'))).toBe(true)
+    expect(offers(calls, 'login_offered').length).toBe(1)
+    // once per session: a second turn with a reference asks the connector no more
+    await $.tool.call({ tool: 'mcp__claude_ai_Team_GW__jira_read_actions', action: 'get' } as any)
+    await $.turn.complete({ answer: 'done', reason: 'answer' } as any)
+    await settle()
+    expect(asked.length).toBe(1)
   })
 
 test('a closed panel asks nothing after a tool call', async ($, on) => {

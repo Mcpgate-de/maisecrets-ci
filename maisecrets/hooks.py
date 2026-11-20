@@ -939,8 +939,9 @@ def user_prompt(payload: dict) -> dict:
         # a subagent's prompt is no prompt of the person (as for the marker below)
         from .terms import command_answer
         return command_answer(payload, term_cmd, typed and not payload.get("agent_id"), cfg)
-    from .events import note_typed_forget
+    from .events import note_typed_forget, note_typed_login
     note_typed_forget(prompt, payload, typed)
+    note_typed_login(prompt, payload, typed)
     # /maisecrets:not-a-secret KEY (not_a_secret.py): makes detection weaker, so only the person's typed prompt counts
     nas = not_a_secret.parse(prompt)
     if nas:

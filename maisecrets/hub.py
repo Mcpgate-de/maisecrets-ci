@@ -246,6 +246,10 @@ def mod_answer(payload: dict) -> dict:
     if action == "login_offer":
         from . import sref_hooks
         return {"fill": sref_hooks.login_offer(str(payload.get("session_id") or "")) or None}
+    if action == "connector":
+        from . import sref_hooks
+        return sref_hooks.connector_answer(str(payload.get("session_id") or ""), str(payload.get("server") or ""),
+                                           str(payload.get("answer") or ""), str(payload.get("cwd") or "") or None)
     if action == "login_offered":
         from . import sref_hooks
         return {"recorded": sref_hooks.login_offered(str(payload.get("session_id") or ""),

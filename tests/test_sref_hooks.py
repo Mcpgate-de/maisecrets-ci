@@ -24,6 +24,7 @@ from maisecrets.vault import HOME, JsonFileBackend  # noqa: E402
 import _hygiene  # noqa: E402
 from _hygiene import CLAUDE, CODEX  # noqa: E402
 import test_sref_client as T  # noqa: E402
+from maisecrets.vault_refs import server_key as vault_refs_server_key  # noqa: E402
 
 BASH = shutil.which("bash")
 VALUE = "value-one@example.org"
@@ -332,6 +333,172 @@ class SrefBashTests(unittest.TestCase):
                                   "mcp_server": {"name": "g\u00e4tew\u00e4y", "source": "user"}, "tool_input": {},
                                   "tool_response": {"content": [{"type": "text", "text": "author: " + self.shown}]}})
         self.assertIsNone(sref_hooks.login_offer("s2"))          # a name the box cannot take: the hint line only
+
+    def connector_result(self, name: str = "claude.ai Team GW", session: str = "s1", source: str = "claudeai") -> dict:
+        """A result of the gateway reached through a claude.ai connector: its URL is in no config of the client."""
+        cfg = json.loads((self.profile / ".claude.json").read_text())
+        cfg["mcpServers"].pop("gw", None) if name != "claude.ai gw" else None
+        (self.profile / ".claude.json").write_text(json.dumps(cfg))
+        return hooks._post_tool_guarded({"tool_name": "mcp__claude_ai_Team_GW__gitlab_read_actions",
+                                         "session_id": session, **CLAUDE,
+                                         "mcp_server": {"name": name, "source": source}, "tool_input": {"iid": 7},
+                                         "tool_response": {"content": [{"type": "text",
+                                                                        "text": "author: " + self.shown}]}})
+
+    def answer(self, url: str = "") -> str:
+        return json.dumps({"resource": url or self.srv.url + "/mcp"})
+
+    def test_a_claude_ai_connector_is_proposed_by_its_tool_and_bound_only_by_the_login(self):
+        from maisecrets import vault_refs
+        self.connector_result()                                        # before the binding: nothing is noted
+        self.assertEqual(self.bash(f"printf %s {self.shown}")["hookSpecificOutput"]["permissionDecision"], "deny")
+        out = sref_hooks.connector_answer("s1", "claude_ai_Team_GW", self.answer())
+        self.assertEqual(out["fill"], "/maisecrets:sref login Team_GW")
+        self.assertIn("your claude.ai connector Team_GW names 127.0.0.1", out["note"])
+        self.assertEqual(vault_refs.connectors(), {})                  # a proposal only
+        self.assertEqual(vault_refs.connectors(pending=True), {"Team_GW": self.srv.url + "/mcp"})
+        self.connector_result(session="s2")                            # still not noted
+        self.assertEqual(self.bash(f"printf %s {self.shown}", session="s2")["hookSpecificOutput"]["permissionDecision"],
+                         "deny")
+        # the person's login binds it (cli sref login does both)
+        self.login()
+        self.assertTrue(vault_refs.bind_connector("Team_GW", self.srv.url + "/mcp"))
+        self.assertEqual(vault_refs.connectors(), {"Team_GW": self.srv.url + "/mcp"})
+        self.assertEqual(vault_refs.connectors(pending=True), {})
+        self.connector_result(session="s3")
+        res = self.bash(f"printf %s {self.shown}", session="s3")
+        self.assertNotEqual(res.get("hookSpecificOutput", {}).get("permissionDecision"), "deny", res)
+        self.assertEqual(sref_hooks.connector_answer("s4", "claude_ai_Team_GW", self.answer()),
+                         {"fill": None, "note": None})                 # bound: no offer
+        # logout of the connector undoes the binding
+        self.assertTrue(vault_refs.forget_connector("Team_GW"))
+        self.assertEqual(vault_refs.connectors(), {})
+
+    def test_a_proposal_is_refused_for_a_configured_name_a_held_gateway_a_bad_answer_or_another_url(self):
+        from maisecrets import vault_refs
+        # gw (a server of the config) holds the gateway's origin: no connector may propose it
+        self.assertEqual(vault_refs.propose_connector("claude_ai_Other", self.answer())[2],
+                         "a server of your configuration or another connector holds that gateway")
+        cfg = json.loads((self.profile / ".claude.json").read_text())
+        cfg["mcpServers"] = {"claude_ai_Team_GW": {"type": "http", "url": "https://mine.example/mcp"}}
+        cfg["projects"] = {"/w": {"mcpServers": {"claude_ai_Local": {"type": "http", "url": "https://l.example/mcp"}}}}
+        (self.profile / ".claude.json").write_text(json.dumps(cfg))
+        for server, answer, why in [
+                ("claude_ai_Team_GW", self.answer(), "a server of your own configuration has that name"),
+                ("claude_ai_Local", self.answer(), "a server of your own configuration has that name"),
+                ("claude_ai_X", "not json", "the connector named no https URL"),
+                ("claude_ai_X", json.dumps({"resource": "http://x.example/mcp"}), "the connector named no https URL"),
+                ("Team_GW", self.answer(), "not a claude.ai connector"),
+                ("claude.ai X", self.answer(), "not a claude.ai connector")]:
+            with self.subTest(server=server, answer=answer[:30]):
+                self.assertEqual(vault_refs.propose_connector(server, answer)[2], why)
+        self.assertEqual(vault_refs.connectors(pending=True), {})
+        proj = Path(tempfile.mkdtemp(prefix="sref-proj-"))
+        (proj / ".mcp.json").write_text(json.dumps({"mcpServers": {"claude_ai_Proj": {"url": "https://p.example"}}}))
+        self.assertEqual(vault_refs.propose_connector("claude_ai_Proj", self.answer(), str(proj))[2],
+                         "a server of your own configuration has that name")
+        # two proposals of one gateway: the first login binds, the second never
+        self.assertIsNone(vault_refs.propose_connector("claude_ai_X", self.answer())[2])
+        self.assertIsNone(vault_refs.propose_connector("claude_ai_Z", self.answer())[2])
+        self.assertTrue(vault_refs.bind_connector("X", self.srv.url + "/mcp"))
+        self.assertFalse(vault_refs.bind_connector("Z", self.srv.url + "/mcp"))
+        self.assertEqual(set(vault_refs.connectors()), {"X"})
+        self.assertEqual(vault_refs.propose_connector("claude_ai_X", json.dumps({"resource": "https://e.example/m"}))[2],
+                         "this connector is bound to another URL")
+        # a second connector cannot take the bound one's gateway
+        self.assertEqual(vault_refs.propose_connector("claude_ai_Y", self.answer())[2],
+                         "a server of your configuration or another connector holds that gateway")
+        self.assertFalse(vault_refs.bind_connector("Y", self.srv.url + "/mcp"))
+
+    def test_a_connector_with_the_name_of_a_user_server_never_takes_its_references(self):
+        # the person is logged in to gw; a claude.ai connector "gw" shows a reference: it is not noted, so it resolves
+        # nowhere (review of the connector source, HIGH-2)
+        self.login()
+        self.connector_result(name="claude.ai gw")
+        self.assertEqual(self.bash(f"printf %s {self.shown}")["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIsNone(vault_refs_server_key({"mcp_server": {"name": "claude.ai gw", "source": "claudeai"}}))
+
+    def test_a_user_server_added_later_with_the_name_of_a_bound_connector_takes_the_name_back(self):
+        from maisecrets import vault_refs
+        self.connector_result()
+        vault_refs.propose_connector("claude_ai_Team_GW", self.answer())
+        vault_refs.bind_connector("Team_GW", self.srv.url + "/mcp")
+        self.assertEqual(vault_refs_server_key({"mcp_server": {"name": "claude.ai Team GW", "source": "claudeai"}}),
+                         "Team_GW")
+        cfg = json.loads((self.profile / ".claude.json").read_text())
+        cfg["mcpServers"]["Team_GW"] = {"type": "http", "url": "https://other.example/mcp"}
+        (self.profile / ".claude.json").write_text(json.dumps(cfg))
+        self.assertIsNone(vault_refs_server_key({"mcp_server": {"name": "claude.ai Team GW", "source": "claudeai"}}))
+
+    def test_a_reference_that_two_gateways_showed_resolves_at_neither(self):
+        import time as _t
+        from maisecrets import sref_notes
+        k = sref_notes.ref_key(self.ref)
+        now = _t.time()
+        sref_notes.DIR.mkdir(parents=True, exist_ok=True)
+        one = {"https://a.example": {k: {"t": now - 60, "sessions": ["s1"], "url": "https://a.example/mcp"}}}
+        sref_notes.NOTES.write_text(json.dumps({sref_notes.profile(): one}))
+        self.assertEqual(sref_notes.noted([self.ref], "s1"), {self.ref: ("https://a.example", "https://a.example/mcp")})
+        two = {**one, "https://b.example": {k: {"t": now - 5, "sessions": ["s1"], "url": "https://b.example/mcp"}}}
+        sref_notes.NOTES.write_text(json.dumps({sref_notes.profile(): two}))
+        self.assertEqual(sref_notes.noted([self.ref], "s1"), {})
+
+    def test_only_a_login_the_person_typed_binds_a_proposed_connector(self):
+        from maisecrets import cli, events, vault_refs
+        self.connector_result()
+        vault_refs.propose_connector("claude_ai_Team_GW", self.answer())
+        self.login()                                  # the browser login itself (stands in for sref_client.login)
+        run = mock.patch.object(S, "login", lambda *a, **k: None)
+        env = mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "s1"})
+        with run, env, mock.patch.object(cli, "_ROUTE", {"v": "slash command"}), \
+                mock.patch("sys.stdout", new_callable=__import__("io").StringIO) as out:
+            self.assertEqual(cli.cmd_sref(["login", "Team_GW"]), 1)     # a command the AI ran: no typed note
+            self.assertIn("because you did not type this login", out.getvalue())
+            self.assertEqual(vault_refs.connectors(), {})
+            # the person typed it (the prompt hook notes it, also for the mod and its pane button)
+            events.note_typed_login("/maisecrets:sref login Team_GW", {"session_id": "s1"}, True)
+            self.assertEqual(cli.cmd_sref(["login", "Team_GW"]), 0, out.getvalue())
+            self.assertEqual(vault_refs.connectors(), {"Team_GW": self.srv.url + "/mcp"})
+        # a note serves once, and a subagent's or an untyped prompt makes none
+        self.assertFalse(events.take_typed_login("Team_GW", ["s1"]))
+        events.note_typed_login("/maisecrets:sref login Team_GW", {"session_id": "s1", "agent_id": "a"}, True)
+        events.note_typed_login("/maisecrets:sref login Team_GW", {"session_id": "s1"}, False)
+        self.assertFalse(events.take_typed_login("Team_GW", ["s1"]))
+
+    def test_a_proposal_expires_and_status_names_it_without_asking_its_url(self):
+        from maisecrets import cli, vault_refs
+        self.connector_result()
+        vault_refs.propose_connector("claude_ai_Team_GW", self.answer())
+        with mock.patch("sys.stdout", new_callable=__import__("io").StringIO) as out:
+            cli.cmd_sref(["status"])
+        self.assertIn("Team_GW (127.0.0.1): a claude.ai connector that names this gateway; not bound", out.getvalue())
+        self.assertNotIn("Team_GW (127.0.0.1): logged in", out.getvalue())
+        later = vault_refs.time.time() + vault_refs.PROPOSAL_TTL + 5
+        with mock.patch.object(vault_refs.time, "time", lambda: later):
+            self.assertEqual(vault_refs.connectors(pending=True), {})
+
+    def test_the_ai_cannot_run_the_sref_command(self):
+        # a login it started could bind a connector; and only the person logs in (review of the connector source)
+        head = (Path(__file__).resolve().parent.parent / "commands" / "sref.md").read_text(encoding="utf-8")
+        self.assertIn("\ndisable-model-invocation: true\n", head.split("\n---", 1)[0] + "\n")
+
+    def test_a_configured_server_named_like_a_connector_is_never_one(self):
+        from maisecrets import vault_refs
+        cfg = json.loads((self.profile / ".claude.json").read_text())
+        cfg["mcpServers"] = {"claude.ai Foo": {"type": "http", "url": "https://mine.example/mcp"}}
+        (self.profile / ".claude.json").write_text(json.dumps(cfg))
+        self.assertEqual(vault_refs.propose_connector("claude_ai_Foo", self.answer())[2],
+                         "a server of your own configuration has that name")
+        self.assertIsNone(vault_refs_server_key({"mcp_server": {"name": "claude.ai Foo", "source": "claudeai"}}))
+
+    def test_the_connector_key_is_the_same_from_its_hook_name_and_its_tool_name(self):
+        from maisecrets.vault_refs import connector_key
+        for hook, tool in (("claude.ai Team GW", "claude_ai_Team_GW"), ("claude.ai phase6-ai-gateway",
+                                                                       "claude_ai_phase6-ai-gateway")):
+            self.assertEqual(connector_key(hook), connector_key(tool))
+        self.assertEqual(connector_key("claude.ai Team GW"), "Team_GW")
+        self.assertNotEqual(connector_key("claude.ai Team-GW"), connector_key("claude.ai Team GW"))
+        self.assertIsNone(connector_key("Team GW"))         # not a claude.ai connector name
 
     def test_with_a_login_no_hint(self):
         self.login()

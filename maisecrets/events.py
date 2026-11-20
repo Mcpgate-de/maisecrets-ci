@@ -210,6 +210,31 @@ def note_typed_forget(prompt: str, payload: dict, typed: bool) -> None:
         pass
 
 
+_SREF_LOGIN_RE = re.compile(r"\A\s*/maisecrets:sref[ \t]+login[ \t]+([A-Za-z0-9_-]{1,64})\s*\Z")
+
+
+def note_typed_login(prompt: str, payload: dict, typed: bool) -> None:
+    """The person typed (or pressed the pane button for) /maisecrets:sref login NAME in this session: the command that
+    this session runs may bind a proposed claude.ai connector NAME (vault_refs.bind_connector). Never raises."""
+    m = _SREF_LOGIN_RE.match(prompt or "")
+    session = payload.get("session_id")
+    if not m or not typed or payload.get("agent_id") or not isinstance(session, str) or not session:
+        return
+    try:
+        with _notes_lock():
+            notes = _typed_notes()
+            note = notes.get(session) if isinstance(notes.get(session), dict) else {"keys": []}
+            keys = [k for k in note.get("keys", []) if isinstance(k, str)] + ["login:" + m.group(1)]
+            _keep_notes({**notes, session: {"keys": keys, "t": time.time()}})
+    except (OSError, RuntimeError):     # RuntimeError: LockTimeout
+        pass
+
+
+def take_typed_login(name: str, sessions: list) -> bool:
+    """True once for a login of NAME that the person typed in one of `sessions` (note_typed_login)."""
+    return take_typed_forget("login:" + name, sessions)
+
+
 def take_typed_forget(key: str, sessions: list) -> bool:
     """True once for a key the person typed in /maisecrets:forget within TYPED_FORGET_SECONDS in one of `sessions`
     (the session ids the client gave this command); the key leaves that note. Without a session id it is False: the

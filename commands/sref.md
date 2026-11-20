@@ -1,6 +1,7 @@
 ---
 description: "Setup: log in to the Sensitive References of your gateway"
 argument-hint: "[status | login [NAME] | logout [NAME]]"
+disable-model-invocation: true
 allowed-tools: Bash(bash "${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" sref:*), PowerShell(& "${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" sref:*)
 ---
 

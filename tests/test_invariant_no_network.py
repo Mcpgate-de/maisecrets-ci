@@ -80,14 +80,18 @@ NAMES_ONLY = {"maisecrets/incidents.py": "names subprocess.TimeoutExpired"}
 # the members of `$` the mod may use, and of globalThis; none of them reaches the network. $.process starts a program
 # (run, or spawn for a streamed answer): the mod has MOD_PROCESS_RUNS places that do (tests/mod.test.ts checks their
 # command lines), and a new one fails.
-MOD_MEMBERS = {"clock", "command", "env", "plugin", "process", "prompt", "session", "state", "store", "ui"}
+MOD_MEMBERS = {"clock", "command", "env", "mcp", "plugin", "process", "prompt", "session", "state", "store", "ui"}
 MOD_GLOBALS = {"crypto"}
 MOD_PROCESS_RUNS = 9     # each $.process.run( or $.process.spawn(; any other use of $.process is a finding
 MEMBER = r"\$\s*\??\.\s*"  # $. and $?. and $ on one line with .x on the next
 MOD_FORBIDDEN = (r"\bfetch\b", r"\bXMLHttpRequest\b", r"\bWebSocket\b", r"\bEventSource\b", r"\bnavigator\b",
                  r"\bwindow\b", r"\bimport\s*\(", r"\brequire\s*\(", r"^\s*import\s", r"\bchild_process\b",
                  r"\$\s*\??\.?\s*\[", r"(?:^|[^}\s])\s*=\s*\$\s*(?:[;\n,)]|$)", r"\bglobalThis\s*\??\.?\s*\[",
-                 r"\$\s*\??\.\s*process(?!\s*\??\.\s*(?:run|spawn)\s*\()")
+                 r"\$\s*\??\.\s*process(?!\s*\??\.\s*(?:run|spawn)\s*\()",
+                 # $.mcp only as one question to a claude.ai connector that showed a reference, with no argument: the
+                 # tool sensitive_references_resource of a service the person set up (C31, C33)
+                 r"\$\s*\??\.\s*mcp(?!\.call\(server, CONNECTOR_TOOL\))")
+MOD_MCP_CALLS = 1         # the connector question (askConnector); any other use of $.mcp is a finding
 
 
 def modules():
@@ -418,6 +422,11 @@ class ModNetworkTests(unittest.TestCase):
             self.assertGreater(len(starts), 100, "the canary reads no statement of the mod")
             lost = [i + 1 for i, w in starts if not code[i].lstrip().startswith(w.group(1))]
             self.assertEqual(lost, [], f"{path.name}: the reader swallowed code at these lines")
+        calls = sum(len(re.findall(r"\$\.mcp\.call\(server, CONNECTOR_TOOL\)", code_of(p.read_text(encoding="utf-8"))))
+                    for p in mods)
+        self.assertEqual(calls, MOD_MCP_CALLS, "a new place in the mod calls an MCP server; count it and say why (C33)")
+        self.assertIn("const CONNECTOR_TOOL = 'sensitive_references_resource'",
+                      (ROOT / "claude-mod" / "maisecrets-mod.mjs").read_text(encoding="utf-8"))
         runs = sum(mod_process_places(p.read_text(encoding="utf-8")) for p in mods)
         self.assertEqual(runs, MOD_PROCESS_RUNS, "a new place in the mod starts a program; count it, and test its "
                                                  "command line in tests/mod.test.ts")

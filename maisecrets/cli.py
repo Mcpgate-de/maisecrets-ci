@@ -1177,6 +1177,20 @@ def cmd_sref(args: list[str]) -> int:
     cfg = load_config()
     backend = make_backend(cfg)
     servers = vault_refs.user_servers()
+    # a claude.ai connector proposed by its own tool: a login the person typed for it by NAME binds it
+    # (vault_refs.bind_connector); status names a proposal without asking its URL
+    proposed = {k: u for k, u in vault_refs.connectors(pending=True).items() if k not in servers}
+    if action == "login" and name in proposed:
+        servers = {**servers, name: proposed[name]}
+    if action == "status":
+        for key, url in proposed.items():
+            print(f"{key} ({urlsplit(url).hostname}): a claude.ai connector that names this gateway; not bound. "
+                  f"Only if it is your gateway: /maisecrets:sref login {shlex.quote(key)}")
+    if action == "logout" and name is not None and vault_refs.forget_connector(name):
+        print(f"maisecrets: the claude.ai connector {name} is no longer bound to a gateway.")
+        servers = {k: v for k, v in servers.items() if k == name}
+        if not servers:
+            return 0
     if name is not None:
         servers = {k: v for k, v in servers.items() if k == name}
         if not servers:
@@ -1205,8 +1219,10 @@ def cmd_sref(args: list[str]) -> int:
     if not found:
         if failed:
             return 1
-        print("maisecrets: no MCP server of your user configuration offers Sensitive References. Next step: add your "
-              "gateway as an MCP server of your user configuration, then send /maisecrets:sref login.")
+        print("maisecrets: no MCP server of your user configuration offers Sensitive References, and no claude.ai "
+              "connector has named its gateway yet. Next step: use your gateway once in Claude Code (after a result "
+              "with a reference, a claude.ai connector is asked for its gateway at the end of the turn), or add it as "
+              "an MCP server of your user configuration; then send /maisecrets:sref login.")
         # no server with references is a state, not a failure; a login or logout cannot start without one
         return 0 if action == "status" else 1
     if action == "status":
@@ -1260,6 +1276,18 @@ def cmd_sref(args: list[str]) -> int:
     except sref_client.Refused as exc:
         print(f"maisecrets: the login to {host} did not complete: {exc}")
         return 1
+    if server in proposed:
+        from . import events
+        from .selftest import sessions_of_this_command
+        # only a login the person typed (or pressed in the panel) binds: a command the AI ran does not
+        if not (_ROUTE["v"] == "slash command" and events.take_typed_login(server, sessions_of_this_command())):
+            print(f"maisecrets: logged in to {host}; the claude.ai connector {server} was not bound, because you did "
+                  f"not type this login. To bind it, type /maisecrets:sref login {server} yourself.")
+            return 1
+        if not vault_refs.bind_connector(server, proposed[server]):
+            print(f"maisecrets: logged in to {host}, but the claude.ai connector {server} was not bound: another "
+                  "server or connector holds that gateway now, or the connector named another one.")
+            return 1
     who = sref_client.account(backend, f["origin"])
     print(f"maisecrets: logged in to {host}" + (" (the account is shown to you only)" if who else "") + ". A reference "
           "that this gateway "

@@ -1424,7 +1424,8 @@ class StatusWithoutReferencesTests(unittest.TestCase):
             with self.subTest(name):
                 code, text = self.status(answer)
                 self.assertEqual(code, 0, text)
-                self.assertIn("add your gateway as an MCP server", text)
+                self.assertIn("add it as an MCP server of your user configuration", text)
+                self.assertIn("claude.ai connector", text)
                 self.assertIn("/maisecrets:sref login", text)
 
     def test_a_server_that_does_not_answer_or_fails_the_discovery_exits_1(self):

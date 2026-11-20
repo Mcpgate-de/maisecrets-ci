@@ -860,11 +860,49 @@ const LOGIN_FILL = /^\/maisecrets:sref login [A-Za-z0-9_.-]{1,64}$/
 
 const boxEmpty = async ($) => ((await $.prompt.read())?.text ?? '').trim() === ''
 
+// claude.ai connectors that showed references this session: each is asked once, at the end of a turn, for its
+// gateway. Its answer is a proposal only: the person's login for it binds the connector (vault_refs.propose_connector)
+const connectorsDue = new Set()
+const connectorsAsked = new Set()
+const CONNECTOR_NAME = /^claude_ai_[A-Za-z0-9_-]{1,64}$/
+const CONNECTOR_TOOL = 'sensitive_references_resource'
+
+async function askConnector($, session, server) {
+  // a connector that does not answer in 10 s gives no proposal; the other offers go on
+  let timer = null
+  const late = new Promise(resolve => { try { timer = $.clock.after(10000, () => resolve(null)) } catch { resolve(null) } })
+  const r = await Promise.race([$.mcp.call(server, CONNECTOR_TOOL), late])
+  try { timer?.cancel?.() } catch { /* ended */ }
+  if (!r || r.isError) return null
+  const answer = (r.content ?? []).filter(b => b?.type === 'text').map(b => b.text).join('')
+  return askEntry($, { action: 'connector', session_id: session, server, answer: answer.slice(0, 2000),
+    cwd: await $.session.cwd() })
+}
+
 async function offerLogin($) {
   // a box with the person's text keeps the offer for the end of a later turn
   if (!(await boxEmpty($))) return
   loginOfferDue = false
   const session = await $.session.id()
+  for (const server of [...connectorsDue].slice(0, 4)) {
+    connectorsDue.delete(server)
+    if (connectorsAsked.has(server)) continue
+    connectorsAsked.add(server)
+    let c = null
+    try { c = await askConnector($, session, server) } catch { c = null }
+    const fill = typeof c?.fill === 'string' && LOGIN_FILL.test(c.fill) ? c.fill : null
+    if (!fill) continue
+    if (!(await boxEmpty($))) { connectorsAsked.delete(server); connectorsDue.add(server); loginOfferDue = true; return }
+    const done = await $.prompt.fill({ text: fill, mode: 'append' })
+    if (done?.isFilled === true) {
+      if (typeof c.note === 'string') try { $.ui.log(c.note.slice(0, 500)) } catch { /* the box says it */ }
+      await askEntry($, { action: 'login_offered', session_id: session, fill })
+      // the box holds a command now: the other offers wait for the end of a later turn
+      loginOfferDue = true
+      return
+    }
+  }
+  if (connectorsDue.size > 0) loginOfferDue = true
   const a = await askEntry($, { action: 'login_offer', session_id: session })
   const text = typeof a?.fill === 'string' && LOGIN_FILL.test(a.fill) ? a.fill : null
   if (!text) return
@@ -1550,9 +1588,12 @@ function registerSettingsPane(on) {
     try {
       // an MCP result that may hold a gateway reference: at the end of the turn Python says whether a gateway really
       // sent this session references without a login here (offerLogin). A string test only; the text is never kept
-      if (!loginOfferDue && typeof e.tool === 'string' && e.tool.startsWith('mcp__') &&
-          JSON.stringify(r ?? null).includes('\u27e6sref:')) {
+      if (typeof e.tool === 'string' && e.tool.startsWith('mcp__') && !(loginOfferDue &&
+          !e.tool.startsWith('mcp__claude_ai_')) && JSON.stringify(r ?? null).includes('\u27e6sref:')) {
         loginOfferDue = true
+        // a claude.ai connector: at the end of the turn its own tool names its gateway (askConnector)
+        const server = e.tool.slice('mcp__'.length, e.tool.lastIndexOf('__'))
+        if (e.tool.startsWith('mcp__claude_ai_') && CONNECTOR_NAME.test(server)) connectorsDue.add(server)
       }
     } catch { /* no offer */ }
     try {

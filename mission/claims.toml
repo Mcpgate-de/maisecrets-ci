@@ -196,6 +196,12 @@ mission = "M3"
 
 [[claim]]
 source = "PRIVACY.md"
+quote = "In Claude Code, after a claude.ai connector of yours showed a gateway reference"
+kind = "promise"
+mission = "M6"
+
+[[claim]]
+source = "PRIVACY.md"
 quote = "`/maisecrets:report` prints the issue text and a prefilled link"
 kind = "promise"
 mission = "M6"
