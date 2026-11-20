@@ -241,7 +241,10 @@ output holds no value, and it never goes to the AI.
   waits for your consent (up to 110 seconds), the status line says
   `maisecrets: waiting for your consent in the browser (NAME)`, and you can
   go on working. At the end a note says `maisecrets: logged in at NAME`, or
-  why the login did not complete. A second login while one waits starts
+  why the login did not complete; the note stays in the conversation. If the
+  wrong browser or profile opened, send the login again: it stops the login
+  that waits and opens the browser again. To use another browser, copy the
+  login URL from the panel into it. A logout while a login waits starts
   nothing.
 - `/maisecrets:ner` and its changes open the name-service view of the panel.
 - `/maisecrets:send` puts the cleaned prompt into the input box: press Enter

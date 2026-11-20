@@ -1234,7 +1234,7 @@ const SESSION_RE = /^[A-Za-z0-9_-]{1,128}$/
 const SERVER_RE = /^[\w.-]{1,64}$/
 // the notes of `run.sh pending` (hooks.NOTHING_WAITING, TWO_WAITING): any other output is the prompt
 const PENDING_NOTES = ['(maisecrets: no blocked prompt is waiting', '(maisecrets: blocked prompts of two sessions']
-const running = new Map()       // one run per flight at a time: flight -> the command
+const running = new Map()       // one run per flight at a time: flight -> { title, stop, replaced }
 // the output of each flight in a pane of its own: a login that waits and a list keep their own titles and lines
 const outputs = new Map()       // pane id -> { title, lines, markdown, done, note, waiting, placed }
 const FLIGHTS = ['sref-login', ...RUN_NAMES.map(n => 'cmd:' + n)]
@@ -1260,6 +1260,9 @@ function validRun(run) {
     && (run.stdin === undefined || typeof run.stdin === 'string')
 }
 
+const LOGIN_TITLE = '/maisecrets:sref login'
+const AGAIN_LINE = 'maisecrets: the earlier login was stopped, and a new one opens your browser. For another browser ' +
+  'or profile, copy the login URL from the panel into it.'
 const busyLine = (flight) => flight === 'sref-login'
   ? 'maisecrets: a login runs already; the status line shows it. Nothing else was started.'
   : 'maisecrets: this command runs already. Nothing else was started.'
@@ -1306,10 +1309,12 @@ const toast = ($, text) => { try { $.ui.toast(text.slice(0, 300), { timeoutMs: 8
 
 // hooks/dispatch.py with the words of the plan, by the Python that answered the prompt check (it can start), streamed:
 // a login prints its URL early, for the person whose browser did not open
-async function spawnOwn($, run, env, onText, ms) {
+async function spawnOwn($, run, env, onText, ms, entry) {
   const req = { argv: [...PYTHONS[lastPython], 'hooks/dispatch.py', ...run.argv], cwd: $.plugin.root, env }
   if (typeof run.stdin === 'string') req.input = run.stdin
   const stream = $.process.spawn(req)
+  // a newer login of the same flight stops this one: return() on the stream kills the child (process.spawn)
+  if (entry) entry.stop = () => { try { void Promise.resolve(stream.return(undefined)).catch(() => {}) } catch { /* ended */ } }
   let timer = null
   let timedOut = false
   try {
@@ -1330,9 +1335,12 @@ async function spawnOwn($, run, env, onText, ms) {
   }
 }
 
-function startOwn($, run, flight, title) {
+function startOwn($, run, flight, title, entry = running.get(flight)) {
   const server = typeof run.server === 'string' && SERVER_RE.test(run.server) ? run.server : null
   const id = paneOf(flight)
+  // a run that a newer one replaced leaves the flight, the status line and the pane to the newer one
+  const mine = () => !!entry && running.get(flight) === entry && !entry.replaced
+  const leave = () => { if (entry && running.get(flight) === entry) running.delete(flight) }
   void (async () => {
     let text = ''
     let logged = 0                  // the complete lines of a login already written above the prompt
@@ -1368,6 +1376,9 @@ function startOwn($, run, flight, title) {
       // forget and /maisecrets:send find their record by it)
       if (typeof sid === 'string' && SESSION_RE.test(sid)) env.CLAUDE_CODE_SESSION_ID = sid
       result = await spawnOwn($, run, env, (t) => {
+        // a piece already on its way when the stop came writes no rows: the newer run has the screen (no test can send
+        // one: the fake child ends at its next piece)
+        if (entry?.replaced) return
         text += t
         if (run.long) {
           out.lines = text.split(/\r?\n/).slice(0, OUTPUT_LINES)
@@ -1379,13 +1390,16 @@ function startOwn($, run, flight, title) {
           }
           $.ui.invalidate('ui.render')
         }
-      }, run.long ? LONG_MS : RUN_MS)
+      }, run.long ? LONG_MS : RUN_MS, entry)
     } catch {
       result = null
     } finally {
-      running.delete(flight)
-      if (run.long) try { $.ui.status(undefined) } catch { /* no status line */ }
+      if (entry) entry.ended = true
+      const replaced = !mine()
+      leave()
+      if (run.long && !replaced) try { $.ui.status(undefined) } catch { /* no status line */ }
     }
+    if (entry?.replaced) return
     const lines = text.replace(/\s+$/, '').split(/\r?\n/).slice(0, OUTPUT_LINES)
     const last = lines.filter(l => l.trim()).pop() ?? ''
     if (run.long && out?.placed === false) {
@@ -1415,13 +1429,16 @@ function startOwn($, run, flight, title) {
     out.lines = lines
     out.done = true
     if (run.long) {
-      toast($, result.code === 0 && server ? `maisecrets: logged in at ${server}` : last ||
-        `maisecrets: the login did not complete (exit ${result.code}).`)
+      const said = result.code === 0 && server ? `maisecrets: logged in at ${server}` : last ||
+        `maisecrets: the login did not complete (exit ${result.code}).`
+      toast($, said)
+      // a row in the transcript too: the person is in the browser when the login ends, and a toast goes after 8 s
+      try { $.ui.log(said.slice(0, 300)) } catch { /* the toast says it */ }
       $.ui.invalidate('ui.render')
       return
     }
     await showOutput($, id)
-  })().catch(() => { running.delete(flight) })
+  })().catch(() => { leave() })
 }
 
 const startedLine = (run, title) => run.long
@@ -1538,22 +1555,37 @@ export function register(on) {
     const runnable = RUN_ORIGINS.has(kind) && RUN_CMD.test(own)
     const ownCmd = OWN_CMD.test(own)
     if (ownCmd || runnable) {
-      // one run per flight: a second login while one waits for the browser starts nothing. Taken before the first
-      // await, so two quick prompts cannot both pass
+      // one run per flight, taken before the first await, so two quick prompts cannot both pass
       const flight = runnable ? flightOf(own) : null
-      if (flight && running.has(flight)) {
+      // a login again while one waits in the browser replaces it: the person found the wrong browser or profile and
+      // starts over (the earlier one is stopped only once the new one can start). A login that has not started yet
+      // (two quick prompts) and any other run of the flight start nothing
+      const before = flight ? running.get(flight) : undefined
+      const again = !!before && before.title === LOGIN_TITLE && titleOf(own) === LOGIN_TITLE && !!before.stop
+      if (before && !again) {
         fillSoon($, '')
         return { drop: busyLine(flight) }
       }
-      if (flight) running.set(flight, titleOf(own))
+      const entry = flight ? { title: titleOf(own), stop: null, replaced: false } : null
+      if (flight) running.set(flight, entry)
       try { ownAnswer = await askOwn($, own, kind) } catch { ownAnswer = null }
       const run = ownAnswer?.run
       if (runnable && validRun(run)) {
         fillSoon($, '')
-        startOwn($, run, flight, titleOf(own))
-        return { drop: startedLine(run, titleOf(own)) }
+        // a login that ended while this one was checked was not stopped: the plain start line then
+        const stopped = again && !before.ended
+        if (stopped) { before.replaced = true; before.stop?.() }
+        startOwn($, run, flight, titleOf(own), entry)
+        return { drop: stopped ? AGAIN_LINE : startedLine(run, titleOf(own)) }
       }
-      if (flight) running.delete(flight)
+      if (flight && running.get(flight) === entry) {
+        // the earlier login waits on, unless it ended meanwhile: then the flight is free and its status line goes
+        if (again && !before.replaced && !before.ended) running.set(flight, before)
+        else {
+          running.delete(flight)
+          if (again) try { $.ui.status(undefined) } catch { /* no status line */ }
+        }
+      }
       if (ownAnswer === null && ownCmd) return { drop: OWN_FAILED }
       if (ownAnswer !== null && typeof ownAnswer.drop === 'string') {
         fillSoon($, typeof ownAnswer.fill === 'string' ? ownAnswer.fill : '')

@@ -776,8 +776,9 @@ function runSetup(on, opts: any = {}) {
   // a wait of $.clock.after never ends here: the run's own timeout is not part of these tests
   on('clock.after', () => new Promise(() => {}))
   on('prompt.fill', ($, e) => { st.fills.push(e.text); return { isFilled: true } })
-  on('process.run', ($, e) => {
+  on('process.run', async ($, e) => {
     st.checks.push(e)
+    if (opts.before) await opts.before(st.checks.filter(c => c.argv[2] === 'mod-prompt').length, e)
     const answer = typeof opts.answer === 'function' ? opts.answer(JSON.parse(e.init.stdin), e) : opts.answer
     if (answer === null) return { value: { exitCode: 1, stderr: 'boom', stdout: '' } }
     return { value: { exitCode: 0, stderr: '', stdout: JSON.stringify({ maisecrets: e.argv[2], ...answer }) } }
@@ -787,7 +788,14 @@ function runSetup(on, opts: any = {}) {
     if (opts.spawnFails) return { deny: 'cannot start' }
     const pick = (v, d) => (typeof v === 'function' ? v(e) : v) ?? d
     for (const text of pick(opts.early, [])) yield { stream: 'stdout', text }
-    if (opts.gate) await opts.gate
+    if (opts.ticking) {
+      // a child that writes until it is released: a stop (return() on the stream) ends it at its next piece, as the
+      // engine's kill ends a real child; a wait on one promise would hold the stop until the promise settles
+      while (!opts.ticking.released) {
+        yield { stream: 'stdout', text: ' ' }
+        await new Promise(resolve => setTimeout(resolve, 5))
+      }
+    } else if (opts.gate) await opts.gate
     for (const text of pick(opts.chunks, ['Stored values: 0\n'])) yield { stream: 'stdout', text }
     st.ended += 1
     return { value: { code: opts.code ?? 0, signal: null } }
@@ -883,6 +891,59 @@ test('a start that fails reports it, clears the status line and frees the next l
   expect(st.statuses[st.statuses.length - 1]).toBeUndefined()
   await $.prompt.submit({ text: '/maisecrets:sref login team-gw', wait: false, origin: { kind: 'composer' } })
   expect(await until(() => st.spawns.length === 2)).toBe(true)
+})
+
+test('a login again while one waits in the browser stops it and starts a new one (another browser profile)',
+  async ($, on) => {
+    const ticking = { released: false }
+    const release = () => { ticking.released = true }
+    const st = runSetup(on, { answer: LOGIN, ticking, early: ['Open this URL: http://127.0.0.1:1/x\n'] })
+    await $.prompt.submit({ text: '/maisecrets:sref login team-gw', wait: false, origin: { kind: 'composer' } })
+    expect(await until(() => st.spawns.length === 1)).toBe(true)
+    await new Promise(resolve => setTimeout(resolve, 20))
+    // a logout while the login waits still starts nothing
+    const c = await $.prompt.submit({ text: '/maisecrets:sref logout team-gw', wait: false, origin: { kind: 'composer' } })
+    expect(c.drop).toBe(BUSY)
+    const r = await $.prompt.submit({ text: '/maisecrets:sref login team-gw', wait: false, origin: { kind: 'composer' } })
+    expect(r.drop).toBe('maisecrets: the earlier login was stopped, and a new one opens your browser. For another ' +
+      'browser or profile, copy the login URL from the panel into it.')
+    expect(await until(() => st.spawns.length === 2)).toBe(true)
+    await new Promise(resolve => setTimeout(resolve, 20))
+    // the stopped run leaves the status line of the new one as it is
+    expect(st.statuses[st.statuses.length - 1]).toBe('maisecrets: waiting for your consent in the browser (team-gw)')
+    release()
+    // the first one was stopped (its loop never ended), the second ends: one toast, and the status line is cleared
+    expect(await until(() => st.toasts.length > 0)).toBe(true)
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(st.ended).toBe(1)
+    expect(st.toasts).toEqual(['maisecrets: logged in at team-gw'])
+    // the end stays in the transcript: the person was in the browser when it came
+    expect(st.logs).toContain('maisecrets: logged in at team-gw')
+    expect(st.statuses[st.statuses.length - 1]).toBeUndefined()
+    expect(st.downstream).toBe(0)
+  })
+
+test('a login that ends while a second one is checked frees the flight when the second gets no run', async ($, on) => {
+  let release: () => void = () => {}
+  const gate = new Promise<void>(resolve => { release = resolve })
+  let n = 0
+  const st = runSetup(on, { gate, answer: (q, e) => {
+      if (e.argv[2] !== 'mod-prompt') return LOGIN
+      n += 1
+      return n === 1 ? LOGIN : { drop: 'usage' }
+    },
+    // the first login ends while Python checks the second prompt
+    before: async (k, e) => {
+      if (k === 2 && e.argv[2] === 'mod-prompt') { release(); await new Promise(r => setTimeout(r, 100)) }
+    } })
+  await $.prompt.submit({ text: '/maisecrets:sref login team-gw', wait: false, origin: { kind: 'composer' } })
+  expect(await until(() => st.spawns.length === 1)).toBe(true)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  await $.prompt.submit({ text: '/maisecrets:sref login team-gw', wait: false, origin: { kind: 'composer' } })
+  await new Promise(resolve => setTimeout(resolve, 50))
+  const c = await $.prompt.submit({ text: '/maisecrets:sref logout team-gw', wait: false, origin: { kind: 'composer' } })
+  expect(c.drop).not.toBe(BUSY)
+  expect(st.statuses[st.statuses.length - 1]).toBeUndefined()
 })
 
 test('a second login while one waits starts no second flow, also when both prompts come at once', async ($, on) => {

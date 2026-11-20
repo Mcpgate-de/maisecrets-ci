@@ -242,6 +242,11 @@ and OpenAI plugin directories.
   `chore(release): vX.Y.Z` with `ci.skip`, and pushes the tag `vX.Y.Z`. The tag
   pipeline validates again and mirrors. Nobody pushes a tag by hand: the
   pre-push hook refuses it.
+- **After each release, `main` goes back into `next` at once.** The release commit exists only on `main`: it
+  writes the version into the manifests and the generated section into `CHANGELOG.md`. Open a merge request
+  `chore/main-into-next-<version>` (a merge of `origin/main` into `origin/next`, no other change) and merge it before
+  the next change of `CHANGELOG.md` or a manifest reaches `next`. Why: without it, the next release merge request
+  conflicts in `CHANGELOG.md`, and a push that fixes the conflict ends its auto-merge (0.9.13 and 0.9.19, !606).
 - No changelog fragments and no build counter: the commit subjects are the changelog.
   A plugin version is read by users and by the updater, so it is real semver,
   derived from the commit types instead of claimed in a fragment.

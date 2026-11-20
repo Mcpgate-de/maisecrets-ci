@@ -160,17 +160,20 @@ def cmd_forget(args: list[str]) -> int:
         # the person typed /maisecrets:forget with this key in the session that runs this command (the prompt hook
         # noted it; the client gives the command its session id): no start notice for it
         typed = _ROUTE["v"] == "slash command" and events.take_typed_forget(key, sessions_of_this_command())
+        # a key is printed only when the index holds it: a typed key that is not stored can hold a resolved value (#82)
+        stored = key in v._index["entries"]
         status = v.forget(key, route=_ROUTE["v"], typed=typed)
         if getattr(v, "destinations_kept", False):
-            print(f"The destination record of {key} could not be deleted now; send /maisecrets:forget {key} later.")
+            print((f"The destination record of {key}" if stored else "A destination record") +
+                  " could not be deleted now; send the same /maisecrets:forget later.")
         if status == "ok":
-            print(f"Deleted {key}. A placeholder for it no longer works anywhere.")
+            print(f"Deleted {key}. A placeholder for it no longer works anywhere.")   # "ok": the index held it
         elif status == "unknown":
             # a fixed text: the given spelling is never printed (Gate A, 2026-11-17)
             print("That key is not stored (see /maisecrets:list).")
             rc = 1
         else:
-            print(f"The store refused to delete {key}; nothing was changed.")
+            print(f"The store refused to delete {key}; nothing was changed.")   # "store": the index holds it
             rc = 1
     return rc
 
@@ -747,7 +750,9 @@ def cmd_shortcut(args: list[str]) -> int:
     name = rest[0] if rest else "ms"
     if what in ("remove", "--remove"):
         removed = remove_shortcut(name)
-        print("removed: " + (", ".join(removed) if removed else "nothing (no maisecrets shortcut found)"))
+        # the kind of each file, never its path: the path holds the given name, which can hold a resolved value (#82)
+        kinds = ["the command file" if r.endswith(".md") else "the shared wrapper" for r in removed]
+        print("removed: " + (" and ".join(kinds) if kinds else "nothing (no maisecrets shortcut found)"))
         print("The session start will not install it again; type /maisecrets:shortcut to get it back.")
         return 0
     if what == "status":
@@ -767,10 +772,18 @@ def cmd_shortcut(args: list[str]) -> int:
         else:
             print("The shortcut is not installed. Install it: /maisecrets:shortcut install NAME")
         return 0
-    target, wrapper = install_shortcut(name)
+    try:
+        install_shortcut(name)
+    except OSError:
+        # the path holds the given name, which can hold a resolved value: a fixed line, never the error's path (#82)
+        print("maisecrets could not write the shortcut into the commands folder of Claude Code. Nothing was "
+              "installed.")
+        return 1
     from .vault import HOME
     (HOME / ".shortcut").write_text("installed\n", encoding="utf-8")
-    print(f"Installed /{name}. Start a new session (or /reload-plugins) to use it. ({target} -> {wrapper})")
+    # the default name only; a given name is never printed, nor a path that holds it (#82)
+    shown = "/ms" if name == "ms" else "the shortcut with the name you typed"
+    print(f"Installed {shown}. Start a new session (or /reload-plugins) to use it.")
     return 0
 
 

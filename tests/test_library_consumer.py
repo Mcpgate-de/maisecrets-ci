@@ -42,8 +42,10 @@ class LibraryConsumerTests(unittest.TestCase):
     def setUpClass(cls):
         with tempfile.TemporaryDirectory() as tmp:
             home = os.path.join(tmp, "no-such-home")
+            # Apple's /usr/bin/python3 sets sys.pycache_prefix under HOME (~/Library/Caches/com.apple.python) and
+            # looks for the .pyc of each standard module there: an explicit prefix outside HOME keeps it out (#83)
             env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": home, "PYTHONPATH": str(ROOT),
-                   "PYTHONDONTWRITEBYTECODE": "1"}
+                   "PYTHONDONTWRITEBYTECODE": "1", "PYTHONPYCACHEPREFIX": os.path.join(tmp, "pycache")}
             p = subprocess.run([sys.executable, "-s", "-c", RUNNER, str(EXAMPLE)], capture_output=True, text=True,
                                env=env, cwd=tmp, timeout=600)
             cls.home_made = os.path.exists(home)

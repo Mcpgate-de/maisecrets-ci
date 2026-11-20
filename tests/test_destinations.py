@@ -590,6 +590,14 @@ class Shown(unittest.TestCase):
         with mock.patch.object(destinations, "forget", return_value=False), mock.patch("sys.stdout") as stdout:
             cli.main(["forget", _key(ref)])
         self.assertIn("could not be deleted now", "".join(c.args[0] for c in stdout.write.call_args_list))
+        # a key that is not stored is never printed: a typed key can hold a resolved value (#82)
+        typed = "Zq8vRk3mWx7pLt5n"
+        with mock.patch.object(destinations, "forget", return_value=False), mock.patch("sys.stdout") as stdout:
+            cli.main(["forget", typed])
+        said = "".join(c.args[0] for c in stdout.write.call_args_list)
+        self.assertIn("A destination record could not be deleted now", said)
+        for i in range(len(typed) - 7):
+            self.assertNotIn(typed[i:i + 8], said)
         self.assertTrue(destinations.wipe())
         self.assertFalse(STORE.exists())
 

@@ -20,6 +20,16 @@ a to-do.
   line about it. See the threat model, "What is knowingly not defended".
 - **No hook, no protection.** Claude Chat, ChatGPT Chat, the web and the
   mobile apps run no plugin hooks. Cowork does, Claude Code does, Codex does.
+- **The note "Its hooks on session.compact, http.fetch{origin=engine} do not
+  run here" on the plugin page (`/plugin`) concerns only the demo.** Claude
+  Code shows it where an organization manages Claude Code (managed settings,
+  or a Team or Enterprise organization). maisecrets uses these two hooks only
+  in the demo mode, to keep `/compact` and the requests that Claude Code
+  makes on its own (`/rename`, `/btw`, `/recap`, the next-prompt suggestion)
+  away from the AI. Outside the demo, no protection changes. In the demo,
+  these requests can still go to the AI, with placeholders only. You cannot
+  change this yourself; an administrator can
+  ([ADMIN.md](ADMIN.md#the-demo-where-an-organization-manages-claude-code)).
 - **Text without a placeholder is text the AI knows.** maisecrets masks what
   reaches the AI through a prompt, a tool call or a tool result. It does not
   see these channels: the AI's own reply, the instruction and memory files
