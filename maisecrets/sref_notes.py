@@ -19,7 +19,9 @@ from .vault_refs import MAX_NOTES_PER_ORIGIN, MAX_SESSIONS_PER_NOTE, NOTE_BUDGET
 DIR = HOME / "sref"
 NOTES = DIR / "notes.json"            # profile -> origin -> "kind:id" -> {"t", "sessions": [ids], "url": MCP URL}
 SENT = DIR / "sent.json"              # profile -> origin -> "kind:id" -> time: references the model sent in a call
-HINTS = DIR / "hints.json"            # profile -> origin -> [session ids]: the sessions told that a login is missing
+HINTS = DIR / "hints.json"            # profile -> origin -> [session ids]: the sessions told that a login is missing;
+# and "offer:<origin>" -> [session ids] whose input box got the login command (first_offer), and
+# "sender:<origin>" -> {session id: server name} that sent the references (first_hint)
 
 
 def _lock(deadline: float | None):
@@ -156,7 +158,7 @@ def note_result(payload: dict, deadline: float | None = None) -> int:
     return len(found)
 
 
-def first_hint(origin: str, session: str | None, deadline: float | None = None) -> bool:
+def first_hint(origin: str, session: str | None, deadline: float | None = None, sender: str | None = None) -> bool:
     """Whether this session has not yet been told that this gateway offers references without a login here; records
     that it is told now. Once per session and gateway: a hint on every result would be noise."""
     if not isinstance(session, str) or not session:
@@ -169,9 +171,41 @@ def first_hint(origin: str, session: str | None, deadline: float | None = None) 
             return False
         told.append(session)
         data[profile()][origin] = told[-MAX_SESSIONS_PER_NOTE:]
+        if sender:
+            # the name of the server that sent them: the offer names it, not another name of the same origin
+            names = data[profile()].get("sender:" + origin)
+            names = {s: n for s, n in names.items() if s in told} if isinstance(names, dict) else {}
+            names[session] = sender
+            data[profile()]["sender:" + origin] = names
         DIR.mkdir(parents=True, exist_ok=True)
         atomic_write(HINTS, json.dumps(data, indent=1))
     return True
+
+
+def told(origin: str, session: str | None) -> bool:
+    """Whether this session was told (first_hint) that this gateway offers references without a login here."""
+    if not isinstance(session, str) or not session:
+        return False
+    sessions = ((_read_json(HINTS) or {}).get(profile()) or {}).get(origin)
+    return isinstance(sessions, list) and session in sessions
+
+
+def sender(origin: str, session: str | None) -> str | None:
+    """The server name that sent this session the references of this origin (first_hint), or None."""
+    names = ((_read_json(HINTS) or {}).get(profile()) or {}).get("sender:" + origin)
+    name = names.get(session) if isinstance(names, dict) and isinstance(session, str) else None
+    return name if isinstance(name, str) else None
+
+
+def offered(origin: str, session: str | None) -> bool:
+    """Whether this session's input box already got the login command of this gateway (first_offer)."""
+    return told("offer:" + origin, session)
+
+
+def first_offer(origin: str, session: str | None, deadline: float | None = None) -> bool:
+    """Records that this session's input box got the login command of this gateway; False when it had it already.
+    Once per session and gateway, as the hint."""
+    return first_hint("offer:" + origin, session, deadline)
 
 
 def noted(refs: list, session: str | None) -> dict:

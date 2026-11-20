@@ -243,6 +243,13 @@ def mod_answer(payload: dict) -> dict:
         return {"note": pane_forget_all(), **pane_values(0)}
     if action == "ner":
         return pane_ner()
+    if action == "login_offer":
+        from . import sref_hooks
+        return {"fill": sref_hooks.login_offer(str(payload.get("session_id") or "")) or None}
+    if action == "login_offered":
+        from . import sref_hooks
+        return {"recorded": sref_hooks.login_offered(str(payload.get("session_id") or ""),
+                                                     str(payload.get("fill") or ""))}
     if action == "ner_set":
         return {**pane_ner_set(str(payload.get("value") or "")), **pane_ner()}
     note = None

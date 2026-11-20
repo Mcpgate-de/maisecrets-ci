@@ -871,7 +871,12 @@ resolve, output that prints the value shows the reference instead.
 
 1. Log in once: `/maisecrets:sref login` (in Codex: `run.sh sref login` in a
    terminal). Your browser opens; you log in to the gateway and give the
-   consent there. Nothing logs in by itself. `/maisecrets:sref` shows the
+   consent there. Nothing logs in by itself. When a server of your own
+   configuration first sends this session references and this computer has
+   no login at its gateway, a line says so, once per session and gateway, with
+   the command. In Claude Code the command `/maisecrets:sref login NAME` also
+   goes into the input box at the end of the AI's turn, when the box is empty
+   (else at the end of a later turn): your Enter starts the login. `/maisecrets:sref` shows the
    state, `/maisecrets:sref logout` forgets the login. The gateway gives a
    new refresh token at each renewal and ends the login when a spent one comes
    back. When a renewal ends without a usable answer (a crash, a killed

@@ -852,6 +852,29 @@ function closePane($) {
 }
 
 // the status again, while the panel is open: now, or once the gap since the last ask has passed (one wait at a time)
+// a gateway sent references this turn and this computer has no login there: its login command goes into the input box,
+// once per session and gateway (Python decides, sref_hooks.login_offer), and only into an empty box: what the person
+// typed stays. The person's Enter starts the login; this never does. The hint line of the hook says why
+let loginOfferDue = false
+const LOGIN_FILL = /^\/maisecrets:sref login [A-Za-z0-9_.-]{1,64}$/
+
+const boxEmpty = async ($) => ((await $.prompt.read())?.text ?? '').trim() === ''
+
+async function offerLogin($) {
+  // a box with the person's text keeps the offer for the end of a later turn
+  if (!(await boxEmpty($))) return
+  loginOfferDue = false
+  const session = await $.session.id()
+  const a = await askEntry($, { action: 'login_offer', session_id: session })
+  const text = typeof a?.fill === 'string' && LOGIN_FILL.test(a.fill) ? a.fill : null
+  if (!text) return
+  // read again right before the fill; append, never replace, so a key typed in between is not lost
+  if (!(await boxEmpty($))) { loginOfferDue = true; return }
+  const done = await $.prompt.fill({ text, mode: 'append' })
+  // Python records the offer only now: a fill that did not happen leaves it for a later turn
+  if (done?.isFilled === true) await askEntry($, { action: 'login_offered', session_id: session, fill: text })
+}
+
 async function statusSoon($) {
   if (!pane.open || pane.statusDue) return
   const now = await $.clock.now()
@@ -1463,6 +1486,14 @@ function registerSettingsPane(on) {
     try { start = (await $.clock.now()) / 1000 } catch { start = null }
     const r = await next(e)
     try {
+      // an MCP result that may hold a gateway reference: at the end of the turn Python says whether a gateway really
+      // sent this session references without a login here (offerLogin). A string test only; the text is never kept
+      if (!loginOfferDue && typeof e.tool === 'string' && e.tool.startsWith('mcp__') &&
+          JSON.stringify(r ?? null).includes('\u27e6sref:')) {
+        loginOfferDue = true
+      }
+    } catch { /* no offer */ }
+    try {
       // a call another hook refused may not have reached PreToolUse: it is not kept
       if (start !== null && (!r || r.deny === undefined)) {
         // calls run in parallel: one that started earlier and ends later keeps the newer start
@@ -1475,6 +1506,8 @@ function registerSettingsPane(on) {
   on('turn.complete', async ($, e, next) => {
     const r = await next(e)
     try { void statusSoon($).catch(() => {}) } catch { /* the line stays */ }
+    // the end of the main turn only: a subagent's end comes while the turn still runs and the person may type
+    if (loginOfferDue && !e.agentId) void offerLogin($).catch(() => {})
     return r
   })
   // /maisecrets: the menu. A mod's own command, served here with no model turn (a typed /maisecrets alone is no

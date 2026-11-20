@@ -48,7 +48,8 @@ async function mountWhen($, query) {
 }
 // opts: a clock the test moves, a status line per ask, the waits of $.clock.after (a recorded wait never ends)
 function engine(on, calls: any[], opened: { placed: boolean },
-  opts: { clock?: { t: number }, line?: (n: number) => string, waits?: number[], delay?: (n: number) => number } = {}) {
+  opts: { clock?: { t: number }, line?: (n: number) => string, waits?: number[], delay?: (n: number) => number,
+    offer?: string | null } = {}) {
   let asked = 0
   on('clock.now', () => ({ value: opts.clock ? opts.clock.t : 1_000_000 }))
   on('session.id', () => ({ value: 'sess-1' }))
@@ -83,6 +84,7 @@ function engine(on, calls: any[], opened: { placed: boolean },
     const VALUES = { rows: [{ key: 'SECRET_c1', type: 'SECRET', shown: '-', age: '2h', uses: 1, expires: '22h',
       live: true }], total: 1, offset: 0 }
     if (q.action === 'values') return answer(VALUES)
+    if (q.action === 'login_offer') return answer({ fill: opts.offer ?? null })
     if (q.action === 'forget') return answer({ note: 'Forgot SECRET_c1.', rows: [], total: 0, offset: 0 })
     const NER = { source: 'off', locked: false, servers: ['team-gw'], lines: ['names: off (the rules alone)'] }
     if (q.action === 'ner') return answer(NER)
@@ -330,6 +332,100 @@ test('a tool call while the panel is open brings a new status line, at most once
   // (the wait of 60 ms is the panel's own: it asks for the keys once the dropped prompt landed)
   expect(waits.filter(ms => ms !== 60)).toEqual([2500])
 })
+
+// a gateway sent a reference and this computer has no login there: at the end of the turn the login command goes into
+// the input box, only into an empty one, and only when Python names it
+const GW_RESULT = { result: { content: [{ type: 'text', text: 'author: ⟦sref:email:abc123:ma•••@example.org⟧' }] } }
+const offers = (calls: any[], action = 'login_offer') =>
+  calls.filter(c => JSON.parse(c.init.stdin || '{}').action === action)
+
+test('a gateway reference without a login puts the login command into an empty input box at the end of the turn',
+  async ($, on) => {
+    const calls: any[] = []
+    filled.length = 0
+    let box = ''
+    engine(on, calls, { placed: true }, { offer: '/maisecrets:sref login team-gw' })
+    on('prompt.read', () => ({ value: { text: box, cursor: box.length } }))
+    on('tool.call', () => GW_RESULT)
+    on('turn.complete', ($, e) => ({ text: e.answer }))
+    await $.tool.call({ tool: 'mcp__team-gw__jira_read_actions', action: 'get' } as any)
+    expect(offers(calls).length).toBe(0)              // nothing while the turn runs
+    await $.turn.complete({ answer: 'done', reason: 'answer' } as any)
+    await settle()
+    expect(offers(calls).length).toBe(1)
+    expect(JSON.parse(offers(calls)[0].init.stdin).session_id).toBe('sess-1')
+    expect(filled).toEqual(['/maisecrets:sref login team-gw'])
+    // the fill is reported, so Python records the offer only now
+    expect(JSON.parse(offers(calls, 'login_offered')[0].init.stdin)).toEqual({ action: 'login_offered',
+      session_id: 'sess-1', fill: '/maisecrets:sref login team-gw' })
+  })
+
+test('a key typed while Python answers keeps the box as it is and the offer for a later turn', async ($, on) => {
+  const calls: any[] = []
+  filled.length = 0
+  const reads = ['', 'x', '']
+  engine(on, calls, { placed: true }, { offer: '/maisecrets:sref login team-gw' })
+  on('prompt.read', () => { const text = reads.shift() ?? ''; return { value: { text, cursor: text.length } } })
+  on('tool.call', () => GW_RESULT)
+  on('turn.complete', ($, e) => ({ text: e.answer }))
+  await $.tool.call({ tool: 'mcp__team-gw__jira_read_actions', action: 'get' } as any)
+  await $.turn.complete({ answer: 'done', reason: 'answer' } as any)
+  await settle()
+  expect(offers(calls).length).toBe(1)
+  expect(filled).toEqual([])                          // the box held a key by the time of the fill
+  expect(offers(calls, 'login_offered').length).toBe(0)
+  await $.turn.complete({ answer: 'done', reason: 'answer' } as any)
+  await settle()
+  expect(filled).toEqual(['/maisecrets:sref login team-gw'])
+})
+
+test('a box with the person\'s text keeps the login offer for the end of a later turn; a subagent\'s end never fills',
+  async ($, on) => {
+    const calls: any[] = []
+    filled.length = 0
+    let box = 'my own words'
+    engine(on, calls, { placed: true }, { offer: '/maisecrets:sref login team-gw' })
+    on('prompt.read', () => ({ value: { text: box, cursor: box.length } }))
+    on('tool.call', () => GW_RESULT)
+    on('turn.complete', ($, e) => ({ text: e.answer }))
+    await $.tool.call({ tool: 'mcp__team-gw__jira_read_actions', action: 'get' } as any)
+    await $.turn.complete({ answer: 'done', reason: 'answer' } as any)
+    await settle()
+    expect(offers(calls).length).toBe(0)               // the person's text stays, and Python is not even asked
+    expect(filled).toEqual([])
+    box = ''
+    // a subagent ends while the main turn runs: no fill then
+    await $.turn.complete({ answer: 'sub done', reason: 'answer', agentId: 'agent-1' } as any)
+    await settle()
+    expect(offers(calls).length).toBe(0)
+    // the main turn ends with an empty box: the offer kept from before fills it, with no new reference
+    await $.turn.complete({ answer: 'done', reason: 'answer' } as any)
+    await settle()
+    expect(filled).toEqual(['/maisecrets:sref login team-gw'])
+    expect(offers(calls, 'login_offered').length).toBe(1)
+  })
+
+test('no login offer without a gateway reference, from a tool that is no MCP tool, or for an answer that is no login',
+  async ($, on) => {
+    const calls: any[] = []
+    filled.length = 0
+    engine(on, calls, { placed: true }, { offer: '/maisecrets:sref login team-gw; rm -rf ~' })
+    on('prompt.read', () => ({ value: { text: '', cursor: 0 } }))
+    let mcpRef = false
+    on('tool.call', ($, e) => e.tool === 'Bash' || mcpRef ? GW_RESULT : { result: 'no reference' })
+    on('turn.complete', ($, e) => ({ text: e.answer }))
+    await $.tool.call({ tool: 'mcp__team-gw__jira_read_actions', action: 'get' } as any)
+    await $.tool.call({ tool: 'Bash', command: 'cat notes.txt' } as any)
+    await $.turn.complete({ answer: 'done', reason: 'answer' } as any)
+    await settle()
+    expect(offers(calls).length).toBe(0)
+    mcpRef = true
+    await $.tool.call({ tool: 'mcp__team-gw__jira_read_actions', action: 'get' } as any)
+    await $.turn.complete({ answer: 'done', reason: 'answer' } as any)
+    await settle()
+    expect(offers(calls).length).toBe(1)
+    expect(filled).toEqual([])                         // an answer that is not the plain login command fills nothing
+  })
 
 test('a closed panel asks nothing after a tool call', async ($, on) => {
   const calls: any[] = []

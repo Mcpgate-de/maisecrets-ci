@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / "harness"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
 
-from maisecrets import exit_wrap, hooks, sref_client as S  # noqa: E402
+from maisecrets import exit_wrap, hooks, hub, sref_client as S, sref_hooks  # noqa: E402
 from maisecrets.vault import HOME, JsonFileBackend  # noqa: E402
 import _hygiene  # noqa: E402
 from _hygiene import CLAUDE, CODEX  # noqa: E402
@@ -283,6 +283,55 @@ class SrefBashTests(unittest.TestCase):
         self.assertNotIn("offers Sensitive References", self.gateway_result("s1").get("systemMessage") or "")
         self.assertIn("offers Sensitive References", self.gateway_result("s2").get("systemMessage") or "")
         self.assertEqual(self.srv.resolved, [])          # a hint resolves nothing and opens no browser
+
+    def test_the_hint_names_the_server_and_why_the_browser_opens(self):
+        first = self.gateway_result("s1").get("systemMessage") or ""
+        self.assertIn("send /maisecrets:sref login gw once", first)
+        self.assertIn("your browser opens, and you give your consent at the gateway", first)
+
+    def test_the_login_offer_comes_once_per_session_after_the_hint_and_never_with_a_login(self):
+        self.assertIsNone(sref_hooks.login_offer("s1"))          # no reference yet: no offer
+        self.gateway_result("s1")
+        self.assertEqual(sref_hooks.login_offer("s1"), "/maisecrets:sref login gw")
+        # asking records nothing: only a fill that happened (login_offered) ends the offer
+        self.assertEqual(sref_hooks.login_offer("s1"), "/maisecrets:sref login gw")
+        self.assertEqual(hub.mod_answer({"action": "login_offered", "session_id": "s1",
+                                         "fill": "/maisecrets:sref login gw"}), {"recorded": True})
+        self.assertIsNone(sref_hooks.login_offer("s1"))          # once per session and gateway
+        self.assertFalse(sref_hooks.login_offered("s1", "/maisecrets:sref login gw; x"))
+        self.assertIsNone(sref_hooks.login_offer("s2"))          # s2 got no reference
+        self.gateway_result("s2")
+        self.login()
+        self.assertIsNone(sref_hooks.login_offer("s2"))          # logged in meanwhile
+        self.assertEqual(self.srv.resolved, [])
+        self.assertEqual(hub.mod_answer({"action": "login_offer", "session_id": "s3"}), {"fill": None})
+
+    def test_a_text_with_sref_in_it_or_a_reference_the_model_sent_gives_no_hint_and_no_offer(self):
+        out = hooks._post_tool_guarded({"tool_name": "mcp__gw__notes", "session_id": "s1", **CLAUDE,
+                                        "mcp_server": {"name": "gw", "source": "user"}, "tool_input": {},
+                                        "tool_response": {"content": [{"type": "text",
+                                                                       "text": "the docs say: use sref: links"}]}})
+        self.assertNotIn("offers Sensitive References", out.get("systemMessage") or "")
+        # the model sent the reference and the server echoed it: the gateway did not send it
+        out = hooks._post_tool_guarded({"tool_name": "mcp__gw__echo", "session_id": "s1", **CLAUDE,
+                                        "mcp_server": {"name": "gw", "source": "user"},
+                                        "tool_input": {"text": self.ref},
+                                        "tool_response": {"content": [{"type": "text", "text": self.ref}]}})
+        self.assertNotIn("offers Sensitive References", out.get("systemMessage") or "")
+        self.assertIsNone(sref_hooks.login_offer("s1"))
+
+    def test_the_offer_names_the_server_that_sent_the_references_and_only_an_ascii_name(self):
+        cfg = json.loads((self.profile / ".claude.json").read_text())
+        url = cfg["mcpServers"]["gw"]["url"]
+        cfg["mcpServers"]["aa-other"] = {"type": "http", "url": url.replace("/mcp", "/other/mcp")}
+        cfg["mcpServers"]["g\u00e4tew\u00e4y"] = {"type": "http", "url": url.replace("/mcp", "/third/mcp")}
+        (self.profile / ".claude.json").write_text(json.dumps(cfg))
+        self.gateway_result("s1")                                 # sent by gw, the same origin as aa-other
+        self.assertEqual(sref_hooks.login_offer("s1"), "/maisecrets:sref login gw")
+        hooks._post_tool_guarded({"tool_name": "mcp__g\u00e4tew\u00e4y__read", "session_id": "s2", **CLAUDE,
+                                  "mcp_server": {"name": "g\u00e4tew\u00e4y", "source": "user"}, "tool_input": {},
+                                  "tool_response": {"content": [{"type": "text", "text": "author: " + self.shown}]}})
+        self.assertIsNone(sref_hooks.login_offer("s2"))          # a name the box cannot take: the hint line only
 
     def test_with_a_login_no_hint(self):
         self.login()

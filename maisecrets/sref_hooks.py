@@ -68,7 +68,9 @@ def _note(payload: dict) -> str | None:
     if client_of(payload) == "codex":
         from . import codex_vault
         payload = {**payload, "mcp_server": codex_vault.mcp_server_of(payload) or {}}
-    sref_notes.note_result(payload)
+    # only references the gateway really sent this session: not a text with "sref:" in it, not one the model sent
+    if not sref_notes.note_result(payload):
+        return None
     return _login_hint(payload)
 
 
@@ -100,13 +102,48 @@ def _login_hint(payload: dict) -> str | None:
     origin = sref_notes.origin_of(sref_notes.user_servers().get(server["name"]))
     if not origin or sref_client.logged_in(Vault(load_config()).backend, origin):
         return None
-    if not sref_notes.first_hint(origin, payload.get("session_id")):
+    name = server["name"] if _SERVER_NAME_RE.fullmatch(server["name"]) else ""
+    if not sref_notes.first_hint(origin, payload.get("session_id"), sender=name or None):
         return None
     host = urlsplit(origin).hostname
-    command = "run.sh sref login" if client_of(payload) == "codex" else "/maisecrets:sref login"
+    command = ("run.sh sref login" if client_of(payload) == "codex" else "/maisecrets:sref login") + \
+        (" " + name if name else "")
     return (f"maisecrets: {host} offers Sensitive References: its results hold references that maisecrets can put "
-            f"into your commands as their values. {command} connects this computer once; until then a command with "
-            "such a reference is refused.")
+            f"into your commands and files as their values. To allow that, send {command} once: your browser opens, "
+            "and you give your consent at the gateway. Until then a command with such a reference is refused.")
+
+
+# a server name that may go into the input box as an argument of the login: ASCII, as the mod's LOGIN_FILL
+_SERVER_NAME_RE = _LazyRx(r"[A-Za-z0-9_.-]{1,64}")
+
+
+def login_offer(session: str | None) -> str | None:
+    """The login command for the input box (Claude Code, the mod at the end of a turn), or None: for a gateway that
+    sent this session references (_login_hint), by the name of the server that sent them, while this computer has no
+    login there and the box has not got it yet. Records nothing: the mod reports a fill (login_offered). The person's
+    Enter starts the login, never this."""
+    from . import sref_client, sref_notes
+    from .vault import Vault, load_config
+    servers = sref_notes.user_servers()
+    backend = None
+    for origin in sorted({o for o in map(sref_notes.origin_of, servers.values()) if o}):
+        # a sender is recorded only with the hint (first_hint), and only an ASCII name (_login_hint)
+        name = sref_notes.sender(origin, session)
+        if not name or sref_notes.origin_of(servers.get(name)) != origin or sref_notes.offered(origin, session):
+            continue
+        backend = backend or Vault(load_config()).backend
+        if sref_client.logged_in(backend, origin):
+            continue
+        return f"/maisecrets:sref login {name}"
+    return None
+
+
+def login_offered(session: str | None, command: str) -> bool:
+    """The mod put this login command into the input box: no second offer of that gateway in this session."""
+    from . import sref_notes
+    name = command[len("/maisecrets:sref login "):] if command.startswith("/maisecrets:sref login ") else ""
+    origin = sref_notes.origin_of(sref_notes.user_servers().get(name)) if _SERVER_NAME_RE.fullmatch(name) else None
+    return bool(origin) and sref_notes.first_offer(origin, session)
 
 
 def canonical(text: str, session: str | None, cfg: dict | None = None) -> str:
