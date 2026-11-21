@@ -439,3 +439,5 @@ serval-secret-key                           svl_secret_  (?:pk|wk|mk)_[0-9A-Za-z
 # 0.9.17, from the format watch (betterleaks cal-api-key, #491): a Cal.com API key. Cal.com writes a prefix, cal_ by
 # default and cal_live_ on its cloud (API_KEY_PREFIX), then 16 random bytes in hex (generateUniqueAPIKey).
 cal-api-key                                 cal_  (?:live_|test_)?[0-9a-f]{32}
+# 0.9.22, from the format watch (betterleaks daytona-api-key): a Daytona API key, dtn_ and 64 hex digits
+daytona-api-key                             dtn_  [0-9a-f]{64}

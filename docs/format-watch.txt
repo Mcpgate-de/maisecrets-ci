@@ -100,6 +100,8 @@ confluent-secret-key
 contentful-delivery-api-token
 couchbase-capella-api-key
 coveralls-personal-api-token
+coveralls-repo-token
+coveralls-repo-token-coveralls-yml
 crates-io-api-key
 curl-auth-header
 curl-auth-user
@@ -112,6 +114,7 @@ datadog-api-key
 datadog-application-key
 datagov-api-key
 datastax-astra-application-token
+daytona-api-key
 deepgram-api-key
 deepseek-api-key
 defined-networking-api-token
@@ -471,6 +474,7 @@ yandex-api-key
 yandex-aws-access-token
 zai-api-key
 zendesk-secret-key
+zhipu-api-key
 zoho-client-id.1
 zoho-client-secret.1
 zoho-oauth-token.1
@@ -1728,6 +1732,7 @@ azuresearchadminkey
 azuresearchquerykey
 bannerbear
 baremetrics
+baseten
 beamer
 beebole
 besnappy

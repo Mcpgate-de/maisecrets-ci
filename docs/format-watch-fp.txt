@@ -99,7 +99,9 @@ confluent-access-token	5b4c5d192291
 confluent-secret-key	2f0a04b2e6e0
 contentful-delivery-api-token	a76307d17a8f
 couchbase-capella-api-key	4c57d0f1541c
-coveralls-personal-api-token	0f70cfe6fa33
+coveralls-personal-api-token	8f658b8ab3ee
+coveralls-repo-token	bd6dcc9d770f
+coveralls-repo-token-coveralls-yml	f2c4eaaa479e
 crates-io-api-key	3e42d52c957d
 curl-auth-header	574af7e21273
 curl-auth-user	2de80d532b15
@@ -111,7 +113,8 @@ databricks-api-token	fb21e134cf8a
 datadog-api-key	5810003ed09c
 datadog-application-key	ca4ae3f7fab8
 datagov-api-key	882baa5697f3
-datastax-astra-application-token	f8bf97dc73b9
+datastax-astra-application-token	4b4ba1d24e21
+daytona-api-key	219830928e07
 deepgram-api-key	fd0906a304ac
 deepseek-api-key	fccc99a1aba3
 defined-networking-api-token	bc9a325b1dd4
@@ -218,7 +221,7 @@ huggingface-access-token	cfdce004fb9e
 huggingface-organization-api-token	3ec3591e3144
 hunter-api-key.1	f8d067760b1c
 ibm-cloud-user-api-key	4b259c562a47
-influxdb-api-token	0f2db6201e49
+influxdb-api-token	d1d049fad64a
 infomaniak-api-token	8692a9208ceb
 infracost-api-token	e7a78264b19b
 instantly-api-key.1	4de2adab7563
@@ -470,7 +473,8 @@ yandex-access-token	7949e5bbac0b
 yandex-api-key	f92b756bbfeb
 yandex-aws-access-token	aa141a6560e3
 zai-api-key	0d11a3c6b0ca
-zendesk-secret-key	35ca9e8c32c0
+zendesk-secret-key	0881f6c0348b
+zhipu-api-key	bcab78364837
 zoho-client-id.1	730a79d2c3bc
 zoho-client-secret.1	b315704f8e24
 zoho-oauth-token.1	687c512ea4c1
@@ -1728,6 +1732,7 @@ azuresearchadminkey	d08e033e34d2
 azuresearchquerykey	297802863e37
 bannerbear	28e6ea4f8ba0
 baremetrics	48cd73977780
+baseten	afdf772eed5e
 beamer	64a4fdf303ec
 beebole	231cc62daf8c
 besnappy	fb730226b7ff
@@ -2012,7 +2017,7 @@ holistic	a1949cb188ee
 honeycomb	5e3d363337ea
 host	d41a0819c800
 html2pdf	2ba668d3430b
-hubspot_apikey	3b6dfdfed443
+hubspot_apikey	6431d3610e66
 huggingface	207408ce4af7
 humanity	b2f491bb1dbc
 humioapitoken	21a47c94c335
@@ -2245,7 +2250,7 @@ postmark	7e1d908e645f
 powrbot	bbf06372fd11
 prefect	d912c8f6b1c3
 privacy	b7826f7faed4
-privatekey	eaed895bed37
+privatekey	2d34a4b8e517
 prodpad	4dd58c9b2873
 prospectcrm	2bc4343ac61f
 protocolsio	b2dd6f39f069
@@ -2306,7 +2311,7 @@ salesmate	100b7d1f7382
 sanity	ccc2342f5267
 satismeterprojectkey	f503c38923d5
 satismeterwritekey	674b863d3fbb
-saucelabs	4c3388fb8c33
+saucelabs	ec74042705f8
 scalewaykey	f8efbe0a5291
 scalr	0e7b49f72d99
 scrapeowl	355eb71b1cef
