@@ -1,0 +1,11 @@
+# c14-a-call-without-an-action-argument-gets-no-any-field-deposit: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-a-call-without-an-action-argument-gets-no-any-field-deposit"
+control = "C14"
+serves = ["M3.8"]
+statement = '''A call without an `action` argument gets no any-field deposit; no action is assumed for it.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_a_call_without_an_action_argument_is_refused"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    act = args.get("action") if isinstance(args, dict) else None'''
+replace = '''    act = args.get("action", (acts or [None])[0]) if isinstance(args, dict) else None'''

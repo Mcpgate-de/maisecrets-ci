@@ -1,0 +1,13 @@
+# c2-an-agent-result-keeps-the-clients-ids-and-masks-the-rest: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c2-an-agent-result-keeps-the-clients-ids-and-masks-the-rest"
+control = "C2"
+serves = ["M1.2"]
+statement = "The result of an Agent or Task call keeps its agent id and task id, and the name of its output file, also when a rule or the store finds them, so the pointer and the report's proof stay intact; its task text and its report are masked as before (#31)."
+runner = ["tests/test_agent_pointer.py::AgentPointerTests::test_the_agent_id_and_the_output_file_keep_their_text_and_the_task_text_is_masked"]
+
+[proof]
+file = "maisecrets/hooks.py"
+find = '''            return _keep(node, kept[at], redact)
+'''
+replace = '''            return redact(node)
+'''

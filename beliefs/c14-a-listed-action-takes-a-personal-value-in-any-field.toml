@@ -1,0 +1,11 @@
+# c14-a-listed-action-takes-a-personal-value-in-any-field: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-a-listed-action-takes-a-personal-value-in-any-field"
+control = "C14"
+serves = ["M3.8"]
+statement = '''A call whose `action` argument is a string that `actions[tool]` lists takes a personal value in any string value.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_a_personal_value_goes_into_any_string_of_a_listed_tool"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    return isinstance(acts, list) and isinstance(act, str) and act in acts'''
+replace = '''    return False'''

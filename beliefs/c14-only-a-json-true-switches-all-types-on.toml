@@ -1,0 +1,11 @@
+# c14-only-a-json-true-switches-all-types-on: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-only-a-json-true-switches-all-types-on"
+control = "C14"
+serves = ["M3.8"]
+statement = '''Only the JSON boolean true switches `all_types` on; a string "true", 1, null, false or a missing key keeps a secret strict.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_all_types_other_than_true_keeps_a_secret_strict"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''            "all_types": raw.get("all_types") is True}'''
+replace = '''            "all_types": bool(raw.get("all_types"))}'''

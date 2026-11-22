@@ -1,0 +1,11 @@
+# c2-the-folder-of-an-agent-output-file-is-masked: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c2-the-folder-of-an-agent-output-file-is-masked"
+control = "C2"
+serves = ["M1.2"]
+statement = "Of the output file of an Agent or Task result only the name, which ends with the agent's id, keeps its text; its folder is redacted as usual: a term, a stored value and hidden characters there are masked or removed (#31)."
+runner = ["tests/test_agent_pointer.py::AgentPointerTests::test_the_folder_of_the_output_file_is_masked_and_its_name_is_kept"]
+
+[proof]
+file = "maisecrets/tool_output.py"
+find = '''    return (redact(head) if head else "") + text[len(head):]'''
+replace = '''    return text'''

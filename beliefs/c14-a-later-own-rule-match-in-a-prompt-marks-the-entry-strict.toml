@@ -1,0 +1,13 @@
+# c14-a-later-own-rule-match-in-a-prompt-marks-the-entry-strict: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-a-later-own-rule-match-in-a-prompt-marks-the-entry-strict"
+control = "C14"
+serves = ["M3.8"]
+statement = '''When an own rule or an import finds a value through Vault.put after a built-in rule stored it, the entry is marked strict and goes only to a target's path.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_a_later_own_rule_match_marks_a_stored_entry_strict"]
+
+[proof]
+file = "maisecrets/vault.py"
+find = '''            e.weak = e.weak and is_weak(kind, value)   # and in every text, unless it is a default word
+            e.strict = e.strict or kind.startswith(_marks_strict())'''
+replace = '''            e.weak = e.weak and is_weak(kind, value)   # and in every text, unless it is a default word
+            pass'''

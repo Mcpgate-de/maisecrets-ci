@@ -1,0 +1,11 @@
+# c14-a-placeholder-in-an-object-key-gets-no-deposit: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-a-placeholder-in-an-object-key-gets-no-deposit"
+control = "C14"
+serves = ["M3.8"]
+statement = '''A call with a placeholder in a key of its arguments gets no deposit: a deposit takes only a string value.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_a_placeholder_in_an_object_key_is_refused"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    if _in_a_key(tool_input):'''
+replace = '''    if False:'''

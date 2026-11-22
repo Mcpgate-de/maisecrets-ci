@@ -1,0 +1,11 @@
+# c14-each-placeholder-of-a-mixed-call-passes-one-rule: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-each-placeholder-of-a-mixed-call-passes-one-rule"
+control = "C14"
+serves = ["M3.8"]
+statement = '''In a call with a target's placeholder and a personal one, each placeholder passes the target rule or the any-field rule; one that passes neither refuses the whole call.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_in_a_mixed_call_each_placeholder_passes_one_of_the_two_rules"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''        if any(_path_matches(p, segs) for t in targets for p in t["paths"]):'''
+replace = '''        if False:'''

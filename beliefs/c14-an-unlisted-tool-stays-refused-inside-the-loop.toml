@@ -1,0 +1,11 @@
+# c14-an-unlisted-tool-stays-refused-inside-the-loop: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-an-unlisted-tool-stays-refused-inside-the-loop"
+control = "C14"
+serves = ["M3.8"]
+statement = '''A placeholder outside a target's paths takes the any-field rule only on a listed tool, also when the call matches a target and passes the early check, and also with all_types.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_an_unlisted_tool_stays_refused_inside_the_loop"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''        if listed_tool and cls is not None and (every or cls in free.get("types", ())):'''
+replace = '''        if cls is not None and (every or cls in free.get("types", ())):'''

@@ -1,0 +1,11 @@
+# c14-an-own-rule-or-a-term-stays-strict-in-any-field: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-an-own-rule-or-a-term-stays-strict-in-any-field"
+control = "C14"
+serves = ["M3.8"]
+statement = '''A value that an own rule, a term or a model found stays strict: it goes only to a target's path, whatever type it carries.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_an_own_rule_or_a_term_stays_strict", "tests/test_deposit.py::AnyFieldTests::test_a_models_finding_stays_strict", "tests/test_deposit.py::AnyFieldTests::test_an_import_stays_strict"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    if str(meta.get("kind", "")).startswith(STRICT_KINDS):'''
+replace = '''    if False:'''

@@ -1,0 +1,11 @@
+# c14-an-action-outside-the-list-is-refused-before-the-deposit: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-an-action-outside-the-list-is-refused-before-the-deposit"
+control = "C14"
+serves = ["M3.8"]
+statement = '''A call whose action `actions[tool]` does not list gets no any-field deposit: maisecrets refuses it before any value leaves, with the line that this action does not take a stored value and that it was not sent.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_an_action_outside_the_list_is_refused_before_the_deposit"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    return isinstance(acts, list) and isinstance(act, str) and act in acts'''
+replace = '''    return isinstance(acts, list) and isinstance(act, str)'''

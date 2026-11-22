@@ -1,0 +1,11 @@
+# c2-a-sendmessage-result-keeps-only-its-resumed-agent-id: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c2-a-sendmessage-result-keeps-only-its-resumed-agent-id"
+control = "C2"
+serves = ["M1.2"]
+statement = "The result of a SendMessage call keeps only a top-level resumedAgentId of the client's shape; another id key in it and its message are masked as before (#31)."
+runner = ["tests/test_agent_pointer.py::AgentPointerTests::test_sendmessage_keeps_only_its_resumed_agent_id"]
+
+[proof]
+file = "maisecrets/tool_output.py"
+find = '''               "SendMessage": ("resumedAgentId",)}'''
+replace = '''               "SendMessage": ("agentId", "taskId", "resumedAgentId")}'''

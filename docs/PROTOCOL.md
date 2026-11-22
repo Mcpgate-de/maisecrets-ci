@@ -347,6 +347,30 @@ second gateway implements it, decision D12). The client side is `maisecrets/depo
 - **The metadata.** The deposit fields of `sensitive_references` are read over the direct channel and kept at most an
   hour (`sref/deposit-metadata.json` in the maisecrets home, no value). The sref login asks for `deposit_scope` when
   the gateway names usable fields; an older login is refused before any value leaves, with a hint to log in again.
+- **Any field.** The metadata can name `deposit_any_field`:
+  `{"types": [...], "tools": [...], "actions": {"<tool>": ["<action>", ...]}, "all_types": true}` (`all_types`
+  optional). A placeholder whose class is in the
+  intersection of maisecrets' own personal types (`deposit.ANY_FIELD_TYPES`: ADDRESS, BIRTH_DATE, EMAIL, IBAN, IP,
+  IPV6, NAME, PHONE, USERNAME) and the gateway's `types` may stand in any string value of a call of a tool in `tools`
+  (the name after the exact prefix of the bound connector) whose `action` argument is a string that `actions[tool]`
+  lists. Without `actions`, with `actions` that is no object, without an entry for the tool, with an entry that is
+  no list of strings, or without a string `action`, no personal value goes outside a target's paths. A listed tool
+  with an unlisted action is refused before the deposit, with the line "this action of the connector does not take
+  a stored value; it was not sent". When `all_types` is the JSON boolean true (no other value), every class passes
+  on a listed tool and action, also SECRET, CARD, ID_NUMBER and the strict cases of the next bullet; a weak entry,
+  a value that holds a gateway reference, a vault type that differs from the key, an object key, an unlisted tool or
+  action and malformed `actions` stay out. A field of a wrong shape is ignored, and the targets still apply. Each
+  placeholder of a call passes the target rule or this rule, or the call is refused. The request is unchanged.
+- **The class.** The class is the type of the vault entry. It must equal the type before the last `_c<digits>` of
+  the key (`deposit.class_of`; a type has 1 to 32 characters of A-Z, 0-9 and `_`). These stay strict: an own rule,
+  a term, an import, a model's finding, a weak entry, a value that holds a gateway reference, and an entry that an
+  own rule or an import found after a built-in rule stored it (the entry's `strict` mark; the first kind stays).
+- **Object keys.** A deposit takes only a string value. A placeholder that stands only in an object key is no
+  string value: the hook finds no placeholder, and the key reaches the connector as text, with no value. A
+  placeholder in a key next to other placeholders refuses the whole call.
+- **The gateway's own check.** The gateway also checks each action at call time (a JSON body and audited hooks only,
+  no handle in a URL field) and answers `binding_mismatch` for any other action. The client cannot see that check.
+  Its line for the model says that this action takes no stored value and that the value was not sent.
 - **The request.** `POST deposit_endpoint` with the person's sref access token, the JCS digest of the arguments as
   the model wrote them, and each value padded (section 5.1). The metadata read, a token renewal and the request
   share one deadline of 5 s. A gateway certificate whose issuer names a known interception CA stops the request

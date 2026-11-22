@@ -1,0 +1,13 @@
+# c19-the-proven-output-file-binds-the-task-id: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c19-the-proven-output-file-binds-the-task-id"
+control = "C19"
+serves = ["M1.7"]
+statement = "When a report proves itself by its output file, this session's subagents/agent-<id>.jsonl, that file binds its task id without a launch record: a stored value equal to the id does not block the report (#31)."
+runner = ["tests/test_agent_reports.py::AgentReportTests::test_a_stored_task_id_passes_when_the_proven_output_file_names_it"]
+
+[proof]
+file = "maisecrets/agent_reports.py"
+find = '''        if real != subagents + f"agent-{tid}.jsonl" and not _launched_task(transcript, tid):
+'''
+replace = '''        if not _launched_task(transcript, tid):
+'''

@@ -1,0 +1,11 @@
+# c31-a-kept-metadata-copy-with-a-widened-list-is-read-again: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c31-a-kept-metadata-copy-with-a-widened-list-is-read-again"
+control = "C31"
+serves = ["M3.8"]
+statement = '''A kept copy of the metadata whose `deposit_any_field.types` holds a type outside maisecrets' own list fails the same check as the gateway's answer and is read again over the direct channel. A widened `tools` or `actions` in a kept copy passes that check (docs/KNOWN-GAPS.md).'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_a_kept_metadata_copy_with_a_widened_list_is_read_again"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''            and fields(found.get("deposit"), origin) == found.get("deposit") and found.get("deposit"):'''
+replace = '''            and found.get("deposit"):'''

@@ -1,0 +1,11 @@
+# c14-the-gateway-cannot-widen-the-any-field-types: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-the-gateway-cannot-widen-the-any-field-types"
+control = "C14"
+serves = ["M3.8"]
+statement = '''Unless `all_types` is the boolean true, maisecrets applies the intersection of its own personal types and the gateway's types; SECRET, CARD, ID_NUMBER and an unknown type stay strict when the gateway lists them.'''
+runner = ["tests/test_deposit.py::AnyFieldShapeTests::test_the_gateway_can_narrow_the_list_and_never_widen_it", "tests/test_deposit.py::AnyFieldTests::test_secret_card_and_id_number_stay_strict_when_the_gateway_lists_them"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    return {"types": sorted(ANY_FIELD_TYPES.intersection(types)), "tools": sorted(set(tools)), "actions": actions,'''
+replace = '''    return {"types": sorted(set(types)), "tools": sorted(set(tools)), "actions": actions,'''

@@ -1,0 +1,11 @@
+# c14-all-types-keeps-the-type-check: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-all-types-keeps-the-type-check"
+control = "C14"
+serves = ["M3.8"]
+statement = '''With `all_types` true, a vault type that differs from the key's type still makes the placeholder strict, and no value leaves.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_all_types_keeps_the_type_check"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    if not isinstance(kind, str) or kind != class_of(key):'''
+replace = '''    if not isinstance(kind, str):'''

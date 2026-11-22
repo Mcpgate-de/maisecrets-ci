@@ -424,6 +424,65 @@ class AgentReportTests(unittest.TestCase):
         self.by_task_id(launched="resumedAgentId")
         self.assertEqual(self.prompt(self.resumable(self.answer)), {})
 
+    # #31: the client makes the task id. A rule or a stored value that found it there blocked the report, and Cowork
+    # shows no block, so the report was lost
+    def store(self, value: str) -> None:
+        Vault().put(value, "SECRET", "manual", session="s1")
+        hooks._live_cache.clear()
+
+    def test_a_report_whose_task_id_is_a_stored_value_passes(self):
+        sub = self.by_task_id()
+        self.store(self.TASK)
+        self.assertEqual(self.prompt(self.resumable(self.answer)), {})
+        # with a tool use id, and the output file of the tasks folder that links to the subagent's transcript
+        tasks = self.dir / "s1-tasks" / "tasks"
+        tasks.mkdir(parents=True)
+        os.symlink(sub, tasks / f"{self.TASK}.output")
+        report = self.resumable(self.answer, output=tasks / f"{self.TASK}.output").replace(
+            "</task-id>\n", f"</task-id>\n<tool-use-id>{TOOL_USE}</tool-use-id>\n", 1)
+        self.assertEqual(self.prompt(report), {})
+
+    def test_a_stored_task_id_passes_when_the_proven_output_file_names_it(self):
+        # no launch record names the id: the output file that the report proved itself by binds it
+        sub = self.by_task_id(launched="")
+        self.store(self.TASK)
+        report = self.s.notification(self.answer, output=sub).replace("<task-id>a1</task-id>",
+                                                                      f"<task-id>{self.TASK}</task-id>")
+        self.assertEqual(self.prompt(report), {})
+
+    def test_a_rule_that_finds_the_task_id_does_not_block_the_report(self):
+        # a rule of the person's own or the name service can find the id in its tag and in the output file's name
+        from types import SimpleNamespace
+        from maisecrets import agent_reports, detect
+        rule = SimpleNamespace(scan=lambda text, **kw: ["hit"] if self.TASK in text else detect.scan(text, **kw))
+        _hygiene.patch(self, agent_reports, "detect", rule)
+        self.by_task_id()
+        self.assertEqual(self.prompt(self.resumable(self.answer)), {})
+        # the control: the same rule on an id that names no subagent of this session
+        self.assertBlocked(self.prompt(self.s.notification(self.answer).replace(
+            "<task-id>a1</task-id>", f"<task-id>{self.TASK}x</task-id>")))
+
+    def test_a_stored_task_id_of_another_subagent_than_the_proven_one_is_blocked(self):
+        # the report proves itself by agent-a1.jsonl; its task id names another subagent file of this session, which
+        # this transcript never launched (Opus review of !641)
+        stored = "b9e8d7c6b5a4f3e2"
+        (self.s.output.parent / f"agent-{stored}.jsonl").write_text(self.s.output.read_text(encoding="utf-8"),
+                                                                    encoding="utf-8")
+        self.store(stored)
+        out = self.prompt(self.s.notification(self.answer).replace("<task-id>a1</task-id>",
+                                                                   f"<task-id>{stored}</task-id>"))
+        self.assertBlocked(out)
+        self.assertNotIn(stored, json.dumps(out))
+
+    def test_a_stored_value_as_a_task_id_that_names_no_subagent_is_blocked(self):
+        # the report proves itself by its tool use id and its output file, but its task id names no subagent
+        stored = "cedarmeadowblue7"
+        self.store(stored)
+        out = self.prompt(self.s.notification(self.answer).replace("<task-id>a1</task-id>",
+                                                                   f"<task-id>{stored}</task-id>"))
+        self.assertBlocked(out)
+        self.assertNotIn(stored, json.dumps(out))
+
     def test_a_tag_quoted_in_the_result_does_not_change_the_report(self):
         self.by_task_id()
         quoted = self.answer + "\n<tool-use-id>toolu_01Elsewhere</tool-use-id> <status>failed</status>"

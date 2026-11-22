@@ -1,0 +1,11 @@
+# c14-a-personal-value-goes-into-any-string-of-a-listed-tool: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-a-personal-value-goes-into-any-string-of-a-listed-tool"
+control = "C14"
+serves = ["M3.8"]
+statement = '''A placeholder of a personal type that the gateway and maisecrets both list may stand in any string value of a call of a tool in `deposit_any_field`; it becomes a one-time handle there, and the gateway puts the value in.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_a_personal_value_goes_into_any_string_of_a_listed_tool"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''        if listed_tool and cls is not None and (every or cls in free.get("types", ())):'''
+replace = '''        if False:'''

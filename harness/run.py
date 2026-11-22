@@ -176,6 +176,21 @@ SCENARIOS = {
         "expect_requests": [2, 3],
         "expect_not_in_requests": [REPORT_VALUE],
     },
+    # #31: the hook masks a value in the result of the Agent call (here the task text the result repeats), and the
+    # report must still reach the session. The client renders the pointer from the replaced result
+    "subagent_report_after_masked_pointer": {
+        "needs_notification": True,
+        "prompt": "Ask a helper in the background to check a token, then wait for its report.",
+        "allowed_tools": "Agent,Task",
+        "turns": [{"tool": "Agent", "input": {"description": "check the token", "subagent_type": "general-purpose",
+                                              "prompt": f"HELPER-TASK: check the token {REPORT_VALUE}.",
+                                              "run_in_background": True}},
+                  {"match": "HELPER-TASK", "text": f"HELPER-REPORT: the token {REPORT_VALUE} is valid."},
+                  {"match": "task-notification", "text": "done"},
+                  {"text": "waiting for the helper"}],
+        "expect_requests": [3, 4],
+        "expect_in_requests": ["<task-notification>", "HELPER-REPORT: the token", "agentId: a"],
+    },
     # the typed prompt carries a secret. Without the mod (Codex, Claude Code before 2.1.287): blocked, zero
     # requests. With the mod (claude-mod/maisecrets-mod.mjs): one request, with the placeholder and without the value
     "prompt_secret": {

@@ -1,0 +1,13 @@
+# c19-a-report-whose-task-id-a-rule-finds-passes: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c19-a-report-whose-task-id-a-rule-finds-passes"
+control = "C19"
+serves = ["M1.7"]
+statement = "The task id of a proven report, in its tag and at the end of its output file, is not read as a value outside the result when it names a subagent of this session: a rule or a stored value that found it blocked the report, and Cowork shows no block (#31)."
+runner = ["tests/test_agent_reports.py::AgentReportTests::test_a_rule_that_finds_the_task_id_does_not_block_the_report"]
+
+[proof]
+file = "maisecrets/agent_reports.py"
+find = '''    text = _without_ids("".join(rest), ids, transcript)
+'''
+replace = '''    text = "".join(rest)
+'''

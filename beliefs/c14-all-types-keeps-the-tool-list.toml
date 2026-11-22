@@ -1,0 +1,11 @@
+# c14-all-types-keeps-the-tool-list: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-all-types-keeps-the-tool-list"
+control = "C14"
+serves = ["M3.8"]
+statement = '''`all_types` does not widen the tools: a tool outside `tools` gets no any-field deposit.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_all_types_keeps_the_tool_list"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    if not places or not (targets or listed_tool):'''
+replace = '''    if not places or not (targets or listed_tool or every):'''

@@ -54,7 +54,7 @@ from .tool_output import (  # noqa: F401
     _resolved_values, _inserted_values, _exact_redact, _inside_server_values, _put_server_tokens, _raw_form, _TAGS_RE,
     _FLAG_TAGS, _VS_RE, _cjk, _selector_kept, strip_hidden, _HIDDEN_BYTES_RE, _escaped_backslash,
     _mask_hidden_in_transcript, _BINARY_READ_TYPES, _DATA_URI_RE, _IMAGE_MAGIC, _IMAGE_TRAILER, _is_image_data_uri,
-    _binary_paths,
+    _binary_paths, _kept_paths, _keep,
 )
 from .guarded_paths import (  # noqa: F401
     _is_ssh_config_path, _names_a_guarded_file, _holds_a_guarded_folder, _a_guarded_path, _identity, _abs,
@@ -2626,7 +2626,7 @@ def post_tool(payload: dict) -> dict:
     def scan_tool(s: str) -> list:
         return detect.scan(s, channel="tool", path=scan_path)
 
-    binary = _binary_paths(payload)
+    binary, kept = _binary_paths(payload), _kept_paths(payload)
     layer = _remote_layer(cfg, response, binary, strip, scan_tool, payload.get("session_id"))
     _rl.note_result(layer)
 
@@ -2693,6 +2693,8 @@ def post_tool(payload: dict) -> dict:
 
     def walk(node: Any, at: tuple = ()) -> Any:
         # keys too: a tool result's JSON can hide an instruction or a value in a key (Codex review, 2026-10-06)
+        if at in kept:
+            return _keep(node, kept[at], redact)
         if at in binary and isinstance(node, str):
             return redact_binary(node)
         if isinstance(node, str):

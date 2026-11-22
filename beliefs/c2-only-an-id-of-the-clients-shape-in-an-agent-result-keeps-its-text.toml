@@ -1,0 +1,11 @@
+# c2-only-an-id-of-the-clients-shape-in-an-agent-result-keeps-its-text: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c2-only-an-id-of-the-clients-shape-in-an-agent-result-keeps-its-text"
+control = "C2"
+serves = ["M1.2"]
+statement = "Only an id of the client's shape (6 to 64 letters, digits, dash, underscore) keeps its text, and the output file only when it is absolute and ends with that id: a value in an id field of another shape, or in the same key of another tool, is masked (#31)."
+runner = ["tests/test_agent_pointer.py::AgentPointerTests::test_a_value_in_an_id_field_of_another_shape_or_tool_is_still_masked"]
+
+[proof]
+file = "maisecrets/tool_output.py"
+find = '''isinstance(resp.get(k), str) and _CLIENT_ID_RE.fullmatch(resp[k])]'''
+replace = '''isinstance(resp.get(k), str)]'''

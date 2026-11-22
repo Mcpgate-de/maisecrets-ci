@@ -1,0 +1,11 @@
+# c16-auto-mode-asks-for-a-deposit-call: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c16-auto-mode-asks-for-a-deposit-call"
+control = "C16"
+serves = ["M5.3"]
+statement = '''In Claude Code's auto mode a claude.ai connector's call that got a deposit asks the person, with the handles in the input; outside auto mode with rehydration automatic it carries no decision of maisecrets.'''
+runner = ["tests/test_deposit.py::DepositHookTests::test_in_auto_mode_the_person_is_asked_for_a_deposit_call"]
+
+[proof]
+file = "maisecrets/hooks.py"
+find = '''    if decision in ("defer", "allow") and rehydration.auto_mode_asks(client_of(payload), path, payload):'''
+replace = '''    if False:'''

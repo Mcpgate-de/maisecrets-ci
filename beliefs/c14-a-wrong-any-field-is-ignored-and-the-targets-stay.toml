@@ -1,0 +1,11 @@
+# c14-a-wrong-any-field-is-ignored-and-the-targets-stay: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-a-wrong-any-field-is-ignored-and-the-targets-stay"
+control = "C14"
+serves = ["M3.8"]
+statement = '''A `deposit_any_field` of a wrong shape is ignored as a whole; the deposit targets still apply, and an absent field keeps the strict rule.'''
+runner = ["tests/test_deposit.py::AnyFieldShapeTests::test_a_wrong_any_field_is_ignored_and_the_targets_stay"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    if not isinstance(types, list) or not isinstance(tools, list) or len(types) > 64 or len(tools) > MAX_TARGETS:'''
+replace = '''    if False:'''

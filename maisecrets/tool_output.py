@@ -656,3 +656,36 @@ def _binary_paths(payload: dict) -> set:
     if tool == "Bash" and resp.get("isImage") is True and _is_image_data_uri(resp.get("stdout")):
         return {("stdout",)}
     return set()
+
+
+# #31: the ids and the output file that Claude Code writes into the result of an Agent, Task or SendMessage call. The
+# client renders the pointer ("agentId: …", "output_file: …") from the result the hook returns, and keeps that result
+# in the transcript: a placeholder there broke SendMessage to the agent and the proof of its report by task id (C19)
+_CLIENT_IDS = {"Agent": ("agentId", "taskId", "resumedAgentId"), "Task": ("agentId", "taskId", "resumedAgentId"),
+               "SendMessage": ("resumedAgentId",)}
+_CLIENT_ID_RE = _LazyRx(r"[A-Za-z0-9][A-Za-z0-9_-]{5,63}")
+
+
+def _kept_paths(payload: dict) -> dict:
+    """The places in the result of an Agent, Task or SendMessage call whose end keeps its text, with the number of
+    characters kept: a top-level id of the client's shape whole, and of an absolute output file of an Agent or Task call
+    only its name when that name ends with such an id; its folder is masked as usual. Every other field, the report too,
+    is masked as before."""
+    resp = payload.get("tool_response")
+    keys = _CLIENT_IDS.get(payload.get("tool_name"), ())
+    if not keys or not isinstance(resp, dict):
+        return {}
+    ids = [k for k in keys if isinstance(resp.get(k), str) and _CLIENT_ID_RE.fullmatch(resp[k])]
+    out = {(k,): len(resp[k]) for k in ids}
+    path = resp.get("outputFile")
+    name = os.path.basename(path) if isinstance(path, str) else ""
+    if ids and "agentId" in keys and os.path.isabs(path or "") and name in {
+            n for k in ids for n in (f"{resp[k]}.output", f"agent-{resp[k]}.jsonl")}:
+        out[("outputFile",)] = len(name)
+    return out
+
+
+def _keep(text: str, n: int, redact) -> str:
+    """`text` with its last `n` characters as they are and the part before them redacted (_kept_paths)."""
+    head = text[: len(text) - n]
+    return (redact(head) if head else "") + text[len(head):]

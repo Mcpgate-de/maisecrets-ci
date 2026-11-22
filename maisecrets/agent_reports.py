@@ -327,13 +327,14 @@ def _report_rest(payload: dict, prompt: str) -> str | None:
     # only a result is the subagent's text, and only the command in the summary is the model's: a value in another
     # field (a real report pasted again, with a value added to its summary) was typed by a person and must be
     # blocked (review, 2026-09-29)
-    rest, pos = [], 0
+    rest, pos, ids = [], 0, []
     for m in blocks:
         body = m.group("body")
         if _one_report_proves_itself(body, transcript):
             a, b = _result_span(body)
             # the header of a flagged report is Claude Code's text, not the subagent's: both scans read it
             a += _header_end(body[a:b]) or 0
+            ids.append((_notification_tag(body, "task-id") or "", _notification_tag(body, "output-file") or ""))
         else:
             span = _command_span(body, transcript)
             if span is None:
@@ -342,5 +343,21 @@ def _report_rest(payload: dict, prompt: str) -> str | None:
         rest.append(prompt[pos:m.start("body") + a])
         pos = m.start("body") + b
     rest.append(prompt[pos:])
-    text = "".join(rest)
+    text = _without_ids("".join(rest), ids, transcript)
     return None if detect.scan(text) else text
+
+
+def _without_ids(text: str, ids: list, transcript: str) -> str:
+    """The text outside the results without the task id of each proven report, in its tag and at the end of its output
+    file, when the proof binds the id: the output file (resolved) is this session's subagents/agent-<id>.jsonl, or this
+    transcript launched the agent of that id (_launched_task). The client makes the id; a value that a rule or the store
+    found in it blocked the report, and Cowork shows no block, so the report was lost (#31)."""
+    subagents = os.path.realpath(transcript[: -len(".jsonl")]) + os.sep + "subagents" + os.sep
+    for tid, out in ids:
+        real = os.path.realpath(out) if out else ""
+        if real != subagents + f"agent-{tid}.jsonl" and not _launched_task(transcript, tid):
+            continue
+        text = text.replace(f"<task-id>{tid}</task-id>", "<task-id></task-id>")
+        text = re.sub(rf"(?<=[/\\\\])((?:agent-)?){re.escape(tid)}(\.output|\.jsonl)</output-file>",
+                      r"\1\2</output-file>", text)
+    return text

@@ -8,6 +8,18 @@ was measured or documented. The controls and where each one ends are in [THREAT-
 What the plugin does not protect. Each item is a limit of the mechanism, not
 a to-do.
 
+- **The ids in the result of an Agent or Task call are not masked (#31).**
+  Claude Code writes the agent id, the task id and the output file into that
+  result, and it shows the AI the pointer it makes from the result that the
+  hook returns. maisecrets keeps the ids and the name of the output file as
+  they are, also when a rule, the name service or a stored value finds them: a
+  placeholder there stopped the AI from continuing the agent and blocked its
+  report. Only an id of the client's shape is kept, and of a SendMessage result
+  only its resumedAgentId. The folder of the output file, the task text and the
+  report are masked as usual. In the
+  cloud runtime (Cowork, Claude Code on the web) this is not measured: there a
+  blocked report shows no notice, so a report that maisecrets blocks for
+  another reason is still lost without a word.
 - **The output of a command that fails reaches the model as it is (Claude
   Code).** Claude Code reports a failed call through another hook event,
   whose answer cannot replace the output. A value that a failing command
@@ -158,10 +170,52 @@ a to-do.
   your gateway, use its own references. The one exception is a deposit (`docs/PROTOCOL.md` section 6): for a
   connector that is bound to your gateway by a pairing proof, and a call that the gateway names as a deposit
   target, maisecrets sends the value to the gateway over its own connection, and the call carries a one-time
-  handle. The result of a connector passes the proxy before maisecrets masks it: there only the gateway's own
+  handle. When the gateway also names `deposit_any_field`, a name, an e-mail address, a phone number, a postal
+  address, a birth date, an IBAN, an IP address or a user name can go in this way into any text field of a tool that
+  the gateway lists, and only in the actions that the gateway lists for that tool. Today these are the GitLab and
+  Jira actions that create an issue, add a comment and update an issue; the gateway adds more actions one by one.
+  maisecrets refuses every other action before the value leaves, with the line that this action of the connector
+  does not take a stored value and that it was not sent. A secret, a card number, an ID number, a value of your own rule or of your term list, and every
+  other type go only to a deposit target. The result of a connector passes the proxy before maisecrets masks it: there only the gateway's own
   scrubber protects it. In Cowork every MCP server outside your own config counts as a connector, and in a remote
   session a server of the source `dynamic` does. A server of a plugin or an agent named `claude.ai X` is refused
   too.
+- **Your own rule makes a stored personal value strict only when it finds that value.** maisecrets keeps the first
+  kind that stored a value. If a built-in rule stored an e-mail address and your own rule or an import matches the
+  same value later, maisecrets marks the entry strict at that match; the address then goes only to a deposit
+  target. Until your rule sees the value again (for example, a rule that you add after the value was stored), the
+  entry can still go into any text field of a listed action.
+- **A changed copy of the gateway's metadata on your computer.** maisecrets keeps the gateway's metadata for at
+  most an hour in its home folder, with a MAC made with the binding key in the store. A copy that a process changed
+  without that key, for example with `all_types` switched on, fails the MAC, and maisecrets reads the metadata again
+  from the gateway. A process of your own user that reads the store key can still sign a changed copy (A3). Then an
+  added type still fails the check against maisecrets' own list, but an added tool, action or `all_types` passes.
+  The AI cannot write the maisecrets home folder (C14), and the gateway checks each call again and refuses an action
+  that it does not list (`binding_mismatch`).
+- **A declined call leaves the value at your gateway for up to 300 s (accepted risk).** A deposit sends the value to
+  your gateway in PreToolUse, before the question comes: the question and the handles are one answer, and no hook
+  runs between your answer and the call. When you decline (rehydration `confirm`, Claude Code's auto mode, or a
+  permission rule of your own), the deposit stays unused at your own gateway, bound to that call and usable once,
+  until it expires (at most 300 s). No third party gets it.
+- **A prompt injection can put a stored value into a public issue (known risk).** With rehydration `automatic`, a
+  listed action takes a deposit without a question from maisecrets, as every MCP call takes a value in 0.9.22. A
+  text that the AI reads can make it write a stored value into an issue or a comment, and with `all_types` a
+  secret too. This is a design decision: a value in a ticket must not work worse than in 0.9.22. Set rehydration
+  to `confirm` if you want to answer each call; the value then waits unused at your gateway until you answer.
+- **With `all_types`, a secret can come back through Anthropic's proxy (open point).** When your gateway sets
+  `all_types` to true, every stored value, a secret, a card number and an ID number too, goes as a deposit into
+  any text field of a listed action, such as the text of a ticket. A later read of that ticket through the
+  connector returns the value through the proxy, and the gateway's result scrub finds only known secret formats.
+  maisecrets has no answer for this read-back yet.
+- **Detection can take a secret for a personal value.** If maisecrets types a secret as a phone number or a
+  name, the gateway's `deposit_any_field` lets that value go into any text field of a listed tool. A later read
+  of that field through the connector passes Anthropic's proxy, and only the gateway's own result scrub masks it.
+- **The gateway checks a listed action again at call time.** maisecrets refuses an action that `actions` does not
+  list. The gateway also checks each call: an action takes a personal value only when it sends a JSON body (POST,
+  PUT or PATCH) and every hook that it runs is on the gateway's audited list, and no handle may stand in a field that
+  goes into a URL (such as a project or an issue key of a lookup). Examples that do not take one: an action that
+  encodes its body (a Gmail send), a dispatcher. For such a call the gateway answers `binding_mismatch` before it
+  uses the deposit, so the value is not sent upstream; the deposit expires unused. The AI gets one line that says so.
 - **The deposit does not work in Cowork.** maisecrets finds the binding of a connector by the tool-name prefix
   `mcp__claude_ai_<connector>__`. Cowork drops `claude_ai_` from the tool names (measured 2026-11-22), and the
   sref login has no way into the VM yet. So in Cowork (and in the desktop app's local agent session) a connector

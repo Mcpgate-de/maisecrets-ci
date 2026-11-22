@@ -1,0 +1,11 @@
+# c14-all-types-keeps-a-weak-entry-strict: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-all-types-keeps-a-weak-entry-strict"
+control = "C14"
+serves = ["M3.8"]
+statement = '''With `all_types` true, a weak entry still goes only to a target's path.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_all_types_keeps_a_weak_entry_strict"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    if not isinstance(meta, dict) or meta.get("purged") or meta.get("weak"):'''
+replace = '''    if not isinstance(meta, dict) or meta.get("purged"):'''
