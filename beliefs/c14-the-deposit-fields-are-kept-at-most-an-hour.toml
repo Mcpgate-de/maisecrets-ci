@@ -1,0 +1,11 @@
+# c14-the-deposit-fields-are-kept-at-most-an-hour: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-the-deposit-fields-are-kept-at-most-an-hour"
+control = "C14"
+serves = ["M3.8"]
+statement = '''The deposit fields of the metadata are kept at most an hour; an older copy is read again, and a failed read refuses and never extends it.'''
+runner = ["tests/test_deposit.py::DepositHookTests::test_the_metadata_is_kept_at_most_an_hour"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''now - METADATA_TTL < t <= now + 60 \'''
+replace = '''now - 10 * METADATA_TTL < t <= now + 60 \'''

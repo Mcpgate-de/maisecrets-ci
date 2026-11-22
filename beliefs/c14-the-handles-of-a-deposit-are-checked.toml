@@ -1,0 +1,11 @@
+# c14-the-handles-of-a-deposit-are-checked: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-the-handles-of-a-deposit-are-checked"
+control = "C14"
+serves = ["M3.8"]
+statement = '''The client takes the gateway's handles only with the contract's pattern, one for each value and all distinct; else the call gets the refusal.'''
+runner = ["tests/test_deposit.py::DepositHookTests::test_handles_are_checked_for_their_form_count_and_distinctness"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''if not isinstance(handles, list) or len(handles) != count or len(set(map(str, handles))) != count \'''
+replace = '''if not isinstance(handles, list) or len(handles) != count or False \'''

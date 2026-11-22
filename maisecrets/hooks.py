@@ -25,7 +25,7 @@ from typing import Any
 
 from . import check_value, detect, incidents, demo, not_a_secret, rehydration, term_files, value_files
 from .lazy_regex import LazyRx as _LazyRx
-from .placeholder import KEY_RE, find_refs
+from .placeholder import KEY_RE, find_refs, whole_references as _whole_refs
 from . import vault as vault_mod
 from .vault import ConfigError, Vault, load_config
 # parts of this module, moved so that no file is over the size limit of the plugin directory: hooks.<name> stays the
@@ -2029,9 +2029,9 @@ def _pre_mcp(payload: dict, cfg: dict, tool: str, tool_input: dict) -> dict:
     _walk_strings(tool_input, collect)
     if not found:
         return {}
-    from . import connector_proxy
+    from . import connector_proxy, deposit
     if connector_proxy.claude_ai_connector(payload, tool):
-        return _deny(connector_proxy.refusal(tool, found))
+        return deposit.pre_tool(payload, cfg, tool, tool_input, found)
     in_keys = [k for k, _a, _b in find_refs(" ".join(_dict_keys(tool_input)))]
     if in_keys:
         return _deny(f"maisecrets: ⟦{in_keys[0]}⟧ is used as a field name, where it is not resolved. "
@@ -2638,7 +2638,7 @@ def post_tool(payload: dict) -> dict:
             hidden["n"] += gone
             hidden_runs.extend(runs)
         found = layer.matches(s, scan_tool) if layer is not None else scan_tool(s)
-        matches = [m for m in found if swap or not detect.is_fixture(m, s, path)]
+        matches = _whole_refs(s, [m for m in found if swap or not detect.is_fixture(m, s, path)])
         if not matches and not _has_live(cfg):
             return s
         if vault is None:
@@ -2911,7 +2911,10 @@ def _post_tool_guarded(payload: dict) -> dict:
     """Claude Code ignores exit 2 from PostToolUse: the raw output would reach the model. So a
     failure inside the redaction withholds the output instead (review, 2026-09-26)."""
     _commit_destinations(payload)    # first: the call ran even when the redaction below fails; and before the hint
-    notice = None
+    from .deposit import post_tool as deposit_line
+    notice = deposit_line(payload)
+    if notice:
+        return notice
     try:
         if str(payload.get("tool_name") or "").startswith("mcp__"):     # no config read for any other tool
             from . import vault_refs

@@ -7,5 +7,5 @@ runner = ["tests/test_fixtures.py::HookTests::test_a_read_of_a_test_file_keeps_i
 
 [proof]
 file = "maisecrets/hooks.py"
-find = "if swap or not detect.is_fixture(m, s, path)]\n"
-replace = "if swap or not detect.is_fixture(m, s)]\n"
+find = "if swap or not detect.is_fixture(m, s, path)])\n"
+replace = "if swap or not detect.is_fixture(m, s)])\n"

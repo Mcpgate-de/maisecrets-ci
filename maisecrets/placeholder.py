@@ -97,6 +97,31 @@ def trusted(m) -> bool:
     return f"{OPEN}sref:{m.group('kind')}:{m.group('id')}{CLOSE}" in TRUSTED
 
 
+def whole_references(text: str, matches: list) -> list:
+    """A hit in the kind or the id of a reference that no gateway gave this session takes the whole reference, with
+    its brackets: a cut one left `⟦sref:secret:` and a placeholder with no closing bracket (field case 2026-11-22, a
+    claude.ai connector that was not bound yet). The id stays masked: a server can wrap a secret in a reference."""
+    if "sref:" not in text or not matches:
+        return matches
+    from dataclasses import replace
+    spans = [(m.start(), m.end("id"), m.end()) for m in _rx("sref").finditer(text) if not trusted(m)]
+    if not spans:
+        return matches
+    out: list = []
+    for h in sorted(matches, key=lambda x: x.start):
+        for a, id_end, b in spans:
+            if h.start < id_end and a < h.end and not str(h.kind).startswith(("term:", "import:")):
+                s, e = min(h.start, a), max(h.end, b)
+                h = replace(h, start=s, end=e, value=text[s:e])
+        if out and h.start < out[-1].end:          # two hits in one reference: one value
+            last = out[-1]
+            s, e = last.start, max(last.end, h.end)
+            out[-1] = replace(last, end=e, value=text[s:e])
+            continue
+        out.append(h)
+    return out
+
+
 def _rx(name: str) -> re.Pattern:
     if name not in _COMPILED:
         _COMPILED[name] = re.compile(_DETECTOR_PATTERNS[name])

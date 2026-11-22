@@ -1,0 +1,11 @@
+# c14-a-deposit-needs-a-binding-made-by-a-pairing-proof: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-a-deposit-needs-a-binding-made-by-a-pairing-proof"
+control = "C14"
+serves = ["M3.8"]
+statement = '''A deposit goes only to the gateway of a connector that a pairing proof bound (#91); a binding that a typed login made without a proof gets the refusal, and no value leaves.'''
+runner = ["tests/test_deposit.py::DepositHookTests::test_a_binding_without_a_pairing_proof_gets_no_deposit"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    if not isinstance(entry, dict) or entry.get("paired") is not True:'''
+replace = '''    if False:'''

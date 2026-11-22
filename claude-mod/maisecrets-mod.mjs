@@ -903,6 +903,20 @@ async function callConnector($, server, nonce) {
   return { text, error: r.isError === true }
 }
 
+// an MCP result that may hold a gateway reference: at the end of the turn Python says whether a gateway really sent
+// this session references without a login here (offerLogin). A string test only; the text is never kept
+function noteReferences(e, r) {
+  try {
+    if (typeof e?.tool === 'string' && e.tool.startsWith('mcp__') && !(loginOfferDue &&
+        !e.tool.startsWith('mcp__claude_ai_')) && JSON.stringify(r ?? null).includes('\u27e6sref:')) {
+      loginOfferDue = true
+      // a claude.ai connector: at the end of the turn its own tool names its gateway (askConnector)
+      const server = e.tool.slice('mcp__'.length, e.tool.lastIndexOf('__'))
+      if (e.tool.startsWith('mcp__claude_ai_') && CONNECTOR_NAME.test(server)) connectorsDue.add(server)
+    }
+  } catch { /* no offer */ }
+}
+
 async function askConnector($, session, server) {
   const r = await callConnector($, server)
   if (!r || r.error) return null
@@ -1784,6 +1798,13 @@ function registerSettingsPane(on) {
   })
   // a tool call or a turn of this session runs the hooks: the open panel asks for the status again. Neither hook
   // changes the call or the answer, and a failure of its own never reaches them
+  // the result before PostToolUse masked it: a reference of a server that is not bound yet is masked whole there
+  // (placeholder.whole_references), and the connector that showed it must still be asked (#91)
+  on('tool.run', async ($, e, next) => {
+    const r = await next(e)
+    noteReferences(e, r)
+    return r
+  })
   on('tool.call', async ($, e, next) => {
     // a pairing runs: its nonce in any call but the mod's own taints it, and that call never runs (#91)
     if (pairings.size > 0) {
@@ -1796,17 +1817,7 @@ function registerSettingsPane(on) {
     const r = await next(e)
     // the nonce in the result of any call but the mod's own taints the pairing too (a connector that echoes it)
     if (pairings.size > 0) try { notePairingUse(JSON.stringify(r ?? null), e) } catch { /* see the call above */ }
-    try {
-      // an MCP result that may hold a gateway reference: at the end of the turn Python says whether a gateway really
-      // sent this session references without a login here (offerLogin). A string test only; the text is never kept
-      if (typeof e.tool === 'string' && e.tool.startsWith('mcp__') && !(loginOfferDue &&
-          !e.tool.startsWith('mcp__claude_ai_')) && JSON.stringify(r ?? null).includes('\u27e6sref:')) {
-        loginOfferDue = true
-        // a claude.ai connector: at the end of the turn its own tool names its gateway (askConnector)
-        const server = e.tool.slice('mcp__'.length, e.tool.lastIndexOf('__'))
-        if (e.tool.startsWith('mcp__claude_ai_') && CONNECTOR_NAME.test(server)) connectorsDue.add(server)
-      }
-    } catch { /* no offer */ }
+    noteReferences(e, r)
     try {
       // a call another hook refused may not have reached PreToolUse: it is not kept
       if (start !== null && (!r || r.deny === undefined)) {

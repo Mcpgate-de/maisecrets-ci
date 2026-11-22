@@ -1,0 +1,11 @@
+# c14-a-connector-call-carries-a-handle-never-the-value: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-a-connector-call-carries-a-handle-never-the-value"
+control = "C14"
+serves = ["M3.8"]
+statement = '''A claude.ai connector's call that gets a deposit carries a one-time handle in place of each placeholder, never the value; the gateway replaces the handle with the value at call time.'''
+runner = ["tests/test_deposit.py::DepositHookTests::test_a_connector_call_gets_a_handle_and_the_gateway_puts_the_value_in"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''                out = out[:m.start()] + by_place[(pointer, m.start())] + out[m.end():]'''
+replace = '''                out = out[:m.start()] + values[key_of(m.group(0))] + out[m.end():]'''

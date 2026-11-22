@@ -177,8 +177,14 @@ def discover(cfg: dict, mcp_url: str, deadline: float | None = None, patient: bo
     scope = login_scope(resolve_scope, process_scope, display_scope=display_scope)
     if wants_ner and ner["scope"] not in scope.split():
         scope += " " + ner["scope"]
+    # #100: the deposit of a value for a claude.ai connector (D1): its own scope, asked for only where the gateway
+    # names usable deposit fields
+    from . import deposit
+    dep = deposit.fields(block, origin)
+    if dep and dep["deposit_scope"] not in scope.split():
+        scope += " " + dep["deposit_scope"]
     reuse = block.get("refresh_reuse_interval")
-    return {"origin": origin, "resolve": block["resolve_endpoint"], "ner": ner,
+    return {"origin": origin, "resolve": block["resolve_endpoint"], "ner": ner, "deposit": dep,
             "scope": scope,
             # ai-gateway #1933: the seconds in which a refresh token the gateway just replaced gets the same pair once
             # more; None when the gateway names no window
@@ -207,6 +213,11 @@ def _same_origin(found: object, origin: str | None) -> bool:
         if not isinstance(ner, dict):
             return False
         ends += [ner.get("endpoint")] + ([ner["status"]] if "status" in ner else [])
+    dep = found.get("deposit")
+    if dep is not None:
+        if not isinstance(dep, dict):
+            return False
+        ends.append(dep.get("deposit_endpoint"))
     return all(origin_of(e) == origin for e in ends)
 
 

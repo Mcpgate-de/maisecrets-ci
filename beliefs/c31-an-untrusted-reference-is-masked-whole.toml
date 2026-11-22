@@ -1,0 +1,11 @@
+# c31-an-untrusted-reference-is-masked-whole: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c31-an-untrusted-reference-is-masked-whole"
+control = "C31"
+serves = ["M1.2"]
+statement = "A hit in the id of a reference that no gateway gave this session masks the whole reference with its brackets, so the model never sees a cut reference with an open bracket."
+runner = ["tests/test_sref_hooks.py::UnboundReferenceIsMaskedWholeTests::test_an_unbound_reference_after_a_label_is_masked_whole"]
+
+[proof]
+file = "maisecrets/hooks.py"
+find = '''matches = _whole_refs(s, [m for m in found if swap or not detect.is_fixture(m, s, path)])'''
+replace = '''matches = [m for m in found if swap or not detect.is_fixture(m, s, path)]'''

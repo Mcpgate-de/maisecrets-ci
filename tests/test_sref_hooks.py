@@ -1141,6 +1141,46 @@ class PutServerTokensTests(unittest.TestCase):
         self.assertEqual((out, put), (text, []))
         self.assertEqual([(m.start, m.end) for m in rest], [(3, 3 + len("AlexandraBern"))])
 
+class UnboundReferenceIsMaskedWholeTests(unittest.TestCase):
+    """Field case 2026-11-22: a claude.ai connector that was not bound yet showed `api_key: <a reference>`. The rule
+    after the label took the id and the closing bracket for a secret, and the model saw the reference cut: its opening
+    part, a placeholder, and no closing bracket. An untrusted id stays masked (a server can wrap a secret in a
+    reference), but as the whole reference, with its brackets."""
+
+    RID = "Qm7Rv2Kd9TfLw4HbN8cPz3sT6yUa1eQo"     # 32 characters, the shape of a gateway's reference id
+
+    def post(self, text: str) -> str:
+        hooks._live_cache.clear()
+        out = hooks._post_tool_guarded({
+            "tool_name": "mcp__claude_ai_phase6_ai-gateway__gitlab_read_actions", "session_id": "s-unbound", **CLAUDE,
+            "mcp_server": {"name": "claude.ai phase6 ai-gateway", "source": "claudeai"},
+            "tool_input": {"action": "get_issue_details"}, "tool_response": [{"type": "text", "text": text}]})
+        shown = (out.get("hookSpecificOutput") or {}).get("updatedToolOutput")
+        return shown[0]["text"] if shown else text
+
+    def test_an_unbound_reference_after_a_label_is_masked_whole(self):
+        ref = "\u27e6sref:secret:" + self.RID + "\u27e7"
+        shown = self.post(f"title: deploy\napi_key: {ref}\nend")
+        self.assertNotIn(self.RID, shown, "the id of an untrusted reference stays masked")
+        self.assertNotIn("sref:", shown, "no part of the reference is left: the mask took it whole")
+        self.assertRegex(shown, "^title: deploy\napi_key: \u27e6SECRET_c\\d+\u27e7\nend$")
+        self.assertEqual(shown.count("\u27e6"), shown.count("\u27e7"), "no bracket is left open")
+
+    def test_two_hits_in_one_reference_are_one_value_and_a_trusted_one_stays(self):
+        from maisecrets import placeholder
+        from maisecrets.detection.core import Match
+        ref = "\u27e6sref:secret:" + self.RID + ":ke\u2022\u2022\u2022\u27e7"
+        text = "token: " + ref + " end"
+        a = text.index(self.RID)
+        hits = [Match("x", "SECRET", text[a:a + 10], a, a + 10),
+                Match("y", "SECRET", text[a + 12:a + 20], a + 12, a + 20)]
+        out = placeholder.whole_references(text, hits)
+        self.assertEqual([(m.start, m.end, m.value) for m in out], [(7, 7 + len(ref), ref)])
+        self.addCleanup(placeholder.TRUSTED.clear)
+        placeholder.TRUSTED.add("\u27e6sref:secret:" + self.RID + "\u27e7")
+        self.assertEqual(placeholder.whole_references(text, hits), hits, "a reference a gateway gave is not widened")
+
+
 if __name__ == "__main__":
     unittest.main()
 

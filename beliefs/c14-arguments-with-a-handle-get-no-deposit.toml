@@ -1,0 +1,11 @@
+# c14-arguments-with-a-handle-get-no-deposit: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-arguments-with-a-handle-get-no-deposit"
+control = "C14"
+serves = ["M3.8"]
+statement = '''A call whose arguments already hold `msdep1_` gets no deposit.'''
+runner = ["tests/test_deposit.py::DepositHookTests::test_arguments_with_a_handle_or_a_placeholder_in_the_action_are_refused"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    if HANDLE_MARK in json.dumps(tool_input, ensure_ascii=False):'''
+replace = '''    if False:'''

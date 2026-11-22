@@ -1,0 +1,11 @@
+# c14-a-deposit-ends-within-its-budget: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-a-deposit-ends-within-its-budget"
+control = "C14"
+serves = ["M3.8"]
+statement = '''The metadata read, a token renewal and the deposit request share one deadline of 5 s; past it the call gets the refusal.'''
+runner = ["tests/test_deposit.py::DepositHookTests::test_a_deposit_ends_within_its_5_s_budget"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''BUDGET = 5.0 '''
+replace = '''BUDGET = 9.0 '''

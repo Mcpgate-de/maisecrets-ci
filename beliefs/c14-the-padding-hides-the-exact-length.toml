@@ -1,0 +1,11 @@
+# c14-the-padding-hides-the-exact-length: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-the-padding-hides-the-exact-length"
+control = "C14"
+serves = ["M3.8"]
+statement = '''A deposited value is padded to max(64, 32 * ceil((n + 1) / 32)) bytes with 0x80 and zero bytes (appendix A.3).'''
+runner = ["tests/test_deposit.py::VectorTests::test_the_padding_of_appendix_a3"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    size = max(64, 32 * math.ceil((len(raw) + 1) / 32))'''
+replace = '''    size = len(raw) + 1'''

@@ -1,0 +1,11 @@
+# c14-the-deposit-budget-counts-from-the-start-of-the-hook: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-the-deposit-budget-counts-from-the-start-of-the-hook"
+control = "C14"
+serves = ["M3.8"]
+statement = '''The 5 s of a deposit count from the start of the hook's deposit work, the store reads included.'''
+runner = ["tests/test_deposit.py::DepositHookTests::test_the_budget_counts_from_the_start_of_the_hook"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    deadline = start + BUDGET'''
+replace = '''    deadline = time.monotonic() + BUDGET'''

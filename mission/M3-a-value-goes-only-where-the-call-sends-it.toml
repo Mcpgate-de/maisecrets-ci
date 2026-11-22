@@ -38,7 +38,7 @@ says = "Hidden instructions in invisible characters leave the tool output."
 
 [[part]]
 id = "M3.8"
-says = "A stored value never goes into a call that a third party relays in clear text: a claude.ai connector's call gets none."
+says = "A stored value never goes into a call that a third party relays in clear text: a claude.ai connector's call gets none (a deposit at the person's gateway gives it a one-time handle)."
 
 [measure]
 none = "a resolve is right or wrong, not a rate; the twin of M3.1 (tests/test_twin_session_rule.py) and invariant I2 check it"

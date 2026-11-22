@@ -97,6 +97,9 @@ image). Connections start only from a command you run, or go to a service you se
   proof, the mod calls the same tool once more with a random nonce as its only argument, and
   maisecrets sends the same nonce with your login token to that gateway to check the
   connector's proof. Neither holds text of yours.
+- A stored value can go to your gateway as a deposit, over maisecrets' own connection with your
+  login token, when the AI uses it in a call of a claude.ai connector that is bound to that gateway;
+  the call then carries a one-time handle in place of the value.
 - `/maisecrets report` prints the issue text and a prefilled link to the configured
   `report_url`. It opens no browser and files nothing: the connection starts when you open
   the link, and you decide in GitHub's form. A prefilled GitHub link carries the issue text,

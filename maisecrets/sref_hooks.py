@@ -258,7 +258,8 @@ def pair_connector(key: str, nonce: str, answer: str) -> dict:
     if not hmac.compare_digest(mine.encode("ascii"), proof.encode("ascii")):
         return no(f"its proof does not match your login at {host}, so it is not your gateway there or it uses "
                   "another account")
-    if not vault_refs.bind_connector(key, url):
+    from . import deposit
+    if not vault_refs.bind_connector(key, url, deposit.seal(make_backend(cfg), key, url)):
         return no("another server or connector holds that gateway now")
     return {"bound": True, "note": f"maisecrets: the claude.ai connector {key} is bound to {host}: it proved that it "
                                    "reaches that gateway with your account."}

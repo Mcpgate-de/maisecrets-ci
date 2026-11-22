@@ -1,0 +1,13 @@
+# c14-a-refused-deposit-call-becomes-one-line: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-a-refused-deposit-call-becomes-one-line"
+control = "C14"
+serves = ["M3.8"]
+statement = '''A gateway's `deposit_refused: <code>` for a call that carried handles becomes one line for the model, which names the keys, when the whole result is that one block.'''
+runner = ["tests/test_deposit.py::DepositHookTests::test_a_refusal_of_the_gateway_becomes_one_line_for_the_model"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    code = _sole_refusal(response)
+    if code is None:'''
+replace = '''    code = _sole_refusal(response)
+    if True:'''

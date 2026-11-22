@@ -1,0 +1,11 @@
+# c31-a-connector-key-follows-the-tool-name-spelling: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c31-a-connector-key-follows-the-tool-name-spelling"
+control = "C31"
+serves = ["M3.3"]
+statement = '''The key of a claude.ai connector from its display name ("claude.ai Acme (prod)") equals the key from its tool name (claude_ai_Acme_prod): for a "claude.ai " name each run of `_` becomes one and a `_` at either end goes, as Claude Code 2.1.330 spells it; so its binding is found for a deposit and for the noting of a gateway reference.'''
+runner = ["tests/test_deposit.py::DepositHookTests::test_a_display_name_with_runs_of_marks_finds_its_binding"]
+
+[proof]
+file = "maisecrets/vault_refs.py"
+find = '''        out = re.sub(r"^_|_$", "", re.sub(r"_+", "_", out))'''
+replace = '''        out = out'''

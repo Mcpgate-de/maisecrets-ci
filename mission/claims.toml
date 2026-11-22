@@ -208,6 +208,12 @@ mission = "M6"
 
 [[claim]]
 source = "PRIVACY.md"
+quote = "A stored value can go to your gateway as a deposit"
+kind = "promise"
+mission = "M3"
+
+[[claim]]
+source = "PRIVACY.md"
 quote = "`/maisecrets report` prints the issue text and a prefilled link"
 kind = "promise"
 mission = "M6"

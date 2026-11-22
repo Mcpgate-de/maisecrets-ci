@@ -1,0 +1,11 @@
+# c14-an-interception-ca-stops-the-deposit: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-an-interception-ca-stops-the-deposit"
+control = "C14"
+serves = ["M3.8"]
+statement = '''D9: a gateway certificate whose issuer names a known interception CA stops the deposit before its body is sent.'''
+runner = ["tests/test_deposit.py::TripwireTests::test_an_interception_ca_stops_the_deposit_before_the_value_is_sent"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''body, deadline, peer_check=tripwire)'''
+replace = '''body, deadline, peer_check=None)'''

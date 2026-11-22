@@ -1,0 +1,11 @@
+# c14-cowork-keeps-the-connector-refusal: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-cowork-keeps-the-connector-refusal"
+control = "C14"
+serves = ["M3.8"]
+statement = '''In Cowork and in a local agent session of the desktop app no deposit is made: the connector refusal stays.'''
+runner = ["tests/test_deposit.py::DepositHookTests::test_cowork_keeps_the_refusal"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    if os.environ.get("CLAUDE_CODE_ENTRYPOINT") in connector_proxy.FAIL_CLOSED_ENTRYPOINTS:'''
+replace = '''    if False:'''

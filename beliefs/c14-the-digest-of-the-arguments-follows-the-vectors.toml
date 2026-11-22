@@ -1,0 +1,11 @@
+# c14-the-digest-of-the-arguments-follows-the-vectors: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-the-digest-of-the-arguments-follows-the-vectors"
+control = "C14"
+serves = ["M3.8"]
+statement = '''The JCS digest of the arguments as the model wrote them gives every digest of appendix A.1 of the contract.'''
+runner = ["tests/test_deposit.py::VectorTests::test_every_digest_vector_of_appendix_a1"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    if k <= n <= 21:'''
+replace = '''    if k <= n <= 22:'''

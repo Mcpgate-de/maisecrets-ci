@@ -1,0 +1,16 @@
+# c14-a-call-without-its-mcp-server-gets-no-deposit: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-a-call-without-its-mcp-server-gets-no-deposit"
+control = "C14"
+serves = ["M3.8"]
+statement = '''A deposit goes only for a call whose own mcp_server names the bound claude.ai connector; a call without it, or with another server's name, gets the refusal, so a `__` inside a name cannot route a handle to another connector.'''
+runner = ["tests/test_deposit.py::DepositHookTests::test_a_call_without_its_mcp_server_gets_no_deposit"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    if named is None:
+        raise Refused("the call names no claude.ai connector as its MCP server (a Claude Code older than 2.1.330 may "
+                      "send no server name; update Claude Code)")
+    keys = [k for k in connectors() if tool.startswith(f"mcp__claude_ai_{k}__") and k not in own_servers()
+            and named == k]'''
+replace = '''    keys = [k for k in connectors() if tool.startswith(f"mcp__claude_ai_{k}__") and k not in own_servers()
+            and (named is None or named == k)]'''

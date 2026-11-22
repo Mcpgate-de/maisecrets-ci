@@ -332,3 +332,28 @@ The client side is tested against a fake server with both endpoints
   that keeps the hook's stdout open makes the hook time out in Codex after it answered. The launcher
   (`hooks/run.sh`) gives its Python probes no descriptor of the hook and 2 s in total.
 - Nothing a hook prints contains a value. Reasons name keys and counts.
+
+## 6. The deposit for a claude.ai connector (#100)
+
+The contract is `docs/design/e2e-connector-values.md` (sections 3 to 7 and appendix A; it moves here in full when a
+second gateway implements it, decision D12). The client side is `maisecrets/deposit.py`:
+
+- **The order.** A directly configured MCP server gets the value (section 3). A claude.ai connector gets a deposit
+  when every condition of the contract's section 6.1 holds. Every other case gets the refusal of #99
+  (`connector_proxy.refusal`), with the first condition that failed. No answer, field or setting selects clear text.
+- **The binding.** Only a connector that a pairing proof bound (#91) takes a deposit. That binding carries a MAC with
+  a key in the store (D7), checked before each deposit. The binding is found by the tool prefix
+  `mcp__claude_ai_<connector>__`; Cowork names its tools without `claude_ai_`, so the deposit is off there.
+- **The metadata.** The deposit fields of `sensitive_references` are read over the direct channel and kept at most an
+  hour (`sref/deposit-metadata.json` in the maisecrets home, no value). The sref login asks for `deposit_scope` when
+  the gateway names usable fields; an older login is refused before any value leaves, with a hint to log in again.
+- **The request.** `POST deposit_endpoint` with the person's sref access token, the JCS digest of the arguments as
+  the model wrote them, and each value padded (section 5.1). The metadata read, a token renewal and the request
+  share one deadline of 5 s. A gateway certificate whose issuer names a known interception CA stops the request
+  before its body is sent (D9).
+- **The answer.** One handle `msdep1_` + 65 characters for each value, all distinct, in the order of the
+  placeholders in the JCS text. The hook writes the handles into `updatedInput` and decides by the rehydration policy
+  (`confirm` asks, and the reason names the keys and the host). The audit line names the key, `deposit`, the host,
+  the tool, the paths and the lifetime; a deposit counts in the limiter also when it fails.
+- **At call time.** A tool result `deposit_refused: <code>` (`isError` true) for a call that carried handles
+  becomes one line for the model in PostToolUse. maisecrets never retries by itself.

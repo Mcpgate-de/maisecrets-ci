@@ -1,0 +1,11 @@
+# c31-the-login-asks-for-the-deposit-scope: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c31-the-login-asks-for-the-deposit-scope"
+control = "C31"
+serves = ["M3.3"]
+statement = '''The sref login asks for the deposit scope only where the gateway names usable deposit fields (D1).'''
+runner = ["tests/test_deposit.py::DepositHookTests::test_the_login_asks_for_the_deposit_scope_only_where_the_gateway_names_it"]
+
+[proof]
+file = "maisecrets/sref_client.py"
+find = '''    if dep and dep["deposit_scope"] not in scope.split():'''
+replace = '''    if False:'''

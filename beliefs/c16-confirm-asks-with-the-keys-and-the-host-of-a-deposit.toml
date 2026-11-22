@@ -1,0 +1,11 @@
+# c16-confirm-asks-with-the-keys-and-the-host-of-a-deposit: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c16-confirm-asks-with-the-keys-and-the-host-of-a-deposit"
+control = "C16"
+serves = ["M5.3"]
+statement = '''With rehydration confirm, a deposit returns ask with the handles, and the reason names the placeholder keys and the gateway host.'''
+runner = ["tests/test_deposit.py::DepositHookTests::test_with_confirm_the_person_is_asked_with_the_keys_and_the_host"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    return hooks._rehydrated(payload, cfg, "mcp", new_input,'''
+replace = '''    return hooks._updated(payload, new_input) or hooks._rehydrated(payload, cfg, "mcp", new_input,'''

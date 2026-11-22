@@ -2,13 +2,13 @@
 belief = "c14-a-connector-call-is-refused-in-the-mcp-path"
 control = "C14"
 serves = ["M3.8"]
-statement = "The MCP path of the PreToolUse hook asks whether the tool is a claude.ai connector before it resolves a stored value, in Claude Code and in Cowork."
+statement = "The MCP path of the PreToolUse hook asks whether the tool is a claude.ai connector before it resolves a stored value, in Claude Code and in Cowork; such a call gets a deposit or the refusal, never the value."
 runner = ["tests/test_connector_proxy.py::ConnectorProxyTests::test_a_cowork_connector_call_gets_no_stored_value"]
 
 [proof]
 file = "maisecrets/hooks.py"
 find = '''
     if connector_proxy.claude_ai_connector(payload, tool):
-        return _deny(connector_proxy.refusal(tool, found))
+        return deposit.pre_tool(payload, cfg, tool, tool_input, found)
 '''
 replace = ''''''

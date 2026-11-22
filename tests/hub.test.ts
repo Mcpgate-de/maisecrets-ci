@@ -514,6 +514,31 @@ test('a claude.ai connector that showed a reference is asked for its gateway by 
     expect(asked.length).toBe(1)
   })
 
+// field case 2026-11-22: PostToolUse masks a reference of a connector that is not bound yet as a whole, so the mod
+// also reads the result at tool.run, before PostToolUse (the types: "read before any PostToolUse hook has had it").
+// This harness gives tool.call the same raw result, so the test shows only that both reads ask the connector once;
+// the order against PostToolUse is the engine's, measured live
+test('a connector reference that the mod reads at tool.run and at tool.call asks the connector once', async ($, on) => {
+  const calls: any[] = []
+  const asked: any[] = []
+  filled.length = 0
+  const raw = String.fromCharCode(0x27e6) + 'sr' + 'ef:secret:' + 'Qm7Rv2Kd9T'.repeat(3) + 'ab' +
+    String.fromCharCode(0x27e7)
+  engine(on, calls, { placed: true }, { connector: { fill: '/maisecrets:sref login Team_GW', note: 'n' } })
+  on('prompt.read', () => ({ value: { text: '', cursor: 0 } }))
+  on('mcp.call', ($, e) => {
+    asked.push(e)
+    return { value: { content: [{ type: 'text', text: '{"resource": "https://gw.example/mcp"}' }] } }
+  })
+  on('tool.run', () => ({ result: { content: [{ type: 'text', text: 'api_key: ' + raw }] } }))
+  on('turn.complete', ($, e) => ({ text: e.answer }))
+  await $.tool.call({ tool: 'mcp__claude_ai_Team_GW__gitlab_read_actions', action: 'get' } as any)
+  await $.turn.complete({ answer: 'done', reason: 'answer' } as any)
+  await settle()
+  expect(asked.map(a => [a.server, a.tool])).toEqual([['claude_ai_Team_GW', 'sensitive_references_resource']])
+  expect(filled).toEqual(['/maisecrets:sref login Team_GW'])
+})
+
 test('a closed panel asks nothing after a tool call', async ($, on) => {
   const calls: any[] = []
   const clock = { t: 2_000_000 }

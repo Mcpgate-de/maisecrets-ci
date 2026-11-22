@@ -3,7 +3,8 @@
 ## Unreleased
 
 - A command that changes maisecrets (a term, not-a-secret, the demo, a setting or the name service) is the text you type, such as `maisecrets: term add NAME`. Typed as `/maisecrets NAME` in the terminal, it changes nothing, and maisecrets names the text for you to type.
-- A tool call of a claude.ai connector (`mcp__claude_ai_…`, in Claude Code and in Cowork) no longer gets a stored value: the call goes through Anthropic's connector proxy, where the value would be in clear text, so maisecrets refuses it and the call does not run. Add the MCP server directly, or, if the connector is your gateway, use the gateway's own references; a directly added server gets the value as before. In Cowork every MCP server outside your own config counts as a connector.
+- A tool call of a claude.ai connector (in Claude Code `mcp__claude_ai_…`; in Cowork, where the tool names lack `claude_ai_`, every MCP server outside your own config) no longer gets a stored value: the call goes through Anthropic's connector proxy, where the value would be in clear text, so maisecrets refuses it and the call does not run. Add the MCP server directly, or, if the connector is your gateway, use the gateway's own references; a directly added server gets the value as before. In Cowork every MCP server outside your own config counts as a connector.
+- A claude.ai connector that is bound to your gateway by its pairing proof can get a stored value as a deposit: maisecrets sends the value to the gateway over its own connection, and the call carries a one-time handle, which the gateway replaces with the value. It works only for the calls that the gateway names as deposit targets, and only after a login that allows deposits (`/maisecrets sref login NAME` again for an older login). Every other case keeps the refusal, and so does Cowork.
 
 ## [0.9.22] - 2026-11-22
 

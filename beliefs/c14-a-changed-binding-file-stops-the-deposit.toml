@@ -1,0 +1,11 @@
+# c14-a-changed-binding-file-stops-the-deposit: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-a-changed-binding-file-stops-the-deposit"
+control = "C14"
+serves = ["M3.8"]
+statement = '''D7: the binding carries a MAC with a key in the store; a binding file whose URL or MAC changed gets the refusal before any value leaves.'''
+runner = ["tests/test_deposit.py::DepositHookTests::test_a_changed_binding_file_stops_the_deposit"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    if k is None or not isinstance(mac, str) or not hmac.compare_digest('''
+replace = '''    if k is None or not isinstance(mac, str) or False and hmac.compare_digest('''

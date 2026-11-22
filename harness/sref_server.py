@@ -16,6 +16,12 @@
   429, `ineligible_sink` 403, `invalid_token` 401), as the contract says. A success names the gateway's audit event
   of the release (`audit_id`, RESOLVER-PROFILE 12.4); `audit_id = None` answers without it, as an older gateway.
 
+- `POST /sensitive-references/deposit` (#100, while `deposit` is True; maisecrets docs/design/e2e-connector-values.md):
+  the values of one call for handles, with the deposit scope; `call(tool, arguments)` is the gateway's replacement at
+  call time: the upstream arguments, or the tool result `deposit_refused: <code>`. The targets are the gateway's
+  concrete choice (ai-gateway #2008): gitlab_write_actions with the action create_webhook or update_webhook, path
+  /token.
+
 `mint(kind, value)` makes a canonical reference; `revoke(ref)` withdraws one; `withdraw()` ends the consent, so every
 token dies. Every resolve is recorded in `resolved` (sink type, destination, count; never a value). Standard library
 and the openssl command (harness/vault_server.py makes the certificate).
@@ -39,6 +45,9 @@ from vault_server import _QuietServer, make_cert
 PROCESS_SCOPE = "sensitive-references.resolve.process"
 DISPLAY_SCOPE = "sensitive-references.resolve.display"
 NER_SCOPE = "sensitive-references.ner"
+DEPOSIT_SCOPE = "sensitive-references.deposit"
+DEPOSIT_TARGETS = [{"tool": "gitlab_write_actions", "when": {"/action": "create_webhook"}, "paths": ["/token"]},
+                   {"tool": "gitlab_write_actions", "when": {"/action": "update_webhook"}, "paths": ["/token"]}]
 SINK_PROFILES = {"local_file": "local-file-1", "process": "process-1", "display": "display-1"}
 
 
@@ -78,6 +87,13 @@ class SrefServer:
         self.pair_answer = None          # (status, body): the pairing endpoint answers this instead
         self.pairing_named = None        # what the metadata names as pairing_endpoint instead (a broken one)
         self.pairings: list = []         # the nonce of each pairing request (a test checks what the client sent)
+        self.deposit = False             # #100: the deposit fields in the metadata, and the deposit endpoint
+        self.deposit_fields: dict = {}   # fields that replace or add to the deposit fields of the metadata
+        self.deposit_answer = None       # (status, body, headers): the deposit endpoint answers this instead
+        self.deposit_delay = 0.0         # seconds the deposit endpoint waits before it answers
+        self.deposits: dict = {}         # handle -> record (the value, as the gateway keeps it until the call)
+        self.deposit_requests: list = [] # each request as received, with the values unpadded
+        self.upstream: list = []         # the arguments each call sent upstream, after the replacement
         self.ner = False                 # ai-gateway #1819: the name endpoint and its scope, while the switch is on
         self.ner_answer = None           # (status, body): the name endpoint answers this instead
         self.ner_texts: list = []        # every text the name endpoint got
@@ -160,6 +176,7 @@ class SrefServer:
                                                      "ner_status_endpoint":
                                                          server.url + "/sensitive-references/ner/status"}
                                                     if server.ner else {}),
+                                                 **(server._deposit_meta() if server.deposit else {}),
                                                  "status": "experimental"}})
                 if parts.path == "/.well-known/oauth-authorization-server":
                     return self._send(200, {"issuer": server.url,
@@ -265,6 +282,8 @@ class SrefServer:
                     return self._pairing(raw)
                 if self.path == "/sensitive-references/ner" and server.ner:
                     return self._ner(raw)
+                if self.path == "/sensitive-references/deposit" and server.deposit:
+                    return self._deposit(raw)
                 self._send(404, {"error": "not_found"})
 
             def _pairing(self, raw: bytes) -> None:
@@ -282,6 +301,21 @@ class SrefServer:
                     return self._send(400, {"error": "invalid_nonce"})
                 server.pairings.append(nonce)
                 return self._send(200, {"proof": server.proof(nonce)})
+
+            def _deposit(self, raw: bytes) -> None:
+                time.sleep(server.deposit_delay)
+                auth = self.headers.get("Authorization", "")
+                token = auth[7:] if auth.startswith("Bearer ") else ""
+                if not server.consent or float(server.access.get(token, 0)) < time.time():
+                    return self._send(401, {"error": "invalid_token"})
+                if server.deposit_answer is not None:
+                    return self._send(*server.deposit_answer)
+                if DEPOSIT_SCOPE not in server.scopes.get(token, "").split():
+                    need = f'Bearer error="insufficient_scope", scope="{DEPOSIT_SCOPE}"'
+                    return self._send(403, {"error": "insufficient_scope"}, {"WWW-Authenticate": need})
+                if len(raw) > 64 * 1024:
+                    return self._send(413, {"error": "request_too_large"})
+                return self._send(*server._take_deposit(raw))
 
             def _ner(self, raw: bytes) -> None:
                 auth = self.headers.get("Authorization", "")
@@ -366,16 +400,83 @@ class SrefServer:
         self.url = f"https://127.0.0.1:{self.httpd.server_address[1]}"
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
 
+    def _deposit_meta(self) -> dict:
+        return {"deposit_endpoint": self.url + "/sensitive-references/deposit", "deposit_profile": "deposit-1",
+                "deposit_scope": DEPOSIT_SCOPE, "deposit_max_lifetime": 600, "deposit_targets": DEPOSIT_TARGETS,
+                **self.deposit_fields}
+
+    def _take_deposit(self, raw: bytes) -> tuple:
+        """The deposit endpoint's checks (contract section 7.1) and the handles; (status, body)."""
+        from maisecrets import deposit as D
+        try:
+            body = json.loads(raw)
+        except ValueError:
+            return 400, {"error": "invalid_request"}
+        values = body.get("values") if isinstance(body, dict) else None
+        if body.get("profile") != "deposit-1" or body.get("resource") != self.url + "/mcp" \
+                or not isinstance(values, list) or not 1 <= len(values) <= 32 \
+                or not isinstance(body.get("args_digest"), str) or not isinstance(body.get("lifetime"), int):
+            return 400, {"error": "invalid_request"}
+        targets = [t for t in DEPOSIT_TARGETS if t["tool"] == body.get("tool")]
+        if not all(any(v.get("path") in t["paths"] for t in targets) for v in values):
+            return 403, {"error": "not_a_target"}
+        got = []
+        for v in values:
+            if not isinstance(v.get("placeholder"), str) or not D.PLACEHOLDER_RE.fullmatch(v["placeholder"]):
+                return 400, {"error": "invalid_request"}
+            try:
+                value = D.unpad(v.get("value", "")).decode("utf-8")
+            except (ValueError, UnicodeError):
+                return 400, {"error": "invalid_request"}
+            if not 8 <= len(value.encode()) <= 4096:
+                return 400, {"error": "invalid_request"}
+            got.append({**v, "value": value})
+        self.deposit_requests.append({**body, "values": got})
+        life = min(body["lifetime"], 600)
+        handles = []
+        for v in got:
+            # contract 7.2: base64url of a 16-byte id, then of a 32-byte key: 7 + 22 + 43 characters
+            handle = "msdep1_" + "".join(base64.urlsafe_b64encode(secrets.token_bytes(n)).rstrip(b"=").decode()
+                                         for n in (16, 32))
+            self.deposits[handle] = {**v, "tool": body["tool"], "args_digest": body["args_digest"],
+                                     "expires": time.time() + life}
+            handles.append(handle)
+        return 200, {"handles": handles, "expires_in": life}
+
+    def call(self, tool: str, arguments: dict) -> object:
+        """The gateway's replacement at call time (contract section 7.3): the arguments that go upstream, or the tool
+        result `deposit_refused: <code>` with isError true."""
+        from maisecrets import deposit as D
+
+        def refused(code: str) -> dict:
+            return {"content": [{"type": "text", "text": "deposit_refused: " + code}], "isError": True}
+        found = D.HANDLE_RE.findall(json.dumps(arguments))
+        if len(found) != len(set(found)):
+            return refused("used")
+        recs = {h: self.deposits.pop(h, None) for h in found}
+        if any(r is None for r in recs.values()):
+            return refused("unknown_handle")
+        if any(r["expires"] < time.time() for r in recs.values()):
+            return refused("expired")
+        template = json.loads(D.HANDLE_RE.sub(lambda m: recs[m.group(0)]["placeholder"], json.dumps(arguments)))
+        if any(r["tool"] != tool or r["args_digest"] != D.args_digest(template) for r in recs.values()):
+            return refused("binding_mismatch")
+        sent = json.loads(D.HANDLE_RE.sub(lambda m: recs[m.group(0)]["value"], json.dumps(arguments)))
+        self.upstream.append(sent)
+        return sent
+
     def _login_scopes(self) -> tuple:
         base = "sensitive-references.resolve"
         process = [PROCESS_SCOPE] if self.process_scope else []
         display = [DISPLAY_SCOPE] if self.display_scope else []
         ner = [NER_SCOPE] if self.ner else []
+        dep = [DEPOSIT_SCOPE] if self.deposit else []
         out = []
         for p in ([], process):
             for d in ([], display):
                 for n in ([], ner):
-                    out.append(" ".join([base, *p, *d, *n]))
+                    for x in ([], dep):
+                        out.append(" ".join([base, *p, *d, *n, *x]))
         return tuple(dict.fromkeys(out))
 
     def _pair(self, client_id: str, scope: str = "sensitive-references.resolve") -> dict:

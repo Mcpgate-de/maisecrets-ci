@@ -1,0 +1,11 @@
+# c14-a-call-outside-the-targets-gets-no-deposit: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-a-call-outside-the-targets-gets-no-deposit"
+control = "C14"
+serves = ["M3.8"]
+statement = '''A deposit goes only for a call that matches a target of the gateway, its `when` strings included, and only for a placeholder at a path of that target.'''
+runner = ["tests/test_deposit.py::DepositHookTests::test_a_call_outside_the_targets_gets_no_deposit"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''            and all(isinstance(_at(template, p), str) and _at(template, p) == v for p, v in t.get("when", {}).items())]'''
+replace = '''            ]'''

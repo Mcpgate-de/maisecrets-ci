@@ -50,6 +50,7 @@
 "maisecrets/cowork.py" = { controls = ["C1", "C4"] }
 "maisecrets/debug_log.py" = { none = "appends the line its caller gives to the debug log of the harness; each caller writes no value" }
 "maisecrets/demo.py" = { controls = ["C22"] }
+"maisecrets/deposit.py" = { controls = ["C7", "C14", "C16", "C31"] }
 "maisecrets/destinations.py" = { controls = ["C23"] }
 "maisecrets/detect.py" = { none = "an old module name: the same module object as maisecrets/detection/core.py; an I5 belief adds an import to it, which proves nothing about this file" }
 "maisecrets/detection/__init__.py" = { none = "the names of the library API; the code is in the modules it imports" }

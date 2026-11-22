@@ -1,0 +1,11 @@
+# c7-a-deposit-counts-as-a-use-also-when-it-fails: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c7-a-deposit-counts-as-a-use-also-when-it-fails"
+control = "C7"
+serves = ["M3.5"]
+statement = '''A deposit counts as one use of each key in the limiter and writes an audit line before the value leaves, so a deposit that fails counts too.'''
+runner = ["tests/test_deposit.py::DepositHookTests::test_a_failed_deposit_counts_and_gives_the_refusal"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''        status = vault.record_resolve(k, session, tool, f"deposit {host} {name} {paths} {lifetime}s")'''
+replace = '''        status = "ok"'''

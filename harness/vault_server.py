@@ -34,7 +34,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 OPEN, CLOSE = "⟦", "⟧"
 
 
-def make_cert(folder: str) -> tuple[str, str]:
+def make_cert(folder: str, ca_name: str = "maisecrets test CA") -> tuple[str, str]:
     """A test CA and a certificate for 127.0.0.1 and localhost signed by it: (cert file, key file). The cert file holds
     the leaf and then the CA, so it is both the server's chain and the CA file of a client. Codex (rustls) refuses a
     self-signed CA certificate as the server's own certificate, and Python 3.13+ needs the key identifiers."""
@@ -45,7 +45,7 @@ def make_cert(folder: str) -> tuple[str, str]:
 
     def run(*args: str) -> None:
         subprocess.run(list(args), check=True, capture_output=True)
-    run("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2", "-subj", "/CN=maisecrets test CA",
+    run("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2", "-subj", "/CN=" + ca_name,
         "-addext", "basicConstraints=critical,CA:TRUE", "-addext", "keyUsage=critical,keyCertSign,cRLSign",
         "-keyout", ca_key, "-out", ca)
     run("openssl", "req", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=localhost", "-keyout", key, "-out", csr)

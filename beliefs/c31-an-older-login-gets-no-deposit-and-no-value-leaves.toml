@@ -1,0 +1,11 @@
+# c31-an-older-login-gets-no-deposit-and-no-value-leaves: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c31-an-older-login-gets-no-deposit-and-no-value-leaves"
+control = "C31"
+serves = ["M3.3"]
+statement = '''A login without the deposit scope gets the refusal, which tells the person to log in again, before any value leaves or counts.'''
+runner = ["tests/test_deposit.py::DepositHookTests::test_an_older_login_is_told_to_log_in_again_and_no_value_leaves"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    if dep["deposit_scope"] not in granted:'''
+replace = '''    if False:'''

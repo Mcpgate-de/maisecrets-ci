@@ -247,8 +247,16 @@ _CONNECTOR_KEY = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 def mangled(name: object) -> str | None:
-    """A server name as Claude Code spells it in a tool name: each character outside [A-Za-z0-9_-] becomes `_`."""
-    return re.sub(r"[^A-Za-z0-9_-]", "_", name.strip()) if isinstance(name, str) and name.strip() else None
+    """A server name as Claude Code spells it in a tool name: each character outside [A-Za-z0-9_-] becomes `_`; for a
+    name that starts with "claude.ai ", each run of `_` becomes one and a `_` at either end goes (Claude Code 2.1.330,
+    its function `xn`): "claude.ai Acme (prod)" is "claude_ai_Acme_prod". So the key from the hook's display name equals
+    the key from the tool name, and a key never holds `__` when it comes from a display name."""
+    if not isinstance(name, str) or not name.strip():
+        return None
+    out = re.sub(r"[^A-Za-z0-9_-]", "_", name.strip())
+    if name.startswith("claude.ai "):
+        out = re.sub(r"^_|_$", "", re.sub(r"_+", "_", out))
+    return out or None
 
 
 def connector_key(name: object) -> str | None:
@@ -336,14 +344,15 @@ def propose_connector(server: object, answer: object, cwd: object = None) -> tup
     return key, url, None
 
 
-def bind_connector(key: str, url: str) -> bool:
+def bind_connector(key: str, url: str, mac: str | None = None) -> bool:
     """The person's login for a proposed connector succeeded: bind it. False when the proposal changed or another
-    binding or server now holds the origin."""
+    binding or server now holds the origin. `mac`: the seal of a binding that a pairing proof made (deposit.seal, D7);
+    only such a binding takes a deposit (#100)."""
     if connectors(pending=True).get(key) != url or origin_of(url) in _held_origins(key):
         return False
 
     def change(mine):
-        mine["bound"][key] = url
+        mine["bound"][key] = {"url": url, "paired": True, "mac": mac} if mac else url
         mine["pending"].pop(key, None)
     _write_connectors(change)
     return True
@@ -1077,16 +1086,17 @@ def _cafile(cfg: dict) -> str | None:
 
 
 def _request(cfg: dict, method: str, url: str, headers: dict, body: bytes | None, deadline: float,
-             patient: bool = False):
+             patient: bool = False, peer_check=None):
     """_send in a thread that the caller waits for until the deadline only: a socket timeout bounds one read, not a
     server that sends one header line every few seconds. `patient`: only the deadline bounds the connection and each
-    read (a command the person typed on a slow network); else CONNECT_TIMEOUT and SOCKET_TIMEOUT do too."""
+    read (a command the person typed on a slow network); else CONNECT_TIMEOUT and SOCKET_TIMEOUT do too. `peer_check`:
+    called with the server's certificate after the handshake and before the request; it raises to stop the request."""
     import threading
     box: dict = {}
 
     def run() -> None:
         try:
-            box["ok"] = _send(cfg, method, url, headers, body, deadline, patient)
+            box["ok"] = _send(cfg, method, url, headers, body, deadline, patient, peer_check)
         except BaseException as exc:  # noqa: BLE001 - handed to the caller
             box["err"] = exc
     t = threading.Thread(target=run, daemon=True)
@@ -1100,7 +1110,7 @@ def _request(cfg: dict, method: str, url: str, headers: dict, body: bytes | None
 
 
 def _send(cfg: dict, method: str, url: str, headers: dict, body: bytes | None, deadline: float,
-          patient: bool = False):
+          patient: bool = False, peer_check=None):
     """One HTTPS request with no redirect and no proxy. Returns (status, headers, body) with the body cut above
     MAX_ANSWER_BYTES + 1, so a longer body is seen as too long."""
     import http.client
@@ -1115,6 +1125,8 @@ def _send(cfg: dict, method: str, url: str, headers: dict, body: bytes | None, d
                                        context=ctx)
     try:
         conn.connect()
+        if peer_check is not None:
+            peer_check(conn.sock.getpeercert())          # the deposit's tripwire (D9): before any byte of the body
         left = max(0.2, deadline - time.monotonic())
         conn.sock.settimeout(left if patient else min(SOCKET_TIMEOUT, left))
         path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
