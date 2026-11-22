@@ -1,0 +1,11 @@
+# c14-a-malformed-actions-entry-drops-its-tool: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-a-malformed-actions-entry-drops-its-tool"
+control = "C14"
+serves = ["M3.8"]
+statement = '''An entry of `actions` that is no list of strings gives its tool no listed action; the other tools keep theirs.'''
+runner = ["tests/test_deposit.py::AnyFieldShapeTests::test_missing_or_malformed_actions_allow_no_action"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''               if isinstance(names, list) and len(names) <= MAX_TARGETS and all(isinstance(a, str) for a in names)}'''
+replace = '''               if names}'''

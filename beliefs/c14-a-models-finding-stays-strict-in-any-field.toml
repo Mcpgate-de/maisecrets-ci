@@ -1,0 +1,11 @@
+# c14-a-models-finding-stays-strict-in-any-field: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-a-models-finding-stays-strict-in-any-field"
+control = "C14"
+serves = ["M3.8"]
+statement = '''A model's finding (kind `remote:`) stays strict in the any-field rule also when its entry carries no weak mark.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_a_models_finding_stays_strict"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''STRICT_KINDS = ("user:", "term:", "import:", "remote:")'''
+replace = '''STRICT_KINDS = ("user:", "term:", "import:")'''

@@ -27,9 +27,12 @@ from .vault_refs import Refused as _VaultRefused
 PROFILE = "deposit-1"
 HANDLE_MARK = "msdep1_"
 HANDLE_RE = re.compile(r"msdep1_[A-Za-z0-9_-]{65}")
-# the placeholder as section 5.1 takes it; a form outside it (a legacy <TYPE_cN>, a type with `_`, an empty display)
-# gets no deposit
-PLACEHOLDER_RE = re.compile("⟦[A-Z][A-Z0-9]{0,31}_c[0-9]{1,9}(?::[^⟦⟧]{1,200})?⟧")
+# the placeholder as section 5.1 takes it; a form outside it (a legacy <TYPE_cN>, an empty display) gets no deposit.
+# The type is the part before the LAST `_c<digits>`: the greedy type backtracks to it, and a type has no lower-case
+# letter, so no `_c` inside a type can shift the split
+_KEY_FORM = "([A-Z][A-Z0-9_]{0,31})_c[0-9]{1,9}"
+_KEY_RE = re.compile(_KEY_FORM)
+PLACEHOLDER_RE = re.compile("⟦" + _KEY_FORM + "(?::[^⟦⟧]{1,200})?⟧")
 TOOL_RE = re.compile(r"[A-Za-z0-9_.-]{1,128}")
 _SCOPE_RE = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
 LIFETIME = 300                 # D3: the client asks for 300 s, the gateway allows at most 600 s
@@ -45,6 +48,16 @@ INTERCEPTION_MARKS = ("interception ca", "egress gateway")
 CALL_CODES = ("expired", "unknown_handle", "binding_mismatch", "used", "unavailable")
 _REFUSED_RE = re.compile(r"\s*deposit_refused: (" + "|".join(CALL_CODES) + r")\s*")
 _MAC_ENTRY = "_maisecrets_binding_mac"
+# deposit_any_field (section 6.1.5): the personal types whose placeholder may stand in any string of a listed tool's
+# call. maisecrets applies the intersection with the gateway's list, so a gateway can narrow it; only `all_types` as
+# the JSON boolean true widens it to every class. Else ID_NUMBER, CARD, SECRET and every type not named here stay
+# strict (deposit_targets only)
+ANY_FIELD_TYPES = frozenset({"ADDRESS", "BIRTH_DATE", "EMAIL", "IBAN", "IP", "IPV6", "NAME", "PHONE", "USERNAME"})
+# an own rule, a term, an import and a model's finding stay strict whatever type they carry
+STRICT_KINDS = ("user:", "term:", "import:", "remote:")
+# a later match of an own rule or an import marks an entry that a built-in rule stored strict (Vault.put, put_many);
+# a model's later finding does not: the name service finds most names that a rule found before
+MARKS_STRICT = ("user:", "import:")
 
 
 class Refused(_VaultRefused):
@@ -250,8 +263,79 @@ def fields(block: object, origin: str | None) -> dict | None:
         if not isinstance(paths, list) or not paths or not all(_segments(p) is not None for p in paths):
             return None
         targets.append({"tool": t["tool"], "when": dict(when), "paths": list(paths)})
-    return {"deposit_endpoint": block["deposit_endpoint"], "deposit_profile": PROFILE, "deposit_scope": scope,
-            "deposit_max_lifetime": life, "deposit_targets": targets}
+    out = {"deposit_endpoint": block["deposit_endpoint"], "deposit_profile": PROFILE, "deposit_scope": scope,
+           "deposit_max_lifetime": life, "deposit_targets": targets}
+    free = any_field(block.get("deposit_any_field"))
+    if free:
+        out["deposit_any_field"] = free
+    return out
+
+
+def any_field(raw: object) -> dict | None:
+    """The `deposit_any_field` of the metadata, narrowed to ANY_FIELD_TYPES; None when it is absent or has a wrong
+    shape. A wrong shape drops only this field: deposit_targets still apply. `actions` names, per tool, the actions
+    that take a personal value; when it is missing or no object, no tool gets one, and a tool whose entry is no list
+    of strings gets none either."""
+    if not isinstance(raw, dict):
+        return None
+    types, tools = raw.get("types"), raw.get("tools")
+    if not isinstance(types, list) or not isinstance(tools, list) or len(types) > 64 or len(tools) > MAX_TARGETS:
+        return None
+    if not all(isinstance(t, str) for t in types) or not all(isinstance(t, str) and TOOL_RE.fullmatch(t)
+                                                             for t in tools):
+        return None
+    acts = raw.get("actions")
+    if not isinstance(acts, dict) or len(acts) > MAX_TARGETS:
+        acts = {}
+    actions = {t: sorted(set(names)) for t, names in acts.items()
+               if isinstance(names, list) and len(names) <= MAX_TARGETS and all(isinstance(a, str) for a in names)}
+    # all_types: only the JSON boolean true lets every class through (a string "true", 1 or null keeps the 9 types)
+    return {"types": sorted(ANY_FIELD_TYPES.intersection(types)), "tools": sorted(set(tools)), "actions": actions,
+            "all_types": raw.get("all_types") is True}
+
+
+ACTION_LINE = "this action of the connector does not take a stored value; it was not sent"
+
+
+def listed_action(free: dict, name: str, args: object) -> bool:
+    """The call's `action` argument is a string that `actions[name]` lists (section 6.1.5)."""
+    acts = (free.get("actions") or {}).get(name)
+    act = args.get("action") if isinstance(args, dict) else None
+    return isinstance(acts, list) and isinstance(act, str) and act in acts
+
+
+def class_of(key: object) -> str | None:
+    """The type of a canonical key (EMAIL_c3 -> EMAIL, BIRTH_DATE_c2 -> BIRTH_DATE) by the split of section 5.1; None
+    for a key outside that form."""
+    m = _KEY_RE.fullmatch(key) if isinstance(key, str) else None
+    return m.group(1) if m else None
+
+
+def any_field_class(vault, placeholder: str, every: bool = False) -> str | None:
+    """The class of a placeholder for deposit_any_field: the type of its vault entry, never text the model wrote. None
+    (strict) when the entry is missing, purged or weak (a word, the plugin's own name, a model's finding), or when its
+    stored type differs from the prefix of the key. Without `every` (the gateway's all_types) also None for an own
+    rule, a term, an import, a model's finding and an entry with the strict mark of a later own rule or import."""
+    key = key_of(placeholder)
+    meta = vault._index.get("entries", {}).get(key) if key else None
+    if not isinstance(meta, dict) or meta.get("purged") or meta.get("weak"):
+        return None
+    kind = meta.get("type")
+    if not isinstance(kind, str) or kind != class_of(key):
+        return None
+    if every:
+        return kind
+    if meta.get("strict"):
+        return None
+    if str(meta.get("kind", "")).startswith(STRICT_KINDS):
+        return None
+    return kind
+
+
+def _in_a_key(node: object) -> bool:
+    if isinstance(node, dict):
+        return any(REF_RE.search(k) or _in_a_key(v) for k, v in node.items())
+    return isinstance(node, list) and any(_in_a_key(x) for x in node)
 
 
 def _cache_path():
@@ -259,9 +343,21 @@ def _cache_path():
     return HOME / "sref" / "deposit-metadata.json"
 
 
-def metadata(cfg: dict, url: str, deadline: float) -> dict:
+def _meta_mac(backend, url: str, t: object, found: object, create: bool) -> str | None:
+    """The MAC of a kept metadata copy, with the binding key in the store (seal, D7): a copy that a process changed
+    without that key is read again from the gateway. None when the store holds no key and `create` is False."""
+    from .vault_refs import profile
+    k = _mac_key(backend, create)
+    if k is None:
+        return None
+    blob = json.dumps(["maisecrets-deposit-metadata-1", profile(), url, t, found], sort_keys=True)
+    return hmac.new(k, blob.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def metadata(cfg: dict, url: str, deadline: float, backend=None) -> dict:
     """The gateway's discovery record with usable deposit fields, read over the direct channel (sref_client.discover)
-    and kept at most an hour. A copy older than that is read again; a failed read refuses and never extends it."""
+    and kept at most an hour. A copy older than that is read again; a failed read refuses and never extends it. The
+    copy carries a MAC with the binding key (_meta_mac); a copy whose MAC does not match is read again."""
     from . import sref_client
     from .vault import atomic_write
     from .vault_refs import origin_of
@@ -275,7 +371,9 @@ def metadata(cfg: dict, url: str, deadline: float) -> dict:
     data = data if isinstance(data, dict) else {}
     kept = data.get(url) if isinstance(data.get(url), dict) else {}
     t, found = kept.get("t"), kept.get("found")
-    if isinstance(t, (int, float)) and not isinstance(t, bool) and now - METADATA_TTL < t <= now + 60 \
+    mac = _meta_mac(backend, url, t, found, False) if backend is not None else None
+    if isinstance(mac, str) and isinstance(kept.get("mac"), str) and hmac.compare_digest(mac, kept["mac"]) \
+            and isinstance(t, (int, float)) and not isinstance(t, bool) and now - METADATA_TTL < t <= now + 60 \
             and sref_client._same_origin(found, origin) and isinstance(found, dict) \
             and fields(found.get("deposit"), origin) == found.get("deposit") and found.get("deposit"):
         return found
@@ -287,6 +385,11 @@ def metadata(cfg: dict, url: str, deadline: float) -> dict:
     data = {u: v for u, v in data.items() if isinstance(v, dict) and isinstance(v.get("t"), (int, float))
             and now - METADATA_TTL < v["t"] <= now + 60}
     data[url] = {"t": now, "found": found}
+    if backend is not None:
+        try:
+            data[url]["mac"] = _meta_mac(backend, url, now, found, True)
+        except Exception:  # noqa: BLE001 - without a MAC the copy is read again next time
+            pass
     try:
         _cache_path().parent.mkdir(parents=True, exist_ok=True)
         atomic_write(_cache_path(), json.dumps(data))
@@ -479,7 +582,7 @@ def _deposit(payload: dict, cfg: dict, tool: str, tool_input: dict, found: list,
     if not sref_client.logged_in(backend, origin):                                    # 6.1.3
         raise Refused(f"maisecrets has no login at {host}; the person types /maisecrets sref login {key}")
     deadline = start + BUDGET                                                         # 6.4
-    meta = metadata(cfg, url, deadline)                                               # 6.1.4
+    meta = metadata(cfg, url, deadline, backend)                                      # 6.1.4
     dep = meta["deposit"]
     granted = str(sref_client._load(backend, origin).get("scope") or "").split()
     if dep["deposit_scope"] not in granted:
@@ -489,12 +592,26 @@ def _deposit(payload: dict, cfg: dict, tool: str, tool_input: dict, found: list,
     if not TOOL_RE.fullmatch(name):
         raise Refused("the tool name has no form a gateway lists")
     places = occurrences(tool_input)                                                  # 6.1.5
+    if _in_a_key(tool_input):
+        raise Refused("a placeholder stands in a key of the arguments, and a deposit takes only a string value")
     targets = matching_targets(dep["deposit_targets"], name, tool_input)
-    if not places or not targets:
+    free = dep.get("deposit_any_field") or {}
+    listed_tool = name in free.get("tools", ())
+    free_tool = listed_tool and listed_action(free, name, tool_input)
+    every = free.get("all_types") is True                  # every class, on a listed tool and action only
+    if not places or not (targets or listed_tool):
         raise Refused(f"{host} takes no deposit for this call of {name}")
-    for pointer, segs, _a, _b, _ph in places:
-        if not any(_path_matches(p, segs) for t in targets for p in t["paths"]):
-            raise Refused(f"{host} takes no deposit at {pointer} of {name}")
+    loose = set()                      # the keys that stand outside a target's paths, by their class
+    for pointer, segs, _a, _b, ph in places:
+        if any(_path_matches(p, segs) for t in targets for p in t["paths"]):
+            continue
+        cls = any_field_class(vault, ph, every)
+        if listed_tool and cls is not None and (every or cls in free.get("types", ())):
+            if not free_tool:          # an action that actions[name] does not list: refused before any deposit
+                raise Refused(ACTION_LINE)
+            loose.add(key_of(ph))
+            continue
+        raise Refused(f"{host} takes no deposit at {pointer} of {name}")
     if HANDLE_MARK in json.dumps(tool_input, ensure_ascii=False):                     # 6.1.6
         raise Refused("the arguments already hold a deposit handle")
     for t in dep["deposit_targets"]:
@@ -535,6 +652,8 @@ def _deposit(payload: dict, cfg: dict, tool: str, tool_input: dict, found: list,
         if not MIN_BYTES <= len(value.encode("utf-8")) <= MAX_BYTES:          # the value changed since
             raise Refused(f"⟦{k}⟧ has {len(value.encode('utf-8'))} bytes, and a deposit takes "
                           f"{MIN_BYTES} to {MAX_BYTES}")
+        if k in loose and "\u27e6sref:" in value:     # the only guard of a gateway reference (not weak since !639)
+            raise Refused(f"⟦{k}⟧ holds a reference of a gateway, and such a value goes only to a target's path")
         values[k] = value
     stop = hooks._unnoted(cfg, hooks._note_destinations(cfg, payload, tool, tool_input, keys), keys,
                           "The call did not run.")                                    # C23
@@ -583,8 +702,11 @@ def _line(code: str, keys: list) -> str:
         "expired": f"the deposit for {names} expired before the call ran. Call the tool again.",
         "used": f"the gateway took the deposit for {names} as used already. Call the tool again.",
         "unknown_handle": f"the gateway knows no deposit for {names} for this account. Call the tool again.",
-        "binding_mismatch": f"the call did not match the deposit for {names}, so the gateway did not run it. Do not "
-                            "change the call to get around this; tell the user.",
+        "binding_mismatch": f"the gateway did not run this call with {names}, and the value was not sent. Either "
+                            "the call did not match its deposit, or this action of the connector does not take a "
+                            "stored value: an action that encodes its body (for example a Gmail send) or an action "
+                            "whose fields go into the URL. Do not change the call to get around this; tell the "
+                            "user.",
         "unavailable": "the deposit store of the gateway did not answer, so the call did not run. Try again later.",
     }[code]
 

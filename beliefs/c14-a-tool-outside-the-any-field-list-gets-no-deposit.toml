@@ -1,0 +1,11 @@
+# c14-a-tool-outside-the-any-field-list-gets-no-deposit: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-a-tool-outside-the-any-field-list-gets-no-deposit"
+control = "C14"
+serves = ["M3.8"]
+statement = '''A personal placeholder outside a target's paths gets a deposit only for a tool that `deposit_any_field` lists, compared after the exact prefix of the bound connector.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_a_tool_outside_the_list_is_refused"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    listed_tool = name in free.get("tools", ())'''
+replace = '''    listed_tool = bool(free)'''

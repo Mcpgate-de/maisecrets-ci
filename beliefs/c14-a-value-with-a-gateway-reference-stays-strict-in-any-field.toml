@@ -1,0 +1,11 @@
+# c14-a-value-with-a-gateway-reference-stays-strict-in-any-field: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-a-value-with-a-gateway-reference-stays-strict-in-any-field"
+control = "C14"
+serves = ["M3.8"]
+statement = '''A stored value that holds a gateway reference stays strict also when its entry carries no weak mark.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_a_value_with_a_gateway_reference_stays_strict"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''        if k in loose and "\u27e6sref:" in value:'''
+replace = '''        if False:'''

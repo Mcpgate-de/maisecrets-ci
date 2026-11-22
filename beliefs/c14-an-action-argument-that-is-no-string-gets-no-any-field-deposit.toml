@@ -1,0 +1,11 @@
+# c14-an-action-argument-that-is-no-string-gets-no-any-field-deposit: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-an-action-argument-that-is-no-string-gets-no-any-field-deposit"
+control = "C14"
+serves = ["M3.8"]
+statement = '''A call whose `action` argument is no string (a list, a number) gets no any-field deposit.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_an_action_argument_that_is_no_string_is_refused"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    return isinstance(acts, list) and isinstance(act, str) and act in acts'''
+replace = '''    return isinstance(acts, list) and any(a in acts for a in (act if isinstance(act, list) else [act]))'''

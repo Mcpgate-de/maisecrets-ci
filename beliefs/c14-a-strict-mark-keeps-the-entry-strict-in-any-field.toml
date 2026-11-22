@@ -1,0 +1,11 @@
+# c14-a-strict-mark-keeps-the-entry-strict-in-any-field: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-a-strict-mark-keeps-the-entry-strict-in-any-field"
+control = "C14"
+serves = ["M3.8"]
+statement = '''The deposit reads the strict mark of a vault entry: a marked entry has no any-field class, whatever its first kind.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_a_later_own_rule_match_marks_a_stored_entry_strict"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    if meta.get("strict"):'''
+replace = '''    if False:'''

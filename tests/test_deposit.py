@@ -213,10 +213,11 @@ class _Base(unittest.TestCase):
         return {"action": "create_webhook", "project": "group/app", "url": "https://hooks.example.com/in",
                 "token": self.ref, **change}
 
-    def pre(self, tool_input: dict | None = None, call: str = "t1", tool: str = TOOL, server: object = SERVER) -> dict:
+    def pre(self, tool_input: dict | None = None, call: str = "t1", tool: str = TOOL, server: object = SERVER,
+            extra: dict | None = None) -> dict:
         hooks._live_cache.clear()
         payload = {"tool_name": tool, "tool_input": tool_input or self.args(), "session_id": "s1",
-                   "tool_use_id": call, "transcript_path": "", **CLAUDE}
+                   "tool_use_id": call, "transcript_path": "", **CLAUDE, **(extra or {})}
         if server is not None:
             payload["mcp_server"] = server
         out = hooks.pre_tool(payload)
@@ -279,6 +280,14 @@ class DepositHookTests(_Base):
         self.assertRegex(hso["updatedInput"]["token"], D.HANDLE_RE.pattern)
         self.assertIn(self.ref, hso["permissionDecisionReason"])
         self.assertIn("went to 127.0.0.1", hso["permissionDecisionReason"])
+
+    def test_in_auto_mode_the_person_is_asked_for_a_deposit_call(self):
+        self.bind()
+        hso = self.pre(extra={"permission_mode": "auto"})
+        self.assertEqual(hso["permissionDecision"], "ask", "auto mode would deny a changed MCP input (#31)")
+        self.assertRegex(hso["updatedInput"]["token"], D.HANDLE_RE.pattern)
+        self.assertEqual(len(self.srv.deposit_requests), 1)
+        self.assertNotIn("permissionDecision", self.pre(call="t2"), "with automatic and no auto mode no question")
 
     def test_block_refuses_before_any_value_leaves(self):
         self.write_config({"rehydration": "block"})
@@ -438,6 +447,8 @@ class DepositHookTests(_Base):
         path = HOME / "sref" / "deposit-metadata.json"
         data = json.loads(path.read_text())
         data[self.url]["t"] = time.time() - 3601
+        # signed again, so only the age decides (an unsigned copy is read again for its MAC alone)
+        data[self.url]["mac"] = D._meta_mac(self.backend, self.url, data[self.url]["t"], data[self.url]["found"], False)
         path.write_text(json.dumps(data))
         self.srv.deposit_fields = {"deposit_profile": "deposit-9"}       # the gateway switched the deposit off
         self.assert_refused(self.pre(call="c"), "offers no deposit")
@@ -558,6 +569,408 @@ class DepositHookTests(_Base):
                 out = hooks.post_tool_failure({"tool_name": TOOL, "tool_use_id": call, "session_id": "s1",
                                                "mcp_server": SERVER, "tool_input": {}, "error": error, **CLAUDE})
                 self.assertNotIn("expired before the call ran", json.dumps(out))
+
+
+MAIL = "anyfield.person@example.com"          # synthetic, example.com
+ANY_TOOL = "gitlab_write_actions"
+
+
+class AnyFieldShapeTests(unittest.TestCase):
+    """deposit_any_field of the metadata: a wrong shape drops the field alone, and the gateway can only narrow."""
+    ORIGIN = "https://gateway.example.com"
+
+    def block(self, free: object) -> dict:
+        return {"deposit_endpoint": self.ORIGIN + "/d", "deposit_profile": "deposit-1",
+                "deposit_scope": "sensitive-references.deposit",
+                "deposit_targets": [{"tool": ANY_TOOL, "paths": ["/token"]}], "deposit_any_field": free}
+
+    def test_a_wrong_any_field_is_ignored_and_the_targets_stay(self):
+        for free in ([], "EMAIL", {"types": "EMAIL", "tools": [ANY_TOOL]}, {"types": ["EMAIL"]},
+                     {"types": ["EMAIL"], "tools": ANY_TOOL}, {"types": [1], "tools": [ANY_TOOL]},
+                     {"types": ["EMAIL"], "tools": [7]}, {"types": ["EMAIL"], "tools": ["a tool"]},
+                     {"types": ["EMAIL"] * 65, "tools": [ANY_TOOL]}):
+            with self.subTest(free=str(free)[:60]):
+                got = D.fields(self.block(free), self.ORIGIN)
+                self.assertIsNotNone(got, "the deposit stays usable")
+                self.assertNotIn("deposit_any_field", got)
+                self.assertEqual(got["deposit_targets"], [{"tool": ANY_TOOL, "when": {}, "paths": ["/token"]}])
+
+    def test_the_gateway_can_narrow_the_list_and_never_widen_it(self):
+        wide = ["EMAIL", "SECRET", "CARD", "ID_NUMBER", "FUTURE_TYPE", "PHONE"]
+        got = D.fields(self.block({"types": wide, "tools": ["b", ANY_TOOL]}), self.ORIGIN)
+        self.assertEqual(got["deposit_any_field"], {"types": ["EMAIL", "PHONE"], "tools": ["b", ANY_TOOL],
+                                                    "actions": {}, "all_types": False})
+        self.assertEqual(D.fields(got, self.ORIGIN), got, "a kept copy passes the same check")
+
+    def test_missing_or_malformed_actions_allow_no_action(self):
+        base = {"types": ["EMAIL"], "tools": [ANY_TOOL]}
+        for acts in (None, [ANY_TOOL], "create_issue", {ANY_TOOL: "create_issue"}, {ANY_TOOL: ["create_issue", 1]},
+                     {ANY_TOOL: None}):
+            with self.subTest(actions=acts):
+                free = {**base, "actions": acts} if acts is not None else base
+                got = D.fields(self.block(free), self.ORIGIN)["deposit_any_field"]
+                self.assertEqual(got["actions"], {}, "no tool has a listed action")
+                self.assertFalse(D.listed_action(got, ANY_TOOL, {"action": "create_issue"}))
+        got = D.fields(self.block({**base, "actions": {ANY_TOOL: ["update_issue", "create_issue"], "other": 7}}),
+                       self.ORIGIN)
+        self.assertEqual(got["deposit_any_field"]["actions"], {ANY_TOOL: ["create_issue", "update_issue"]},
+                         "a malformed entry drops only its own tool")
+        self.assertEqual(D.fields(got, self.ORIGIN), got, "a kept copy passes the same check")
+
+    def test_the_own_list_holds_only_personal_types(self):
+        from maisecrets.detection import personal
+        self.assertLessEqual({personal.NAME, personal.ADDRESS, personal.BIRTH_DATE, personal.USERNAME,
+                              personal.PHONE}, D.ANY_FIELD_TYPES)
+        self.assertFalse({"SECRET", "CARD", personal.ID_NUMBER} & D.ANY_FIELD_TYPES)
+
+    def test_the_class_is_the_type_before_the_last_c_and_digits(self):
+        from maisecrets.placeholder import key_of
+        for key, kind in (("BIRTH_DATE_c3", "BIRTH_DATE"), ("IPV6_c12", "IPV6"), ("X__c9", "X_"),
+                          ("EMAIL_c1", "EMAIL")):
+            with self.subTest(key=key):
+                self.assertEqual(D.class_of(key), kind)
+                self.assertIsNotNone(D.PLACEHOLDER_RE.fullmatch(OPEN + key + ":ab•••" + CLOSE))
+        # a type has no lower-case letter, so `_c1` inside a type cannot shift the split: such a key has no form
+        for key in ("A_c1_c2", "BIRTH_DATE_c3_c4", "EMAIL_c1x"):
+            with self.subTest(key=key):
+                self.assertIsNone(D.class_of(key))
+                self.assertIsNone(D.PLACEHOLDER_RE.fullmatch(OPEN + key + CLOSE))
+                self.assertIsNone(key_of(OPEN + key + CLOSE), "the placeholder module takes no such key either")
+
+    def test_a_type_has_at_most_32_characters(self):
+        for kind in ("A" * 32, "B" + "_" * 30 + "9"):
+            with self.subTest(kind=kind):
+                self.assertEqual(D.class_of(kind + "_c1"), kind)
+                self.assertIsNotNone(D.PLACEHOLDER_RE.fullmatch(OPEN + kind + "_c1" + CLOSE))
+        for kind in ("A" * 33, "B" + "_" * 31 + "9"):
+            with self.subTest(kind=kind):
+                self.assertIsNone(D.class_of(kind + "_c1"))
+                self.assertIsNone(D.PLACEHOLDER_RE.fullmatch(OPEN + kind + "_c1" + CLOSE))
+
+    def test_the_binding_mismatch_line_names_the_other_causes_and_no_value(self):
+        line = D._line("binding_mismatch", ["EMAIL_c1"])
+        self.assertIn("this action of the connector does not take a stored value", line)
+        self.assertIn("the value was not sent", line)
+        self.assertIn("encodes its body (for example a Gmail send)", line)
+        self.assertIn("fields go into the URL", line)
+        self.assertIn("tell the user", line)
+        self.assertIn("EMAIL_c1", line)
+
+
+@unittest.skipUnless(T.HAS_OPENSSL and os.name != "nt", "openssl on POSIX")
+class AnyFieldTests(_Base):
+    """Section 6.1.5 with deposit_any_field: a personal placeholder in any string value of a listed tool's call."""
+
+    def free(self, types: list | None = None, tools: list | None = None, actions: object = "default",
+             all_types: object = "absent") -> None:
+        free = {"types": types or sorted(D.ANY_FIELD_TYPES), "tools": tools or [ANY_TOOL]}
+        if all_types != "absent":
+            free["all_types"] = all_types
+        if actions == "default":
+            actions = {t: ["create_issue", "create_webhook"] for t in free["tools"]}
+        if actions is not None:
+            free["actions"] = actions
+        self.srv.deposit_fields = {"deposit_any_field": free}
+
+    def assert_action_refused(self, hso: dict) -> None:
+        self.assert_refused(hso, "this action of the connector does not take a stored value; it was not sent")
+        self.assertEqual(self.srv.deposit_requests, [])
+        self.assertNotIn("deposit 127.0.0.1", self.audit(), "refused before any deposit: no value left the computer")
+
+    def put(self, value: str, type_: str, kind: str = "manual") -> str:
+        return Vault().put(value, type_, kind, session="s1").ref
+
+    def change(self, ref: str, **meta) -> None:
+        v = Vault()
+        v._index["entries"][ref[1:-1].split(":", 1)[0]].update(meta)
+        v._save_index()
+
+    def issue(self, text: str) -> dict:
+        return {"action": "create_issue", "project": "group/app", "params": {"title": "t", "description": text}}
+
+    def test_a_personal_value_goes_into_any_string_of_a_listed_tool(self):
+        self.free()
+        self.bind()
+        mail = self.put(MAIL, "EMAIL", "email")
+        hso = self.pre(self.issue("write to " + mail + " today"))
+        text = hso["updatedInput"]["params"]["description"]
+        self.assertRegex(text, r"^write to msdep1_[A-Za-z0-9_-]{65} today$")
+        req = self.srv.deposit_requests[0]
+        self.assertEqual([(v["path"], v["value"]) for v in req["values"]], [("/params/description", MAIL)])
+        self.assertEqual(self.srv.call(ANY_TOOL, hso["updatedInput"])["params"]["description"],
+                         "write to " + MAIL + " today")
+
+    def test_a_birth_date_goes_into_any_string_of_a_listed_tool(self):
+        self.free()
+        self.bind()
+        born = self.put("1990-01-02", "BIRTH_DATE", "birth_date")
+        hso = self.pre(self.issue("born " + born))
+        self.assertRegex(hso["updatedInput"]["params"]["description"], r"^born msdep1_[A-Za-z0-9_-]{65}$")
+        req = self.srv.deposit_requests[0]
+        self.assertEqual([(v["path"], v["value"]) for v in req["values"]], [("/params/description", "1990-01-02")])
+
+    def test_without_actions_no_action_takes_a_personal_value(self):
+        self.free(actions=None)
+        self.bind()
+        self.assert_action_refused(self.pre(self.issue(self.put(MAIL, "EMAIL", "email"))))
+        self.assertIn("updatedInput", self.pre(call="t2"), "the targets still apply")
+
+    def test_malformed_actions_let_no_action_take_a_personal_value(self):
+        self.free(actions=[ANY_TOOL])
+        self.bind()
+        mail = self.put(MAIL, "EMAIL", "email")
+        self.assert_action_refused(self.pre(self.issue(mail)))
+        self.free(actions={ANY_TOOL: "create_issue"})                      # the tool's entry is no list
+        (HOME / "sref" / "deposit-metadata.json").unlink()
+        self.assert_action_refused(self.pre(self.issue(mail), call="t2"))
+
+    def test_an_action_outside_the_list_is_refused_before_the_deposit(self):
+        self.free()
+        self.bind()
+        self.assert_action_refused(self.pre({**self.issue(self.put(MAIL, "EMAIL", "email")), "action": "close_issue"}))
+
+    def test_a_call_without_an_action_argument_is_refused(self):
+        self.free()
+        self.bind()
+        args = self.issue(self.put(MAIL, "EMAIL", "email"))
+        del args["action"]
+        self.assert_action_refused(self.pre(args))
+
+    def test_an_action_argument_that_is_no_string_is_refused(self):
+        self.free()
+        self.bind()
+        self.assert_action_refused(self.pre({**self.issue(self.put(MAIL, "EMAIL", "email")),
+                                             "action": ["create_issue"]}))
+
+    def test_all_types_lets_every_class_go_on_a_listed_action(self):
+        self.free(all_types=True)
+        self.bind()
+        own = self.put("own." + MAIL, "EMAIL", "user:my-mails")
+        hso = self.pre(self.issue("key " + self.ref + " owner " + own))
+        self.assertRegex(hso["updatedInput"]["params"]["description"],
+                         r"^key msdep1_[A-Za-z0-9_-]{65} owner msdep1_[A-Za-z0-9_-]{65}$")
+        self.assertEqual(sorted(v["value"] for v in self.srv.deposit_requests[0]["values"]),
+                         sorted([VALUE, "own." + MAIL]))
+
+    def test_all_types_other_than_true_keeps_a_secret_strict(self):
+        self.bind()
+        for at in ("absent", "true", False, 1, None, {}, [1]):
+            with self.subTest(all_types=at):
+                self.free(all_types=at)
+                cache = HOME / "sref" / "deposit-metadata.json"
+                if cache.exists():
+                    cache.unlink()
+                self.assert_refused(self.pre(self.issue(self.ref), call="t-" + str(at)),
+                                    "takes no deposit at /params/description")
+        self.assertEqual(self.srv.deposit_requests, [])
+
+    def test_all_types_passes_each_strict_kind_and_the_strict_mark(self):
+        self.free(all_types=True)
+        self.bind()
+        refs = {kind: self.put(kind + "." + MAIL, "EMAIL", kind) for kind in ("term:t1", "import:i1", "remote:r1")}
+        refs["strict mark"] = self.put("marked." + MAIL, "EMAIL", "email")
+        for kind in ("remote:r1", "strict mark"):
+            self.change(refs[kind], weak=False, **({"strict": True} if kind == "strict mark" else {}))
+        for kind, ref in refs.items():
+            with self.subTest(kind=kind):
+                self.assertIsNone(D.any_field_class(Vault(), ref), "strict without all_types")
+                self.assertEqual(D.any_field_class(Vault(), ref, every=True), "EMAIL")
+
+    def test_an_unlisted_tool_stays_refused_inside_the_loop(self):
+        # the call matches a target, so the early check passes; the second placeholder needs the any-field rule
+        self.free(tools=["slack_write_actions"], all_types=True)
+        self.bind()
+        other = self.put(VALUE + "-second", "SECRET")
+        self.assert_refused(self.pre(self.args(description=other)), "takes no deposit at /description")
+        self.assertEqual(self.srv.deposit_requests, [])
+
+    def test_all_types_keeps_the_tool_list(self):
+        self.free(tools=["slack_write_actions"], all_types=True)
+        self.bind()
+        self.assert_refused(self.pre(self.issue(self.ref)), "takes no deposit for this call")
+        self.assertEqual(self.srv.deposit_requests, [])
+
+    def test_all_types_keeps_the_action_list(self):
+        self.free(all_types=True)
+        self.bind()
+        self.assert_action_refused(self.pre({**self.issue(self.ref), "action": "close_issue"}))
+
+    def test_all_types_keeps_a_weak_entry_strict(self):
+        self.free(all_types=True)
+        self.bind()
+        ref = self.put("weak." + MAIL, "EMAIL", "email")
+        self.change(ref, weak=True)
+        self.assert_refused(self.pre(self.issue(ref)), "takes no deposit at /params/description")
+        self.assertEqual(self.srv.deposit_requests, [])
+
+    def test_all_types_keeps_a_value_with_a_gateway_reference_strict(self):
+        self.free(all_types=True)
+        self.bind()
+        ref = self.put(OPEN + "sref:gw:anyfield-synthetic-reference" + CLOSE, "NAME", "name")
+        self.assert_refused(self.pre(self.issue(ref)), "holds a reference of a gateway")
+        self.assertEqual(self.srv.deposit_requests, [])
+
+    def test_all_types_keeps_the_type_check(self):
+        self.free(all_types=True)
+        self.bind()
+        ref = self.put(VALUE + "-other", "SECRET")
+        self.change(ref, type="EMAIL")
+        self.assert_refused(self.pre(self.issue(ref)), "takes no deposit at /params/description")
+        self.assertNotIn("deposit 127.0.0.1", self.audit(), "no value left the computer")
+
+    def test_without_the_field_a_personal_value_stays_strict(self):
+        self.bind()
+        mail = self.put(MAIL, "EMAIL", "email")
+        self.assert_refused(self.pre(self.issue(mail)), "takes no deposit for this call")
+        self.srv.deposit_fields = {"deposit_any_field": {"types": ["EMAIL"]}}          # a wrong shape
+        (HOME / "sref" / "deposit-metadata.json").unlink()
+        self.assert_refused(self.pre(self.issue(mail)), "takes no deposit for this call")
+        self.assertEqual(self.srv.deposit_requests, [])
+        self.assertIn("updatedInput", self.pre(call="t2"), "the targets still apply")
+
+    def test_secret_card_and_id_number_stay_strict_when_the_gateway_lists_them(self):
+        self.free(types=["SECRET", "CARD", "ID_NUMBER", "EMAIL"])
+        self.bind()
+        for value, type_ in ((VALUE, "SECRET"), ("anyfield-card-synthetic", "CARD"),
+                             ("anyfield-id-synthetic", "ID_NUMBER")):
+            with self.subTest(type_=type_):
+                self.assert_refused(self.pre(self.issue(self.put(value, type_))),
+                                    "takes no deposit at /params/description")
+        self.assertEqual(self.srv.deposit_requests, [])
+
+    def test_an_own_rule_or_a_term_stays_strict(self):
+        self.free()
+        self.bind()
+        ref = self.put("own." + MAIL, "EMAIL", "user:my-mails")
+        self.assert_refused(self.pre(self.issue(ref)), "takes no deposit at /params/description")
+        self.assertEqual(self.srv.deposit_requests, [])
+        # a term is never resolved (hooks._term_keys); its class is strict too, should it ever reach a deposit
+        term = self.put("term." + MAIL, "EMAIL", "term:abc123")
+        self.assertIsNone(D.any_field_class(Vault(), term))
+        plain = self.put("plain." + MAIL, "EMAIL", "email")
+        self.assertEqual(D.any_field_class(Vault(), plain), "EMAIL")
+
+    def test_a_models_finding_stays_strict(self):
+        self.free()
+        self.bind()
+        ref = self.put("Anyfield Modelfound", "NAME", "remote:x")
+        self.change(ref, weak=False)                    # a model's finding is weak; the kind alone must hold
+        self.assert_refused(self.pre(self.issue(ref)), "takes no deposit at /params/description")
+        self.assertEqual(self.srv.deposit_requests, [])
+
+    def test_an_import_stays_strict(self):
+        self.free()
+        self.bind()
+        ref = self.put("import." + MAIL, "EMAIL", "import:abc123")
+        # an import is never resolved (hooks._term_keys); its class is strict too, should it ever reach a deposit
+        self.assertEqual(self.pre(self.issue(ref)), {})
+        self.assertIsNone(D.any_field_class(Vault(), ref))
+        self.assertEqual(self.srv.deposit_requests, [])
+
+    def test_a_later_own_rule_match_marks_a_stored_entry_strict(self):
+        self.free()
+        self.bind()
+        # a tool result: a built-in rule stored the value first, an own rule finds it later (Vault.put_many)
+        tool_ref = self.put("tool." + MAIL, "EMAIL", "email")
+        Vault().put_many([("tool." + MAIL, "EMAIL", "user:my-mails")], session="s1", tool=True)
+        self.assert_refused(self.pre(self.issue(tool_ref)), "takes no deposit at /params/description")
+        # a prompt: the same through Vault.put
+        typed_ref = self.put("typed." + MAIL, "EMAIL", "email")
+        self.assertEqual(self.put("typed." + MAIL, "EMAIL", "user:my-mails"), typed_ref, "the first kind stays")
+        self.assert_refused(self.pre(self.issue(typed_ref), call="t2"), "takes no deposit at /params/description")
+        self.assertEqual(self.srv.deposit_requests, [])
+        # a model's later finding does not mark it: the name service finds most names a rule found before
+        model_ref = self.put("model." + MAIL, "EMAIL", "email")
+        Vault().put_many([("model." + MAIL, "EMAIL", "remote:x")], session="s1", tool=True)
+        self.assertIn("updatedInput", self.pre(self.issue(model_ref), call="t3"))
+
+    def test_a_weak_entry_stays_strict(self):
+        self.free()
+        self.bind()
+        ref = self.put("weak." + MAIL, "EMAIL", "email")
+        self.change(ref, weak=True)
+        self.assert_refused(self.pre(self.issue(ref)), "takes no deposit at /params/description")
+        self.assertEqual(self.srv.deposit_requests, [])
+
+    def test_a_value_with_a_gateway_reference_stays_strict(self):
+        self.free()
+        self.bind()
+        ref = self.put(OPEN + "sref:gw:anyfield-synthetic-reference" + CLOSE, "NAME", "name")
+        self.change(ref, weak=False)                    # the normal state: a stored reference is not weak (!639)
+        self.assert_refused(self.pre(self.issue(ref)), "holds a reference of a gateway")
+        self.assertEqual(self.srv.deposit_requests, [])
+
+    def test_the_class_is_the_type_of_the_vault_entry_never_the_key_prefix(self):
+        self.free()
+        self.bind()
+        ref = self.put(VALUE + "-other", "SECRET")
+        self.change(ref, type="EMAIL")                  # the entry claims a personal type its key does not carry
+        self.assert_refused(self.pre(self.issue(ref)), "takes no deposit at /params/description")
+        self.assertNotIn("deposit 127.0.0.1", self.audit(), "no value left the computer")
+
+    def test_a_placeholder_in_an_object_key_is_refused(self):
+        self.free()
+        self.bind()
+        mail = self.put(MAIL, "EMAIL", "email")
+        self.assert_refused(self.pre({"action": "create_issue", "params": {mail: mail}}),
+                            "stands in a key of the arguments")
+        # a placeholder only in a key is no string value: the hook finds none, and the call keeps the placeholder
+        self.assertEqual(self.pre({"action": "create_issue", "params": {mail: "x"}}, call="t2"), {})
+        self.assertEqual(self.srv.deposit_requests, [])
+
+    def test_a_tool_outside_the_list_is_refused(self):
+        self.free(tools=["slack_write_actions"])
+        self.bind()
+        self.assert_refused(self.pre(self.issue(self.put(MAIL, "EMAIL", "email"))), "takes no deposit for this call")
+        self.assertEqual(self.srv.deposit_requests, [])
+        self.assertNotIn("deposit 127.0.0.1", self.audit(), "maisecrets refused it: no value left the computer")
+
+    def test_a_kept_metadata_copy_with_a_widened_list_is_read_again(self):
+        self.free(types=["EMAIL"])
+        self.bind()
+        self.assertIn("updatedInput", self.pre(self.issue(self.put(MAIL, "EMAIL", "email"))))
+        cache = HOME / "sref" / "deposit-metadata.json"
+        data = json.loads(cache.read_text(encoding="utf-8"))
+        for url, rec in data.items():                   # a process with the store key widens the kept copy (A3)
+            rec["found"]["deposit"]["deposit_any_field"]["types"].append("SECRET")
+            rec["mac"] = D._meta_mac(self.backend, url, rec["t"], rec["found"], False)
+        cache.write_text(json.dumps(data), encoding="utf-8")
+        self.assert_refused(self.pre(self.issue(self.ref), call="t2"), "takes no deposit at /params/description")
+        self.assertEqual(len(self.srv.deposit_requests), 1)
+        self.assertEqual(sum("deposit 127.0.0.1" in line for line in self.audit().splitlines()), 1,
+                         "only the deposit of the e-mail address; the secret never left the computer")
+        kept = json.loads(cache.read_text(encoding="utf-8"))
+        self.assertEqual([r["found"]["deposit"]["deposit_any_field"]["types"] for r in kept.values()], [["EMAIL"]],
+                         "the gateway's metadata was read again over the direct channel")
+
+    def test_a_kept_metadata_copy_changed_without_the_key_is_read_again(self):
+        self.free()
+        self.bind()
+        self.assertIn("updatedInput", self.pre(self.issue(self.put(MAIL, "EMAIL", "email"))))
+        cache = HOME / "sref" / "deposit-metadata.json"
+        data = json.loads(cache.read_text(encoding="utf-8"))
+        for rec in data.values():                       # a process without the store key switches all_types on
+            self.assertIsInstance(rec.get("mac"), str)
+            rec["found"]["deposit"]["deposit_any_field"]["all_types"] = True
+        cache.write_text(json.dumps(data), encoding="utf-8")
+        self.assert_refused(self.pre(self.issue(self.ref), call="t2"), "takes no deposit at /params/description")
+        self.assertEqual(len(self.srv.deposit_requests), 1, "the secret never left the computer")
+        kept = json.loads(cache.read_text(encoding="utf-8"))
+        self.assertEqual([r["found"]["deposit"]["deposit_any_field"]["all_types"] for r in kept.values()], [False],
+                         "the gateway's metadata was read again over the direct channel")
+
+    def test_in_a_mixed_call_each_placeholder_passes_one_of_the_two_rules(self):
+        self.free()
+        self.bind()
+        mail = self.put(MAIL, "EMAIL", "email")
+        hso = self.pre(self.args(description="owner " + mail))
+        self.assertRegex(hso["updatedInput"]["token"], r"^msdep1_[A-Za-z0-9_-]{65}$")
+        self.assertRegex(hso["updatedInput"]["description"], r"^owner msdep1_[A-Za-z0-9_-]{65}$")
+        self.assertEqual(sorted(v["path"] for v in self.srv.deposit_requests[0]["values"]), ["/description", "/token"])
+        # a secret outside the target's paths fails both rules, and the whole call is refused
+        self.assert_refused(self.pre(self.args(token="x", description=self.ref + " " + mail), call="t2"),
+                            "takes no deposit at /description")
+        self.assertEqual(len(self.srv.deposit_requests), 1)
 
 
 @unittest.skipUnless(T.HAS_OPENSSL and os.name != "nt", "openssl on POSIX")

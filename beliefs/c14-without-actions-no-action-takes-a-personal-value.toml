@@ -1,0 +1,11 @@
+# c14-without-actions-no-action-takes-a-personal-value: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-without-actions-no-action-takes-a-personal-value"
+control = "C14"
+serves = ["M3.8"]
+statement = '''A `deposit_any_field` without `actions` lets no action take a personal value outside a target's paths; maisecrets refuses before any deposit, and the targets still apply.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_without_actions_no_action_takes_a_personal_value"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    free_tool = listed_tool and listed_action(free, name, tool_input)'''
+replace = '''    free_tool = listed_tool and (not free.get("actions") or listed_action(free, name, tool_input))'''

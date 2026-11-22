@@ -1,0 +1,11 @@
+# c14-a-later-own-rule-match-in-a-tool-result-marks-the-entry-strict: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-a-later-own-rule-match-in-a-tool-result-marks-the-entry-strict"
+control = "C14"
+serves = ["M3.8"]
+statement = '''When an own rule or an import finds a value in a tool result after a built-in rule stored it, the entry is marked strict and goes only to a target's path; a model's later finding does not mark it.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_a_later_own_rule_match_marks_a_stored_entry_strict"]
+
+[proof]
+file = "maisecrets/vault.py"
+find = '''                e.strict = e.strict or kind.startswith(_marks_strict())'''
+replace = '''                pass'''

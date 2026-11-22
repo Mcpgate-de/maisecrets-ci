@@ -20,7 +20,7 @@
   the values of one call for handles, with the deposit scope; `call(tool, arguments)` is the gateway's replacement at
   call time: the upstream arguments, or the tool result `deposit_refused: <code>`. The targets are the gateway's
   concrete choice (ai-gateway #2008): gitlab_write_actions with the action create_webhook or update_webhook, path
-  /token.
+  /token. A `deposit_any_field` in `deposit_fields` lets a listed type stand at any path of a listed tool.
 
 `mint(kind, value)` makes a canonical reference; `revoke(ref)` withdraws one; `withdraw()` ends the consent, so every
 token dies. Every resolve is recorded in `resolved` (sink type, destination, count; never a value). Standard library
@@ -418,7 +418,14 @@ class SrefServer:
                 or not isinstance(body.get("args_digest"), str) or not isinstance(body.get("lifetime"), int):
             return 400, {"error": "invalid_request"}
         targets = [t for t in DEPOSIT_TARGETS if t["tool"] == body.get("tool")]
-        if not all(any(v.get("path") in t["paths"] for t in targets) for v in values):
+        free = self._deposit_meta().get("deposit_any_field") or {}
+
+        def personal(v: dict) -> bool:
+            """deposit_any_field: a listed tool, and a placeholder whose type prefix the gateway lists"""
+            ph = v.get("placeholder")
+            return body.get("tool") in free.get("tools", ()) and isinstance(ph, str) \
+                and (free.get("all_types") is True or D.class_of(ph[1:-1].split(":", 1)[0]) in free.get("types", ()))
+        if not all(any(v.get("path") in t["paths"] for t in targets) or personal(v) for v in values):
             return 403, {"error": "not_a_target"}
         got = []
         for v in values:

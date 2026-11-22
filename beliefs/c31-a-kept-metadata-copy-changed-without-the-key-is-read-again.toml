@@ -1,0 +1,11 @@
+# c31-a-kept-metadata-copy-changed-without-the-key-is-read-again: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c31-a-kept-metadata-copy-changed-without-the-key-is-read-again"
+control = "C31"
+serves = ["M3.8"]
+statement = '''A kept copy of the gateway's metadata carries a MAC with the binding key in the store; a copy that a process changed without that key (for example all_types switched on) is read again over the direct channel.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_a_kept_metadata_copy_changed_without_the_key_is_read_again"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    if isinstance(mac, str) and isinstance(kept.get("mac"), str) and hmac.compare_digest(mac, kept["mac"]) \'''
+replace = '''    if True \'''

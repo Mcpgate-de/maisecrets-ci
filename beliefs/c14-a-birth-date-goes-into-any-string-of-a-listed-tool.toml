@@ -1,0 +1,11 @@
+# c14-a-birth-date-goes-into-any-string-of-a-listed-tool: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-a-birth-date-goes-into-any-string-of-a-listed-tool"
+control = "C14"
+serves = ["M3.8"]
+statement = '''A type may hold `_` (section 5.1), so a BIRTH_DATE placeholder gets a deposit in any string value of a listed tool, as the other personal types do.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_a_birth_date_goes_into_any_string_of_a_listed_tool", "tests/test_deposit.py::AnyFieldShapeTests::test_the_class_is_the_type_before_the_last_c_and_digits"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''_KEY_FORM = "([A-Z][A-Z0-9_]{0,31})_c[0-9]{1,9}"'''
+replace = '''_KEY_FORM = "([A-Z][A-Z0-9]{0,31})_c[0-9]{1,9}"'''

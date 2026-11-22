@@ -1,0 +1,11 @@
+# c14-the-any-field-class-is-the-type-of-the-vault-entry: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-the-any-field-class-is-the-type-of-the-vault-entry"
+control = "C14"
+serves = ["M3.8"]
+statement = '''The class of a placeholder is the type of its vault entry, never text the model wrote; when that type differs from the prefix of the key, the placeholder stays strict and no value leaves.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_the_class_is_the_type_of_the_vault_entry_never_the_key_prefix"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    if not isinstance(kind, str) or kind != class_of(key):'''
+replace = '''    if not isinstance(kind, str):'''

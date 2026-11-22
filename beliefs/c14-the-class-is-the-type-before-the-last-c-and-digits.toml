@@ -1,0 +1,11 @@
+# c14-the-class-is-the-type-before-the-last-c-and-digits: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-the-class-is-the-type-before-the-last-c-and-digits"
+control = "C14"
+serves = ["M3.8"]
+statement = '''The class of a key is the whole type before the last `_c<digits>`; a key with more after it, or a `_c<digits>` inside its type, has no class and no deposit form.'''
+runner = ["tests/test_deposit.py::AnyFieldShapeTests::test_the_class_is_the_type_before_the_last_c_and_digits"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    m = _KEY_RE.fullmatch(key) if isinstance(key, str) else None'''
+replace = '''    m = _KEY_RE.match(key) if isinstance(key, str) else None'''

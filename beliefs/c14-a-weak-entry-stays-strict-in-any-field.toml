@@ -1,0 +1,11 @@
+# c14-a-weak-entry-stays-strict-in-any-field: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-a-weak-entry-stays-strict-in-any-field"
+control = "C14"
+serves = ["M3.8"]
+statement = '''A weak entry (a word, the plugin's own name, a model's finding) stays strict: it goes only to a target's path.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_a_weak_entry_stays_strict"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''    if not isinstance(meta, dict) or meta.get("purged") or meta.get("weak"):'''
+replace = '''    if not isinstance(meta, dict) or meta.get("purged"):'''

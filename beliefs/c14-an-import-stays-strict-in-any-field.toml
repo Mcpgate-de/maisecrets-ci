@@ -1,0 +1,11 @@
+# c14-an-import-stays-strict-in-any-field: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-an-import-stays-strict-in-any-field"
+control = "C14"
+serves = ["M3.8"]
+statement = '''An imported value (kind `import:`) has no any-field class; it is never resolved, and it would stay strict if it reached a deposit.'''
+runner = ["tests/test_deposit.py::AnyFieldTests::test_an_import_stays_strict"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''STRICT_KINDS = ("user:", "term:", "import:", "remote:")'''
+replace = '''STRICT_KINDS = ("user:", "term:", "remote:")'''

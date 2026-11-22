@@ -1,0 +1,11 @@
+# c14-a-deposit-type-has-at-most-32-characters: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c14-a-deposit-type-has-at-most-32-characters"
+control = "C14"
+serves = ["M3.8"]
+statement = '''The type of a placeholder that takes a deposit has 1 to 32 characters; a longer type has no class and no deposit form.'''
+runner = ["tests/test_deposit.py::AnyFieldShapeTests::test_a_type_has_at_most_32_characters"]
+
+[proof]
+file = "maisecrets/deposit.py"
+find = '''_KEY_FORM = "([A-Z][A-Z0-9_]{0,31})_c[0-9]{1,9}"'''
+replace = '''_KEY_FORM = "([A-Z][A-Z0-9_]{0,32})_c[0-9]{1,9}"'''
