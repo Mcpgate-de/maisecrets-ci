@@ -570,6 +570,44 @@ class DepositHookTests(_Base):
                                                "mcp_server": SERVER, "tool_input": {}, "error": error, **CLAUDE})
                 self.assertNotIn("expired before the call ran", json.dumps(out))
 
+    def refusal_lines(self, code: str, call: str) -> tuple:
+        """The line of a gateway's `deposit_refused: <code>` in PostToolUse (the output it replaces) and in
+        PostToolUseFailure (the context next to the code), for a call that carried a deposit."""
+        self.bind()
+        self.assertTrue(self.pre(call=call)["updatedInput"])
+        refusal = "deposit_refused: " + code
+        post = hooks._post_tool_guarded({"tool_name": TOOL, "tool_use_id": call, "session_id": "s1",
+                                         "mcp_server": SERVER, "tool_input": {}, **CLAUDE,
+                                         "tool_response": {"content": [{"type": "text", "text": refusal}],
+                                                           "isError": True}})
+        failed = hooks.post_tool_failure({"tool_name": TOOL, "tool_use_id": call, "session_id": "s1",
+                                          "mcp_server": SERVER, "tool_input": {}, "error": refusal, **CLAUDE})
+        self.assertEqual(failed["hookSpecificOutput"]["hookEventName"], "PostToolUseFailure")
+        lines = (json.dumps(post["hookSpecificOutput"]["updatedToolOutput"], ensure_ascii=False),
+                 failed["hookSpecificOutput"]["additionalContext"])
+        for line in lines:
+            self.assertNotIn(VALUE, line)
+            self.assertIn(self.ref, line)
+            self.assertIn("the value was not sent", line)
+        self.assertNotIn("deposit_refused", lines[0], "the line replaces the code in PostToolUse")
+        return lines
+
+    def test_a_weak_secret_refusal_names_the_ways_out_in_both_paths(self):
+        # ai-gateway #2048: a SECRET too weak to fingerprint is refused at call time, before the upstream request
+        for line in self.refusal_lines("weak_secret", "t14"):
+            with self.subTest(line=line):
+                self.assertIn("too short or too simple to be protected on a later read", line)
+                self.assertIn("a stronger value", line)
+                self.assertIn("a directly added MCP server", line)
+
+    def test_an_unusable_fingerprint_store_says_do_not_retry_in_both_paths(self):
+        # the person's fingerprint store at the gateway does not open: only the gateway operator's reset helps
+        for line in self.refusal_lines("fingerprints_unusable", "t15"):
+            with self.subTest(line=line):
+                self.assertIn("Do not try again", line)
+                self.assertIn("ask the gateway operator to reset the store", line)
+                self.assertNotIn("Try again later", line)
+
 
 MAIL = "anyfield.person@example.com"          # synthetic, example.com
 ANY_TOOL = "gitlab_write_actions"

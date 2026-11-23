@@ -45,7 +45,8 @@ BUDGET = 5.0                   # section 6.4: the metadata read, a token renewal
 METADATA_TTL = 3600            # section 4.4
 # D9: an issuer name of a known interception CA. It catches an accidental interception; an attacker chooses the name
 INTERCEPTION_MARKS = ("interception ca", "egress gateway")
-CALL_CODES = ("expired", "unknown_handle", "binding_mismatch", "used", "unavailable")
+CALL_CODES = ("expired", "unknown_handle", "binding_mismatch", "used", "unavailable", "weak_secret",
+              "fingerprints_unusable")
 _REFUSED_RE = re.compile(r"\s*deposit_refused: (" + "|".join(CALL_CODES) + r")\s*")
 _MAC_ENTRY = "_maisecrets_binding_mac"
 # deposit_any_field (section 6.1.5): the personal types whose placeholder may stand in any string of a listed tool's
@@ -708,6 +709,12 @@ def _line(code: str, keys: list) -> str:
                             "whose fields go into the URL. Do not change the call to get around this; tell the "
                             "user.",
         "unavailable": "the deposit store of the gateway did not answer, so the call did not run. Try again later.",
+        "weak_secret": f"the gateway did not run this call with {names}, and the value was not sent: it is too short "
+                       "or too simple to be protected on a later read. Tell the user to use a stronger value, or a "
+                       "directly added MCP server for this value.",
+        "fingerprints_unusable": f"the gateway did not run this call with {names}, and the value was not sent: the "
+                                 "gateway cannot open the fingerprint store of this person. Do not try again, a retry "
+                                 "does not help. Tell the user to ask the gateway operator to reset the store.",
     }[code]
 
 

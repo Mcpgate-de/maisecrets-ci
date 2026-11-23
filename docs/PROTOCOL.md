@@ -385,4 +385,9 @@ second gateway implements it, decision D12). The client side is `maisecrets/depo
   (`confirm` asks, and the reason names the keys and the host). The audit line names the key, `deposit`, the host,
   the tool, the paths and the lifetime; a deposit counts in the limiter also when it fails.
 - **At call time.** A tool result `deposit_refused: <code>` (`isError` true) for a call that carried handles
-  becomes one line for the model in PostToolUse. maisecrets never retries by itself.
+  becomes one line for the model in PostToolUse, and the same line goes next to the code in PostToolUseFailure.
+  maisecrets never retries by itself. The codes (`deposit.CALL_CODES`): `expired`, `unknown_handle`,
+  `binding_mismatch`, `used`, `unavailable` (the store does not answer; a retry may pass), `weak_secret` (a SECRET
+  too weak for the gateway to fingerprint: the line names a stronger value or a directly added MCP server) and
+  `fingerprints_unusable` (the person's fingerprint store at the gateway does not open: the line says not to retry
+  and to ask the gateway operator to reset the store). Any other code keeps the gateway's text.

@@ -220,7 +220,11 @@ a to-do.
   `all_types` to true, every stored value, a secret, a card number and an ID number too, goes as a deposit into
   any text field of a listed action, such as the text of a ticket. A later read of that ticket through the
   connector returns the value through the proxy, and the gateway's result scrub finds only known secret formats.
-  maisecrets has no answer for this read-back yet.
+  maisecrets has no answer for this read-back of its own. Since gateway v2.0.4132 (ai-gateway #2048), the gateway
+  returns a SECRET that it took into a listed action as a Sensitive Reference when the same person reads it
+  again, and maisecrets treats that reference as any other (C31). The gateway refuses a SECRET that is too weak to
+  find again (`weak_secret`): such a value does not go into the action. Any other read-back depends on the
+  gateway's result scrub.
 - **Detection can take a secret for a personal value.** If maisecrets types a secret as a phone number or a
   name, the gateway's `deposit_any_field` lets that value go into any text field of a listed tool. A later read
   of that field through the connector passes Anthropic's proxy, and only the gateway's own result scrub masks it.
@@ -238,9 +242,10 @@ a to-do.
   call that carried a deposit handle, its tool result is `deposit_refused: <code>` with `isError: true`. Claude
   Code 2.1.330 reports such a call as failed (PostToolUseFailure, seen in the live probe of 2026-11-22), and that
   answer cannot replace the output (anthropics/claude-code#97278). So the AI sees the code itself, which holds no
-  value and no handle, and maisecrets adds its one line as context. The `error` field that maisecrets reads is
-  the text of the result's blocks, joined by a line break and trimmed, with no prefix. That form is read from the
-  2.1.330 bundle; it is not measured against a live payload of a refusal.
+  value and no handle, and maisecrets adds its one line as context. A code that maisecrets does not know reaches
+  the AI with no line. The `error` field that maisecrets reads is the text of the result's blocks, joined by a
+  line break and trimmed, with no prefix. That form is read from the 2.1.330 bundle; it is not measured against a
+  live payload of a refusal.
 - **Codex has connectors too, and maisecrets does not detect them.** Codex's `codex_apps` server (ChatGPT app
   connectors behind OpenAI's apps gateway) relays a call like a claude.ai connector. Codex sends no server source,
   so maisecrets cannot tell such a call from a direct server, and it puts the stored value in.
