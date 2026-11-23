@@ -36,6 +36,8 @@ MARK = "glpat-" + "HARNESSxxx1234567890abcd"   # matches gitlab_pat; split so th
 MAIL = "harness.person@beispiel-gmbh.de"   # not example.org: a reserved domain is no hit (0.5.15)
 MARK2 = "pa$s'w\"ord`x $(echo no) y\\z"     # no known shape; quotes, $( and spaces
 PORT = 8791
+FRONT_PORT = 8790   # harness/tls_front.py, for the Code Mode scenarios
+CODE_MODE_MODEL = "claude-opus-5-5"   # Code Mode refuses a model older than 5.5 (2.1.330)
 # the shell tool the client offers: Bash, or PowerShell on Windows without Git Bash (the CI of the
 # Windows e2e project sets it per job). A scenario that uses the other shell tool is skipped, and the
 # run fails when the client does not offer this one
@@ -146,6 +148,88 @@ SCENARIOS = {
     # <task-notification> prompt and must pass the prompt hook, because it proves itself against the session's
     # files (C19). The value arriving in the session's next request is the proof; before 0.5.15 the report was
     # blocked and the session waited for a person (2026-09-29)
+    # Code Mode (Claude Code 2.1.330, CLAUDE_CODE_EXPERIMENTAL_CODE_MODE): the model has one tool, REPL, and its script
+    # calls the tools ($ is Bash, file() and tools.Read read, write() writes). Each inner call passes PreToolUse and
+    # PostToolUse with its own tool name; the script's own output passes PostToolUse as REPL. Measured 2026-11-23
+    "code_mode_bash_output": {
+        "prompt": "print the env",
+        "code_mode": True,
+        "preload": [(MARK, "SECRET", "gitlab_pat")],
+        "files": {".env": f"TOKEN={MARK}\nMAIL={MAIL}\n"},
+        "turns": [{"tool": "REPL", "input": {"code": "const out = await $`cat .env`.text(); log(out); out"}},
+                  {"text": "done"}],
+        "expect_requests": 2,
+        "expect_placeholders": ["\u27e6SECRET_c", "\u27e6EMAIL_c"],
+    },
+    # the script makes the stored value itself (no inner call returns it): only the PostToolUse of REPL sees it
+    "code_mode_script_output": {
+        "prompt": "join the parts",
+        "code_mode": True,
+        "preload": [(MARK, "SECRET", "gitlab_pat")],
+        "turns": [{"tool": "REPL", "input": {"code": f"['{MARK[:-3]}', '{MARK[-3:]}'].join('')"}}, {"text": "done"}],
+        "expect_requests": 2,
+        "expect_placeholders": ["\u27e6SECRET_c"],
+    },
+    "code_mode_file_text": {
+        "prompt": "read the env file",
+        "code_mode": True,
+        "files": {".env": f"GITLAB_TOKEN={MARK}\nMAIL={MAIL}\n"},
+        "turns": [{"tool": "REPL", "input": {"code": "await file('.env').text()"}}, {"text": "done"}],
+        "expect_requests": 2,
+        "expect_placeholders": ["\u27e6SECRET_c", "\u27e6EMAIL_c"],
+    },
+    "code_mode_read_tool": {
+        "prompt": "read the env file",
+        "code_mode": True,
+        "files": {".env": f"GITLAB_TOKEN={MARK}\nMAIL={MAIL}\n"},
+        "turns": [{"tool": "REPL", "input": {"code": "await tools.Read({file_path: '{cwd}/.env'})"}}, {"text": "done"}],
+        "expect_requests": 2,
+        "expect_placeholders": ["\u27e6SECRET_c", "\u27e6EMAIL_c"],
+    },
+    "code_mode_rehydrate": {
+        "prompt": "use the stored token \u27e6SECRET_c1\u27e7",
+        "code_mode": True,
+        "preload": [(MARK, "SECRET", "gitlab_pat")],
+        "turns": [{"tool": "REPL", "input": {
+            "code": "await $`printf 'got:%s' '\u27e6SECRET_c1\u27e7' > used.txt; cat used.txt`.text()"}},
+            {"text": "done"}],
+        "expect_requests": 2,
+        "expect_placeholders": ["\u27e6SECRET_c1\u27e7"],
+        "expect_file": ("used.txt", f"got:{MARK}"),
+    },
+    "code_mode_write": {
+        "prompt": "use the stored token \u27e6SECRET_c1\u27e7",
+        "code_mode": True,
+        "preload": [(MARK, "SECRET", "gitlab_pat")],
+        "allowed_tools": "Bash,Read,Write",
+        "turns": [{"tool": "REPL", "input": {"code": "await write('note.txt', 'k=\u27e6SECRET_c1\u27e7')"}},
+                  {"text": "done"}],
+        "expect_requests": 2,
+        "expect_file": ("note.txt", f"k={MARK}"),
+    },
+    # a placeholder the session was not given: the inner Bash call is refused, as outside Code Mode
+    "code_mode_foreign_ref": {
+        "prompt": "run the command",
+        "code_mode": True,
+        "preload": [(MARK, "SECRET", "gitlab_pat")],
+        "turns": [{"tool": "REPL", "input": {
+            "code": "await $`printf 'got:%s' '\u27e6SECRET_c1\u27e7' > used.txt; cat used.txt`.text()"}},
+            {"text": "done"}],
+        "expect_requests": 2,
+        "expect_file": ("used.txt", "<missing>"),
+        "expect_text": "(not given in this session)",
+    },
+    # the PreToolUse hook crashes (its launcher exits 1): with "onFailure": "block" the script's call is refused
+    "code_mode_hook_crash": {
+        "prompt": "Run the check script.",
+        "code_mode": True,
+        "plugin_copy": True,
+        "crash_hook": "pre-tool",
+        "turns": [{"tool": "REPL", "input": {"code": "await $`echo ran > ran.txt`.text()"}}, {"text": "done"}],
+        "expect_requests": 2,
+        "expect_no_file": "ran.txt",
+        "expect_in_requests": ["blocking because onFailure is"],
+    },
     "subagent_report_passes": {
         "needs_notification": True,
         "prompt": "Ask a helper in the background to read the fixture, then wait for its report.",
@@ -813,6 +897,27 @@ SCENARIOS = {
 }
 
 
+def _code_mode_env(work: Path) -> dict:
+    """The environment of a Code Mode run: no ANTHROPIC_BASE_URL, the proxy and a test CA that only this run trusts."""
+    tls = work / "tls"
+    tls.mkdir()
+    ssl_cmds = [
+        ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "ca.key", "-out", "ca.pem", "-days", "1",
+         "-subj", "/CN=maisecrets harness CA", "-addext", "basicConstraints=critical,CA:TRUE",
+         "-addext", "keyUsage=critical,keyCertSign"],
+        ["req", "-newkey", "rsa:2048", "-nodes", "-keyout", "leaf.key", "-out", "leaf.csr",
+         "-subj", "/CN=api.anthropic.com"],
+    ]
+    for c in ssl_cmds:
+        subprocess.run(["openssl", *c], cwd=tls, check=True, capture_output=True)
+    (tls / "ext.cnf").write_text("subjectAltName=DNS:api.anthropic.com\nextendedKeyUsage=serverAuth\n")
+    subprocess.run(["openssl", "x509", "-req", "-in", "leaf.csr", "-CA", "ca.pem", "-CAkey", "ca.key",
+                    "-CAcreateserial", "-out", "leaf.pem", "-days", "1", "-extfile", "ext.cnf"],
+                   cwd=tls, check=True, capture_output=True)
+    return {"HTTPS_PROXY": f"http://127.0.0.1:{FRONT_PORT}", "NO_PROXY": "", "no_proxy": "",
+            "NODE_EXTRA_CA_CERTS": str(tls / "ca.pem")}
+
+
 def start_server(turns: list, out: Path) -> subprocess.Popen:
     scen = out / "scenario.json"
     scen.write_text(json.dumps({"turns": turns}))
@@ -870,6 +975,11 @@ def run_scenario(name: str, sc: dict, update_golden: bool) -> list[str]:
         # a copy the scenario may move; the checkout itself is never moved
         plugin = work / "plugin" / "maisecrets"
         shutil.copytree(ROOT, plugin, ignore=shutil.ignore_patterns(".git", "__pycache__", ".ruff_cache", "harness"))
+        if sc.get("crash_hook"):
+            # the copy's launcher crashes (exit 1) for one hook event, before it starts Python
+            launcher = plugin / "hooks" / "run.sh"
+            launcher.write_text(launcher.read_text().replace(
+                "set -u\n", f'set -u\n[ "${{1:-}}" = {sc["crash_hook"]} ] && exit 1\n', 1))
     # each path as a JSON string body: a Windows path has backslashes, which raw text turns into bad
     # escapes (measured on a GitLab-hosted Windows runner, 2026-09-29)
     def _js(p) -> str:
@@ -910,10 +1020,21 @@ def run_scenario(name: str, sc: dict, update_golden: bool) -> list[str]:
         # blocked every scenario on a machine with the synced plugin (2026-09-29). Off for this home only
         (home / "guard.json").write_text(json.dumps({"expect": "off"}))
     # the copy installed from the Anthropic plugin directory has the same name, like the synced one
-    settings.write_text(json.dumps({"enabledPlugins": {"maisecrets@synced": False,
-                                                       "maisecrets@anthropic-plugin-directory": False},
-                                    "hooks": hooks_cfg}))
+    client_settings = {"enabledPlugins": {"maisecrets@synced": False, "maisecrets@anthropic-plugin-directory": False},
+                       "hooks": hooks_cfg}
+    front = None
+    if sc.get("code_mode"):
+        # Code Mode starts only from the --settings layer (flagSettings) in -p, with a model it accepts, and only
+        # when the client talks to api.anthropic.com itself (2.1.330): tls_front.py stands in for that host
+        client_settings["env"] = {"CLAUDE_CODE_EXPERIMENTAL_CODE_MODE": "1"}
+        env.update(_code_mode_env(work))
+        env.pop("ANTHROPIC_BASE_URL", None)
+    settings.write_text(json.dumps(client_settings))
     srv = start_server(turns, out)
+    if sc.get("code_mode"):
+        front = subprocess.Popen([sys.executable, str(ROOT / "harness" / "tls_front.py"), str(FRONT_PORT), str(PORT),
+                                  str(work / "tls" / "leaf.pem"), str(work / "tls" / "leaf.key")])
+        time.sleep(0.5)
     try:
         debug_log = work / "claude-debug.log"
         extra: list[str] = []
@@ -936,13 +1057,16 @@ def run_scenario(name: str, sc: dict, update_golden: bool) -> list[str]:
              # same upstream, which took the scripted turns (2.1.285, 2026-09-29: four requests instead of two)
              "--permission-mode", "default",
              "--allowedTools", sc.get("allowed_tools", "Bash,Read"), "--max-turns", str(sc.get("max_turns", 3)),
-             "--debug-file", str(debug_log), *extra, *sc.get("extra_args", [])],
+             "--debug-file", str(debug_log), *extra, *sc.get("extra_args", []),
+             *(["--model", CODE_MODE_MODEL] if sc.get("code_mode") else [])],
             cwd=cwd, env=env, capture_output=True, text=True, timeout=120,
             **({"input": json.dumps({"type": "user", "message": {"role": "user", "content": sc["stdin_content"]}})
                 + "\n"} if sc.get("stdin_content") else {"stdin": subprocess.DEVNULL}),
         )
     finally:
         srv.terminate()
+        if front is not None:
+            front.terminate()
     (out / "claude_stdout.txt").write_text(r.stdout + "\n--- stderr ---\n" + r.stderr)
     # the plugin must have loaded: Claude Code 2.1.223 rejected a manifest with `userConfig`,
     # registered 0 hooks and let every scenario run unguarded (Debian, 2026-09-26)
@@ -991,7 +1115,13 @@ def run_scenario(name: str, sc: dict, update_golden: bool) -> list[str]:
     joined = "".join(Path(b).read_text() for b in bodies)
     # every built-in tool the real client offered must be classified (harness/inventory.py)
     from inventory import offered, unclassified
-    if bodies and SHELL_TOOL not in offered([Path(b) for b in bodies]):
+    if sc.get("code_mode"):
+        # the scenario tests nothing unless Code Mode ran: REPL is then the one tool of the request
+        first = json.loads(Path(bodies[0]).read_text()) if bodies else {}
+        names = [t.get("name") for t in first.get("tools", [])]
+        if names != ["REPL"]:
+            fails.append(f"CODE MODE DID NOT START: the tools were {names[:5]} (see claude_stdout.txt for the reason)")
+    elif bodies and SHELL_TOOL not in offered([Path(b) for b in bodies]):
         fails.append(f"no {SHELL_TOOL} tool in the request bodies: the client offers another shell tool "
                      "(MAISECRETS_HARNESS_SHELL_TOOL), or the inventory check read nothing")
     for tool in unclassified("claude-code", [Path(b) for b in bodies]):
@@ -1157,6 +1287,9 @@ def run_scenario(name: str, sc: dict, update_golden: bool) -> list[str]:
         tool = payload.get("tool_name", "")
         gname = f"{ev}{'_' + tool if tool else ''}.json"
         resp = payload.get("tool_response")
+        if tool == "REPL" and isinstance(resp, dict):
+            # toolsUsed is there only when the script called a tool, error only when it threw
+            resp = {k: v for k, v in resp.items() if k not in ("toolsUsed", "error")}
         keys = {
             "top": sorted(payload),
             "tool_input": sorted((payload.get("tool_input") or {}).keys()),
@@ -1278,6 +1411,9 @@ def main() -> int:
                                                    else SHELL_TOOL)
         if wants != SHELL_TOOL:
             print(f"[SKIP] {n}: needs the {wants} tool; this client offers {SHELL_TOOL}")
+            continue
+        if SCENARIOS[n].get("code_mode") and shutil.which("openssl") is None:
+            print(f"[SKIP] {n}: needs openssl on the PATH (the test CA of the Code Mode front)")
             continue
         if SCENARIOS[n].get("needs") and shutil.which(SCENARIOS[n]["needs"]) is None:
             print(f"[SKIP] {n}: needs {SCENARIOS[n]['needs']} on the PATH")

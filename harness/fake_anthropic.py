@@ -132,6 +132,15 @@ class H(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_GET(self):
+        # what api.anthropic.com answers for an account with no policy: a Code Mode scenario reaches this server as
+        # api.anthropic.com (harness/tls_front.py), and Code Mode stays off while these two cannot be read
+        if self.path.startswith("/api/claude_code/policy_limits"):
+            self._json(200, {"restrictions": {}})
+            return
+        if self.path.startswith("/api/claude_code/settings"):
+            self.send_response(204)
+            self.end_headers()
+            return
         self._json(200, {"ok": True, "requests": _state["n"]})
 
     def _json(self, code: int, obj: dict) -> None:

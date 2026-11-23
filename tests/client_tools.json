@@ -18,6 +18,7 @@
       "ReadMcpResourceDirTool": {"class": "mcp-resource", "field": "uri", "why": "lists and reads resources under a URI"},
       "ListMcpResourcesTool": {"class": "no-path", "why": "lists the resource names a server offers, no content"},
       "Agent": {"class": "no-path", "why": "a subagent's own tool calls pass the same hooks"},
+      "REPL": {"class": "no-path", "why": "Code Mode's one tool (2.1.330): its script's calls pass PreToolUse and PostToolUse as Bash, Read, Write or Edit, and its output passes PostToolUse as REPL"},
       "Task": {"class": "no-path", "why": "older name of Agent"},
       "Workflow": {"class": "no-path", "why": "the agents it starts pass the same hooks"},
       "ToolSearch": {"class": "no-path", "why": "loads the schema of a deferred tool by its name; 2.1.309"},
