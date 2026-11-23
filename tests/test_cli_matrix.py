@@ -1737,7 +1737,7 @@ class TipsTests(unittest.TestCase):
             (tip,) = [t for t in pool if "rules for the tokens of your own services" in t]
             self.assertIn(step, tip)
             self.assertIn('README "Rules of your own"', tip)
-        self.assertIn('<a name="rules-of-your-own"></a>', readme, "the tip names a README section that exists")
+        self.assertIn("\n### Rules of your own\n", readme, "the tip names a README heading that exists")
         self.assertIn("\n## Rules of your own\n", admin, "and the README heading links to the section")
 
     def test_each_pool_and_the_first_start_name_the_skill_for_what_leaked_before_in_a_form_of_its_client(self):

@@ -190,14 +190,132 @@ Apache-2.0. The licensor is named in `NOTICE`; the vendored rule sets carry thei
 
 ## Moved sections
 
-These sections moved. An old link to one of them lands here.
+The sections below moved to the documents by reader. Each heading keeps the old link to its section.
 
-**docs/USING.md:** <a name="quick-start"></a>[Quick start](docs/USING.md#quick-start) · <a name="what-it-looks-like"></a>[What it looks like](docs/USING.md#what-it-looks-like) · <a name="secret-hygiene-skill"></a>[Secret hygiene skill](docs/USING.md#secret-hygiene-skill) · <a name="options"></a>[Options](docs/USING.md#options) · <a name="settings-you-decide"></a>[Settings you decide](docs/USING.md#settings-you-decide) · <a name="where-your-secrets-went"></a>[Where your secrets went](docs/USING.md#where-your-secrets-went) · <a name="vault"></a>[Vault](docs/USING.md#vault) · <a name="check-a-value-first-ms"></a>[Check a value first: ms:(…)](docs/USING.md#check-a-value-first-ms) · <a name="handing-a-value-to-claude-on-purpose"></a>[Handing a value to Claude on purpose](docs/USING.md#handing-a-value-to-claude-on-purpose) · <a name="reporting-a-wrong-detection"></a>[Reporting a wrong detection](docs/USING.md#reporting-a-wrong-detection) · <a name="reporting-an-internal-failure"></a>[Reporting an internal failure](docs/USING.md#reporting-an-internal-failure) · <a name="test-data-that-maisecrets-leaves-alone"></a>[Test data that maisecrets leaves alone](docs/USING.md#test-data-that-maisecrets-leaves-alone) · <a name="pdfs-and-images"></a>[PDFs and images](docs/USING.md#pdfs-and-images) · <a name="terms-names-case-numbers-customer-names"></a>[Terms: names, case numbers, customer names](docs/USING.md#terms-names-case-numbers-customer-names)
+### Quick start
 
-**docs/HOW-IT-WORKS.md:** <a name="how-it-works"></a>[How it works](docs/HOW-IT-WORKS.md#how-it-works) · <a name="status"></a>[Status](docs/HOW-IT-WORKS.md#status) · <a name="what-the-plugin-runs-sends-and-fetches"></a>[What the plugin runs, sends and fetches](docs/HOW-IT-WORKS.md#what-the-plugin-runs-sends-and-fetches) · <a name="invisible-characters"></a>[Invisible characters](docs/HOW-IT-WORKS.md#invisible-characters) · <a name="disguised-values-in-tool-results"></a>[Disguised values in tool results](docs/HOW-IT-WORKS.md#disguised-values-in-tool-results) · <a name="password-exports-in-tool-results"></a>[Password exports in tool results](docs/HOW-IT-WORKS.md#password-exports-in-tool-results) · <a name="gates-around-a-resolve"></a>[Gates around a resolve](docs/HOW-IT-WORKS.md#gates-around-a-resolve) · <a name="detection-rules"></a>[Detection rules](docs/HOW-IT-WORKS.md#detection-rules)
+Moved to [docs/USING.md](docs/USING.md#quick-start).
 
-**docs/CLIENTS.md:** <a name="client-support"></a>[Client support](docs/CLIENTS.md#client-support)
+### How it works
 
-**docs/ADMIN.md:** <a name="for-administrators"></a>[For administrators](docs/ADMIN.md#for-administrators) · <a name="ssh-consent-optional"></a>[SSH consent (optional)](docs/ADMIN.md#ssh-consent-optional) · <a name="rehydration-policy-optional"></a>[Rehydration policy (optional)](docs/ADMIN.md#rehydration-policy-optional) · <a name="rules-of-your-own"></a>[Rules of your own](docs/ADMIN.md#rules-of-your-own) · <a name="values-from-your-own-tools"></a>[Values from your own tools](docs/ADMIN.md#values-from-your-own-tools) · <a name="vault-references"></a>[Vault references](docs/ADMIN.md#vault-references) · <a name="sensitive-references"></a>[Sensitive References](docs/ADMIN.md#sensitive-references) · <a name="names-from-a-service-optional"></a>[Names from a service (optional)](docs/ADMIN.md#names-from-a-service-optional)
+Moved to [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md#how-it-works).
 
-**docs/KNOWN-GAPS.md:** <a name="known-gaps-measured-or-documented"></a>[Known gaps (measured or documented)](docs/KNOWN-GAPS.md#known-gaps-measured-or-documented)
+### What it looks like
+
+Moved to [docs/USING.md](docs/USING.md#what-it-looks-like).
+
+### Status
+
+Moved to [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md#status).
+
+### Client support
+
+Moved to [docs/CLIENTS.md](docs/CLIENTS.md#client-support).
+
+### For administrators
+
+Moved to [docs/ADMIN.md](docs/ADMIN.md#for-administrators).
+
+### What the plugin runs, sends and fetches
+
+Moved to [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md#what-the-plugin-runs-sends-and-fetches).
+
+### Secret hygiene skill
+
+Moved to [docs/USING.md](docs/USING.md#secret-hygiene-skill).
+
+### Options
+
+Moved to [docs/USING.md](docs/USING.md#options).
+
+### Settings you decide
+
+Moved to [docs/USING.md](docs/USING.md#settings-you-decide).
+
+### Where your secrets went
+
+Moved to [docs/USING.md](docs/USING.md#where-your-secrets-went).
+
+### Vault
+
+Moved to [docs/USING.md](docs/USING.md#vault).
+
+### Check a value first: ms:(…)
+
+Moved to [docs/USING.md](docs/USING.md#check-a-value-first-ms).
+
+### Handing a value to Claude on purpose
+
+Moved to [docs/USING.md](docs/USING.md#handing-a-value-to-claude-on-purpose).
+
+### Invisible characters
+
+Moved to [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md#invisible-characters).
+
+### Disguised values in tool results
+
+Moved to [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md#disguised-values-in-tool-results).
+
+### Password exports in tool results
+
+Moved to [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md#password-exports-in-tool-results).
+
+### Reporting a wrong detection
+
+Moved to [docs/USING.md](docs/USING.md#reporting-a-wrong-detection).
+
+### Reporting an internal failure
+
+Moved to [docs/USING.md](docs/USING.md#reporting-an-internal-failure).
+
+### Gates around a resolve
+
+Moved to [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md#gates-around-a-resolve).
+
+### SSH consent (optional)
+
+Moved to [docs/ADMIN.md](docs/ADMIN.md#ssh-consent-optional).
+
+### Rehydration policy (optional)
+
+Moved to [docs/ADMIN.md](docs/ADMIN.md#rehydration-policy-optional).
+
+### Test data that maisecrets leaves alone
+
+Moved to [docs/USING.md](docs/USING.md#test-data-that-maisecrets-leaves-alone).
+
+### Detection rules
+
+Moved to [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md#detection-rules).
+
+### Rules of your own
+
+Moved to [docs/ADMIN.md](docs/ADMIN.md#rules-of-your-own).
+
+### PDFs and images
+
+Moved to [docs/USING.md](docs/USING.md#pdfs-and-images).
+
+### Terms: names, case numbers, customer names
+
+Moved to [docs/USING.md](docs/USING.md#terms-names-case-numbers-customer-names).
+
+### Values from your own tools
+
+Moved to [docs/ADMIN.md](docs/ADMIN.md#values-from-your-own-tools).
+
+### Vault references
+
+Moved to [docs/ADMIN.md](docs/ADMIN.md#vault-references).
+
+### Sensitive References
+
+Moved to [docs/ADMIN.md](docs/ADMIN.md#sensitive-references).
+
+### Names from a service (optional)
+
+Moved to [docs/ADMIN.md](docs/ADMIN.md#names-from-a-service-optional).
+
+### Known gaps (measured or documented)
+
+Moved to [docs/KNOWN-GAPS.md](docs/KNOWN-GAPS.md#known-gaps-measured-or-documented).
