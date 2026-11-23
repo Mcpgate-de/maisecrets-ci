@@ -2,7 +2,8 @@
 passes (hooks._carries, shell_commands.only_mentions). A mention: the text stands in quotes, a heredoc body or a
 comment, and each simple command of the line is on the allow list of programs that print, write or store a text
 (echo, printf, cat, tee, the data commands of C21, git commit and tag, gh issue and pr comment, create and edit), with
-their allowed options. Anything else is a call. PowerShell has no word parser here and refuses every mention.
+their allowed options. Anything else is a call. A refusal of a text that stands only in data says how to
+send it from a file (#104, data_hint). PowerShell has no word parser here and refuses every mention.
 
 Each guard of the same class gets both sides: settings and term removal and the name service (C22, C26), the removal
 of an import (C26), not-a-secret (C22) and the demo (C22). The ssh consent sentence (C21, frozen) keeps refusing every
@@ -23,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _isolate  # noqa: E402,F401  first: a temp vault home, never the real one
 
 from maisecrets import hooks, not_a_secret  # noqa: E402
-from maisecrets.shell_commands import only_mentions  # noqa: E402
+from maisecrets.shell_commands import DATA_HINT, only_mentions  # noqa: E402
 from maisecrets.vault import HOME  # noqa: E402
 import _hygiene  # noqa: E402
 from _hygiene import CLAUDE  # noqa: E402
@@ -57,6 +58,13 @@ def _decision(command: str, tool: str = "Bash", **cfg) -> str:
         if cfg:
             CONFIG.write_text(json.dumps({"backend": "jsonfile", "allow_plaintext_store": True}))
     return (out.get("hookSpecificOutput") or {}).get("permissionDecision", "pass")
+
+
+def _reason(command: str) -> str:
+    hooks._live_cache.clear()
+    out = hooks.pre_tool({"hook_event_name": "PreToolUse", "tool_name": "Bash", "session_id": SESSION, **CLAUDE,
+                          "tool_input": {"command": command}})
+    return (out.get("hookSpecificOutput") or {}).get("permissionDecisionReason", "")
 
 
 def _heredoc(head: str, body: str, tag: str = "EOF") -> str:
@@ -208,6 +216,112 @@ class EachRuleOfTheReader(unittest.TestCase):
         for why, command in mentions.items():
             with self.subTest(why=why):
                 self.assertTrue(self.mention(command))
+
+
+class PythonScriptsAndTheDataHint(unittest.TestCase):
+    """#104: a Python script that carries a weakening command stays refused, also when it only sends the text to an
+    HTTP API: an allow list of Python was too large a surface (an attribute chain reaches os.system, urlretrieve writes
+    a file, the working directory comes first on sys.path). When every match stands in data and the line names no
+    maisecrets entry point, no maisecrets code, no client and no shell, the refusal says how to send the text as data
+    (shell_commands.data_hint): write it to a file with the Write tool and let the command read the file."""
+
+    NER = "/maisecrets " + "ner gateway"
+    SETTINGS = "/maisecrets:" + "settings tips off"
+    RUN = '"/x/plugins/maisecrets/hooks/run.sh"'
+
+    def script(self, *lines: str) -> str:
+        return _heredoc("python3 -", "\n".join(lines))
+
+    def field(self) -> str:
+        # the field case of #104: a merge request description sent to an HTTP API
+        return self.script("import json, os, urllib.request",
+                           f"body = 'choose it with `{self.NER}`'",
+                           "req = urllib.request.Request('https://git.example/api/v4/mr', method='PUT',",
+                           "    data=json.dumps({'description': body}).encode(),",
+                           "    headers={'PRIVATE-TOKEN': os.environ['T'], 'Content-Type': 'application/json'})",
+                           "print(urllib.request.urlopen(req).status)")
+
+    def test_a_python_script_with_the_command_is_refused(self):
+        text = f"x = '{self.SETTINGS}'"
+        refused = (
+            self.field(),
+            f"python3 -c 'print(\"{self.SETTINGS}\")'",
+            # a maisecrets entry point gets the text
+            f"bash {self.RUN} entry <<'EOF'\n{self.SETTINGS}\nEOF",
+            _heredoc(f"python3 - | bash {self.RUN} user-prompt", f"print('{self.SETTINGS}')"),
+            _heredoc(f"python3 {self.RUN.replace('run.sh', 'dispatch.py')} mod-settings", self.SETTINGS),
+            "python3 -c 'import maisecrets.settings as s; s.apply" + f"_typed(\"{self.SETTINGS}\")'",
+            self.script("from maisecrets import settings", text),
+            # the script can start a program, load code or write a file
+            self.script("import subprocess", text, "subprocess.run(['codex', 'exec', x])"),
+            self.script("import os", text, "os.system('codex exec ' + x)"),
+            self.script(text, "__import__('subprocess').run(['claude', '-p', x])"),
+            self.script("import os", text, "getattr(os, 'system')(x)"),
+            self.script(text, "open('ask.txt', 'w').write(x)"),
+            # the ways around the allow list of the reverted python_data_only (review of !657)
+            self.script("import os.path", text, "os.path.os.system('ask ' + x)"),
+            self.script("import urllib.request", text, "urllib.request.os.system('ask ' + x)"),
+            self.script("import typing", text, "typing.sys.modules['os'].system('ask ' + x)"),
+            self.script("import urllib.request", text, "urllib.request.urlretrieve('data:,' + x, '/x/.bashrc')"),
+            self.script("import json", text, "print(json.dumps(x))"),     # a planted ./json.py would run
+            # the line gives the output to another program or a startup file
+            f"python3 -c 'x = \"{self.SETTINGS}\"' > ~/.bashrc",
+            self.script(text, "print(x)").replace("<<'EOF'", "<<'EOF' | codex exec -", 1),
+            # the settings file itself
+            _heredoc("cat > ~/.mai" + "secrets/config.json", '{"tips": false}'),
+        )
+        for command in refused:
+            with self.subTest(command=command):
+                self.assertEqual(_decision(command), "deny")
+
+    def test_a_text_command_that_only_writes_or_posts_the_text_passes(self):
+        for command in (f"printf '%s' 'choose it with {self.NER}' > notes.md",
+                        f"gh issue comment 104 --body 'choose it with {self.NER}'",
+                        _heredoc("gh issue comment 104 --body-file -", f"choose it with {self.NER}")):
+            with self.subTest(command=command):
+                self.assertEqual(_decision(command), "pass")
+
+    def test_the_refusal_of_data_names_the_file_route(self):
+        text = f"x = '{self.SETTINGS}'"
+        for command in (self.field(),
+                        f"python3 -c 'print(\"{self.SETTINGS}\")'",
+                        self.script("import os.path", text, "os.path.os.system('ask ' + x)"),
+                        _heredoc("node -", f"fetch('https://git.example', {{body: '{self.NER}'}})"),
+                        f"curl -d 'description=choose it with {self.NER}' https://git.example/api"):
+            with self.subTest(command=command):
+                self.assertTrue(_reason(command).endswith(DATA_HINT))
+
+    def test_no_file_route_where_the_text_runs(self):
+        text = f"x = '{self.SETTINGS}'"
+        for why, command in {
+            "a maisecrets entry point": f"bash {self.RUN} entry <<'EOF'\n{self.SETTINGS}\nEOF",
+            "dispatch.py": _heredoc(f"python3 {self.RUN.replace('run.sh', 'dispatch.py')} x", self.SETTINGS),
+            "the maisecrets code": "python3 -c 'import maisecrets.settings as s; s.apply" + "_typed(1)'",
+            "a from import of maisecrets": self.script("from maisecrets import settings", text),
+            "a module run of maisecrets": f"python3 -m maisecrets '{self.SETTINGS}'",
+            "an import of maisecrets": self.script("import maisecrets", text),
+            "an attribute of maisecrets": self.script(text, "m = maisecrets.cli"),
+            "a client": _heredoc("codex exec -", self.SETTINGS),
+            "a client in a script": self.script("import subprocess", text, "subprocess.run(['claude', '-p', x])"),
+            "a shell": f"bash -c 'echo \"{self.SETTINGS}\"'",
+            "eval": f"eval 'ask \"{self.SETTINGS}\"'",
+            "sh": f"sh -c 'echo \"{self.SETTINGS}\"'",
+            "zsh": _heredoc("zsh", f"echo '{self.SETTINGS}'"),
+            "tmux": f"tmux send-keys '{self.SETTINGS}' Enter",
+            "run.cmd": f"cmd /c run.cmd entry '{self.SETTINGS}'",
+            "the text in the code": f"ask {self.SETTINGS}",
+            "an unquoted heredoc with a substitution": f"ask <<EOF\n{self.SETTINGS} $(date)\nEOF",
+            "a carriage return": f"ask '{self.SETTINGS}'\r",
+        }.items():
+            with self.subTest(why=why):
+                reason = _reason(command)
+                self.assertTrue(reason.startswith("maisecrets:"), reason)
+                self.assertNotIn(DATA_HINT, reason)
+
+    def test_each_guard_of_its_class_gives_the_hint(self):
+        for what, text in SiblingGuards.CASES:
+            with self.subTest(what=what):
+                self.assertTrue(_reason(_heredoc("python3 -", f"print('Type {text} yourself.')")).endswith(DATA_HINT))
 
 
 class SiblingGuards(unittest.TestCase):

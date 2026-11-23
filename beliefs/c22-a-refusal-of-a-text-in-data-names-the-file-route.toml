@@ -1,0 +1,12 @@
+# c22-a-refusal-of-a-text-in-data-names-the-file-route: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c22-a-refusal-of-a-text-in-data-names-the-file-route"
+control = "C22"
+serves = ["M4.2"]
+statement = "The refusal of a weakening command that stands only in data tells the agent to write the text to a file with the Write tool; the refusal gives no such hint when the line names a maisecrets entry point, the maisecrets code, a client or a shell, because there the text runs (#104)."
+runner = ["tests/test_mention_is_no_call.py::PythonScriptsAndTheDataHint::test_the_refusal_of_data_names_the_file_route",
+          "tests/test_mention_is_no_call.py::PythonScriptsAndTheDataHint::test_no_file_route_where_the_text_runs"]
+
+[proof]
+file = "maisecrets/shell_commands.py"
+find = "    if code is None or found(code) or _RUNS_A_TEXT_RE.search(command):\n"
+replace = "    if code is None or found(code):\n"

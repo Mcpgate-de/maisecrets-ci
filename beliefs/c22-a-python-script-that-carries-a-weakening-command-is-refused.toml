@@ -1,0 +1,11 @@
+# c22-a-python-script-that-carries-a-weakening-command-is-refused: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c22-a-python-script-that-carries-a-weakening-command-is-refused"
+control = "C22"
+serves = ["M4.2"]
+statement = "A Bash call that gives a weakening command to a Python script is refused, also when the script only sends the text to an HTTP API: an allow list of Python had ways around it (an attribute chain to os.system, urlretrieve writes a file, a planted module in the working directory) (#104)."
+runner = ["tests/test_mention_is_no_call.py::PythonScriptsAndTheDataHint::test_a_python_script_with_the_command_is_refused"]
+
+[proof]
+file = "maisecrets/shell_commands.py"
+find = "_PLAIN_TEXT_CMDS = {\"cat\", \"tee\"}\n"
+replace = "_PLAIN_TEXT_CMDS = {\"cat\", \"tee\", \"python3\"}\n"

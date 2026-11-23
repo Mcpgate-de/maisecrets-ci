@@ -47,7 +47,7 @@ from .shell_commands import (  # noqa: F401
     _value_reaches, _refusal_for, _SSH_ARG_FLAGS, _SSH_REFUSED_FLAGS, _SSH_REFUSED_OPTIONS, _ssh_options, _ssh_way,
     _remote_refusal, READ_ONLY_REMOTE, _JOURNALCTL_STATEFUL, _READ_ONLY_WRAPPERS, _SORT_OK, _UNIQ_OK,
     _remote_is_read_only, _ssh_route, _HOOK_ENTRIES, _calls_a_hook_entry, _only_prints, _parse_for_consent,
-    only_mentions,
+    only_mentions, data_hint,
 )
 from .tool_output import (  # noqa: F401
     _TOKEN_SPLIT_RE, _FINE_SPLIT_RE, _EXACT_MIN_LEN, _candidates, _HEX_RE, _B64_RE, _decoded, _derived_forms,
@@ -1720,15 +1720,12 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
         return _deny(_elsewhere_reason(elsewhere) + " The command did not run.")
     from . import settings as settings_mod
     # a weakening command counts only where the line runs it; in the body of an issue comment or a commit message it
-    # is a mention (only_mentions, #84). The ssh consent sentence below keeps every mention refused (C21 is frozen)
-    if _carries(command, lambda t: bool(settings_mod.IN_A_COMMAND_RE.search(t))):
-        return _deny(_SETTINGS_IN_A_COMMAND)
-    if _carries(command, value_files.removal_in_command):
-        return _deny(value_files.IN_A_COMMAND)
-    if _carries(command, not_a_secret.in_a_command):
-        return _deny(not_a_secret.IN_A_COMMAND)
-    if _carries(command, demo.in_a_command):
-        return _deny(demo.IN_A_COMMAND)
+    # is a mention (only_mentions, #84; data_hint, #104). The ssh consent sentence keeps every mention refused (C21)
+    for found, why in ((lambda t: bool(settings_mod.IN_A_COMMAND_RE.search(t)), _SETTINGS_IN_A_COMMAND),
+                       (value_files.removal_in_command, value_files.IN_A_COMMAND),
+                       (not_a_secret.in_a_command, not_a_secret.IN_A_COMMAND), (demo.in_a_command, demo.IN_A_COMMAND)):
+        if _carries(command, found):
+            return _deny(why + data_hint(command, found))
     # ssh consent (#8), before any value is recorded or served: a refusal leaves no audit line
     if cfg.get("ssh_consent") and re.search(r"maisecrets:\s*allow\s+ssh\s+\S|allow\s+ssh\s+\S+\s+\d{6}", command,
                                            re.I):

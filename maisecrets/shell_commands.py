@@ -1109,21 +1109,17 @@ def _a_text_command(words: list[str]) -> bool:
 _SUBSTITUTION_RE = _LazyRx(r"\$\(|[<>]\(")
 
 
-def only_mentions(command: str, found) -> bool:
-    """Whether a Bash command only mentions a text that `found` matches, and does not run it (#84). A mention: each
-    match stands in data the shell hands over and never runs (inside '…' or "…", in a heredoc body or a comment the
-    parser reads for sure), the line has no substitution and no carriage return, and each simple command of the line
-    is an allowed program with allowed options that prints, writes or stores a text (_a_text_command), named as a
-    plain word with no assignment before it. A redirection to a file is allowed. `gh issue comment 29 --body-file -
-    <<'EOF'` and `git commit -m '…'` with the command in the text are mentions; anything else (`codex exec -`, a git
-    alias, `make --eval`, a pipe into another program) is a call. False when unsure: the caller then refuses."""
+def _code_of(command: str) -> str | None:
+    """The command with each text the shell surely hands over as data (inside '…' or "…", a heredoc body or a comment
+    the parser reads for sure) made blank, or None when unsure: a carriage return, a backtick, an arithmetic or an
+    unquoted heredoc, or a substitution outside '…'."""
     if "\r" in command:
-        return False
+        return None
     ctxs = _shell_contexts(command)
     if any(cx in ("backtick", "arith", "hdx") for cx in ctxs):
-        return False
+        return None
     if any(ctxs[m.start()] not in ("sq", "hdq", "comment") for m in _SUBSTITUTION_RE.finditer(command)):
-        return False
+        return None
     data = [False] * len(command)
     i = 0
     while i < len(command):
@@ -1136,9 +1132,41 @@ def only_mentions(command: str, found) -> bool:
         for k in range(i, j):
             data[k] = sure
         i = j
-    code = "".join(" " if d and ch != "\n" else ch for ch, d in zip(command, data))
+    return "".join(" " if d and ch != "\n" else ch for ch, d in zip(command, data))
+
+
+# the hint of a refusal whose text stands only in data (#104): the agent sends such a text from a file. Not given when
+# the line names a maisecrets entry point, the maisecrets code, a client that takes a prompt or a shell that runs a
+# text: there the text runs
+DATA_HINT = (" If the text is only data (an issue or a message body), write it to a file with the Write tool and let "
+             "the command read the file.")
+_RUNS_A_TEXT_RE = _LazyRx(r"run\.(?:sh|cmd)|dispatch\.py|\bmaisecrets\.|\b(?:import|from)\s+maisecrets\b|"
+                          r"-m\s*maisecrets\b|(?<![\w/.-])(?:codex|claude|eval|bash|sh|zsh|tmux)(?![\w.-])")
+
+
+def data_hint(command: str, found) -> str:
+    """DATA_HINT for a refused Bash command whose every match of `found` stands in data (_code_of) and that names no
+    maisecrets entry point and no client (_RUNS_A_TEXT_RE), else "". The command stays refused: the hint is text."""
+    code = _code_of(command)
+    if code is None or found(code) or _RUNS_A_TEXT_RE.search(command):
+        return ""
+    return DATA_HINT
+
+
+def only_mentions(command: str, found) -> bool:
+    """Whether a Bash command only mentions a text that `found` matches, and does not run it (#84). A mention: each
+    match stands in data the shell hands over and never runs (inside '…' or "…", in a heredoc body or a comment the
+    parser reads for sure), the line has no substitution and no carriage return, and each simple command of the line
+    is an allowed program with allowed options that prints, writes or stores a text (_a_text_command), named as a
+    plain word with no assignment before it. A redirection to a file is allowed. `gh issue comment 29 --body-file -
+    <<'EOF'` and `git commit -m '…'` with the command in the text are mentions; anything else (`codex exec -`, a git
+    alias, `make --eval`, a pipe into another program) is a call. False when unsure: the caller then refuses."""
+    code = _code_of(command)
+    if code is None:
+        return False
     if found(code):
         return False                    # a match in the code itself: the shell reads it as words of the command
+    ctxs = _shell_contexts(command)
     # the simple commands of the line, each a list of (word, had a quote), quotes and escapes taken out; a heredoc
     # body and a comment end a word and give none; a redirection target is no word
     commands: list[list[tuple[str, bool]]] = [[]]
