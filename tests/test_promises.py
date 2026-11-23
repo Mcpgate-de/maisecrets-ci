@@ -121,12 +121,13 @@ class LauncherFailsClosedTests(unittest.TestCase):
                 r = self.launch(event)
                 self.assertNotIn("dispatch.py ran", r.stderr)
                 said = r.stdout + r.stderr
-                if found == "none" and sys.platform == "win32" and " gave no answer in " in said:
-                    # Git Bash on a loaded windows-latest runner: twelve launches of a missing command passed the
-                    # 2 s budget, so the launcher named the candidate it was at (2026-10-19). The answer is the
-                    # same refusal; only the reason names a candidate instead of none
+                if sys.platform == "win32" and " gave no answer in " in said:
+                    # Git Bash on a loaded windows-latest runner: the probes passed the 2 s budget, so the launcher
+                    # also named the candidate it was at (2026-10-19 with no Python; 2026-11-23 after python3 3.8).
+                    # The answer is the same refusal; only the reason names one more candidate
+                    lead = "" if found == "none" else re.escape(found) + ", "
                     self.assertRegex(said, r"needs Python 3\.9 or newer on the PATH of the client "
-                                           r"\(found: [\w. -]+ gave no answer in \d+ s\)")
+                                           r"\(found: " + lead + r"[\w. -]+ gave no answer in \d+ s\)")
                 else:
                     self.assertIn(f"maisecrets needs Python 3.9 or newer on the PATH of the client (found: {found})",
                                   said)
