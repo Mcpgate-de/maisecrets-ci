@@ -12,6 +12,8 @@ the last release:
   turns red;
 - a new rule that maisecrets finds only after a label is a candidate for a prefix or signature rule
   (docs/DETECTION-COVERAGE.md, loop 2): listed, exit 0.
+- a catalog clone that gives 0 rules (its layout changed) is named with its commit: exit 1. The other catalogs
+  are still measured and written to --out.
 
 Rule ids and counts only, never an example.
 """
@@ -25,6 +27,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 RULES = ROOT / "docs" / "coverage-rules.txt"
+UNREAD = 3   # measure_catalog_coverage.py: a catalog clone gave 0 rules, the rest is written
 CATALOGS = {
     "noseyparker": ("https://github.com/praetorian-inc/noseyparker.git", None),
     "kingfisher": ("https://github.com/mongodb/kingfisher.git", "82d050530cdef9af070b8f9a75701c9c27a948c3"),
@@ -75,9 +78,12 @@ def main(argv: list) -> int:
     a = ap.parse_args(argv)
     if a.fetch:
         fetch(a.catalogs)
-    subprocess.run([sys.executable, str(ROOT / "scripts" / "measure_catalog_coverage.py"), str(a.catalogs),
-                    "--maisecrets", str(ROOT), "--out", str(a.out)], check=True)
-    rows = json.loads(a.out.read_text(encoding="utf-8"))["rules"]["maisecrets"]
+    proc = subprocess.run([sys.executable, str(ROOT / "scripts" / "measure_catalog_coverage.py"), str(a.catalogs),
+                           "--maisecrets", str(ROOT), "--out", str(a.out)])
+    if proc.returncode not in (0, UNREAD):
+        raise subprocess.CalledProcessError(proc.returncode, proc.args)
+    data = json.loads(a.out.read_text(encoding="utf-8"))
+    rows = data["rules"]["maisecrets"]
     gaps, candidates = drift(load_rules(RULES.read_text(encoding="utf-8")), rows)
     print(f"new catalog rules: {len(gaps) + len(candidates)} not found bare; "
           f"{len(gaps)} not found even after a label")
@@ -85,7 +91,9 @@ def main(argv: list) -> int:
         print(f"GAP        {c}\t{r}")
     for c, r in candidates:
         print(f"CANDIDATE  {c}\t{r}")
-    return 1 if gaps else 0
+    for c, commit in data.get("unread", {}).items():
+        print(f"UNREAD     {c}\t0 rules read at {commit[:12]}; its layout changed")
+    return 1 if gaps or data.get("unread") else 0
 
 
 if __name__ == "__main__":

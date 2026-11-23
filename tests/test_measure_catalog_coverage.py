@@ -80,12 +80,12 @@ class CatalogCoverageTests(unittest.TestCase):
             "func TestDemo(t *testing.T) {\n\ttests := []struct{ want []string }{\n"
             "\t\t{want: []string{\"" + self.token + "\"}},\n\t}\n}\n", encoding="utf-8")
 
-    def run_script(self, *extra):
+    def run_script(self, *extra, code=0):
         out = self.root / "result.json"
         r = subprocess.run([sys.executable, str(ROOT / "scripts" / "measure_catalog_coverage.py"), str(self.root),
                             "--workers", "1", "--out", str(out), *extra],
                            capture_output=True, text=True, timeout=300, cwd=ROOT)
-        self.assertEqual(r.returncode, 0, r.stderr[-2000:])
+        self.assertEqual(r.returncode, code, r.stderr[-2000:])
         return r.stdout + r.stderr, json.loads(out.read_text(encoding="utf-8")), out.read_text(encoding="utf-8")
 
     def test_counts_found_bare_and_after_a_label_and_prints_no_example(self):
@@ -112,6 +112,40 @@ class CatalogCoverageTests(unittest.TestCase):
         printed, data, _ = self.run_script("--baseline", str(ROOT))
         self.assertEqual(data["counts"]["maisecrets"], data["counts"]["baseline"])
         self.assertIn("baseline bare", printed)
+
+    def write_betterleaks(self, body: str) -> None:
+        bl = self.root / "betterleaks"
+        (bl / "config").mkdir(parents=True)
+        (bl / "rules").mkdir()
+        (bl / "config" / "betterleaks.toml").write_text(
+            '[[rules]]\nid = "demo-token.1"\nregex = \'\'\'(gh' + 'p_[0-9a-zA-Z]{36})\'\'\'\n', encoding="utf-8")
+        (bl / "rules" / "demo.go").write_text(body, encoding="utf-8")
+
+    def test_the_rulebuilder_layout_reads_the_secret_each_match_names(self):
+        if not have_tomllib():
+            self.skipTest("tomllib is Python 3.11+")
+        self.write_betterleaks(
+            "package rules\n\nvar _ = rulebuilder.Add(config.Rule{\n\tID: \"demo-token.1\",\n"
+            "\tTests: []config.RuleTest{\n"
+            f"\t\trulebuilder.Match(\"tp 1\", \"GITHUB = {self.token}\", \"{self.token}\"),\n"
+            f"\t\trulebuilder.MatchComponent(\"tp 2\", `cfg: \"{self.token}\"`, \"{self.token}\"),\n"
+            f"\t\trulebuilder.NoMatch(\"fp 1\", \"cfg = {self.word}\"),\n\t}},\n}})\n")
+        got = mcc.load_catalog("betterleaks", self.root / "betterleaks")
+        self.assertEqual([r["rule"] for r in got], ["demo-token.1"])
+        self.assertEqual([e["secret"] for e in got[0]["pos"]], [self.token, self.token])
+        self.assertNotIn(self.word, json.dumps(got))
+
+    def test_a_catalog_that_reads_0_rules_is_named_and_the_others_are_written(self):
+        if not have_tomllib():
+            self.skipTest("tomllib is Python 3.11+, and the script needs PyYAML")
+        self.write_betterleaks("package rules\n\nfunc Unknown() {}\n")     # a layout the script cannot read
+        printed, data, _ = self.run_script(code=mcc.UNREAD)
+        self.assertIn("betterleaks: 0 rules read at", printed)
+        self.assertIn("its layout changed", printed)
+        self.assertEqual(set(data["unread"]), {"betterleaks"})
+        self.assertNotIn("betterleaks", data["commits"])
+        self.assertEqual(data["counts"]["maisecrets"]["noseyparker"]["rules"], 5)
+        self.assertIn(("gitleaks", "demo-token", True, True), [tuple(r) for r in data["rules"]["maisecrets"]])
 
     def test_the_secret_is_the_part_the_catalogs_regex_reports(self):
         crx = mcc.compile_rx(r"(?i)key\s*=\s*([a-z0-9]{8})")

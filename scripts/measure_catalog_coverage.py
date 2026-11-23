@@ -10,7 +10,7 @@ commits and the results.
     noseyparker   https://github.com/praetorian-inc/noseyparker        YAML rules with examples
     kingfisher    https://github.com/mongodb/kingfisher                 YAML rules with examples
     gitleaks      https://github.com/gitleaks/gitleaks                  examples in the Go rule generator
-    betterleaks   https://github.com/betterleaks/betterleaks            examples in the Go rule generator
+    betterleaks   https://github.com/betterleaks/betterleaks            the Match tests in rules/*.go
     trufflehog    https://github.com/trufflesecurity/trufflehog         the expected values of the detector tests
     gitlab        https://gitlab.com/gitlab-org/security-products/secret-detection/secret-detection-rules
 
@@ -28,6 +28,9 @@ tool channel, cover the whole secret. A rule counts as found when one of its exa
 
 The script prints counts only, never an example. The store is a fresh temp directory, never ~/.maisecrets. The
 gitleaks, betterleaks and gitlab catalogs need tomllib (Python 3.11+).
+
+A clone that gives 0 rules is named with its commit and left out of the table; the script then exits 3, after it
+writes the table and --out for the other catalogs.
 """
 from __future__ import annotations
 
@@ -46,6 +49,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 LABEL = "token = "
 CATALOGS = ("noseyparker", "kingfisher", "gitleaks", "betterleaks", "trufflehog", "gitlab")
+UNREAD = 3   # the exit code when a catalog clone gave 0 rules; the table and --out are still written
 
 
 def _re2_to_python(rx: str) -> str:
@@ -385,10 +389,52 @@ class GoExamples:
         return [x for x in tps if isinstance(x, str)]
 
 
+_TEST_CALLS = ("Match", "MatchComponent")
+
+
+def rulebuilder_rules(catalog: str, files: list, rxs: dict) -> list:
+    """The layout of betterleaks since 2026-11: rules/*.go, one `rulebuilder.Add(config.Rule{ID: ..., Tests: ...})`
+    per rule, each true positive a `rulebuilder.Match(name, input, secret)` that names its secret. The regex of the
+    rule (config/<catalog>.toml) goes along for scripts/draft_format_rules.py."""
+    out = []
+    for f in files:
+        for chunk in Path(f).read_text(encoding="utf-8").split("rulebuilder.Add(")[1:]:
+            t = go_tokens(chunk)
+            rid = next((t[i + 2][1] for i in range(len(t) - 2)
+                        if t[i] == ("id", "ID") and t[i + 1] == ("p", ":") and t[i + 2][0] == "s"), None)
+            if rid is None:
+                continue
+            ev, texts, secrets = GoExamples(t), [], []
+            for i in range(len(t) - 1):
+                if t[i][0] != "id" or t[i][1].split(".")[-1] not in _TEST_CALLS or t[i + 1] != ("p", "("):
+                    continue
+                depth, j = 0, i + 1
+                while j < len(t):
+                    if t[j][0] == "p" and t[j][1] in "([{":
+                        depth += 1
+                    elif t[j][0] == "p" and t[j][1] in ")]}":
+                        depth -= 1
+                        if depth == 0:
+                            break
+                    j += 1
+                args = [ev.expr(a, b) for a, b in ev._split(i + 2, j, ",")]
+                if len(args) == 3 and all(isinstance(x, str) for x in args[1:]):
+                    texts.append(args[1])
+                    secrets.append(args[2])
+            rx, group = rxs.get(rid, (None, None))
+            out.append(rule(catalog, rid, texts, compile_rx(rx), group or None, secrets=secrets))
+    return out
+
+
 def go_rules(catalog: str, root: Path) -> list:
     import tomllib
-    conf = tomllib.loads((root / "config" / f"{catalog}.toml").read_text(encoding="utf-8"))
+    cfg = root / "config" / f"{catalog}.toml"
+    conf = tomllib.loads(cfg.read_text(encoding="utf-8")) if cfg.is_file() else {}
     rxs = {r["id"]: (r.get("regex"), r.get("secretGroup")) for r in conf.get("rules", [])}
+    new = sorted(f for f in glob.glob(str(root / "rules" / "**" / "*.go"), recursive=True)
+                 if not f.endswith("_test.go"))
+    if not (root / "cmd" / "generate" / "config" / "rules").is_dir() and new:
+        return rulebuilder_rules(catalog, new, rxs)
     out = []
     for f in sorted(glob.glob(str(root / "cmd" / "generate" / "config" / "rules" / "*.go"))):
         if f.endswith("_test.go"):
@@ -538,7 +584,7 @@ def main(argv=None) -> int:
     ap.add_argument("--out", help="write the counts and the per-rule results (rule ids, no example) to this file")
     a = ap.parse_args(argv)
     root = Path(a.catalogs)
-    rules, commits = [], {}
+    rules, commits, unread = [], {}, {}
     for name in CATALOGS:
         if not (root / name).is_dir():
             continue
@@ -547,6 +593,10 @@ def main(argv=None) -> int:
         except ImportError as e:   # tomllib before 3.11, or no PyYAML: a partial table would read as the full one
             print(f"{name}: cannot be read ({e}); use Python 3.11+ with PyYAML")
             return 2
+        if not got:   # a clone that reads as no rule at all: its layout changed, and the table would lack its row
+            unread[name] = commit_of(root / name)
+            print(f"{name}: 0 rules read at {unread[name][:12]}; its layout changed, adapt load_catalog()")
+            continue
         rules += got
         commits[name] = commit_of(root / name)
     trees = [("maisecrets", a.maisecrets)] + ([("baseline", a.baseline)] if a.baseline else [])
@@ -569,9 +619,9 @@ def main(argv=None) -> int:
         print(f"{name:12s} {commits[name][:12]:12s} {c0['rules']:6d} {c0['with_examples']:11d}  " + "  ".join(cells))
     if a.out:
         with open(a.out, "w", encoding="utf-8") as fh:
-            json.dump({"commits": commits, "max_examples": a.max_examples, "counts": res, "rules": per_rule}, fh,
-                      indent=1)
-    return 0
+            json.dump({"commits": commits, "unread": unread, "max_examples": a.max_examples, "counts": res,
+                       "rules": per_rule}, fh, indent=1)
+    return UNREAD if unread else 0
 
 
 if __name__ == "__main__":
