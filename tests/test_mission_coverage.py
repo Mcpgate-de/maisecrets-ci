@@ -35,10 +35,6 @@ README = """# x
   reads it.
 - **Checks a value first:** without sending it.
 
-## What the Claude Code mod does
-
-- **Rewrites a prompt.**
-
 ## What it does not protect
 
 - A name without a label.
@@ -46,6 +42,12 @@ README = """# x
 ## Other
 
 - not gated
+"""
+HOW = """# h
+
+## What the Claude Code mod does
+
+- **Rewrites a prompt.**
 """
 PRIVACY = """# p
 
@@ -63,7 +65,7 @@ PRIVACY = """# p
   you ask.
 """
 CLAIMS = """[[claim]]
-source = "README.md"
+source = "docs/HOW-IT-WORKS.md"
 quote = "**Rewrites a prompt.**"
 kind = "feature"
 
@@ -131,13 +133,14 @@ def quiet(fn, argv):
 
 @unittest.skipIf(tomllib is None, "tomllib is Python 3.11+; the other CI Pythons run the script")
 class MissionCoverageTests(unittest.TestCase):
-    def tree(self, missions, beliefs, claims=CLAIMS, readme=README, privacy=PRIVACY):
+    def tree(self, missions, beliefs, claims=CLAIMS, readme=README, privacy=PRIVACY, how=HOW):
         root = Path(tempfile.mkdtemp(prefix="maisecrets-mission-"))
         self.addCleanup(shutil.rmtree, root, True)
         for d in ("docs", "mission", "beliefs"):
             (root / d).mkdir()
         (root / "docs" / "THREAT-MODEL.md").write_text(THREAT_MODEL, encoding="utf-8")
         (root / "README.md").write_text(readme, encoding="utf-8")
+        (root / "docs" / "HOW-IT-WORKS.md").write_text(how, encoding="utf-8")
         (root / "PRIVACY.md").write_text(privacy, encoding="utf-8")
         (root / "mission" / "claims.toml").write_text(claims, encoding="utf-8")
         (root / "mission" / "code.toml").write_text("[file]\n", encoding="utf-8")     # a tree without program files
@@ -248,10 +251,10 @@ class MissionCoverageTests(unittest.TestCase):
                                        '(GATED_SECTIONS)',
                                        'PRIVACY "What leaves the machine" bullet no claim maps: '
                                        'A crash report goes out.'])
-        readme = README.replace("## What the Claude Code mod does\n\n", "")
-        r = mission_coverage.analyse(self.tree(self.covered(), ["C1", "C2", "C3", "I1"], readme=readme))
-        self.assertEqual(r["claims"], ['README.md has no section "What the Claude Code mod does" with a bullet '
-                                       '(GATED_SECTIONS)'])
+        how = HOW.replace("## What the Claude Code mod does\n\n", "")
+        r = mission_coverage.analyse(self.tree(self.covered(), ["C1", "C2", "C3", "I1"], how=how))
+        self.assertEqual(r["claims"], ['docs/HOW-IT-WORKS.md has no section "What the Claude Code mod does" '
+                                       'with a bullet (GATED_SECTIONS)'])
         # the bullets moved out of a gated section: the claims still stand in the file, the section is empty
         privacy = PRIVACY.replace("- **Only the prompt.**\n", "").replace("# p\n", "# p\n\n- **Only the prompt.**\n")
         r = mission_coverage.analyse(self.tree(self.covered(), ["C1", "C2", "C3", "I1"], privacy=privacy))

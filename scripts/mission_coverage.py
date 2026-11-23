@@ -46,7 +46,7 @@ ANSWER_KEY = re.compile(rf"""["']({_KEYS})["']|\b({_KEYS})\s*[:=](?!=)|\b(sys\.e
 NAMED_PATH = re.compile(r"`((?:maisecrets|hooks|claude-mod|skills|harness|tests|scripts)/[\w./-]+)`")
 INVARIANT_ITEM = re.compile(r"^- \*\*(I\d+)\*\*", re.M)
 # the sections whose every bullet is a promise, a limit or a feature that claims.toml must map
-GATED_SECTIONS = (("README.md", "What it does"), ("README.md", "What the Claude Code mod does"),
+GATED_SECTIONS = (("README.md", "What it does"), ("docs/HOW-IT-WORKS.md", "What the Claude Code mod does"),
                   ("README.md", "What it does not protect"), ("PRIVACY.md", "What it reads"),
                   ("PRIVACY.md", "What it stores, and where"), ("PRIVACY.md", "What leaves the machine"))
 KINDS = ("promise", "limit", "feature")

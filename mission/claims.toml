@@ -65,31 +65,31 @@ kind = "promise"
 mission = "M6"
 
 [[claim]]
-source = "README.md"
+source = "docs/HOW-IT-WORKS.md"
 quote = "**What it reads:**"
 kind = "promise"
 mission = "M1"
 
 [[claim]]
-source = "README.md"
+source = "docs/HOW-IT-WORKS.md"
 quote = "**What it starts:**"
 kind = "promise"
 mission = "M6"
 
 [[claim]]
-source = "README.md"
+source = "docs/HOW-IT-WORKS.md"
 quote = "**What it sends:**"
 kind = "promise"
 mission = "M6"
 
 [[claim]]
-source = "README.md"
+source = "docs/HOW-IT-WORKS.md"
 quote = "**The demo**"
 kind = "promise"
 mission = "M6"
 
 [[claim]]
-source = "README.md"
+source = "docs/HOW-IT-WORKS.md"
 quote = "**Prompt suggestions in the demo:**"
 kind = "feature"
 

@@ -1,8 +1,9 @@
 """The README is split by reader (docs/USING.md, ADMIN.md, HOW-IT-WORKS.md, KNOWN-GAPS.md, CLIENTS.md).
 
 A section that moved must not get lost, and a link from outside (the website, an issue, a hint the CLI prints) to an
-old README heading must still land: README.md keeps one heading per moved section under "Moved sections", and each
-one links to the new place. Every link with an anchor in the repository must name a heading that exists.
+old README heading must still land: README.md keeps one anchor (`<a name="...">`) per moved section under "Moved
+sections", and a link to the new place right after it. Every link with an anchor in the repository must name a heading
+or an anchor that exists.
 """
 from __future__ import annotations
 
@@ -31,6 +32,8 @@ OLD_HEADINGS = [
 OLD_SUBHEADINGS = ["Settings you decide", "Where your secrets went"]
 
 LINK = re.compile(r"\]\(([^)\s]+)\)")
+NAMED = re.compile(r'<a name="([\w-]+)"></a>')
+MOVED = re.compile(r'<a name="([\w-]+)"></a>\[[^\]]+\]\(([^)\s]+)\)')
 URL = re.compile(r"https://github\.com/Mcpgate-de/maisecrets(?:/blob/main/([\w./-]+))?#([\w-]+)")
 
 
@@ -59,7 +62,7 @@ def anchors(path: Path) -> set[str]:
         n = seen.get(s, 0)
         seen[s] = n + 1
         out.add(s if n == 0 else f"{s}-{n}")
-    return out
+    return out | set(NAMED.findall(path.read_text(encoding="utf-8")))
 
 
 def tracked(*patterns: str) -> list[Path]:
@@ -87,9 +90,9 @@ class MovedSectionsTests(unittest.TestCase):
     def test_every_moved_heading_links_to_a_heading_that_exists(self):
         text = README.read_text(encoding="utf-8")
         moved = text.split("\n## Moved sections\n", 1)[1]
-        targets = LINK.findall(moved)
-        self.assertEqual(len(targets), len(re.findall(r"^### ", moved, re.M)))
-        for target in targets:
+        rows = MOVED.findall(moved)
+        self.assertEqual(len(rows), len(NAMED.findall(moved)), "each anchor is followed by its link")
+        for name, target in rows:
             path, _, anchor = target.partition("#")
             with self.subTest(target=target):
                 self.assertIn(anchor, anchors(ROOT / path))

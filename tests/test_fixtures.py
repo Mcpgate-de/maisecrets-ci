@@ -114,8 +114,8 @@ class AdviceTests(unittest.TestCase):
         from maisecrets import cli
         heading = "Test data that maisecrets leaves alone"
         self.assertIn(f"\n## {heading}\n", (ROOT / "docs" / "USING.md").read_text(encoding="utf-8"))
-        self.assertIn(f"\n### {heading}\n", (ROOT / "README.md").read_text(encoding="utf-8"), "the old anchor")
         anchor = _re.sub(r"[^a-z0-9 -]", "", heading.lower()).replace(" ", "-")     # GitHub's heading anchor
+        self.assertIn(f'<a name="{anchor}"></a>', (ROOT / "README.md").read_text(encoding="utf-8"), "the old anchor")
         self.assertTrue(cli.TEST_DATA_URL.endswith("#" + anchor), cli.TEST_DATA_URL)
         import io
         from contextlib import redirect_stdout
