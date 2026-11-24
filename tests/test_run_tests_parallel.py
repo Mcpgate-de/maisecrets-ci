@@ -12,12 +12,12 @@ ROOT = Path(__file__).resolve().parent.parent
 RUNNER = ROOT / "scripts" / "run_tests_parallel.py"
 
 
-def run_in(files: dict) -> subprocess.CompletedProcess:
+def run_in(files: dict, *extra: str) -> subprocess.CompletedProcess:
     with tempfile.TemporaryDirectory() as d:
         Path(d, "tests").mkdir()
         for name, body in files.items():
             Path(d, "tests", name).write_text(textwrap.dedent(body), encoding="utf-8")
-        return subprocess.run([sys.executable, str(RUNNER), "-j", "2"], cwd=d, capture_output=True, text=True,
+        return subprocess.run([sys.executable, str(RUNNER), "-j", "2", *extra], cwd=d, capture_output=True, text=True,
                               timeout=120)
 
 
@@ -46,6 +46,22 @@ class ParallelRunnerTests(unittest.TestCase):
                                                         "    def test_y(self):\n        pass\n"})
                 self.assertEqual(p.returncode, 1, p.stdout)
                 self.assertIn("FAILED: " + name[:-3], p.stdout)
+
+    def test_a_file_that_hangs_fails_with_its_stack_and_the_run_ends(self):
+        # a unit job hung 50 min without a line on 2026-11-24: the hang now names its file and line
+        p = run_in({"test_hang.py": """\
+            import threading, unittest
+            class T(unittest.TestCase):
+                def test_waits_forever(self):
+                    threading.Event().wait()
+            """, "test_ok.py": "import unittest\nclass T(unittest.TestCase):\n    def test_y(self):\n        pass\n"},
+            "--file-timeout", "3")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("FAILED: test_hang", p.stdout)
+        # the file's own stack dump ended it, and the stack names the line that waited
+        self.assertIn("Timeout (0:00:03)!", p.stdout)
+        self.assertIn('line 4 in test_waits_forever', p.stdout)
+        self.assertRegex(p.stderr, r"\d+/2 test_ok \d+ s\n")    # the progress line of a finished file
 
 
 if __name__ == "__main__":

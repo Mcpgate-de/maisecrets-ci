@@ -276,6 +276,9 @@ baseline_only:
 unit:
   stage: test
   extends: .tested_before_the_tag
+  # about 13 min on the reference runner; a hung file ends after 15 min of its own (run_tests_parallel.py), and this
+  # ends a job that hangs elsewhere before the runner's default of an hour (a 50 min hang, 2026-11-24)
+  timeout: 30m
   # starts at once, beside the validate stage: the tests do not need its jobs (release needs every job, mirror its
   # own list, as before)
   needs: []
