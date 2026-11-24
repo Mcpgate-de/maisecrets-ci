@@ -8,5 +8,5 @@ runner = ["tests/mod.test.ts::no answer from Python withholds the result, and th
 
 [proof]
 file = "claude-mod/maisecrets-mod.mjs"
-find = "    if (a === null || a === 'withheld') { content[i] = withheld(content[i]); return }\n"
-replace = "    if (a === 'withheld') { content[i] = withheld(content[i]); return }\n    if (a === null) return\n"
+find = "    if (a === null || a.withheld === true) { content[i] = withheld(content[i]); return }\n"
+replace = "    if (a !== null && a.withheld === true) { content[i] = withheld(content[i]); return }\n    if (a === null) return\n"

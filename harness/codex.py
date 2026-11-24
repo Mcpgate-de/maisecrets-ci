@@ -115,6 +115,19 @@ SCENARIOS = {
         "turns": [{"exec": _js("cat .env")}, {"text": "done"}],
         "expect_placeholder": "⟦SECRET_c",
     },
+    # #105, B11: Codex has no mod and no band; its hook line (systemMessage) names the checked share. The name service
+    # on this computer answers the first pieces and stalls on the last, so the check of the output ends `partial`.
+    # codex exec 0.171.0 prints no systemMessage of a hook and keeps none in the rollout: the harness measures the
+    # share the AI reads; tests/test_remote_layer.py holds the line of the Codex answer
+    "ner_rest_line": {
+        "prompt": "Run the shell command `cat rows.log` and say how many rows it has.",
+        "fake_ner": {"stall_on": "row 069"},
+        "config": {"remote_detector": {"url": "{ner}", "format": "hf", "max_chars": 1000, "timeout_ms": 1000,
+                                       "timeout_scales": False}},
+        "files": {"rows.log": "".join(f"row {i:03d} of the log, nothing personal in it\n" for i in range(70))},
+        "turns": [{"exec": _js("cat rows.log")}, {"text": "done"}],
+        "expect_in_requests": ["maisecrets: the name service checked only", "row 069 of the log"],
+    },
     "bash_rehydrate": {
         "prompt": ("Run exactly this shell command, do not change it: "
                    "printf 'got:%s' '⟦SECRET_c1⟧' > used.txt; cat used.txt"),
@@ -317,8 +330,14 @@ def run_scenario(name: str, sc: dict) -> list[str]:
     cwd.mkdir()
     home = work / "vaulthome"
     home.mkdir()
-    (home / "config.json").write_text(json.dumps({"backend": "jsonfile", "allow_plaintext_store": True,
-                                                  **sc.get("config", {})}))
+    ner = None
+    config = sc.get("config", {})
+    if sc.get("fake_ner") is not None:
+        # a name service on this computer (harness/fake_ner.py): `{ner}` in the config is its address
+        from fake_ner import FakeNer
+        ner = FakeNer(**sc["fake_ner"])
+        config = json.loads(json.dumps(config).replace("{ner}", ner.url))
+    (home / "config.json").write_text(json.dumps({"backend": "jsonfile", "allow_plaintext_store": True, **config}))
     codex_home = work / "codex_home"
     codex_home.mkdir()
     out = work / "out"
@@ -418,6 +437,8 @@ def run_scenario(name: str, sc: dict) -> list[str]:
         (codex_home / "auth.json").unlink(missing_ok=True)
         if srv:
             srv.terminate()
+        if ner is not None:
+            ner.close()
     if not plugin_roots:
         fails.append("no installed plugin folder found under CODEX_HOME/plugins/cache")
     elif [content_hash(p) for p in plugin_roots] != contents_before:
@@ -484,6 +505,9 @@ def run_scenario(name: str, sc: dict) -> list[str]:
             fails.append("no document the model made holds the address (documents: "
                          f"{[p.name for p in made]}, all files: {sorted(p.name for p in cwd.rglob('*'))})"
                          .replace(MAIL, "<MAIL>"))
+    for text in sc.get("expect_in_requests", []):
+        if text not in bodies:
+            fails.append(f"{text[:40]!r} never reached the model")
     if sc.get("expect_home_file_missing") and (home / sc["expect_home_file_missing"]).exists():
         fails.append(f"{sc['expect_home_file_missing']} was written into the maisecrets home")
     if sc.get("expect_hook"):

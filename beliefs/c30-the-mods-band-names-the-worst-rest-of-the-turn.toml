@@ -1,0 +1,12 @@
+# c30-the-mods-band-names-the-worst-rest-of-the-turn: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c30-the-mods-band-names-the-worst-rest-of-the-turn"
+control = "C30"
+serves = ["M1.2"]
+statement = "With the mod, a tool result of this turn whose name check left a rest shows one line above the prompt with the checked share and where the rest went, for the worst such result and with their count; a result without a rest never takes it away, only the person's next prompt does (#105, B11). Codex has no mod: its hook line names the share."
+runner = ["tests/mod.test.ts::a rest shows the share above the prompt; a later result without a rest keeps the line; only the person's next prompt takes it away",
+          "tests/mod.test.ts::parallel results on the hook path: the band names the count and the worst rest of the turn"]
+
+[proof]
+file = "claude-mod/maisecrets-mod.mjs"
+find = "      if (PASSES.has(state)) addRest($, tag.rest)\n"
+replace = "      if (PASSES.has(state)) addRest($, null)\n"

@@ -7,5 +7,5 @@ runner = ["tests/mod.test.ts::a result the maisecrets hook masked goes on as it 
 
 [proof]
 file = "claude-mod/maisecrets-mod.mjs"
-find = "    try { notePost(e, await postState(tag, r)) } catch { /* no state: the row is masked */ }\n    return rest\n"
-replace = "    try { notePost(e, await postState(tag, r)) } catch { /* no state: the row is masked */ }\n    return r\n"
+find = "      if (PASSES.has(state)) addRest($, tag.rest)\n    } catch { /* no state: the row is masked */ }\n    return rest\n"
+replace = "      if (PASSES.has(state)) addRest($, tag.rest)\n    } catch { /* no state: the row is masked */ }\n    return r\n"

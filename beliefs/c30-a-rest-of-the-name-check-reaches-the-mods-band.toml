@@ -1,0 +1,14 @@
+# c30-a-rest-of-the-name-check-reaches-the-mods-band: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c30-a-rest-of-the-name-check-reaches-the-mods-band"
+control = "C30"
+serves = ["M1.2"]
+statement = "When the name check of a tool result left a rest, the tool-result hook gives the mod the checked share and where the rest went (the rules, withheld, or the whole result withheld), in its marker and in the second net's answer, and never a text of the result (#105, B11)."
+runner = [
+  "tests/test_remote_layer.py::RestWithheldTests::test_the_band_of_the_mod_gets_the_share_and_where_the_rest_went",
+  "tests/test_remote_layer.py::RestWithheldTests::test_a_result_with_no_answer_has_a_band_withheld_or_with_the_rules",
+]
+
+[proof]
+file = "maisecrets/tool_withhold.py"
+find = "        return (share, \"whole\" if withhold else \"cut\" if cut_ else \"rules\")\n"
+replace = "        return None\n"

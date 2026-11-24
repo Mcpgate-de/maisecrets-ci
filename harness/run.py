@@ -528,6 +528,55 @@ SCENARIOS = {
         "expect_requests": 2,
         "report_sizes": True,
     },
+    # #105, B11: a Bash output of about 3,000 characters goes to a name service on this computer in pieces of at most
+    # 1,000. The service answers the first pieces and stalls on the last, so the check ends `partial`. The AI reads the
+    # share; with the mod the band names it (claude -p draws no band: the mod writes its line to the debug log too,
+    # where the client redacts the word after "maisecrets:", and harness/screen.py shows the band in a terminal)
+    "ner_rest_band": {
+        "prompt": "print the log",
+        "fake_ner": {"stall_on": "row 069"},
+        "config": {"remote_detector": {"url": "{ner}", "format": "hf", "max_chars": 1000, "timeout_ms": 1000,
+                                       "timeout_scales": False}},
+        "files": {"rows.log": "".join(f"row {i:03d} of the log, nothing personal in it\n" for i in range(70))},
+        "turns": [{"tool": "Bash", "input": {"command": "cat rows.log"}}, {"text": "done"}],
+        "expect_requests": 2,
+        "expect_in_requests": ["maisecrets: the name service checked only", "row 069 of the log"],
+        "expect_not_in_requests": ["[maisecrets: result"],
+        # the person's line (the hook's systemMessage): -p prints only the answer, the debug log has the hook's answer
+        "expect_debug": ["% checked by the name service; for the rest it did not answer in time, and the rules alone"],
+        "with_mod": {"expect_debug": ["% checked by the name service; for the rest it did not answer in time",
+                                      "maisecrets band: ", "result of this turn was checked for names in part (",
+                                      "; the rest went to the AI with the rules only"]},
+    },
+    # the same with `unavailable: withhold`: the rest of the output never reaches the AI, and the band says so
+    "ner_rest_band_withhold": {
+        "prompt": "print the log",
+        "fake_ner": {"stall_on": "row 069"},
+        "config": {"remote_detector": {"url": "{ner}", "format": "hf", "max_chars": 1000, "timeout_ms": 1000,
+                                       "timeout_scales": False, "unavailable": "withhold"}},
+        "files": {"rows.log": "".join(f"row {i:03d} of the log, nothing personal in it\n" for i in range(70))},
+        "turns": [{"tool": "Bash", "input": {"command": "cat rows.log"}}, {"text": "done"}],
+        "expect_requests": 2,
+        "expect_in_requests": ["[maisecrets withheld lines", "row 000 of the log"],
+        "expect_not_in_requests": ["row 069 of the log", "[maisecrets: result"],
+        "expect_debug": ["and maisecrets withheld the rest of this result from the AI"],
+        "with_mod": {"expect_debug": ["and maisecrets withheld the rest of this result from the AI",
+                                      "maisecrets band: ", "result of this turn was checked for names in part (",
+                                      "; the rest was withheld from the AI"]},
+    },
+    # every piece answers: no rest, so no band and no share
+    "ner_no_rest_no_band": {
+        "prompt": "print the log",
+        "fake_ner": {"stall_on": ""},
+        "config": {"remote_detector": {"url": "{ner}", "format": "hf", "max_chars": 1000, "timeout_ms": 1000,
+                                       "timeout_scales": False}},
+        "files": {"rows.log": "".join(f"row {i:03d} of the log, nothing personal in it\n" for i in range(70))},
+        "turns": [{"tool": "Bash", "input": {"command": "cat rows.log"}}, {"text": "done"}],
+        "expect_requests": 2,
+        "expect_in_requests": ["row 069 of the log"],
+        "expect_not_in_requests": ["the name service checked only", "the name service did not check"],
+        "expect_no_debug": ["of this turn was checked for names", "of this turn was not checked for names"],
+    },
     "bash_echo": {
         "prompt": "print the env",
         "files": {".env": f"TOKEN={MARK}\n"},
@@ -1044,9 +1093,15 @@ def run_scenario(name: str, sc: dict, update_golden: bool) -> list[str]:
         d.mkdir()
     home = work / "vaulthome"
     home.mkdir()
+    ner = None
+    config = sc.get("config", {})
+    if sc.get("fake_ner") is not None:
+        # a name service on this computer (harness/fake_ner.py): `{ner}` in the config is its address
+        from fake_ner import FakeNer
+        ner = FakeNer(**sc["fake_ner"])
+        config = json.loads(json.dumps(config).replace("{ner}", ner.url))
     # preload and hooks must agree on the backend, on every OS: pin the test backend for this home
-    (home / "config.json").write_text(json.dumps({"backend": "jsonfile", "allow_plaintext_store": True,
-                                                  **sc.get("config", {})}))
+    (home / "config.json").write_text(json.dumps({"backend": "jsonfile", "allow_plaintext_store": True, **config}))
     for fname, content in sc.get("home_files", {}).items():
         (home / fname).write_text(content, encoding="utf-8")
     # the client under test sets MAISECRETS_MOD_NET itself when its mod runs: one from the session that runs the
@@ -1175,6 +1230,8 @@ def run_scenario(name: str, sc: dict, update_golden: bool) -> list[str]:
         srv.terminate()
         if front is not None:
             front.terminate()
+        if ner is not None:
+            ner.close()
     (out / "claude_stdout.txt").write_text(r.stdout + "\n--- stderr ---\n" + r.stderr)
     # the plugin must have loaded: Claude Code 2.1.223 rejected a manifest with `userConfig`,
     # registered 0 hooks and let every scenario run unguarded (Debian, 2026-09-26)

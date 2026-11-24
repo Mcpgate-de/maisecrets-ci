@@ -8,5 +8,5 @@ runner = ["tests/test_second_net.py::MarkTests::test_the_marker_carries_the_nonc
 
 [proof]
 file = "maisecrets/second_net.py"
-find = "    tag = (f\"[maisecrets: result masked {nonce} {output_hash(hso[key])}]\" if key\n"
-replace = "    tag = (f\"[maisecrets: result masked {nonce} 0000000000000000]\" if key\n"
+find = "    tag = (f\"[maisecrets: result masked {nonce} {output_hash(hso[key])}{rest}]\" if key\n"
+replace = "    tag = (f\"[maisecrets: result masked {nonce} 0000000000000000{rest}]\" if key\n"

@@ -7,5 +7,5 @@ runner = ["tests/mod.test.ts::scenario A: a copied marker text in another entry,
 
 [proof]
 file = "claude-mod/maisecrets-mod.mjs"
-find = "const MARK_RE = new RegExp(`^\\\\[maisecrets: result (checked|masked) ${NET_NONCE}(?: ([0-9a-f]{16}))?\\\\]$`)\n"
-replace = "const MARK_RE = new RegExp(`^\\\\[maisecrets: result (checked|masked) [0-9a-f]{32}(?: ([0-9a-f]{16}))?\\\\]$`)\n"
+find = "const MARK_RE = new RegExp(`^\\\\[maisecrets: result (checked|masked) ${NET_NONCE}(?: ([0-9a-f]{16}))?` +\n"
+replace = "const MARK_RE = new RegExp(`^\\\\[maisecrets: result (checked|masked) [0-9a-f]{32}(?: ([0-9a-f]{16}))?` +\n"

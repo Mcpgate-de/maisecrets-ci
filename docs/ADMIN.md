@@ -136,9 +136,9 @@ For development:
 ```bash
 claude --plugin-dir /path/to/maisecrets                 # one session, straight from the checkout
 python3 -m unittest discover -s tests -v               # about 30 seconds
-python3 harness/run.py                                 # 77 scenarios against a fake upstream (4 for the PowerShell tool of Windows, 8 in Code Mode)
-python3 harness/codex.py [--real]                      # 19 scenarios through codex exec (five need --real)
-python3 scripts/replay_can_fail.py                     # 651 proofs: each control's test, and each path of the 18 invariant beliefs, goes red without its guard
+python3 harness/run.py                                 # 80 scenarios against a fake upstream (4 for the PowerShell tool of Windows, 8 in Code Mode)
+python3 harness/codex.py [--real]                      # 20 scenarios through codex exec (five need --real)
+python3 scripts/replay_can_fail.py                     # 654 proofs: each control's test, and each path of the 18 invariant beliefs, goes red without its guard
 python3 scripts/derived_counts.py                      # the numbers in the docs, measured again
 python3 scripts/lint_plugin.py                         # frontmatter YAML, manifests, hook paths (pre-commit, CI)
 scripts/install-hooks.sh                               # git pre-commit / pre-push
@@ -1144,7 +1144,12 @@ and keeps its other keys. Written by hand, the setting looks like this:
   not on this computer, or such a fallback) gets no pieces: it may count each one against a quota.
   `/maisecrets status` counts a text checked in part apart from the texts checked in full. When the wait or a refusal leaves a rest unchecked, the line
   under the result names the share, for example `⚠ names 70 % checked by the name service`, and the AI is told
-  that the rest had the rules alone. To a gateway a text longer than `max_chars` is not sent yet: pieces would
+  that the rest had the rules alone. With the mod in Claude Code, one line above the prompt says it for the
+  results of the turn too, for example `maisecrets: a result of this turn was checked for names in part (70 %); the
+  rest went to the AI with the rules only` (with `withhold`: `the rest was withheld from the AI`). With several such
+  results it names their count and the worst. A text that a gateway did not take because it was too long gets `was
+  not checked for names (too long for one request to the name service)`, and a result the service did not answer
+  for gets `(the name service did not answer)`. Your next prompt takes the line away. Codex has no such line: there the line under the result names the share. To a gateway a text longer than `max_chars` is not sent yet: pieces would
   spend your quota of the minute. maisecrets sends a gateway and the container it started the field `kind`:
   `prompt` for a prompt, `result` for a tool result, so the service can give prompts priority; a service at a `url`
   gets no `kind`, since a strict server of another make may refuse a field it does not know.

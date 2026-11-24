@@ -1,0 +1,11 @@
+# c30-the-marker-carries-the-rest-for-the-mods-band: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c30-the-marker-carries-the-rest-for-the-mods-band"
+control = "C30"
+serves = ["M1.2"]
+statement = "The marker of the tool-result hook carries the rest of its name check (the share and the mode, no text) when one remained, so the mod's band can name it (#105, B11)."
+runner = ["tests/test_second_net.py::MarkTests::test_the_marker_of_a_result_with_a_rest_carries_the_share_and_the_mode_only"]
+
+[proof]
+file = "maisecrets/second_net.py"
+find = "    return f\" rest {b['share']} {b['mode']}\" if b else \"\"\n"
+replace = "    return \"\"\n"

@@ -358,6 +358,8 @@ harness_claude:
     - python3 harness/screen.py
     # a one-time hint: one line on the person's screen, once, and in no model request (harness/hint_screen.py)
     - python3 harness/hint_screen.py
+    # the band of a name check that left a rest (#105, B11): above the prompt, gone after a result without a rest
+    - python3 harness/band_screen.py
 
 harness_codex:
   stage: test

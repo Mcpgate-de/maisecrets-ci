@@ -24,7 +24,7 @@
 # A belief with serves = [] proves no control of its file.
 
 [file]
-"claude-mod/maisecrets-mod.mjs" = { controls = ["C1", "C2", "C13", "C22", "C31", "C32", "C33", "I5"] }
+"claude-mod/maisecrets-mod.mjs" = { controls = ["C1", "C2", "C13", "C22", "C30", "C31", "C32", "C33", "I5"] }
 "hooks/dispatch.py" = { controls = ["C1", "C2", "C13", "C22", "C27"] }
 "hooks/guard.py" = { controls = ["C13", "C33"] }
 "hooks/ms.sh" = { none = "the fixed path of the person's /ms shortcut: it runs `pending` (send the last blocked prompt) of the highest maisecrets version installed from any marketplace or synced folder; the prompt hook checks that prompt again" }
@@ -123,7 +123,7 @@
 "maisecrets/rule_filter.py" = { none = "an old module name: the same module object as maisecrets/detection/rule_filter.py" }
 "maisecrets/rules_cli.py" = { controls = ["C25"] }
 "maisecrets/rulespec.py" = { none = "an old module name: the same module object as maisecrets/detection/rulespec.py" }
-"maisecrets/second_net.py" = { controls = ["C2"] }
+"maisecrets/second_net.py" = { controls = ["C2", "C30"] }
 "maisecrets/selftest.py" = { controls = ["C1", "C2"] }
 "maisecrets/server_values.py" = { controls = ["C27", "C31"] }
 "maisecrets/session_end.py" = { controls = ["C27"] }

@@ -51,6 +51,23 @@ def output_hash(output) -> str:
     return hashlib.sha256("\0".join(_texts_of(output, [])).encode("utf-8", "surrogatepass")).hexdigest()[:16]
 
 
+def band() -> dict | None:
+    """The rest of the name check of this process's result for the mod's band (#105, B11): {"share", "mode"}, or None.
+    The share and the mode only, never a text of the result."""
+    from . import remote_layer
+    b = remote_layer.NER_DOWN.get("band")
+    return {"share": int(b[0]), "mode": str(b[1])} if b else None
+
+
+def _rest() -> str:
+    """` rest SHARE MODE` for the marker when the name check left a rest, else ""."""
+    try:
+        b = band()
+    except Exception:  # noqa: BLE001 - no band; the marker stands
+        return ""
+    return f" rest {b['share']} {b['mode']}" if b else ""
+
+
 def mark(obj: dict, event: str, nonce: str) -> dict:
     """The answer of a tool-result hook with the marker line of maisecrets at the end of its additionalContext. A Codex
     answer (a decision) and an event that is no tool-result event stay as they are. Holds no value."""
@@ -60,8 +77,9 @@ def mark(obj: dict, event: str, nonce: str) -> dict:
     hso = dict(obj.get("hookSpecificOutput") or {})
     hso["hookEventName"] = name
     key = next((k for k in ("updatedToolOutput", "updatedMCPToolOutput") if k in hso), None)
-    tag = (f"[maisecrets: result masked {nonce} {output_hash(hso[key])}]" if key
-           else f"[maisecrets: result checked {nonce}]")
+    rest = _rest() if event == "post-tool" else ""
+    tag = (f"[maisecrets: result masked {nonce} {output_hash(hso[key])}{rest}]" if key
+           else f"[maisecrets: result checked {nonce}{rest}]")
     ctx = hso.get("additionalContext")
     hso["additionalContext"] = f"{ctx}\n\n{tag}" if isinstance(ctx, str) and ctx else tag
     return {**obj, "hookSpecificOutput": hso}
@@ -119,20 +137,24 @@ def mask_result(payload: dict) -> dict:
                     "tool_response": list(texts)}
     from .vault import hook_deadline
     hook_deadline(WINDOW_S)
+    from .remote_layer import NER_DOWN
+    NER_DOWN["band"] = None               # the band of this result only
     try:                                  # the window holds until the answer: the store calls of the scrub too
         out = hooks.post_tool(hook_payload)
         out = with_unchecked_names(hook_payload, out if isinstance(out, dict) else {}, False, load_config)
         hso = out.get("hookSpecificOutput") or {}
         new = hso.get("updatedToolOutput")
         note = hso.get("additionalContext") if isinstance(hso.get("additionalContext"), str) else ""
+        rest = band()                     # the mod's band: the share and the mode, no text (#105, B11)
+        extra = {"rest": rest} if rest else {}
         if new is None:
-            return {"texts": texts, "changed": False, "note": note}
+            return {"texts": texts, "changed": False, "note": note, **extra}
         if isinstance(new, str):
-            return {"withheld": True}     # with_unchecked_names withheld it: one text in place of the result
+            return {"withheld": True, **extra}     # with_unchecked_names withheld it: one text in place of the result
         if not isinstance(new, list) or len(new) != len(texts) or not all(isinstance(t, str) for t in new):
             raise ValueError("answer")
         _scrub_later(texts, new, session, payload.get("agent_id"))
-        return {"texts": new, "changed": new != texts, "note": note}
+        return {"texts": new, "changed": new != texts, "note": note, **extra}
     finally:
         hook_deadline(None)
 

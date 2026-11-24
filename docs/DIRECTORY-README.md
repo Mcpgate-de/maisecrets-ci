@@ -103,7 +103,7 @@ nonce of the mod (to prove that the connector reaches your gateway with your acc
 | `turn.complete` | Refreshes the status line; offers a gateway login when one is due. |
 | `command.run`, `$.command.register` | The `/maisecrets` menu and the commands typed as `/maisecrets:NAME`. |
 | `$.command.run` (a call, not a hook) | Runs the plugin's own entry command `/maisecrets` with the words you chose in the menu, after the hook that asked has returned. It runs no other command. |
-| `ui.render`, `ui.close`, `session.start` | Draws your values (with a lock) and the menu panel on your screen; nothing of it goes to the model. |
+| `ui.render`, `ui.close`, `session.start` | Draws your values (with a lock) and the menu panel on your screen, and one line above the prompt when the name service checked a tool result of this turn only in part or not at all (the worst share, and where the rest went), until your next prompt; nothing of it goes to the model. |
 
 ### When it fails
 

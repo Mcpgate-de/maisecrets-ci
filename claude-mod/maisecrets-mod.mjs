@@ -1966,15 +1966,19 @@ function registerSettingsPane(on) {
 const RESULT_MS = 20000
 const POSTS_MAX = 500
 const posts = new Map()        // tool_use_id -> state: what the tool-result hooks answered, the oldest first
-// the nonce of this mod process: the hooks put it into their marker, so no text of a tool or of another plugin's hook
-// can stand in for one (it never appears in an output: the variable is set only while the tool-result hooks run)
+// the nonce of this mod process: the hooks put it into their marker, so no text of a tool can stand in for one (it
+// never appears in an output: the variable is set only while the tool-result hooks run). Another plugin's hook that
+// runs in those moments inherits it and could write a marker: that is a program that runs as the person, the limit
+// that docs/THREAT-MODEL.md names for C2 and C30
 const NET_NONCE = (() => {
   const a = new Uint8Array(16)
   if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(a)
   else for (let i = 0; i < 16; i++) a[i] = Math.floor(Math.random() * 256)
   return [...a].map(n => n.toString(16).padStart(2, '0')).join('')
 })()
-const MARK_RE = new RegExp(`^\\[maisecrets: result (checked|masked) ${NET_NONCE}(?: ([0-9a-f]{16}))?\\]$`)
+// ` rest SHARE MODE`: the name check left a rest of this result (#105, B11), for the band below; no text of the result
+const MARK_RE = new RegExp(`^\\[maisecrets: result (checked|masked) ${NET_NONCE}(?: ([0-9a-f]{16}))?` +
+  '(?: rest (\\d{1,2}) (rules|cut|whole|long))?\\]$')
 const PASSES = new Set(['masked', 'checked'])
 const stages = new Map()       // tool_use_id -> 'called' (tool.call) or 'ran' (tool.run), the oldest first
 
@@ -2014,7 +2018,7 @@ function readMarks(r) {
     const line = typeof c === 'string' ? c.slice(cut + 1) : null
     const m = line === null ? null : MARK_RE.exec(line)
     if (!m) { kept.push(c); continue }
-    tag = tag ?? { kind: m[1], hash: m[2] ?? null }
+    tag = tag ?? { kind: m[1], hash: m[2] ?? null, rest: m[3] === undefined ? null : { share: Number(m[3]), mode: m[4] } }
     const before = cut < 0 ? '' : c.slice(0, cut).replace(/\n+$/, '')
     if (before !== '') kept.push(before)
   }
@@ -2123,11 +2127,12 @@ async function askResult($, session, cwd, tool, agent, texts) {
   let a
   try { a = r ? JSON.parse(r.stdout) : null } catch { a = null }
   if (!a || a.maisecrets !== 'mod-result') return null
-  if (a.withheld === true) return 'withheld'
+  const rest = restOf(a.rest)
+  if (a.withheld === true) return { withheld: true, rest }
   if (!Array.isArray(a.texts) || a.texts.length !== texts.length || !a.texts.every(t => typeof t === 'string')) {
     return null
   }
-  return { texts: a.texts, changed: a.changed === true, note: typeof a.note === 'string' ? a.note : '' }
+  return { texts: a.texts, changed: a.changed === true, note: typeof a.note === 'string' ? a.note : '', rest }
 }
 
 async function secondNet($, e, next) {
@@ -2150,10 +2155,11 @@ async function secondNet($, e, next) {
     const ms = Math.round((await $.clock.now()) - t0)
     $.ui.log(`maisecrets second net: ${due.length} result(s) of ${tool} checked in ${ms} ms`, { to: 'debug' })
   } catch { /* no log */ }
+  if (a !== null) addRest($, a.rest)
   let at = 0
   let masked = false
   due.forEach((i, n) => {
-    if (a === null || a === 'withheld') { content[i] = withheld(content[i]); return }
+    if (a === null || a.withheld === true) { content[i] = withheld(content[i]); return }
     const texts = a.texts.slice(at, at + parts[n].length)
     at += parts[n].length
     const changed = texts.some((t, k) => t !== parts[n][k])
@@ -2163,6 +2169,66 @@ async function secondNet($, e, next) {
   })
   if (masked) toast($, MASKED_TOAST)
   return next({ ...e, message: { ...e.message, content } })
+}
+
+// The band (#105, B11): when the name check of a tool result of this turn (since the person's last prompt, parallel
+// calls and subagents included) left a rest, one line above the prompt says how much was checked and where the rest
+// went, for the worst such result. The share and the mode come from the marker of the result hook or from the answer
+// of the second net, never a text of the result. A result without a rest never takes the line away: only the person's
+// next prompt does, so a line about an old result never stands over a new question
+const BAND_RANK = { whole: 0, cut: 1, rules: 2, long: 3 }          // the worse first, at the same share
+const BAND_REST = { rules: 'the rest went to the AI with the rules only', cut: 'the rest was withheld from the AI',
+                    whole: 'the whole result was withheld from the AI' }
+let band = null                // { n: results with a rest in this turn, worst: { share, mode } }
+
+const restOf = (r) => (r && typeof r === 'object' && Number.isInteger(r.share) && r.share >= 0 && r.share <= 99 &&
+  Object.hasOwn(BAND_RANK, r.mode)) ? { share: r.share, mode: r.mode } : null
+
+const worse = (a, b) => b.share < a.share || (b.share === a.share && BAND_RANK[b.mode] < BAND_RANK[a.mode])
+
+function bandWhat(b) {
+  if (b.mode === 'long') {
+    return 'was not checked for names (too long for one request to the name service); it went to the AI with the ' +
+      'rules only'
+  }
+  if (b.share > 0) return `was checked for names in part (${b.share} %); ${BAND_REST[b.mode]}`
+  if (b.mode === 'rules') return 'was not checked for names (the name service did not answer); it went to the AI ' +
+    'with the rules only'
+  return 'was not checked for names; it was withheld from the AI'
+}
+
+function bandLine(state) {
+  if (state.n === 1) return `maisecrets: a result of this turn ${bandWhat(state.worst)}`
+  return `maisecrets: ${state.n} results of this turn were not fully checked for names; the worst ${bandWhat(state.worst)}`
+}
+
+function drawBand($) {
+  // the debug log too: claude -p draws no band, and the harness reads this line (harness/run.py ner_rest_*)
+  try { $.ui.log(`maisecrets band: ${band ? bandLine(band) : 'none'}`, { to: 'debug' }) } catch { /* no log */ }
+  try { $.ui.invalidate('ui.render') } catch { /* the next drawing shows it */ }
+}
+
+// a result of this turn: its rest counts; a result without one changes nothing
+function addRest($, rest) {
+  const r = restOf(rest)
+  if (r === null) return
+  band = band === null ? { n: 1, worst: r } : { n: band.n + 1, worst: worse(band.worst, r) ? r : band.worst }
+  drawBand($)
+}
+
+// the person's prompt: a new turn
+function clearBand($) {
+  if (band === null) return
+  band = null
+  drawBand($)
+}
+
+function registerBand(on) {
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (band === null || e.props?.hasSurvey) return next(e)
+    const { Text } = $.ui.resolve(e)
+    return h(Text, { color: 'warning', wrap: 'truncate-end' }, bandLine(band))
+  })
 }
 
 // The hooks watch: the mod runs without the hooks. A person's prompt that the settings hooks of UserPromptSubmit let
@@ -2219,7 +2285,12 @@ function registerSecondNet(on) {
   on('classic.PostToolUse', async ($, e, next) => {
     const r = await withMarks($, () => next(e))
     const { tag, rest } = readMarks(r)
-    try { notePost(e, await postState(tag, r)) } catch { /* no state: the row is masked */ }
+    try {
+      const state = await postState(tag, r)
+      notePost(e, state)
+      // a result that passes: its own rest, or none; any other goes to the second net, whose answer sets the band
+      if (PASSES.has(state)) addRest($, tag.rest)
+    } catch { /* no state: the row is masked */ }
     return rest
   }).catch(relayClassic)
   on('classic.PostToolUseFailure', async ($, e, next) => {
@@ -2247,6 +2318,7 @@ function registerSecondNet(on) {
 
 export function register(on) {
   registerSecondNet(on)
+  registerBand(on)
   // a hidden command the person typed (`/maisecrets:status`, the form of 0.9.21 and before): it runs as typed
   on('command.run', async ($, e, next) => {
     const name = typeof e?.command === 'string' && e.command.startsWith('maisecrets:') ? e.command.slice(11) : ''
@@ -2263,6 +2335,7 @@ export function register(on) {
     // a pairing runs: its nonce in any prompt taints it (#91)
     if (pairings.size > 0) try { notePairingUse(String(e?.text ?? ''), null) } catch { /* the pairing goes on */ }
     const person = PERSON.has(e.origin?.kind)
+    if (person) clearBand($)         // a new turn: the band names the results of this one only (#105)
     // `/maisecrets demo on`, typed by the person, is `/maisecrets:demo on`: the steps below read `own`, the colon
     // form, with the person's origin as it came, so it has the same path and checks as the colon form and no more. Any
     // other origin keeps its text (the hook path, and the menu command only fills the box)
