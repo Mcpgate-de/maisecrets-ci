@@ -12,7 +12,7 @@ What it promises:
   lies. A deterministic finding is never removed, made smaller, moved or retyped.
 - **It fails to the deterministic result.** A slow, refused, dead or broken service, or an answer it cannot read,
   gives the deterministic findings alone, and the status says the service was unavailable. A text longer than
-  `max_chars` goes in pieces of `max_chars` (since 0.9.28, #105); with `pieces=False` it is not sent (`too_long`).
+  `max_chars` goes in pieces of `max_chars` (since 0.9.29, #105); with `pieces=False` it is not sent (`too_long`).
   When the deadline or a refusal ends the pieces early, the spans of the checked pieces stay and the status is
   `partial`: `checked_to` says where the unchecked rest of the text starts.
 - **The service never sees a deterministic finding.** Each one is replaced by filler of the same length before the
@@ -176,7 +176,7 @@ class RemoteDetector:
     `bearer`: the token of a service that wants one (mcpgate/ner with NER_CLIENT_SECRET: hmac_sha256(secret, "bearer"),
     64 lowercase hex characters); it goes out as `Authorization: Bearer` and is never in a status, a reason, repr, a
     log line or an error text. The object keeps it, as any client keeps its token. `pieces=False` keeps a text over
-    `max_chars` from the service (`too_long`), as before 0.9.28: for a service whose quota a long text would spend
+    `max_chars` from the service (`too_long`), as before 0.9.29: for a service whose quota a long text would spend
     (the gateway, until it shares its quota under load)."""
 
     def __init__(self, url: str, format: str = "hf", model: str = "", classes: dict | None = None,
@@ -446,7 +446,7 @@ class RemoteDetector:
                     sent[a:b] = FILLER * (b - a)       # occupied over a cut: each piece gets its own part as filler
                 sent_text = "".join(sent)
                 # each request waits at most `timeout` from its start, the first one from the start of ask() (the
-                # proof included): a one-piece text waits as before 0.9.28. `deadline` ends the whole text
+                # proof included): a one-piece text waits as before 0.9.29. `deadline` ends the whole text
                 cap = min(deadline, t0 + self.timeout)
                 if self.__secret:
                     self._prove(cap, gate)    # no text goes to a listener that cannot prove the secret; once a text

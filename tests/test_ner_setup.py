@@ -541,9 +541,9 @@ class PromptNameTests(unittest.TestCase):
         seen = []
         real = remote.RemoteDetector.ask
 
-        def ask(det, text, occupied, deadline=None):
+        def ask(det, text, occupied, deadline=None, kind=None):
             seen.append(round(det.timeout, 3))
-            return real(det, text, occupied, deadline)
+            return real(det, text, occupied, deadline, kind)
         _reset(remote_detector={"url": self.url, "format": "hf", "timeout_ms": 300})
         with mock.patch.object(remote.RemoteDetector, "ask", ask):
             names, why = remote_layer.prompt_names(load_config(), f"{self.NAME} is here", [], lambda: None)

@@ -142,7 +142,7 @@
 "maisecrets/terms_cli.py" = { controls = ["C26"] }
 "maisecrets/tips.py" = { none = "the welcome and the tip of the day at a session start" }
 "maisecrets/tool_output.py" = { controls = ["C2", "C4", "C20", "C27", "C31", "I1"] }
-"maisecrets/tool_withhold.py" = { controls = ["C30a"] }
+"maisecrets/tool_withhold.py" = { controls = ["C30", "C30a"] }
 "maisecrets/user_rules.py" = { controls = ["C25"] }
 "maisecrets/value_files.py" = { controls = ["C26"] }
 "maisecrets/values.py" = { controls = ["C26"] }

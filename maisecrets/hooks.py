@@ -2583,7 +2583,7 @@ def _remote_layer(cfg: dict, response, binary, strip: bool, scan_tool, session: 
 
 
 def post_tool(payload: dict) -> dict:
-    from . import remote_layer as _rl
+    from . import remote_layer as _rl, tool_withhold as _tw
     _rl.NER_DOWN["v"] = False
     _rl.NER_DOWN["unchecked"] = False
     cfg = load_config()
@@ -2627,7 +2627,7 @@ def post_tool(payload: dict) -> dict:
     layer = _remote_layer(cfg, response, binary, strip, scan_tool, payload.get("session_id"))
     _rl.note_result(layer)
 
-    def redact(s: str) -> str:
+    def redact(s: str, rest: bool = False) -> str:
         nonlocal vault, resolved, short_server
         if strip:
             # before the detector: a value spelled in tag characters goes with them, and no shape spans a gap
@@ -2635,9 +2635,10 @@ def post_tool(payload: dict) -> dict:
             hidden["n"] += gone
             hidden_runs.extend(runs)
         found = layer.matches(s, scan_tool) if layer is not None else scan_tool(s)
+        s, found, tail = _tw.cut(layer, s, found) if rest else (s, found, "")
         matches = _whole_refs(s, [m for m in found if swap or not detect.is_fixture(m, s, path)])
         if not matches and not _has_live(cfg):
-            return s
+            return s + tail
         if vault is None:
             vault = Vault(cfg)
             resolved = _resolved_values(vault, session)
@@ -2660,7 +2661,7 @@ def post_tool(payload: dict) -> dict:
             hit["n"] += len(matches)
             values.extend(m.value for m in matches)
             entries.extend(ents)
-        return _exact_redact(out, vault, session, hit, entries, resolved, values)
+        return _exact_redact(out, vault, session, hit, entries, resolved, values) + tail
 
     # a result with many objects repeats its keys: each key text is redacted once, and what it removed is counted
     # for every place it stands (codex review, 2026-10-06)
@@ -2695,7 +2696,7 @@ def post_tool(payload: dict) -> dict:
         if at in binary and isinstance(node, str):
             return redact_binary(node)
         if isinstance(node, str):
-            return redact(node)
+            return redact(node, True)
         if isinstance(node, list):
             return [walk(x, at + (i,)) for i, x in enumerate(node)]
         if isinstance(node, dict):
@@ -2724,7 +2725,7 @@ def post_tool(payload: dict) -> dict:
         return {"systemMessage": swap[2],
                 "hookSpecificOutput": {"hookEventName": "PostToolUse", "updatedToolOutput": new_response}}
     if not hit["n"] and not hidden["n"]:
-        return {}
+        return _tw.rest_only(payload, new_response)
     from . import events
     tool = payload.get("tool_name") or "tool"
     note = ""
@@ -2962,6 +2963,7 @@ def _with_notice(result: dict, notice: str) -> dict:
 
 
 def _post_tool_guarded_rest(payload: dict) -> dict:
+    from . import tool_withhold as _tw
     try:
         result = post_tool(payload)
     except ConfigError as exc:
@@ -2975,7 +2977,7 @@ def _post_tool_guarded_rest(payload: dict) -> dict:
         _record(functools.partial(_queue_failure, exc, "post-tool", _tool_class(payload), client_of(payload)))
         return out
     try:
-        result = _with_unchecked_names(payload, result)
+        result = _tw.with_unchecked_names(payload, result)
     except Exception as exc:  # noqa: BLE001 - a line that fails must not change the output
         _debug(f"post-tool unchecked names: {type(exc).__name__}")
     try:
@@ -2983,11 +2985,6 @@ def _post_tool_guarded_rest(payload: dict) -> dict:
     except Exception as exc:  # noqa: BLE001 - a hint that fails must not withhold the output
         _debug(f"post-tool hint: {type(exc).__name__}")
         return result
-
-
-def _with_unchecked_names(payload: dict, result: dict) -> dict:
-    from .tool_withhold import with_unchecked_names
-    return with_unchecked_names(payload, result, client_of(payload) == "codex", load_config)
 
 
 def post_tool_failure(payload: dict) -> dict:

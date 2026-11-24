@@ -18,5 +18,5 @@ replace = "            pass"
 [[proof]]
 path = "the stored values are left out"
 file = "maisecrets/remote_layer.py"
-find = "        occupied += [(off + a, off + b) for s, off in pieces for a, b in protect(s)]"
-replace = "        occupied += []"
+find = "    occupied += [(off + a, off + b) for s, off in pieces for a, b in held.get(s, ())]"
+replace = "    occupied += []"

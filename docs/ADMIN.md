@@ -138,7 +138,7 @@ claude --plugin-dir /path/to/maisecrets                 # one session, straight 
 python3 -m unittest discover -s tests -v               # about 30 seconds
 python3 harness/run.py                                 # 77 scenarios against a fake upstream (4 for the PowerShell tool of Windows, 8 in Code Mode)
 python3 harness/codex.py [--real]                      # 19 scenarios through codex exec (five need --real)
-python3 scripts/replay_can_fail.py                     # 650 proofs: each control's test, and each path of the 18 invariant beliefs, goes red without its guard
+python3 scripts/replay_can_fail.py                     # 651 proofs: each control's test, and each path of the 18 invariant beliefs, goes red without its guard
 python3 scripts/derived_counts.py                      # the numbers in the docs, measured again
 python3 scripts/lint_plugin.py                         # frontmatter YAML, manifests, hook paths (pre-commit, CI)
 scripts/install-hooks.sh                               # git pre-commit / pre-push
@@ -1120,7 +1120,7 @@ and keeps its other keys. Written by hand, the setting looks like this:
   that grows with its length: 1.5 times the rate of this computer (ms per 1,000 characters,
   from its last answers; 60 until it has five, the rate of the reference setup) per 1,000
   characters, at most `max_timeout_ms` (3000 by default, at most 5000). `"timeout_scales": false`
-  keeps the fixed `timeout_ms`. This wait holds for each piece of a long text (below). Since 0.9.28, in a hook
+  keeps the fixed `timeout_ms`. This wait holds for each piece of a long text (below). Since 0.9.29, in a hook
   the pieces of one tool result end together at the latest at the smaller of 8 s and half the watchdog (8 s of
   the 16 s of `PostToolUse`) from the start of the hook, less the time the rules' scan of the result took (at least
   0.5 s): the watchdog never fires because of the name check, and a short result waits as before. `ner.log` names the reason of each result that the rules took
@@ -1137,7 +1137,7 @@ and keeps its other keys. Written by hand, the setting looks like this:
   loopback or a Unix socket may read those values as they are with
   `"mask": false`; any other host always gets the filler. A slow, dead or
   confused service changes nothing: the rules' result stays as it is. A text
-  longer than `max_chars` goes to a service on this computer or at a URL in pieces of `max_chars` (since 0.9.28):
+  longer than `max_chars` goes to a service on this computer or at a URL in pieces of `max_chars` (since 0.9.29):
   cut at a line break, else at a space, with 200 characters of overlap, one after the other until the wait ends.
   A gateway answers `busy` with a time to come back; maisecrets asks again once per piece when that time and the
   piece fit the wait, never after `rate_limited` and never for an outage. A service on the network (a `url` that is
@@ -1145,7 +1145,26 @@ and keeps its other keys. Written by hand, the setting looks like this:
   `/maisecrets status` counts a text checked in part apart from the texts checked in full. When the wait or a refusal leaves a rest unchecked, the line
   under the result names the share, for example `⚠ names 70 % checked by the name service`, and the AI is told
   that the rest had the rules alone. To a gateway a text longer than `max_chars` is not sent yet: pieces would
-  spend your quota of the minute.
+  spend your quota of the minute. maisecrets sends a gateway and the container it started the field `kind`:
+  `prompt` for a prompt, `result` for a tool result, so the service can give prompts priority; a service at a `url`
+  gets no `kind`, since a strict server of another make may refuse a field it does not know.
+- With the setting `unavailable` at `withhold` (see the next item), the unchecked rest of a tool result does not
+  reach the AI (since 0.9.29). The checked part goes on, masked as usual; in place of the rest the AI reads one line
+  that names it (`lines 120 to 400 of this text`, or characters for a text without a line break) and tells it to
+  fetch that part again in a narrower form: `sed -n` with a line range, Read with offset and limit, or the next page.
+  A narrower fetch is a tool result of its own, and the service checks it. The short strings of a result are
+  checked first, and each string keeps its place, so a Bash, Read, Grep, WebFetch, Agent or MCP result keeps its
+  shape. The cut never splits a value that the rules found, a placeholder or a stored value. When a rest would touch
+  a string without white space (a type, a MIME type, base64, a url, a path), and when no part of a result was
+  checked, the whole result is withheld instead, as with a short one. A source that takes no pieces (the gateway,
+  until it shares its quota under load) cuts nothing: a text longer than it takes is not checked and not withheld,
+  and its line says so. Under the result you read `⚠ names 70 % checked by the name service; … maisecrets withheld
+  the rest of this result from the AI`. A prompt is never cut: its rest keeps the rules (a name never blocks a
+  prompt), and you read the share once per session.
+  Not covered: a key of a JSON result after the cut keeps the rules alone, so a name in such a key can reach the
+  AI; the folder part of an Agent's `outputFile` is masked by the rules, and only withheld with the whole result;
+  the output of a failed command without the mod (Claude Code does not let a hook replace it); and a resumed Codex
+  session, which reads the raw output from its own rollout file on disk.
 - When a source is set and cannot be used, you see one line with the cause and the step, for example
   `⚠️ maisecrets: names are NOT checked — the gateway ended the login → /maisecrets sref login NAME`. The session
   start checks the source (the gateway: a login in the store; a url or the local container: an answer within a
@@ -1154,8 +1173,8 @@ and keeps its other keys. Written by hand, the setting looks like this:
   are not checked". The AI is told at each such result that names may stand in clear text; a name it then
   writes in clear text came through that result; it is not made up. A text longer than the service takes still
   gets its own line under that result. With `/maisecrets ner unavailable withhold`
-  such a result does not reach the AI at all (a text longer than the service takes is named, not withheld). The
-  output of a failed command (Bash with an exit code other than 0) is neither checked by the service nor
+  such a result does not reach the AI at all (of a text in pieces, only the unchecked rest is withheld, see above;
+  a text longer than a source without pieces takes is named, not withheld). The output of a failed command (Bash with an exit code other than 0) is neither checked by the service nor
   withheld: Claude Code does not let a hook replace it (threat model, PostToolUseFailure).
 - **gateway**: the gateway of your `/maisecrets sref login` finds the names, when its protected resource metadata
   names `ner_endpoint` and `ner_scope`. One login asks for every scope the gateway offers, the name scope too, so

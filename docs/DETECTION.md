@@ -478,7 +478,7 @@ response = contract.result_response(detector, result)    # the same as JSON (mai
 - **A failing service changes nothing.** Slow (over `timeout`, or past the `deadline` of `findings_with`, one budget
   for several texts), refused, an HTTP error, or an answer with any item it cannot read: the findings of the rules
   alone, and `result.remote` says `unavailable` and why. Nothing of the service raises.
-- **A long text goes in pieces** (since 0.9.28, #105). A text longer than `max_chars` is cut into pieces of
+- **A long text goes in pieces** (since 0.9.29, #105). A text longer than `max_chars` is cut into pieces of
   `max_chars` (`remote.plan_pieces`). The cuts are made on the text with its JSON escapes turned into characters, at
   a line break, else at a space, else where the size ends, and each piece reads 200 characters (a quarter of
   `max_chars` at most) past its core on each side. A span belongs to the piece whose core holds its start (the rule
@@ -488,7 +488,7 @@ response = contract.result_response(detector, result)    # the same as JSON (mai
   text longer than `max_chars` is not sent (`too_long`).
 - **Each piece waits at most `timeout`; the deadline ends the whole text.** Each request waits at most `timeout`
   from its start (the first one from the start of `ask`, the proof of the secret included), so a one-piece text
-  waits as before 0.9.28 and a service that hangs holds a short text no longer. A `deadline` that the caller gives
+  waits as before 0.9.29 and a service that hangs holds a short text no longer. A `deadline` that the caller gives
   can only shorten this: it is the one end of all pieces and retries of the text. Without a deadline the whole text
   gets `timeout`, as before. A 504 of the service (the gateway's own deadline) is the reason `timeout`.
 - **Retry-After once per piece.** A 429 or 503 that names `busy` (or a 503 without an `error`, an older gateway's
@@ -504,7 +504,8 @@ response = contract.result_response(detector, result)    # the same as JSON (mai
   checked, and the text from `checked_to` on got the rules alone. A span of a checked piece can end after
   `checked_to`; none starts there.
 - **`kind`.** `ask(text, occupied, deadline, kind="prompt")` or `kind="result"` sends the field `kind` at the top of
-  an `hf` request, for a service that orders its work by it; without it the request is as before. A deadline that passes while the rules scan raises `ScanIncomplete`, as in
+  an `hf` request, for a service that orders its work by it; without it the request is as before. The plugin sends
+  `prompt` for a prompt and `result` for a tool result, only to a gateway source and to the container it started. A deadline that passes while the rules scan raises `ScanIncomplete`, as in
   `findings()` (since 0.9.4), and the service is not asked.
 - **No network unless asked.** The URL must be a loopback address (127.0.0.0/8, `::1`, `localhost`) or a Unix socket
   (`unix:/path`), else `RemoteDetector` raises `ValueError`; `allow_network=True` allows any `http` or `https` host.
