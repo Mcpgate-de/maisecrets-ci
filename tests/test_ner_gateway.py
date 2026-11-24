@@ -293,6 +293,14 @@ class GatewaySourceTests(unittest.TestCase):
         self.assertEqual([TEXT[s:e] for s, e, _t, _sc in spans], ["Okafor"])
         self.assertEqual(self.srv.ner_texts, [TEXT])
 
+    def test_a_text_over_max_chars_is_not_sent_in_pieces_to_the_gateway(self):
+        # #105: pieces would spend the person's quota of the minute; off until the gateway shares it (ai-gateway #2141)
+        self.login(self.cfg)
+        det, _why = remote_layer.from_config(self.cfg)
+        self.assertFalse(det.pieces)
+        spans, status = det.ask("a" * (det.max_chars + 1), [])
+        self.assertEqual((spans, status.state, self.srv.ner_texts), ([], "too_long", []))
+
     def test_a_login_without_the_name_scope_gives_the_reason_and_sends_nothing(self):
         self.older_login()
         det, why = remote_layer.from_config(self.cfg)
@@ -570,7 +578,8 @@ class GatewaySourceTests(unittest.TestCase):
     def test_the_gateways_refusals_have_their_names(self):
         self.login(self.cfg)
         cases = ((403, "x", "forbidden"), (413, "x", "too_long"), (429, "rate_limited", "rate_limited"),
-                 (503, "x", "busy"), (429, "busy", "busy"), (503, "busy", "busy"), (500, "x", "http"))
+                 (503, "temporarily_unavailable", "unavailable"), (503, "ner_unavailable", "unavailable"),
+                 (429, "busy", "busy"), (503, "busy", "busy"), (500, "x", "http"))
         for code, body, reason in cases:
             # 429 {"error": "busy"}: the gateway's one client slot since it stopped answering busy with 503
             with self.subTest(code=code, error=body):

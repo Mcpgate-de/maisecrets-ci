@@ -68,7 +68,7 @@ def cause_of(conf: dict, reason: str) -> str | None:
         return "not_ours"
     if reason == "refused":
         return "local_down" if _is_local(conf) else "no_answer"
-    if reason in ("network", "http", "unauthorized", "policy"):
+    if reason in ("network", "http", "unavailable", "unauthorized", "policy"):
         return "no_answer"
     if reason in ("busy", "rate_limited"):
         return reason

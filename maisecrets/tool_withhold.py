@@ -32,7 +32,11 @@ def with_unchecked_names(payload: dict, result: dict, codex: bool, load_config) 
         return result
     why = str(_rl.NER_DOWN.get("why") or "")
     conf = _rl.conf_of(load_config())
-    withhold = conf.get("unavailable") == "withhold" and _rl.NER_DOWN.get("state") == "unavailable"
+    # a text of more than one piece whose first piece got no answer is not withheld, as a text over max_chars was
+    # not before 0.9.28: each long file would be. Withhold for such a text and for a partial one comes with MR 2
+    # of #105
+    withhold = (conf.get("unavailable") == "withhold" and _rl.NER_DOWN.get("state") == "unavailable"
+                and not _rl.NER_DOWN.get("long"))
     if withhold:
         _rl.NER_DOWN["v"] = False      # the note for the AI says the rules masked the result; none did here
     out = withheld(payload, _rl.withhold_text(why), codex) if withhold else dict(result or {})
@@ -40,12 +44,13 @@ def with_unchecked_names(payload: dict, result: dict, codex: bool, load_config) 
         # Codex too: only additionalContext reaches its model, a systemMessage is a warning for the person
         # (docs/CLIENTS.md); next to a block's reason the output schema allows it
         hso = dict(out.get("hookSpecificOutput") or {"hookEventName": "PostToolUse"})
-        note = _rl.unchecked_context(why)
+        note = _rl.unchecked_context(why, int(_rl.NER_DOWN.get("share") or 0))
         hso["additionalContext"] = f"{hso['additionalContext']}\n\n{note}" if hso.get("additionalContext") else note
         out["hookSpecificOutput"] = hso
     lines = []
-    if _rl.NER_DOWN.get("state") == "too_long":
-        lines.append(_rl.screen_line(why, False))   # this result alone is too long: under each one
+    if _rl.NER_DOWN.get("state") in ("too_long", "partial"):
+        # this result alone is too long, or only a part of it was checked (#105): under each one, with the share
+        lines.append(_rl.screen_line(why, False, int(_rl.NER_DOWN.get("share") or 0)))
     else:
         # a source that cannot be used: once per session with the cause and the step, again when the cause changes
         # (ner_health), withheld or not; the AI's note above still comes with each result. It replaces the

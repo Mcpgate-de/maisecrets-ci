@@ -9,5 +9,5 @@ runner = [
 
 [proof]
 file = "maisecrets/detection/remote.py"
-find = "            if _overlaps(occ, ends, s, e):\n                continue\n"
+find = "            if _overlaps(self.occ, self.ends, s, e):\n                continue\n"
 replace = "            if False:\n                continue\n"

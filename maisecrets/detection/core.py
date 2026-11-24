@@ -1755,8 +1755,9 @@ class Detector(_LabelNumbers):
         """findings(), then a remote detector (remote.RemoteDetector) for what the rules left: a Result with the
         findings and the RemoteStatus of this call. The service only adds a span where no finding lies; it never
         removes, narrows or retypes one, and a service that fails leaves the findings as they are. `deadline`: a
-        time.monotonic() value that ends the request earlier than its own timeout (one budget for several texts), and
-        the rules (ScanIncomplete, as findings())."""
+        time.monotonic() value that ends the rules (ScanIncomplete, as findings()) and the request earlier than its
+        own timeout (one budget for several texts); for a long text the one end of all its pieces, each of which waits
+        at most the detector's timeout."""
         from .remote import OFF, Result
         found = self.findings(text, channel, path, fields=fields, deadline=deadline)
         if remote is None:

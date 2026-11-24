@@ -4,7 +4,7 @@
     remote = RemoteDetector("http://127.0.0.1:8765/", format="hf", model="d3-onnx-fp32@d421f57d")
     result = detector.findings_with(text, channel="tool", remote=remote)
     result.findings     # the deterministic findings, unchanged, and the spans the service added
-    result.remote       # a RemoteStatus: ok, unavailable (and why), too_long or off
+    result.remote       # a RemoteStatus: ok, partial (checked_to < total), unavailable (and why), too_long or off
 
 What it promises:
 
@@ -12,7 +12,9 @@ What it promises:
   lies. A deterministic finding is never removed, made smaller, moved or retyped.
 - **It fails to the deterministic result.** A slow, refused, dead or broken service, or an answer it cannot read,
   gives the deterministic findings alone, and the status says the service was unavailable. A text longer than
-  `max_chars` is not sent (status `too_long`).
+  `max_chars` goes in pieces of `max_chars` (since 0.9.28, #105); with `pieces=False` it is not sent (`too_long`).
+  When the deadline or a refusal ends the pieces early, the spans of the checked pieces stay and the status is
+  `partial`: `checked_to` says where the unchecked rest of the text starts.
 - **The service never sees a deterministic finding.** Each one is replaced by filler of the same length before the
   text leaves, so the offsets of the answer still fit the text.
 - **No network unless asked.** Only a loopback address (127.0.0.0/8, ::1, localhost) or a Unix socket
@@ -45,6 +47,11 @@ FORMATS = ("hf", "presidio")
 # experiment measured (docs/NER-EXPERIMENT.md). An operator adds more in `classes`
 DEFAULT_CLASSES = {"PER": "NAME", "PERSON": "NAME"}
 FILLER = "_"                 # a deterministic finding goes out as a run of this: no word, no name, same length
+OVERLAP = 200                # characters a piece reads past each cut, so a name on a cut lies whole in one piece
+# the time a piece is expected to take before one of the same text was measured: 60 ms per 1,000 characters (the
+# reference host, docs/NER-EXPERIMENT.md "The wait grows with the text") times 1.5; it decides whether a retry fits
+ESTIMATE_MS_PER_1000, ESTIMATE_SAFETY = 60.0, 1.5
+KINDS = ("prompt", "result")  # the optional `kind` of a request (hf): a service may give prompts priority
 MAX_ANSWER_BYTES = 4 * 1024 * 1024
 _LOOPBACK_NAMES = ("localhost", "localhost.")
 _TYPE_RE = re.compile(r"[A-Z][A-Z0-9_]*")
@@ -55,13 +62,18 @@ class RemoteStatus:
     """What the remote detector did in one call. `state`: ok, unavailable (with a `reason`: timeout, refused (nothing
     listens), network (name, TLS, route), policy (an address this detector may not use), unauthorized (401: a bearer is
     missing or wrong), not_ours (the listener could not prove the secret of the service maisecrets started), http,
-    answer), too_long, or off (no remote detector). `added` is the count of spans it added."""
+    answer), partial (the pieces up to `checked_to` were checked, the rest was not: `reason` says why), too_long, or
+    off (no remote detector). `added` is the count of spans it added. `checked_to`: the offset in the text where the
+    first unchecked character stands (`total` when all was checked, 0 when nothing was); `total`: the length of the
+    text. Both are 0 in a status made without them (OFF, an older caller)."""
     format: str = ""
     model: str = ""
     state: str = "off"
     reason: str = ""
     added: int = 0
     ms: float = 0.0
+    checked_to: int = 0
+    total: int = 0
 
     @property
     def available(self) -> bool:
@@ -163,13 +175,15 @@ class RemoteDetector:
     and for the benchmark that compares this path with the NER experiment, whose model read the whole text.
     `bearer`: the token of a service that wants one (mcpgate/ner with NER_CLIENT_SECRET: hmac_sha256(secret, "bearer"),
     64 lowercase hex characters); it goes out as `Authorization: Bearer` and is never in a status, a reason, repr, a
-    log line or an error text. The object keeps it, as any client keeps its token."""
+    log line or an error text. The object keeps it, as any client keeps its token. `pieces=False` keeps a text over
+    `max_chars` from the service (`too_long`), as before 0.9.28: for a service whose quota a long text would spend
+    (the gateway, until it shares its quota under load)."""
 
     def __init__(self, url: str, format: str = "hf", model: str = "", classes: dict | None = None,
                  min_score: dict | None = None, timeout: float = 0.3, max_chars: int = 20000,
                  language: str = "en", allow_network: bool = False, mask: bool = True, ask_labels: bool = False,
                  private_http_only: bool = False, bearer: str = "", secret: str = "", token: str = "",
-                 cafile: str = ""):
+                 cafile: str = "", pieces: bool = True):
         if format not in FORMATS:
             raise ValueError(f"format must be one of {', '.join(FORMATS)}")
         parts = urlsplit(url)
@@ -228,9 +242,11 @@ class RemoteDetector:
         self.__bearer = _mac(secret, "bearer") if secret else (bearer or token)
         # a CA file to trust besides the system's (a company CA, the test gateway): client_vault_cafile, as the login
         self.cafile = str(cafile or "")
+        self.pieces = pieces is not False
 
-    def status(self, state: str, reason: str = "", added: int = 0, ms: float = 0.0) -> RemoteStatus:
-        return RemoteStatus(self.format, self.model, state, reason, added, ms)
+    def status(self, state: str, reason: str = "", added: int = 0, ms: float = 0.0, checked_to: int = 0,
+               total: int = 0) -> RemoteStatus:
+        return RemoteStatus(self.format, self.model, state, reason, added, ms, checked_to, total)
 
     # ------------------------------------------------------------------ wire --
     def _request(self, body: bytes, deadline: float, gate: dict | None = None) -> bytes:
@@ -326,14 +342,18 @@ class RemoteDetector:
             if resp.status != 200:
                 # the gateway names a busy client slot in the body: 503 before ai-gateway v2.0.39xx, 429 with
                 # {"error": "busy"} after (a 503 took a gateway container out of the load balancer)
-                error = ""
+                error, wait = "", _seconds(resp.getheader("Retry-After"))
                 if resp.status in (404, 429, 503):        # 404 {"error": "ner_not_enabled"}: switched off
                     try:
                         doc = json.loads(resp.read(4096).decode("utf-8"))
                         error = str(doc.get("error") or "") if isinstance(doc, dict) else ""
+                        if wait is None and isinstance(doc, dict):
+                            wait = _seconds(doc.get("retry_after"))    # the gateway's body: {"retry_after": 1}
                     except (OSError, ValueError, UnicodeError):
                         error = ""
-                raise _HttpStatus(resp.status, error)
+                refused = _HttpStatus(resp.status, error)
+                refused.retry_after = wait
+                raise refused
             chunks, size = [], 0
             while True:
                 if time.monotonic() > deadline:
@@ -351,8 +371,10 @@ class RemoteDetector:
         finally:
             conn.close()
 
-    def _body(self, text: str) -> bytes:
+    def _body(self, text: str, kind: str | None = None) -> bytes:
         doc = {"inputs": text} if self.format == "hf" else {"text": text, "language": self.language}
+        if self.format == "hf" and kind in KINDS:
+            doc["kind"] = kind      # top level: a service that does not know it ignores it (the gateway's parse)
         wanted = [k for k in self.classes if k not in DEFAULT_CLASSES]
         if self.format == "hf" and self.ask_labels and wanted:
             # a class beyond names, to a service that takes `labels` (examples/ner_service.py, mcpgate/ner): ask for
@@ -390,38 +412,81 @@ class RemoteDetector:
         return out
 
     # ------------------------------------------------------------------- ask --
-    def ask(self, text: str, occupied: list, deadline: float | None = None) -> tuple:
+    def ask(self, text: str, occupied: list, deadline: float | None = None, kind: str | None = None) -> tuple:
         """(spans, status) for one text. `occupied`: (start, end) of the deterministic findings; they go out as filler
         and no span may overlap one. Each span is (start, end, type, score), widened to whole words, in the order of
-        the answer. Never raises, and never takes longer than the deadline: the request, the reading of the answer
+        the answers. Never raises, and never takes longer than the deadline: the request, the reading of the answer
         and the choice of spans run in a thread that ask() leaves at the deadline (a dribbled answer, a slow name
-        lookup and a valid answer that is costly to sort out all count; codex review)."""
+        lookup and a valid answer that is costly to sort out all count; codex review). Each request (the first with
+        the proof) waits at most `timeout`; `deadline`, when given, ends the whole text, all its pieces and retries,
+        earlier than their caps when it comes first (#105). Without a deadline the whole text gets `timeout`.
+        `kind` ("prompt" or "result"): sent as a top-level field of an hf request, for a service that orders by it."""
         t0 = time.monotonic()
-        if len(text) > self.max_chars:
-            return [], self.status("too_long")
-        deadline = min(deadline if deadline is not None else math.inf, t0 + self.timeout)
+        total = len(text)
+        if not self.pieces and total > self.max_chars:
+            return [], self.status("too_long", total=total)
+        deadline = t0 + self.timeout if deadline is None else deadline
         if deadline - t0 <= 0:
-            return [], self.status("unavailable", "timeout")
-        box: dict = {}
+            return [], self.status("unavailable", "timeout", total=total)
+        # the spans of the pieces checked so far, in the offsets of `text`, and where the unchecked rest starts there;
+        # one tuple, replaced whole after each piece, so the caller reads a consistent pair at the deadline
+        box: dict = {"progress": ((), 0)}
         gate = {"lock": threading.Lock(), "cancelled": False}
 
         def work() -> None:
             try:
                 # the service reads the text with its JSON escapes turned into their characters (a guest list of
-                # `\r\nAlexander` was the word nAlexander to it, #39); each span comes back in the offsets of the text
+                # `\r\nAlexander` was the word nAlexander to it, #39); each span comes back in the offsets of the text.
+                # The cuts are made here too, on the characters: a cut inside an escape would bring #39 back
                 plain, starts, ends = unescape_json(text)
                 occ = occupied if starts is None else [(bisect.bisect_right(ends, a), bisect.bisect_left(starts, b))
                                                        for a, b in occupied]
                 sent = list(plain)
                 for a, b in occ if self.mask else ():
-                    sent[a:b] = FILLER * (b - a)
+                    sent[a:b] = FILLER * (b - a)       # occupied over a cut: each piece gets its own part as filler
+                sent_text = "".join(sent)
+                # each request waits at most `timeout` from its start, the first one from the start of ask() (the
+                # proof included): a one-piece text waits as before 0.9.28. `deadline` ends the whole text
+                cap = min(deadline, t0 + self.timeout)
                 if self.__secret:
-                    self._prove(deadline, gate)    # no text goes to a listener that cannot prove the secret
-                    if time.monotonic() > deadline:
+                    self._prove(cap, gate)    # no text goes to a listener that cannot prove the secret; once a text
+                    if time.monotonic() > cap:
                         raise TimeoutError     # a proof after the deadline: the caller was told "timeout"
-                raw = self._request(self._body("".join(sent)), deadline, gate)
-                kept = self._keep(plain, self._parse(raw, len(plain)), occ, deadline)
-                box["kept"] = kept if starts is None else [(starts[a], ends[b - 1], t, sc) for a, b, t, sc in kept]
+                keeper = _Keeper(plain, occ)
+                mapped: list = []
+                took = None                    # the measured seconds of the last piece of this text
+                for n, (p, c0, c1, e) in enumerate(plan_pieces(plain, self.max_chars)):
+                    body = self._body(sent_text[p:e], kind)
+                    began, retried = time.monotonic(), False
+                    if n:
+                        cap = min(deadline, began + self.timeout)
+                    while True:
+                        try:
+                            raw = self._request(body, cap, gate)
+                            break
+                        except _HttpStatus as exc:
+                            # Retry-After once per piece, only for `busy` (the one client slot frees in a second;
+                            # after `rate_limited` the quota of the minute is spent: no further piece), and only when
+                            # the wait and the piece fit the deadline
+                            wait = exc.retry_after
+                            guess = took if took is not None else \
+                                ESTIMATE_SAFETY * ESTIMATE_MS_PER_1000 * (e - p) / 1000 / 1000
+                            if retried or _why(exc) != "busy" or wait is None or \
+                                    time.monotonic() + wait + guess > deadline:
+                                raise
+                            retried = True
+                            time.sleep(wait)
+                            began = time.monotonic()
+                            cap = min(deadline, began + self.timeout)     # the second request waits its own time
+                    found = self._parse(raw, e - p)
+                    # a span belongs to the piece whose core (the part without the overlap) holds its start. Each piece
+                    # reads `overlap` characters past its core on both sides, so a name that starts in a core lies
+                    # whole in that piece, and a name on a cut is taken once, whole
+                    new = keeper.add([(p + s, p + t, ty, sc) for s, t, ty, sc in found if c0 <= p + s < c1], cap)
+                    mapped += new if starts is None else [(starts[a], ends[b - 1], ty, sc) for a, b, ty, sc in new]
+                    took = time.monotonic() - began
+                    box["progress"] = (tuple(mapped), total if c1 >= len(plain) else
+                                       (c1 if starts is None else starts[c1]))
             except BaseException as exc:  # noqa: BLE001 - handed to the caller as it is
                 box["error"] = exc
         t = threading.Thread(target=work, name="maisecrets-remote", daemon=True)
@@ -430,61 +495,131 @@ class RemoteDetector:
         if t.is_alive():
             with gate["lock"]:
                 gate["cancelled"] = True
-            return [], self.status("unavailable", "timeout", ms=_ms(t0))
-        exc = box.get("error")
-        if exc is None:
-            return box["kept"], self.status("ok", added=len(box["kept"]), ms=_ms(t0))
-        if isinstance(exc, (TimeoutError, socket.timeout)):
-            return [], self.status("unavailable", "timeout", ms=_ms(t0))
-        if isinstance(exc, _NotOurs):
-            return [], self.status("unavailable", "not_ours", ms=_ms(t0))
-        if isinstance(exc, _Unauthorized):
-            return [], self.status("unavailable", "unauthorized", ms=_ms(t0))
-        if isinstance(exc, _HttpStatus):
-            # a gateway's refusals by name (ai-gateway #1819): 403 the login lacks the name scope, 413 the text is too
-            # long, 429 a limit per person, 503 the gateway's own name lookups run first
-            code = exc.args[0] if exc.args else 0
-            reason = {403: "forbidden", 413: "too_long", 429: "rate_limited", 503: "busy"}.get(code, "http")
-            if len(exc.args) > 1 and exc.args[1] == "busy":
-                reason = "busy"                  # 429 {"error": "busy"}: the one client slot, not the quota
-            if code == 404 and len(exc.args) > 1 and exc.args[1] == "ner_not_enabled":
-                reason = "not_enabled"           # the gateway's operator has not switched name detection on
-            return [], self.status("unavailable", reason, ms=_ms(t0))
-        if isinstance(exc, (ConnectionRefusedError, FileNotFoundError)):
-            # nothing listens there (no service, no socket file): the one reason a caller may take for "not running"
-            return [], self.status("unavailable", "refused", ms=_ms(t0))
-        if isinstance(exc, _Policy):
-            return [], self.status("unavailable", "policy", ms=_ms(t0))
-        if isinstance(exc, (ConnectionError, OSError)) and not isinstance(exc, ValueError):
-            # a name that does not resolve, TLS, a route: the network, not a stopped service
-            return [], self.status("unavailable", "timeout" if "timed out" in str(exc) else "network", ms=_ms(t0))
-        return [], self.status("unavailable", "answer", ms=_ms(t0))
+            why = "timeout"
+        else:
+            exc = box.get("error")
+            why = "" if exc is None else _why(exc)
+        kept, checked = box["progress"]
+        kept = list(kept)
+        if not why and checked >= total:
+            return kept, self.status("ok", added=len(kept), ms=_ms(t0), checked_to=total, total=total)
+        if checked > 0:
+            # the checked pieces keep their spans; the rest of the text got the rules alone
+            return kept, self.status("partial", why or "answer", added=len(kept), ms=_ms(t0), checked_to=checked,
+                                     total=total)
+        return [], self.status("unavailable", why or "answer", ms=_ms(t0), total=total)
 
     @staticmethod
     def _keep(text: str, spans: list, occupied: list, deadline: float) -> list:
         """The spans widened to whole words that overlap no occupied span and no span kept before them. Linear in the
         text and the spans (an answer of 10,000 spans over one long word took 4.5 s with a widening per span)."""
-        words = _Words(text)
+        return _Keeper(text, occupied).add(spans, deadline)
+
+
+def plan_pieces(text: str, size: int, overlap: int = OVERLAP) -> list:
+    """The pieces of a text for a service that takes at most `size` characters: (start, core start, core end, end)
+    each. The cores cut the text without gap or overlap, at a line break, else at a space, else where the size ends;
+    each piece reads `overlap` characters past its core on each side (a quarter of `size` at most), so a name on a cut
+    lies whole in the piece that owns its start. One piece for a text of `size` or less."""
+    n = len(text)
+    if n <= size:
+        return [(0, 0, n, n)]
+    overlap = max(0, min(overlap, size // 4))
+    out: list = []
+    core = 0
+    while True:
+        p = max(0, core - overlap)
+        if p + size >= n:
+            out.append((p, core, n, n))
+            return out
+        hi = p + size - overlap            # the latest end of this core: its piece still ends within `size`
+        lo = max(core + 1, (core + hi) // 2)   # never a core of less than half the room
+        cut = text.rfind("\n", lo, hi)
+        if cut < 0:
+            cut = text.rfind(" ", lo, hi)
+        cut = hi if cut < 0 else cut + 1   # after the line break or the space
+        out.append((p, core, cut, min(n, cut + overlap)))
+        core = cut
+
+
+class _Keeper:
+    """_keep for the spans of one text that come piece by piece: the words of the whole text (a span widens across a
+    cut), the occupied spans and the spans kept so far."""
+
+    def __init__(self, text: str, occupied: list):
+        self.text, self.words = text, None
+        self.occ = _merged(occupied)       # disjoint and sorted: a stored value may lie inside a finding
+        self.ends = [b for _a, b in self.occ]
+        self.taken: list = []              # the kept spans, sorted: they never overlap each other
+        self.n = 0
+
+    def add(self, spans: list, deadline: float) -> list:
+        """The spans of `spans` that are kept, widened; they are kept for the next call too."""
         kept: list = []
-        taken: list = []                           # the kept spans, sorted: they never overlap each other
-        occ = _merged(occupied)                    # disjoint and sorted: a stored value may lie inside a finding
-        ends = [b for _a, b in occ]
-        for n, (s, e, type_, score) in enumerate(spans):
-            if n % 512 == 0 and time.monotonic() > deadline:
+        for s, e, type_, score in spans:
+            if self.n % 512 == 0 and time.monotonic() > deadline:
                 raise TimeoutError
-            s, e = words.widen(s, e)
+            self.n += 1
+            if self.words is None:
+                self.words = _Words(self.text)
+            s, e = self.words.widen(s, e)
             if s >= e:
                 continue                          # white space only: no word to take
-            if type_ == "NAME" and is_no_person_in(text, s, e):
+            if type_ == "NAME" and is_no_person_in(self.text, s, e):
                 continue                          # a product, a greeting, a UI label word or a company is no person
-            if _overlaps(occ, ends, s, e):
+            if _overlaps(self.occ, self.ends, s, e):
                 continue
+            taken = self.taken
             i = bisect.bisect_left(taken, (s, e))
             if (i > 0 and taken[i - 1][1] > s) or (i < len(taken) and taken[i][0] < e):
                 continue
             taken.insert(i, (s, e))
             kept.append((s, e, type_, score))
         return kept
+
+
+def _why(exc: BaseException) -> str:
+    """The reason of an unavailable status for the error of one request."""
+    if isinstance(exc, (TimeoutError, socket.timeout)):
+        return "timeout"
+    if isinstance(exc, _NotOurs):
+        return "not_ours"
+    if isinstance(exc, _Unauthorized):
+        return "unauthorized"
+    if isinstance(exc, _HttpStatus):
+        # a gateway's refusals by name (ai-gateway #1819): 403 the login lacks the name scope, 413 the text is too
+        # long, 429 a limit per person, 503 the gateway's own name lookups run first, 504 its deadline passed
+        code = exc.args[0] if exc.args else 0
+        error = exc.args[1] if len(exc.args) > 1 else ""
+        reason = {403: "forbidden", 413: "too_long", 429: "rate_limited", 503: "busy", 504: "timeout"}.get(code, "http")
+        if error == "busy":
+            reason = "busy"                  # 429 {"error": "busy"}: the one client slot, not the quota
+        elif code == 503 and error:
+            # a 503 with another error (temporarily_unavailable: the gateway's store; ner_unavailable: no service) is
+            # an outage, not a busy slot: its own reason, and no retry. Only a 503 without an error is an older
+            # gateway's busy slot
+            reason = "unavailable"
+        if code == 404 and len(exc.args) > 1 and exc.args[1] == "ner_not_enabled":
+            reason = "not_enabled"           # the gateway's operator has not switched name detection on
+        return reason
+    if isinstance(exc, (ConnectionRefusedError, FileNotFoundError)):
+        # nothing listens there (no service, no socket file): the one reason a caller may take for "not running"
+        return "refused"
+    if isinstance(exc, _Policy):
+        return "policy"
+    if isinstance(exc, (ConnectionError, OSError)) and not isinstance(exc, ValueError):
+        # a name that does not resolve, TLS, a route: the network, not a stopped service
+        return "timeout" if "timed out" in str(exc) else "network"
+    return "answer"
+
+
+def _seconds(value) -> float | None:
+    """A Retry-After in seconds (a header's text or a body's number), or None: an HTTP date is not read."""
+    try:
+        v = float(value) if isinstance(value, (str, int, float)) and not isinstance(value, bool) else math.nan
+    except ValueError:
+        return None
+    return v if math.isfinite(v) and v >= 0 else None
 
 
 # product and model words that the cased model takes for a person when they stand alone (ghissues dev, 2026-11-01:
@@ -783,7 +918,7 @@ def is_company_name(text: str, start: int, end: int) -> bool:
 
 
 class _HttpStatus(Exception):
-    pass
+    retry_after: float | None = None       # seconds from Retry-After or the body's retry_after, when given
 
 
 class _NotOurs(Exception):

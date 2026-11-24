@@ -136,7 +136,7 @@ For development:
 ```bash
 claude --plugin-dir /path/to/maisecrets                 # one session, straight from the checkout
 python3 -m unittest discover -s tests -v               # about 30 seconds
-python3 harness/run.py                                 # 76 scenarios against a fake upstream (4 for the PowerShell tool of Windows, 8 in Code Mode)
+python3 harness/run.py                                 # 77 scenarios against a fake upstream (4 for the PowerShell tool of Windows, 8 in Code Mode)
 python3 harness/codex.py [--real]                      # 19 scenarios through codex exec (five need --real)
 python3 scripts/replay_can_fail.py                     # 650 proofs: each control's test, and each path of the 18 invariant beliefs, goes red without its guard
 python3 scripts/derived_counts.py                      # the numbers in the docs, measured again
@@ -1115,12 +1115,15 @@ and keeps its other keys. Written by hand, the setting looks like this:
   the service: a `remote_detector` in the machine policy with `"prompts": false` (the whole setting then comes
   from the policy). `/maisecrets ner` shows `prompts: policy` then. A person who had a `url` or `gateway` source before this
   change sees one note at the next session start in Claude Code: the name service now checks prompts too.
-  One request per tool call or prompt. A tool result waits `timeout_ms`
+  One request per tool call or prompt, or per piece of a long one (below). A tool result waits `timeout_ms`
   (300 by default, at most 5000; the name lookup and a slow answer count too), plus a share
   that grows with its length: 1.5 times the rate of this computer (ms per 1,000 characters,
   from its last answers; 60 until it has five, the rate of the reference setup) per 1,000
   characters, at most `max_timeout_ms` (3000 by default, at most 5000). `"timeout_scales": false`
-  keeps the fixed `timeout_ms`. `ner.log` names the reason of each result that the rules took
+  keeps the fixed `timeout_ms`. This wait holds for each piece of a long text (below). Since 0.9.28, in a hook
+  the pieces of one tool result end together at the latest at the smaller of 8 s and half the watchdog (8 s of
+  the 16 s of `PostToolUse`) from the start of the hook, less the time the rules' scan of the result took (at least
+  0.5 s): the watchdog never fires because of the name check, and a short result waits as before. `ner.log` names the reason of each result that the rules took
   alone (timeout, too_long, refused …), and `/maisecrets ner` counts the reasons. A prompt waits
   `prompt_timeout_ms` (1000 by default for a service on this computer, never less than its `timeout_ms`;
   2000 in total for a service on the network, the gateway's discovery and token included, plus at most about 0.1 s that a thread needs to end; at most 5000): you wait for
@@ -1133,8 +1136,16 @@ and keeps its other keys. Written by hand, the setting looks like this:
   the model a few names (21 of 2,482 on the benchmark samples), so a service on
   loopback or a Unix socket may read those values as they are with
   `"mask": false`; any other host always gets the filler. A slow, dead or
-  confused service changes nothing: the rules' result stays as it is. A result
-  longer than `max_chars` is not sent.
+  confused service changes nothing: the rules' result stays as it is. A text
+  longer than `max_chars` goes to a service on this computer or at a URL in pieces of `max_chars` (since 0.9.28):
+  cut at a line break, else at a space, with 200 characters of overlap, one after the other until the wait ends.
+  A gateway answers `busy` with a time to come back; maisecrets asks again once per piece when that time and the
+  piece fit the wait, never after `rate_limited` and never for an outage. A service on the network (a `url` that is
+  not on this computer, or such a fallback) gets no pieces: it may count each one against a quota.
+  `/maisecrets status` counts a text checked in part apart from the texts checked in full. When the wait or a refusal leaves a rest unchecked, the line
+  under the result names the share, for example `⚠ names 70 % checked by the name service`, and the AI is told
+  that the rest had the rules alone. To a gateway a text longer than `max_chars` is not sent yet: pieces would
+  spend your quota of the minute.
 - When a source is set and cannot be used, you see one line with the cause and the step, for example
   `⚠️ maisecrets: names are NOT checked — the gateway ended the login → /maisecrets sref login NAME`. The session
   start checks the source (the gateway: a login in the store; a url or the local container: an answer within a

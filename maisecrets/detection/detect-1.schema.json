@@ -58,8 +58,11 @@
        "properties": {
         "format": {"enum": ["hf", "presidio"]},
         "model": {"type": "string"},
-        "state": {"enum": ["ok", "unavailable", "too_long"]},
-        "reason": {"enum": ["timeout", "refused", "network", "policy", "unauthorized", "not_ours", "http", "answer"]}
+        "state": {"enum": ["ok", "partial", "unavailable", "too_long"]},
+        "reason": {"enum": ["timeout", "refused", "network", "policy", "unauthorized", "not_ours", "http", "answer", "forbidden", "too_long",
+                             "rate_limited", "busy", "not_enabled", "unavailable"]},
+        "checked_to": {"type": "integer", "minimum": 0},
+        "total": {"type": "integer", "minimum": 0}
        }
       }
      }

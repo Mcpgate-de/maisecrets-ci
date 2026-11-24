@@ -1050,14 +1050,18 @@ def _version() -> str:
     return _VERSION[0]
 
 
-def log(source: str, kind: str, chars: int, names: int, why: str = "", ms: float = 0.0) -> None:
-    """`why`: the reason no service answered (timeout, too_long, refused …), for a line of the rules alone."""
+def log(source: str, kind: str, chars: int, names: int, why: str = "", ms: float = 0.0, share: int = 0) -> None:
+    """`why`: the reason no service answered (timeout, too_long, refused …), for a line of the rules alone, or why
+    the rest of a text was not checked. `share`: the checked share in percent of a text the service checked only in
+    part (#105); 0 for a whole check."""
     LAST["source"] = source
     path = _log_path()
     entry = {"t": int(time.time()), "source": source, "kind": kind, "chars": chars, "names": names, "ms": int(ms),
              "v": _version()}
     if why:
         entry["why"] = why
+    if share:
+        entry["share"] = int(share)
     line = json.dumps(entry)
     try:
         with open(path, "a", encoding="utf-8") as f:
@@ -1093,7 +1097,13 @@ def today_counts(now: float | None = None) -> dict:
             continue
         if not isinstance(d, dict) or not isinstance(d.get("t"), int) or d["t"] < start:
             continue
-        counts[d.get("source", "?")] = counts.get(d.get("source", "?"), 0) + 1
+        share = d.get("share")
+        if isinstance(share, int) and not isinstance(share, bool) and 0 < share < 100:
+            # a text checked in part (#105): its own key and the sum of the shares, never a check of the source
+            counts["partial"] = counts.get("partial", 0) + 1
+            counts["partial_share"] = counts.get("partial_share", 0) + share
+        else:
+            counts[d.get("source", "?")] = counts.get(d.get("source", "?"), 0) + 1
         if d.get("v") != current:
             counts["other_version"] = counts.get("other_version", 0) + 1
         if d.get("source") == "rules":
@@ -1109,7 +1119,11 @@ def counts_line(now: float | None = None) -> str:
     c = today_counts(now)
     if not c:
         return "today, your sessions on this computer (ner.log): no request yet"
-    parts = [f"{k} {c[k]}" for k in ("local", "url", "gateway", "fallback", "rules") if c.get(k)]
+    parts = [f"{k} {c[k]}" for k in ("local", "url", "gateway", "fallback") if c.get(k)]
+    if c.get("partial"):
+        parts.append(f"in part {c['partial']} ({c.get('partial_share', 0) // c['partial']} % checked on average)")
+    if c.get("rules"):
+        parts.append(f"rules {c['rules']}")
     whys = sorted(((v, k[4:]) for k, v in c.items() if k.startswith("why:")), reverse=True)
     if whys and c.get("rules"):
         parts[-1] += " (" + ", ".join(f"{w} {v}" for v, w in whys) + ")"

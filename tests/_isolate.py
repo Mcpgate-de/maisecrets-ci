@@ -140,3 +140,23 @@ HOME = os.environ["MAISECRETS_HOME"]
 _REAL = os.path.realpath(os.path.expanduser("~/.maisecrets"))
 if os.path.realpath(HOME) == _REAL or os.path.realpath(HOME).startswith(_REAL + os.sep):
     raise SystemExit(f"refusing to run tests against the real vault home {HOME}")
+
+
+def _install_hook_window_reset() -> None:
+    """Each test starts outside a hook: the watchdog window and the store deadline of vault.hook_deadline are module
+    state, and a test that set them must not leave a past deadline to the tests after it (#105, review L7)."""
+    import unittest
+    if getattr(unittest.TestCase.run, "_resets_hook_window", False):
+        return
+    run = unittest.TestCase.run
+
+    def run_outside_a_hook(self, result=None):
+        vault = sys.modules.get("maisecrets.vault")
+        if vault is not None:
+            vault.hook_deadline(None)
+        return run(self, result)
+    run_outside_a_hook._resets_hook_window = True
+    unittest.TestCase.run = run_outside_a_hook
+
+
+_install_hook_window_reset()

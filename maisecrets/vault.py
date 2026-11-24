@@ -364,6 +364,13 @@ def hook_deadline(seconds: float | None) -> None:
     before it, so a keychain that waits (a lock dialog, a busy securityd) fails this hook with its own reason
     instead of holding it to the watchdog (#76)."""
     _STORE_END["hook"] = None if seconds is None else _monotonic() + seconds - STORE_MARGIN
+    _STORE_END["window"] = None if seconds is None else (_monotonic(), float(seconds))
+
+
+def hook_window() -> tuple | None:
+    """(the start of the hook's watchdog in time.monotonic(), its seconds), or None when no hook runs: the name
+    check of a tool result takes its wait from it (remote_layer.tool_deadline, #105)."""
+    return _STORE_END.get("window")
 
 
 class store_deadline:

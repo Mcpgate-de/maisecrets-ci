@@ -215,6 +215,9 @@ def result_response(detector, result) -> dict:
         engine["remote"] = {"format": st.format, "model": st.model, "state": st.state}
         if st.reason:
             engine["remote"]["reason"] = st.reason
+        if st.state == "partial":
+            # the text from checked_to on got the rules alone (#105)
+            engine["remote"]["checked_to"], engine["remote"]["total"] = st.checked_to, st.total
     rows = sorted(result.findings, key=lambda m: (m.start, m.end, m.type, m.kind))
     return {"contract": CONTRACT, "engine": engine, "findings": [finding(m) for m in rows]}
 

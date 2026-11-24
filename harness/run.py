@@ -518,6 +518,16 @@ SCENARIOS = {
         "expect_not_in_requests": ["maisecrets self-test:"],
         "selftest": "fail",
     },
+    # #105, step 1: a Bash output of 200,000 characters. Reported (report_sizes): the length of tool_response the
+    # PostToolUse hook got, and the longest tool result the model got in the next request. With a client that
+    # persists a large output and shows a preview, the hook gets more than the model sees
+    "large_bash_output_sizes": {
+        "prompt": "print the log",
+        "files": {"big.log": "".join(f"line {i:06d} of the large output, nothing secret in it\n" for i in range(4000))},
+        "turns": [{"tool": "Bash", "input": {"command": "cat big.log"}}, {"text": "done"}],
+        "expect_requests": 2,
+        "report_sizes": True,
+    },
     "bash_echo": {
         "prompt": "print the env",
         "files": {".env": f"TOKEN={MARK}\n"},
@@ -1242,6 +1252,18 @@ def run_scenario(name: str, sc: dict, update_golden: bool) -> list[str]:
         # the marker of the tool-result hook is the mod's alone (maisecrets/second_net.py): the mod takes it out
         if mark in joined:
             fails.append(f"the marker {mark!r} reached the model")
+    if sc.get("report_sizes"):
+        # what the hook got against what the model got (#105): measured, printed, not judged
+        hook = [len(json.dumps(json.loads(pf.read_text(errors="ignore")).get("tool_response", "")))
+                for pf in dump.glob("*PostToolUse_*.json")]
+        seen = []
+        for b in bodies:
+            for msg in json.loads(Path(b).read_text()).get("messages", []):
+                for block in msg.get("content", []) if isinstance(msg.get("content"), list) else []:
+                    if isinstance(block, dict) and block.get("type") == "tool_result":
+                        c = block.get("content")
+                        seen.append(len(c if isinstance(c, str) else json.dumps(c)))
+        print(f"[SIZES] {name}: hook tool_response {hook} chars; model tool_result max {max(seen, default=0)} chars")
     for ph in sc.get("expect_placeholders", []):
         if ph not in joined:
             fails.append(f"placeholder {ph} missing in requests")
@@ -1402,6 +1424,9 @@ def run_scenario(name: str, sc: dict, update_golden: bool) -> list[str]:
         tool = payload.get("tool_name", "")
         gname = f"{ev}{'_' + tool if tool else ''}.json"
         resp = payload.get("tool_response")
+        if isinstance(resp, dict) and "persistedOutputPath" in resp:
+            # a large Bash output: Claude Code keeps it in a file and adds where (2.1.331, #105); only then
+            resp = {k: v for k, v in resp.items() if k not in ("persistedOutputPath", "persistedOutputSize")}
         if tool == "REPL" and isinstance(resp, dict):
             # toolsUsed is there only when the script called a tool, error only when it threw
             resp = {k: v for k, v in resp.items() if k not in ("toolsUsed", "error")}

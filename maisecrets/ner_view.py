@@ -56,7 +56,7 @@ def _source_fact(conf: dict) -> str:
 def today_check(now: float | None = None) -> Check:
     """Today's requests from ner.log: a warn when the rules alone took a notable share (RULES_SHARE, RULES_MIN)."""
     c = ner_setup.today_counts(now)
-    total = sum(c.get(k, 0) for k in ("local", "url", "gateway", "fallback", "rules"))
+    total = sum(c.get(k, 0) for k in ("local", "url", "gateway", "fallback", "partial", "rules"))
     if not total:
         return Check("n/a", "today", "no text yet", None, None)
     rules = c.get("rules", 0)
@@ -64,7 +64,10 @@ def today_check(now: float | None = None) -> Check:
     top = f" ({whys[0][0]} {_WHY.get(whys[0][1], whys[0][1])})" if whys and rules else ""
     if rules >= RULES_MIN and rules >= RULES_SHARE * total:
         return Check("warn", "today", f"{rules} of {total} texts rules alone{top}", "/maisecrets ner all", None)
-    fact = f"{total - rules} of {total} texts checked by the service"
+    part = c.get("partial", 0)
+    fact = f"{total - rules - part} of {total} texts checked by the service"
+    if part:
+        fact += f", {part} in part ({c.get('partial_share', 0) // part} % on average)"
     return Check("ok", "today", fact + (f", {rules} rules alone" if rules else ""), None, None)
 
 

@@ -752,9 +752,9 @@ class RemoteDetectorTests(unittest.TestCase):
         self.assertEqual(r.findings, self.base)
         self.assertEqual((r.remote.state, r.remote.reason), ("unavailable", "http"))
 
-    def test_a_text_over_the_limit_is_not_sent(self):
+    def test_a_text_over_the_limit_is_not_sent_without_pieces(self):
         svc = Service("hf")
-        r = self.run_with(svc, max_chars=10)
+        r = self.run_with(svc, max_chars=10, pieces=False)
         self.assertEqual((r.findings, r.remote.state, svc.received), (self.base, "too_long", []))
 
     def test_a_deadline_that_has_passed_sends_nothing(self):
@@ -911,6 +911,330 @@ class JsonEscapedTextTests(unittest.TestCase):
         self.assertEqual([text[a:b] for a, b in zip(starts, ends)], ["a", "\\u00e9", "b", "\\\\n", "c"])
         self.assertEqual(rm.unescape_json("no escape here"), ("no escape here", None, None))
         self.assertEqual(rm.unescape_json("a \\ b")[1], None)     # a backslash before no escape letter stays
+
+
+class Scripted:
+    """A fake service whose answers follow a script, one entry per POST: (status, body, headers, delay); past the
+    script it finds each NAME in the piece it got. `received` keeps each request body."""
+
+    def __init__(self, script=(), secret: str = "", answer=None):
+        self.script, self.received, self.challenges, self.secret = list(script), [], [], secret
+        self.answer = answer
+        svc = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):  # noqa: N802 - http.server API
+                doc = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+                n = len(svc.received)
+                svc.received.append(doc)
+                status, body, headers, delay = svc.script[n] if n < len(svc.script) else (200, None, {}, 0.0)
+                if delay:
+                    time.sleep(delay)
+                if body is None and svc.answer is not None:
+                    body = svc.answer(doc["inputs"])
+                if body is None:
+                    body = [{"entity_group": "PER", "start": m.start(), "end": m.end(), "score": 0.97}
+                            for m in re.finditer(re.escape(NAME), doc["inputs"])]
+                out = json.dumps(body).encode()
+                self.send_response(status)
+                for k, v in headers.items():
+                    self.send_header(k, v)
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                try:
+                    self.wfile.write(out)
+                except OSError:
+                    pass
+
+            def do_GET(self):  # noqa: N802 - http.server API
+                import hashlib
+                import hmac
+                import urllib.parse
+                nonce = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("challenge", [""])[0]
+                svc.challenges.append(nonce)
+                proof = hmac.new(svc.secret.encode(), ("health:" + nonce).encode(), hashlib.sha256).hexdigest()
+                out = json.dumps({"status": "ok", "proof": proof}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                self.wfile.write(out)
+
+            def log_message(self, *args):
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.server.daemon_threads = True
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/"
+        threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True).start()
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+BUSY = (429, {"error": "busy", "retry_after": 0.2}, {}, 0.0)
+SIZE = 1000                                   # max_chars of these tests: a core of at most 800, an overlap of 200
+
+
+def dots(n: int) -> str:
+    return "." * n                            # no letter, no space, no line break: the cut lands where a test puts it
+
+
+class PiecesTests(unittest.TestCase):
+    """A text longer than max_chars goes in pieces (#105): cut on the unescaped text at a line break or a space, with
+    an overlap; a span belongs to the piece whose core holds its start; one deadline for the whole text; Retry-After
+    once per piece for `busy`; the status says how far the text was checked."""
+
+    def svc(self, script=(), secret: str = "") -> Scripted:
+        s = Scripted(script, secret)
+        self.addCleanup(s.close)
+        return s
+
+    def ask(self, svc, text, occupied=(), wait=3.0, kind=None, **kw):
+        det = rm.RemoteDetector(svc.url, max_chars=SIZE, **kw)
+        return det.ask(text, list(occupied), time.monotonic() + wait, kind=kind)
+
+    def test_the_plan_cuts_at_a_line_break_then_a_space_and_every_piece_fits(self):
+        text = J([dots(700), "\n", dots(50), " ", dots(1500)])
+        plan = rm.plan_pieces(text, SIZE)
+        self.assertEqual(plan[0][2], 701, "after the line break, not at the later space")
+        self.assertEqual([c0 for _p, c0, _c1, _e in plan[1:]], [c1 for _p, _c0, c1, _e in plan[:-1]], "no gap")
+        self.assertEqual((plan[0][1], plan[-1][2]), (0, len(text)))
+        self.assertTrue(all(e - p <= SIZE and p == max(0, c0 - 200) for p, c0, _c1, e in plan))
+        self.assertEqual(rm.plan_pieces(dots(SIZE), SIZE), [(0, 0, SIZE, SIZE)], "a text that fits is one piece")
+
+    def test_a_name_exactly_on_a_cut_is_found_once_and_whole(self):
+        # the space inside the name is the only one in the room of the first cut: the cut falls inside the name
+        text = J([dots(780), NAME, dots(900)])
+        plan = rm.plan_pieces(text, SIZE)
+        at = text.index(NAME)
+        self.assertTrue(at < plan[0][2] < at + len(NAME), "premise: the cut is inside the name")
+        svc = self.svc()
+        spans, status = self.ask(svc, text)
+        self.assertEqual([(s, e) for s, e, _t, _sc in spans], [(at, at + len(NAME))], "once, whole")
+        self.assertEqual(len(svc.received), len(plan))
+        self.assertTrue(all(NAME in r["inputs"] for r in svc.received[:2]), "premise: both pieces read it whole")
+        self.assertEqual((status.state, status.checked_to, status.total), ("ok", len(text), len(text)))
+
+    def test_a_name_that_the_end_of_a_piece_cuts_belongs_to_the_next_piece_and_is_masked_whole(self):
+        # the first piece ends after the given name: a model reads that word alone as a name. Kept first, it would
+        # leave the surname of the next piece unmasked (Fable review of revision 3: _keep keeps the first span)
+        first = NAME.split()[0]
+        text = J([dots(700), "\n", dots(200 - len(first) - 1), NAME, dots(900)])
+        plan = rm.plan_pieces(text, SIZE)
+        at = text.index(NAME)
+        self.assertEqual((plan[0][2], plan[0][3]), (701, at + len(first) + 1), "premise: piece 1 ends in the name")
+
+        def answer(piece):
+            spans = [{"entity_group": "PER", "start": m.start(), "end": m.end(), "score": 0.97}
+                     for m in re.finditer(re.escape(NAME), piece)]
+            if piece.endswith(first + " "):
+                spans.append({"entity_group": "PER", "start": len(piece) - len(first) - 1, "end": len(piece) - 1,
+                              "score": 0.9})
+            return spans
+        svc = Scripted(answer=answer)
+        self.addCleanup(svc.close)
+        spans, status = self.ask(svc, text)
+        self.assertEqual(status.state, "ok")
+        self.assertEqual([(s, e) for s, e, _t, _sc in spans], [(at, at + len(NAME))], "whole, from the next piece")
+
+    def test_a_name_past_checked_to_is_not_reported_as_checked(self):
+        text = J([dots(780), NAME, dots(400), NAME, dots(300)])
+        first, second = text.index(NAME), text.rindex(NAME)
+        plan = rm.plan_pieces(text, SIZE)
+        self.assertEqual(len(plan), 2)
+        svc = self.svc([(200, None, {}, 0.0), (200, None, {}, 3.0)])     # the second piece is too slow
+        spans, status = self.ask(svc, text, wait=1.0)
+        self.assertEqual((status.state, status.reason), ("partial", "timeout"))
+        self.assertEqual((status.checked_to, status.total), (plan[0][2], len(text)))
+        self.assertTrue(first < status.checked_to <= second)
+        self.assertEqual([s for s, _e, _t, _sc in spans], [first], "the name of the unchecked rest is no span")
+        self.assertTrue(all(s < status.checked_to for s, _e, _t, _sc in spans))
+
+    def test_escapes_across_a_cut_are_cut_as_characters_and_map_back(self):
+        line = "row of the export" + "\\r\\n"
+        text = J([line * 40, NAME, "\\n", line * 40])
+        plain, starts, _ends = rm.unescape_json(text)
+        self.assertGreater(len(plain), SIZE)
+        self.assertEqual(len(rm.plan_pieces(plain, SIZE)), 2)
+        svc = self.svc([(200, None, {}, 0.0), (200, None, {}, 3.0)])      # the second piece is too slow
+        spans, status = self.ask(svc, text, wait=1.0)
+        self.assertTrue(all("\\" not in r["inputs"] and len(r["inputs"]) <= SIZE for r in svc.received))
+        self.assertEqual([text[s:e] for s, e, _t, _sc in spans], [NAME])
+        self.assertEqual(status.state, "partial")
+        # checked_to is an offset of the original text, at a whole escape: the rest unescapes to the rest of plain
+        cut = rm.plan_pieces(plain, SIZE)[0][2]
+        self.assertEqual(text[starts[cut] - 4:starts[cut]], "\\r\\n", "premise: the cut follows an escaped break")
+        self.assertEqual(status.checked_to, starts[cut])
+        self.assertEqual(rm.unescape_json(text[status.checked_to:])[0], plain[cut:])
+
+    def test_occupied_across_a_cut_goes_out_as_filler_in_both_pieces(self):
+        text = J([dots(700), "\n", dots(900)])
+        cut = rm.plan_pieces(text, SIZE)[0][2]
+        occ = (cut - 30, cut + 30)
+        plan = rm.plan_pieces(text, SIZE)
+        # piece 2 starts 200 before the cut: a span at 205 lies on the occupied part, one at 300 past it
+        on = {"entity_group": "PER", "start": 205, "end": 215, "score": 0.9}
+        past = {"entity_group": "PER", "start": 300, "end": 310, "score": 0.9}
+        svc = self.svc([(200, [], {}, 0.0), (200, [on, past], {}, 0.0)])
+        spans, status = self.ask(svc, text, occupied=[occ])
+        self.assertEqual(status.state, "ok")
+        shared = 0
+        for (p, _c0, _c1, e), req in zip(plan, svc.received):
+            got = req["inputs"]
+            self.assertEqual(len(got), e - p)
+            inside = [got[j - p] for j in range(max(p, occ[0]), min(e, occ[1]))]
+            if inside:
+                shared += 1
+                self.assertEqual(set(inside), {rm.FILLER}, "each piece gets its part as filler")
+        self.assertEqual(shared, 2, "premise: the occupied span lies in two pieces")
+        p2 = plan[1][0]
+        self.assertEqual([(s, e) for s, e, _t, _sc in spans], [(p2 + 300, p2 + 310)],
+                         "the span on the occupied part is dropped, the one past it kept")
+
+    def test_a_retry_that_fits_the_deadline_is_made(self):
+        svc = self.svc([BUSY])
+        spans, status = self.ask(svc, f"ask {NAME} now", wait=0.6)
+        self.assertEqual((status.state, len(spans), len(svc.received)), ("ok", 1, 2))
+
+    def test_a_retry_that_does_not_fit_with_the_first_estimate_is_not_made(self):
+        # the wait (0.2 s) fits, but the wait and the estimate of a first piece (1.5 x 60 ms per 1,000 characters,
+        # 90 ms for 1,000) do not
+        text = J([dots(495), NAME, dots(SIZE - 495 - len(NAME))])
+        svc = self.svc([BUSY])
+        spans, status = self.ask(svc, text, wait=0.25)
+        self.assertEqual((status.state, status.reason, len(svc.received)), ("unavailable", "busy", 1))
+        svc = self.svc([BUSY])
+        spans, status = self.ask(svc, text, wait=0.45)
+        self.assertEqual((status.state, len(spans), len(svc.received)), ("ok", 1, 2))
+
+    def test_the_estimate_after_the_first_piece_is_its_measured_time(self):
+        # the first piece took 0.4 s: a retry of 0.1 s does not fit 0.3 s more, though the first estimate would
+        text = J([dots(700), "\n", dots(900)])
+        busy = (429, {"error": "busy", "retry_after": 0.1}, {}, 0.0)
+        svc = self.svc([(200, [], {}, 0.4), busy])
+        _spans, status = self.ask(svc, text, wait=0.4 + 0.3, timeout=2.0)
+        self.assertEqual((status.state, status.reason, len(svc.received)), ("partial", "busy", 2))
+
+    def test_retry_after_comes_from_the_header_or_from_the_body(self):
+        for name, script in (("header", (503, {"error": "busy"}, {"Retry-After": "0.1"}, 0.0)),
+                             ("body", (429, {"error": "busy", "retry_after": 0.1}, {}, 0.0))):
+            with self.subTest(name):
+                svc = self.svc([script])
+                spans, status = self.ask(svc, f"ask {NAME} now", wait=1.0)
+                self.assertEqual((status.state, len(spans), len(svc.received)), ("ok", 1, 2))
+        svc = self.svc([(503, {"error": "busy"}, {}, 0.0)])
+        _spans, status = self.ask(svc, f"ask {NAME} now", wait=1.0)
+        self.assertEqual((status.reason, len(svc.received)), ("busy", 1), "no Retry-After: no retry")
+
+    def test_no_piece_and_no_retry_after_rate_limited(self):
+        text = J([dots(700), "\n", dots(700), "\n", dots(700)])
+        self.assertGreaterEqual(len(rm.plan_pieces(text, SIZE)), 3)
+        limited = (429, {"error": "rate_limited", "retry_after": 0.05}, {}, 0.0)
+        svc = self.svc([(200, [], {}, 0.0), limited])
+        _spans, status = self.ask(svc, text)
+        self.assertEqual((status.state, status.reason, len(svc.received)), ("partial", "rate_limited", 2))
+        self.assertEqual(status.checked_to, rm.plan_pieces(text, SIZE)[0][2])
+
+    def test_the_secret_is_proven_once_per_text_not_per_piece(self):
+        shared = "".join(("test", "-container-", "x" * 26))
+        svc = self.svc(secret=shared)
+        text = J([dots(700), "\n", dots(700), "\n", dots(700)])
+        _spans, status = self.ask(svc, text, secret=shared)
+        pieces = len(rm.plan_pieces(text, SIZE))
+        self.assertGreaterEqual(pieces, 3)
+        self.assertEqual((status.state, len(svc.received), len(svc.challenges)), ("ok", pieces, 1))
+
+    def test_a_504_of_the_service_is_a_timeout(self):
+        svc = self.svc([(504, {"error": "ner_timeout"}, {}, 0.0)])
+        _spans, status = self.ask(svc, f"ask {NAME} now")
+        self.assertEqual((status.state, status.reason), ("unavailable", "timeout"))
+
+    def test_each_piece_waits_at_most_its_own_timeout_and_the_deadline_ends_the_text(self):
+        # review H1: the deadline bounds the sum of the pieces; a piece never waits longer than `timeout`
+        text = J([dots(700), "\n", dots(700), "\n", dots(700)])
+        pieces = len(rm.plan_pieces(text, SIZE))
+        svc = self.svc([(200, [], {}, 0.3)] * pieces)
+        _spans, status = self.ask(svc, text, wait=3.0, timeout=0.6)
+        self.assertEqual((status.state, len(svc.received)), ("ok", pieces), "together longer than one timeout")
+        t = time.monotonic()
+        svc = self.svc([(200, None, {}, 3.0)])            # a service that hangs
+        _spans, status = self.ask(svc, f"ask {NAME} now", wait=3.0, timeout=0.2)
+        self.assertLess(time.monotonic() - t, 1.0, "a short text waits its timeout, not the deadline")
+        self.assertEqual((status.state, status.reason), ("unavailable", "timeout"))
+        t = time.monotonic()
+        svc = self.svc([(200, [], {}, 0.0), (200, None, {}, 3.0)])      # the second piece hangs
+        _spans, status = self.ask(svc, text, wait=3.0, timeout=0.3)
+        self.assertLess(time.monotonic() - t, 1.5, "a later piece waits its own timeout, not the deadline")
+        self.assertEqual((status.state, status.reason), ("partial", "timeout"))
+        svc = self.svc([(200, None, {}, 0.5)])
+        _spans, status = self.ask(svc, f"ask {NAME} now", wait=0.2, timeout=2.0)
+        self.assertEqual(status.reason, "timeout", "a deadline before the timeout ends the request")
+        svc = self.svc([(200, None, {}, 0.5)])
+        det = rm.RemoteDetector(svc.url, timeout=0.1)
+        self.assertEqual(det.ask(f"ask {NAME} now", [])[1].reason, "timeout", "without a deadline: the timeout")
+
+    def test_a_503_that_names_another_error_is_no_busy_slot_and_gets_no_retry(self):
+        # gateway review G1: temporarily_unavailable (its store) with Retry-After 5 must not cost 5 s
+        for error in ("temporarily_unavailable", "ner_unavailable"):
+            with self.subTest(error):
+                svc = self.svc([(503, {"error": error}, {"Retry-After": "0.1"}, 0.0)])
+                t = time.monotonic()
+                _spans, status = self.ask(svc, f"ask {NAME} now", wait=3.0, timeout=2.0)
+                self.assertEqual((status.state, status.reason, len(svc.received)), ("unavailable", "unavailable", 1))
+                self.assertLess(time.monotonic() - t, 0.5)
+        svc = self.svc([(503, {"error": "temporarily_unavailable"}, {"Retry-After": "5"}, 0.0)])
+        t = time.monotonic()
+        _spans, status = self.ask(svc, f"ask {NAME} now", wait=8.0, timeout=2.0)
+        self.assertLess(time.monotonic() - t, 1.0, "no wait of 5 s for an outage")
+        self.assertNotEqual(status.reason, "busy")
+        svc = self.svc([(503, {}, {"Retry-After": "0.1"}, 0.0)])       # an older gateway's busy slot: no error
+        spans, status = self.ask(svc, f"ask {NAME} now", wait=2.0, timeout=1.0)
+        self.assertEqual((status.state, len(svc.received)), ("ok", 2))
+
+    def test_a_second_busy_of_a_piece_gets_no_second_retry(self):
+        # review L5: two busy answers in a row with time to spare: one retry, two requests, the piece unchecked
+        svc = self.svc([BUSY, BUSY])
+        _spans, status = self.ask(svc, f"ask {NAME} now", wait=3.0, timeout=1.0)
+        self.assertEqual((status.state, status.reason, len(svc.received)), ("unavailable", "busy", 2))
+
+    def test_every_body_holds_at_most_max_chars_code_points(self):
+        # gateway review G3: the gateway counts the code points of the decoded inputs; escapes and characters
+        # outside the BMP (two escapes, one character) must not make a piece longer
+        emoji = "\\ud83d" + "\\ude00"
+        unit = J(["r\\u00e9sum\\u00e9 ", emoji, " line", "\\r\\n"])
+        plain_unit = rm.unescape_json(unit)[0]
+        text = unit * (SIZE // len(plain_unit))
+        text += "x" * (SIZE + 1 - len(rm.unescape_json(text)[0]))
+        plain = rm.unescape_json(text)[0]
+        self.assertEqual(len(plain), SIZE + 1, "max_chars + 1 code points")
+        self.assertLess(len(plain), len(text), "premise: the escapes make the text longer than its characters")
+        self.assertTrue(any(ord(c) > 0xFFFF for c in plain), "premise: a character outside the BMP")
+        svc = self.svc()
+        _spans, status = self.ask(svc, text, wait=3.0, timeout=2.0)
+        self.assertEqual(status.state, "ok")
+        self.assertGreater(len(svc.received), 1)
+        for r in svc.received:
+            self.assertLessEqual(len(r["inputs"]), SIZE)
+
+    def test_kind_goes_out_only_when_given_and_only_in_the_hf_format(self):
+        svc = self.svc()
+        self.ask(svc, "a text", kind="prompt")
+        self.ask(svc, "a text")
+        self.assertEqual([r.get("kind") for r in svc.received], ["prompt", None])
+        self.assertEqual(sorted(svc.received[1]), ["inputs"], "no kind: the body of before")
+        body = json.loads(rm.RemoteDetector(svc.url, format="presidio")._body("t", "result"))
+        self.assertNotIn("kind", body)
+
+    def test_partial_and_its_offsets_fit_the_schema(self):
+        schema = contract.json.loads(contract.SCHEMA.read_text())["$defs"]["response"]
+        det = detector()
+        base = det.findings_with(TEXT, channel="tool")
+        r = rm.Result(base.findings, rm.RemoteStatus("hf", "m", "partial", "busy", 0, 1.0, 10, 40))
+        doc = contract.result_response(det, r)
+        self.assertEqual(problems(doc, schema), [])
+        self.assertEqual((doc["engine"]["remote"]["checked_to"], doc["engine"]["remote"]["total"]), (10, 40))
+        self.assertEqual(rm.RemoteStatus().checked_to, 0, "an older caller's status keeps working")
 
 
 if __name__ == "__main__":

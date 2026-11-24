@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -186,12 +187,164 @@ class RemoteLayerTests(unittest.TestCase):
         self.addCleanup(Path(HOME, "ner.log").unlink, True)
         _reset(remote_detector={"url": slow.url, "format": "hf", "timeout_ms": 100, "timeout_scales": False})
         _post({"stdout": f"ask {NAME}\n", "stderr": ""})
-        _reset(remote_detector={"url": self.svc.url, "format": "hf", "max_chars": 10})
+        # a text the service refuses as too long (413): a local service takes a long text in pieces since #105
+        long_ = Service("hf", answer=self.names, status=413)
+        self.addCleanup(long_.close)
+        _reset(remote_detector={"url": long_.url, "format": "hf"})
         _post({"stdout": f"ask {NAME} about the long text\n", "stderr": ""})
         lines = [json.loads(x) for x in Path(HOME, "ner.log").read_text().splitlines()]
         self.assertEqual([(d["source"], d.get("why")) for d in lines], [("rules", "timeout"), ("rules", "too_long")])
         self.assertGreaterEqual(lines[0]["ms"], 90)
         self.assertIn("rules 2 (too_long 1, timeout 1)", ner_setup.counts_line())
+
+    def test_a_tool_result_in_a_hook_waits_from_the_watchdog_start_not_the_cap(self):
+        # #105, B8: min(8 s, half the watchdog) from its start, less the reserve, bounds the pieces together; each
+        # piece still waits at most its own wait (review H1); outside a hook the text gets one wait
+        from maisecrets import remote_layer, vault
+        from test_remote_detector import Scripted
+        self.addCleanup(vault.hook_deadline, None)
+        vault.hook_deadline(16.0)
+        start = vault.hook_window()[0]
+        self.assertAlmostEqual(remote_layer.tool_deadline(0.0), start + 8.0 - remote_layer.RESERVE_MIN_S)
+        self.assertAlmostEqual(remote_layer.tool_deadline(1.5), start + 8.0 - 1.5, msg="a slow scan: its own time")
+        text = f"ask {NAME}\n" + "row of the log\n" * 140
+        conf = {"format": "hf", "max_chars": 1000, "timeout_ms": 1000, "timeout_scales": False}
+        for hook, want in ((True, "ok"), (False, "partial")):
+            with self.subTest(hook=hook):
+                svc = Scripted([(200, None, {}, 0.4)] * 4)     # each piece 0.4 s, within its own 1 s
+                self.addCleanup(svc.close)
+                _reset(remote_detector={"url": svc.url, **conf})
+                vault.hook_deadline(6.0 if hook else None)     # the tests' watchdog: 3 s, less 0.5 s, from now
+                if hook:
+                    self.assertAlmostEqual(remote_layer.tool_deadline(0.0), vault.hook_window()[0] + 2.5)
+                out = _out(_post({"stdout": text, "stderr": ""}))
+                self.assertGreaterEqual(len(svc.received), 3 if hook else 2)
+                self.assertEqual(remote_layer.NER_DOWN["state"], want)
+                self.assertTrue(out and NAME not in json.dumps(out), "the first piece masked the name")
+        vault.hook_deadline(None)
+        self.assertIsNone(remote_layer.tool_deadline(0.0))
+        hung = Scripted([(200, None, {}, 3.0)])
+        self.addCleanup(hung.close)
+        _reset(remote_detector={"url": hung.url, **conf, "timeout_ms": 300})
+        vault.hook_deadline(16.0)
+        t = time.monotonic()
+        _post({"stdout": f"ask {NAME}\n", "stderr": ""})
+        self.assertLess(time.monotonic() - t, 1.5, "a hung service holds a short result its own wait, not 7.5 s")
+
+    def test_each_piece_waits_the_wait_of_its_own_size(self):
+        # review H1: the scaled wait of a long text is the wait of one piece (max_chars), not of the whole text
+        from maisecrets import remote_layer as R
+        from test_remote_detector import Scripted
+        text = "row of the log\n" * 330                      # about 5,000 characters, pieces of 500
+        svc = Scripted([(200, [], {}, 0.35)] * 20)
+        self.addCleanup(svc.close)
+        _reset(remote_detector={"url": svc.url, "format": "hf", "timeout_ms": 100, "max_timeout_ms": 5000,
+                                "max_chars": 500})
+        conf = {"timeout_ms": 100, "max_timeout_ms": 5000}
+        self.assertLess(R.wait_ms(conf, 500), 350, "premise: one piece's wait is shorter than the answer")
+        self.assertGreater(R.wait_ms(conf, len(text)), 350, "premise: the whole text's wait is longer")
+        _post({"stdout": text, "stderr": ""})
+        self.assertEqual((R.NER_DOWN["state"], R.NER_DOWN["why"]), ("unavailable", "timeout"))
+
+    def test_a_rate_sample_comes_only_from_a_wait_the_service_used_up(self):
+        # review H1: a timeout of the hook's budget or of a text in pieces must not make the rate grow
+        from maisecrets import remote_layer as R, vault
+        from test_remote_detector import Scripted
+        self.addCleanup(vault.hook_deadline, None)
+        text = "row of the log\n" * 50                       # 750 characters: over RATE_MIN_CHARS
+        slow = Scripted([(200, None, {}, 2.0)] * 3)
+        self.addCleanup(slow.close)
+        _reset(remote_detector={"url": slow.url, "format": "hf", "timeout_ms": 100, "max_timeout_ms": 100})
+        _post({"stdout": text, "stderr": ""})
+        self.assertEqual(len(R._samples()), 1, "a one-piece text that its own wait ended: a sample")
+        _reset(remote_detector={"url": slow.url, "format": "hf", "timeout_ms": 300, "max_timeout_ms": 3000})
+        vault.hook_deadline(1.2)                              # the budget: 0.6 s less 0.5 s, shorter than the wait
+        _post({"stdout": text, "stderr": ""})
+        self.assertEqual(R._samples(), [], "the budget ended it: no sample")
+        vault.hook_deadline(None)
+        _reset(remote_detector={"url": slow.url, "format": "hf", "timeout_ms": 100, "max_timeout_ms": 100,
+                                "max_chars": 500})
+        _post({"stdout": text, "stderr": ""})
+        self.assertEqual(R._samples(), [], "a text in pieces that timed out: no sample")
+
+    def test_pieces_only_where_the_text_stays_on_this_computer(self):
+        # review M2: the url source and the fallback get pieces only for a loopback or Unix-socket service
+        from maisecrets import remote_layer
+        far = "https://ner.example.org/"
+        for conf, fallback, want in (
+                ({"url": self.svc.url}, False, True),
+                ({"url": far, "allow_network": True}, False, False),
+                ({"url": self.svc.url, "fallback": {"url": far, "allow_network": True}}, True, False),
+                ({"url": far, "allow_network": True, "fallback": {"url": self.svc.url}}, True, True)):
+            with self.subTest(conf=conf, fallback=fallback):
+                det, why = remote_layer.from_config({"remote_detector": conf}, fallback=fallback)
+                self.assertEqual((why, det.pieces), ("", want))
+
+    def test_the_day_counts_a_text_checked_in_part_under_its_own_key(self):
+        # review M3: a partial result is no full check of the source
+        from maisecrets import ner_setup, ner_view
+        Path(HOME, "ner.log").unlink(missing_ok=True)
+        self.addCleanup(Path(HOME, "ner.log").unlink, True)
+        ner_setup.log("local", "tool", 30000, 2, why="timeout", ms=8000, share=60)
+        ner_setup.log("local", "tool", 100, 1, ms=50)
+        c = ner_setup.today_counts()
+        self.assertEqual((c.get("local"), c.get("partial"), c.get("partial_share")), (1, 1, 60))
+        self.assertIn("local 1, in part 1 (60 % checked on average)", ner_setup.counts_line())
+        self.assertEqual(ner_view.today_check().fact,
+                         "1 of 2 texts checked by the service, 1 in part (60 % on average)")
+
+    def test_a_long_text_whose_first_piece_failed_is_not_withheld(self):
+        # review L6: as a text over max_chars before 0.9.28; a short one is withheld as before
+        from test_remote_detector import Scripted
+        down = Scripted([(500, {"error": "x"}, {}, 0.0)] * 4)
+        self.addCleanup(down.close)
+        _reset(remote_detector={"url": down.url, "format": "hf", "max_chars": 1000, "unavailable": "withhold"})
+
+        def guarded(out: str) -> dict:
+            return hooks._post_tool_guarded_rest({
+                "hook_event_name": "PostToolUse", "tool_name": "Bash", "session_id": "S1", **CLAUDE,
+                "tool_input": {"command": "cat notes.txt"}, "tool_response": {"stdout": out, "stderr": ""}})
+        long_ = guarded("row of the log\n" * 100)
+        self.assertNotIn("withheld", json.dumps(long_))
+        self.assertIn("did not check the names", long_["hookSpecificOutput"]["additionalContext"])
+        self.assertIn("withheld", json.dumps(guarded("a short row\n")))
+
+    def test_no_test_starts_inside_a_hook_window(self):
+        # review L7: tests/_isolate.py resets the window before each test
+        from maisecrets import vault
+        vault.hook_deadline(5.0)
+        self.addCleanup(vault.hook_deadline, None)
+
+        class Inner(unittest.TestCase):
+            def test_outside(self):
+                self.assertIsNone(vault.hook_window())
+        result = unittest.TestResult()
+        Inner("test_outside").run(result)
+        self.assertTrue(result.wasSuccessful(), result.failures)
+
+    def test_a_result_checked_in_part_names_the_share_to_the_model_and_the_person(self):
+        # #105, B11: the first piece answered, the second did not in time
+        from test_remote_detector import Scripted
+        svc = Scripted([(200, None, {}, 0.0), (200, None, {}, 3.0)])
+        self.addCleanup(svc.close)
+        _reset(remote_detector={"url": svc.url, "format": "hf", "max_chars": 1000, "timeout_ms": 1000,
+                                "timeout_scales": False})
+        text = f"ask {NAME} first\n" + "row of the log\n" * 100
+
+        def guarded(out: str) -> dict:          # the path that adds the notes (hooks._with_unchecked_names)
+            return hooks._post_tool_guarded_rest({
+                "hook_event_name": "PostToolUse", "tool_name": "Bash", "session_id": "S1", **CLAUDE,
+                "tool_input": {"command": "cat notes.txt"}, "tool_response": {"stdout": out, "stderr": ""}})
+        answer = guarded(text)
+        self.assertEqual(len(svc.received), 2)
+        self.assertNotIn(NAME, json.dumps(answer), "the name of the checked piece is masked")
+        line = answer.get("systemMessage", "")
+        share = re.search(r"names (\d+) % checked by the name service", line)
+        self.assertTrue(share, line)
+        self.assertTrue(0 < int(share.group(1)) < 100)
+        note = answer["hookSpecificOutput"]["additionalContext"]
+        self.assertIn(f"checked only {share.group(1)} % of this tool result (no answer in time for the rest)", note)
+        self.assertNotIn("checked", guarded("short\n").get("systemMessage", ""), "a full check: no share")
 
     def test_the_wait_is_capped_at_five_seconds(self):
         from maisecrets import remote_layer
