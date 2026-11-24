@@ -154,6 +154,23 @@ class StartTests(Base):
         S._clear_ended(ORIGIN)
         self.assertEqual(H.ended_cause(ORIGIN), "no_login")
 
+    def test_a_login_gone_while_an_older_version_runs_names_that_version_and_the_restart(self):
+        # 0.9.10 (before 0.9.16) ends a gateway login with no mark of why: the line said only "not logged in"
+        from maisecrets import older_versions
+        cfg = self.cfg(GATEWAY)
+        with mock.patch.object(older_versions, "seen_at_start", lambda: "0.9.10"):
+            self.assertEqual(H.ended_cause(ORIGIN), "older_ended")
+            S._mark_ended(ORIGIN, "revoked")
+            self.assertEqual(H.ended_cause(ORIGIN), "older_ended", "the likely cause even with a mark")
+            self.assertEqual(H.start_line(cfg, P("s1"), self.backend),
+                             "\u26a0\ufe0f maisecrets: names are NOT checked \u2014 not logged in at the gateway; an "
+                             "older maisecrets in another session can end the login \u2192 restart the sessions that "
+                             "run it (/maisecrets status), then /maisecrets sref login team-gateway")
+            self.assertTrue(H.line("older_ended", GATEWAY, codex=True).endswith(
+                "(maisecrets: status), then maisecrets: sref login team-gateway"))
+        S._clear_ended(ORIGIN)
+        self.assertEqual(H.ended_cause(ORIGIN), "no_login", "no older version: the plain cause")
+
     def test_no_login_and_a_working_login(self):
         cfg = self.cfg(GATEWAY)
         self.assertIn("not logged in at the gateway", H.start_line(cfg, P("s1"), self.backend))

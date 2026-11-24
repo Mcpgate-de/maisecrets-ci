@@ -89,6 +89,22 @@ class WarningTests(_Base):
         self.marker({CUR: {"first": NOW - 5 * HOUR}, "0.9.15": {"refresh": NOW + 86400 - HOUR}}, told="2026-11-19")
         self.assertIsNotNone(ov.start(NOW + 86400), "the next day again")
 
+    def test_a_session_start_keeps_its_finding_for_a_hook_and_clears_it_when_none_is_left(self):
+        # the name check of a hook names the older version as the cause of a login that is gone, without events.log
+        self.marker({CUR: {"first": NOW - 5 * HOUR, "start": NOW - 5 * HOUR},
+                     "0.9.15": {"first": NOW - 9 * 86400, "refresh": NOW - HOUR}})
+        self.assertIsNone(ov.seen_at_start(NOW), "before a session start: nothing kept")
+        ov.start(NOW)
+        self.assertEqual(ov.seen_at_start(NOW + HOUR), "0.9.15")
+        with mock.patch.object(ov, "_from_events", side_effect=AssertionError("events.log read")):
+            self.assertEqual(ov.seen_at_start(NOW + HOUR), "0.9.15", "one read of versions.json only")
+        self.assertIsNone(ov.seen_at_start(NOW + 2 * 86400), "past the window: nothing")
+        with mock.patch.object(ov, "_current", lambda: "0.9.14"):
+            self.assertIsNone(ov.seen_at_start(NOW + HOUR), "an older running version names no newer one")
+        ov.start(NOW + 3 * 86400)                          # no older run left in the window
+        self.assertNotIn("older", json.loads(ov.MARKER.read_text()))
+        self.assertIsNone(ov.seen_at_start(NOW + 3 * 86400))
+
     def test_a_version_before_the_marker_is_seen_by_its_events_lines(self):
         self.marker({CUR: {"first": NOW - 5 * HOUR, "start": NOW - 5 * HOUR}})
         self.events(("0.9.14", NOW - 6 * HOUR), (CUR, NOW - 2 * HOUR))
@@ -172,6 +188,13 @@ class SessionStartTests(unittest.TestCase):
         ov.MARKER.write_text(json.dumps({"versions": {cur: {"first": now - 5 * HOUR},
                                                       older: {"refresh": now - HOUR}}}), encoding="utf-8")
         ov.INFLIGHT.write_text("{}", encoding="utf-8")
+        # a gateway name source with no login: the name line names the older version (it runs before that line)
+        conf_path = ov.HOME / "config.json"
+        saved = conf_path.read_text(encoding="utf-8")
+        self.addCleanup(conf_path.write_text, saved, encoding="utf-8")
+        gw = "https://gw.example.test"
+        conf_path.write_text(json.dumps({**json.loads(saved), "remote_detector": {
+            "url": gw, "gateway": gw, "gateway_url": gw + "/mcp", "allow_network": True}}), encoding="utf-8")
         env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "CODEX_", "CLAUDE"))}
         env["TMPDIR"] = tempfile.gettempdir()
         payload = json.dumps({"session_id": "SS", "transcript_path": "", "source": "startup"})
@@ -181,6 +204,8 @@ class SessionStartTests(unittest.TestCase):
                 for _ in range(2)]
         first, second = (json.loads(r.stdout) for r in runs)
         self.assertIn(f"An older maisecrets ({older}) ran in the last day", first.get("systemMessage", ""))
+        self.assertIn("not logged in at the gateway; an older maisecrets in another session can end the login",
+                      first.get("systemMessage", ""))
         self.assertNotIn("An older maisecrets", second.get("systemMessage", ""), "once a day")
         self.assertNotIn("older maisecrets", first["hookSpecificOutput"]["additionalContext"], "for the person only")
         self.assertIn("start", json.loads(ov.MARKER.read_text())["versions"][cur], "the start is noted")

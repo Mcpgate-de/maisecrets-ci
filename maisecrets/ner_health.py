@@ -24,6 +24,9 @@ CAUSES = {
     "login_ended": ("the gateway ended the login", "/maisecrets sref login {name}"),
     "renewal_uncertain": ("the last renewal did not finish; log in again", "/maisecrets sref login {name}"),
     "no_login": ("not logged in at the gateway", "/maisecrets sref login {name}"),
+    # an older maisecrets (before 0.9.16) in another session can end the login and leaves no mark of why
+    "older_ended": ("not logged in at the gateway; an older maisecrets in another session can end the login",
+                    "restart the sessions that run it (/maisecrets status), then /maisecrets sref login {name}"),
     "no_scope": ("the login lacks the name scope", "/maisecrets sref login {name}"),
     "no_ner": ("the gateway offers no name detection", "/maisecrets ner"),
     "local_down": ("the local container is not running", "/maisecrets ner local"),
@@ -201,9 +204,13 @@ def claim(session, cause: str, conf: dict | None = None) -> bool:
 
 # ------------------------------------------------------------------ the checks --
 def ended_cause(origin: str) -> str:
-    """The cause of a gateway without a login: a renewal that did not finish, a login the gateway ended
+    """The cause of a gateway without a login: an older maisecrets that runs in another session (it ends a login
+    without the mark of why, before 0.9.16), a renewal that did not finish, a login the gateway ended
     (invalid_grant), or none at all."""
-    from . import sref_client
+    from . import older_versions, sref_client
+    if older_versions.seen_at_start() is not None:
+        # an older version still runs and renews: it is the likely cause, and a new login ends again until it stops
+        return "older_ended"
     return {"uncertain": "renewal_uncertain", "revoked": "login_ended"}.get(sref_client.ended_why(origin) or "",
                                                                             "no_login")
 
@@ -332,7 +339,8 @@ def verdict(cfg: dict, backend=None):
         cause = gateway_cause(cfg, conf, backend)
         if cause is None:
             cause = recorded(conf)
-            cause = None if cause in ("login_ended", "renewal_uncertain", "no_login", "no_scope") else cause
+            login = ("login_ended", "renewal_uncertain", "no_login", "older_ended", "no_scope")
+            cause = None if cause in login else cause
     elif _is_local(conf):
         proof = local_proof(cfg, 0.5)
         cause = {"down": "local_down", "not_ours": "not_ours"}.get(proof)

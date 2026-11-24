@@ -63,6 +63,10 @@ def _read() -> dict:
     out = {"versions": versions}
     if isinstance(data.get("told"), str):
         out["told"] = data["told"]
+    older = data.get("older")
+    if (isinstance(older, dict) and _tuple(older.get("version")) is not None
+            and isinstance(older.get("at"), (int, float)) and not isinstance(older.get("at"), bool)):
+        out["older"] = {"version": older["version"], "at": float(older["at"])}
     return out
 
 
@@ -177,6 +181,11 @@ def start(now: float | None = None) -> str | None:
             data = _read()
             _mark(data, "start", now)
             found = finding(data, now)
+            # kept for seen_at_start: a hook asks it without reading events.log
+            if found:
+                data["older"] = {"version": found[0], "at": now}
+            else:
+                data.pop("older", None)
             day = time.strftime("%Y-%m-%d", time.localtime(now))
             line = None
             if found and data.get("told") != day:
@@ -198,3 +207,17 @@ def status(now: float | None = None) -> tuple | None:
     except Exception:  # noqa: BLE001 - a note that cannot be read is no check
         return None
     return (found[0], text(*found)) if found else None
+
+
+def seen_at_start(now: float | None = None) -> str | None:
+    """The older version the last session start of a newer one found (start), within WINDOW; None otherwise. One read
+    of versions.json and no events.log: a hook may ask it. Never raises."""
+    try:
+        now = time.time() if now is None else now
+        older = _read().get("older")
+        mine = _tuple(_current())
+        if not older or mine is None or now - older["at"] > WINDOW or not _tuple(older["version"]) < mine:
+            return None
+        return older["version"]
+    except Exception:  # noqa: BLE001 - a note that cannot be read is no cause
+        return None

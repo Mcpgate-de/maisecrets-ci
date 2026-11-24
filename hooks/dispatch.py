@@ -378,6 +378,13 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
         lines.insert(0, NOT_PROTECTED.format(cmd="maisecrets: status" if codex else "/maisecrets status"))
     if v.backend.test_mode:
         lines.append(TEST_STORE)
+    # this version ran (versions.json), and once a day a line when an older maisecrets still runs in another session;
+    # before the name check, which names that older version as the cause of a gateway login that is gone
+    try:
+        from maisecrets import older_versions  # noqa: E402
+        older = older_versions.start()
+    except Exception:  # noqa: BLE001 - the session start must not fail on it
+        older = None
     # a name source that is set and cannot be used: first, with the cause and the step (ner_health), once per cause
     try:
         from maisecrets import ner_health  # noqa: E402
@@ -425,12 +432,6 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
         loosened = None
     if loosened:
         out["systemMessage"] = (_sep(out) + loosened).strip()
-    # this version ran (versions.json), and once a day a line when an older maisecrets still runs in another session
-    try:
-        from maisecrets import older_versions  # noqa: E402
-        older = older_versions.start()
-    except Exception:  # noqa: BLE001 - the session start must not fail on it
-        older = None
     if older:
         out["systemMessage"] = (_sep(out) + older).strip()
     if broken:
