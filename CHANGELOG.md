@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.9.28] - 2026-11-24
+
+### Fixes
+
+- every program the mod starts is written as a fixed command at its call, so the plugin directory can check it (9177c16)
+
 ## [0.9.27] - 2026-11-24
 
 ### Fixes
