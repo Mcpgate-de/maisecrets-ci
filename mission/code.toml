@@ -38,6 +38,8 @@
 "hooks/sandbox_probe.py" = { controls = ["C18"] }
 "maisecrets/__init__.py" = { none = "the package's version, read from the plugin manifest" }
 "maisecrets/agent_reports.py" = { controls = ["C19"] }
+"maisecrets/withheld_results.py" = { controls = ["C19"] }
+"maisecrets/mcp_task_results.py" = { controls = ["C19"] }
 "maisecrets/check_value.py" = { controls = ["C29"] }
 "maisecrets/checksums.py" = { none = "an old module name: the same module object as maisecrets/detection/checksums.py, whose entry declares its controls" }
 "maisecrets/cli.py" = { controls = ["C13", "C22", "C24", "C31"] }
@@ -96,7 +98,7 @@
 "maisecrets/forms.py" = { none = "rewrites the command forms and /clear in a text for the person (a hint, a command's output, the answer cowork.show_answer sends) to the form that works in each client (terminal, Cowork, Codex); it decides nothing, and the mask runs after it on the text it gives (cowork.py, C1)" }
 "maisecrets/guarded_paths.py" = { controls = ["C27", "I3"] }
 "maisecrets/home.py" = { controls = ["C15", "C16", "C33", "I1"] }
-"maisecrets/hooks.py" = { controls = ["C1", "C2", "C3", "C4", "C5", "C6", "C8", "C13", "C14", "C16", "C18", "C20", "C21", "C22", "C23", "C24", "C26", "C27", "C28", "C29", "C30a", "C31", "C33", "I1", "I2", "I3", "I4", "I5"] }
+"maisecrets/hooks.py" = { controls = ["C1", "C2", "C3", "C4", "C5", "C6", "C8", "C13", "C14", "C16", "C18", "C19", "C20", "C21", "C22", "C23", "C24", "C26", "C27", "C28", "C29", "C30a", "C31", "C33", "I1", "I2", "I3", "I4", "I5"] }
 "maisecrets/hub.py" = { controls = ["C22"] }
 "maisecrets/incidents.py" = { controls = ["C24"] }
 "maisecrets/json_lines.py" = { controls = ["C3"] }

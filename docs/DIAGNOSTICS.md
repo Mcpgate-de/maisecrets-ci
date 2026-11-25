@@ -152,6 +152,7 @@ site fails. `scrub.write` is a string of code in the child and is checked by its
 | `scrub.start` | the catch after `Popen` in `_scrub_transcript_later` (`hooks.py:224`) and the catch in `_scrub_failed_prompt_now` (`hooks.py:3787`), queued in process | best-effort |
 | `scrub.write` | the scrub child (a marker) | best-effort |
 | `prompt.pending` | the catch at `hooks.py:402` | best-effort |
+| `prompt.withheld` | the catch in `withheld_results.note`: the note on a blocked MCP result could not be written; the block stands, and the model is not told (#107) | best-effort |
 | `prompt.tip` | the catch in `_check_tip` (`hooks.py`): the ms:(…) tip could not be read or recorded; the prompt goes on without it | best-effort |
 | `prompt.check-store` | the catch in `_store_unseen` (`hooks.py`): a value that an ms:(…) check did not catch could not be stored; the answer says so and the prompt stays blocked | best-effort |
 | `prompt.clipboard` | `_clipboard` (`hooks.py:85`) returns a reason: a missing tool and an SSH session record nothing; a timeout, a non-zero exit and any other failure record this code | best-effort |

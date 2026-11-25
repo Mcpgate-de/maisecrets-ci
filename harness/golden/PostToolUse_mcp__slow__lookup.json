@@ -1,0 +1,21 @@
+{
+ "top": [
+  "cwd",
+  "duration_ms",
+  "effort",
+  "hook_event_name",
+  "mcp_server",
+  "permission_mode",
+  "prompt_id",
+  "session_id",
+  "tool_input",
+  "tool_name",
+  "tool_response",
+  "tool_use_id",
+  "transcript_path"
+ ],
+ "tool_input": [
+  "delay"
+ ],
+ "tool_response": "list"
+}

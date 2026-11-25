@@ -1,0 +1,11 @@
+# c19-a-notification-the-hook-judges-gets-the-tool-channel: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c19-a-notification-the-hook-judges-gets-the-tool-channel"
+control = "C19"
+serves = ["M1.7"]
+statement = "When the prompt hook judges a notification (no mod, or the mod failed or ran out of time), it reads it with the tool channel of the detector too: a password export or a card number alone in a server's result is blocked, not passed."
+runner = ["tests/test_mcp_task_results.py::FallbackTests::test_a_password_export_alone_is_blocked", "tests/test_mcp_task_results.py::FallbackTests::test_a_card_number_alone_is_blocked"]
+
+[proof]
+file = "maisecrets/hooks.py"
+find = "    matches = _wr().hits(prompt) if note else _prompt_hits(prompt)\n"
+replace = "    matches = _prompt_hits(prompt)\n"

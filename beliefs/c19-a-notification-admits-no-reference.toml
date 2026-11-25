@@ -1,0 +1,11 @@
+# c19-a-notification-admits-no-reference: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c19-a-notification-admits-no-reference"
+control = "C19"
+serves = ["M1.7"]
+statement = "A task notification admits no reference to the session, with the mod and without it: a server's result that names the key of another session does not let this session resolve it (C4)."
+runner = ["tests/test_mcp_task_results.py::AdmitTests::test_the_mod_path_admits_no_key_of_another_session", "tests/test_mcp_task_results.py::AdmitTests::test_the_hook_path_admits_no_key_of_another_session"]
+
+[proof]
+file = "maisecrets/hooks.py"
+find = " and not payload.get(\"agent_id\") and not note:"
+replace = " and not payload.get(\"agent_id\"):"

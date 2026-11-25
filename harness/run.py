@@ -48,6 +48,7 @@ REF_MAIL = "\u27e6EMAIL_c1\u27e7"
 # a script that writes its first argument into a page: the route for a value that goes into a document
 MAKE_DOC = "import sys\nopen('account.html', 'w').write('<p>' + sys.argv[1] + '</p>')\n"
 REPORT_VALUE = "glpat-" + "HARNESSreport1234567890ab"   # a secret shape in a subagent's report, not the marker
+MCP_TASK_VALUE = "glpat-" + "HARNESSmcptask1234567890"   # the slow tool's result (harness/slow_mcp_server.py VALUE)
 
 
 def _probe_png() -> str:
@@ -242,6 +243,42 @@ SCENARIOS = {
         "expect_requests": 2,
         "expect_no_file": "ran.txt",
         "expect_in_requests": ["blocking because onFailure is"],
+    },
+    # #107: an MCP call that runs longer than the client's limit goes to the background (here 1.5 s), and its result
+    # reaches the session as a <task-notification> prompt. With the mod the result enters with placeholders: it proves
+    # itself as the task of an MCP call of this transcript. Without the mod the hook blocks it, and the model learns
+    # of it from the next hook answer that reaches it (here the next prompt of the same session)
+    "mcp_task_result": {
+        "needs_notification": True,
+        "prompt": "Look the record up with the slow tool, then wait for its result.",
+        "mcp": {"slow": {"command": sys.executable, "args": [str(ROOT / "harness" / "slow_mcp_server.py")]}},
+        "allowed_tools": "mcp__slow__lookup",
+        "env": {"CLAUDE_AUTO_BACKGROUND_TASKS": "1", "CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS": "1500"},
+        "turns": [{"tool": "mcp__slow__lookup", "input": {"delay": 5}},
+                  {"match": "task-notification", "text": "done"},
+                  {"text": "waiting for the result"}],
+        "expect_requests": [2],
+        "expect_blocked": True,
+        "expect_not_in_requests": [MCP_TASK_VALUE],
+        "with_mod": {"expect_requests": [3], "expect_blocked": False,
+                     "expect_in_requests": ["<task-notification>", "SLOW-RESULT: the record token is \u27e6SECRET_c"]},
+    },
+    "mcp_task_result_no_mod": {
+        "needs_notification": True,
+        "plugin_copy": True,
+        "no_mod": True,
+        "prompt": "Look the record up with the slow tool, then wait for its result.",
+        "mcp": {"slow": {"command": sys.executable, "args": [str(ROOT / "harness" / "slow_mcp_server.py")]}},
+        "allowed_tools": "mcp__slow__lookup",
+        "env": {"CLAUDE_AUTO_BACKGROUND_TASKS": "1", "CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS": "1500"},
+        "turns": [{"tool": "mcp__slow__lookup", "input": {"delay": 5}},
+                  {"match": "task-notification", "text": "done"},
+                  {"text": "waiting for the result"}],
+        "expect_requests": [2],
+        "expect_blocked": True,
+        "expect_not_in_requests": [MCP_TASK_VALUE],
+        "then_prompt": {"prompt": "What happened to the lookup?",
+                        "expect_in_requests": ["(task ", " (slow/lookup)) held a value", "/maisecrets send"]},
     },
     "subagent_report_passes": {
         "needs_notification": True,
@@ -1565,9 +1602,40 @@ def run_scenario(name: str, sc: dict, update_golden: bool) -> list[str]:
             fails.append(f"schema drift in {gname}: {keys}")
     if sc.get("selftest"):
         fails += _selftest_second_prompt(sc, home, joined, r, settings, plugin, cwd, env, work)
+    if sc.get("then_prompt"):
+        fails += _then_prompt(sc["then_prompt"], session_ids, settings, plugin, cwd, env, work, sc)
     print(f"[{'OK ' if not fails else 'FAIL'}] {name}  requests={len(bodies)}  out={out}")
     for f in fails:
         print("     -", f)
+    return fails
+
+
+def _then_prompt(then: dict, session_ids: set, settings: Path, plugin: Path, cwd: Path, env: dict, work: Path,
+                 sc: dict) -> list[str]:
+    """A next prompt of the same session (`claude -p --resume`): what the model gets with it."""
+    if len(session_ids) != 1:
+        return [f"then_prompt: {len(session_ids)} sessions in the dump, expected one"]
+    out2 = work / "out2"
+    out2.mkdir()
+    srv = start_server([{"text": "answered"}], out2)
+    try:
+        r2 = subprocess.run([shutil.which("claude") or "claude", "-p", then["prompt"],
+                             "--resume", next(iter(session_ids)),
+                             "--plugin-dir", str(plugin), "--settings", str(settings), "--permission-mode", "default",
+                             "--allowedTools", sc.get("allowed_tools", "Bash"), "--max-turns", "1"],
+                            cwd=cwd, env=env, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
+    finally:
+        srv.terminate()
+    (out2 / "claude_stdout.txt").write_text(r2.stdout + "\n--- stderr ---\n" + r2.stderr)
+    bodies = "".join(Path(b).read_text() for b in glob.glob(str(out2 / "request_*.json")))
+    fails = [] if bodies else ["then_prompt: the next prompt sent no request"]
+    for marker in (MARK, MCP_TASK_VALUE):
+        if marker in bodies:
+            fails.append(f"LEAK: …{marker[-6:]} reached the upstream with the next prompt")
+    for text in then.get("expect_in_requests", []):
+        if text not in json.dumps([json.loads(Path(b).read_text()) for b in glob.glob(str(out2 / "request_*.json"))],
+                                  ensure_ascii=False):
+            fails.append(f"then_prompt: {text[:40]!r} never reached the model")
     return fails
 
 

@@ -1,0 +1,11 @@
+# c19-an-mcp-task-text-the-person-sends-is-left-to-the-hook: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c19-an-mcp-task-text-the-person-sends-is-left-to-the-hook"
+control = "C19"
+serves = ["M1.7"]
+statement = "The mod masks an MCP task's result only when the client sent it as a task notification; the same text from the person (composer, bridge, sdk) is left to the prompt hook."
+runner = ["tests/test_mcp_task_results.py::ModTests::test_a_person_s_prompt_of_the_same_text_is_left_to_the_hook"]
+
+[proof]
+file = "maisecrets/hooks.py"
+find = "if payload.get(\"origin\") == \"task-notification\" else {}"
+replace = "if True else {}"

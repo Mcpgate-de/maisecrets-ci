@@ -7,5 +7,5 @@ runner = ["tests/test_peer_messages.py::PeerMessageTests::test_a_reference_in_a_
 
 [proof]
 file = "maisecrets/hooks.py"
-find = '''        if settings_mod.peer_sender(prompt) is None and not payload.get("agent_id"):'''
-replace = '''        if not payload.get("agent_id"):'''
+find = '''        if settings_mod.peer_sender(prompt) is None and not payload.get("agent_id") and not note:'''
+replace = '''        if not payload.get("agent_id") and not note:'''

@@ -1,0 +1,11 @@
+# c19-an-mcp-task-result-is-masked-by-the-tool-result-path: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c19-an-mcp-task-result-is-masked-by-the-tool-result-path"
+control = "C19"
+serves = ["M1.7"]
+statement = "The mod masks an MCP task's result with post_tool's own path (the tool channel, the store's quiet and short values, the invisible characters), so a password export, a card number alone or tag characters never reach the model through it."
+runner = ["tests/test_mcp_task_results.py::ToolPathTests::test_no_value_and_no_hidden_character_of_these_reaches_the_model", "tests/test_mcp_task_results.py::ToolPathTests::test_the_mod_gives_the_model_what_post_tool_gives_it"]
+
+[proof]
+file = "maisecrets/mcp_task_results.py"
+find = "    return out if isinstance(out, str) and ans.get(\"decision\") != \"block\" else None\n"
+replace = "    return text\n"

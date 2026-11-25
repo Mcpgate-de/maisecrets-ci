@@ -527,6 +527,14 @@ async function ask($, prompt, session, cwd, origin) {
   return takeAnswer(JSON.parse(r.stdout), session)
 }
 
+// #107: an MCP task's result, sent by the client as a notification, is a tool's output: Python masks it when it proves
+// itself (hooks.rewrite_prompt), else the settings hook judges it as before (C19)
+async function taskResult($, e, next) {
+  let a = null
+  try { a = await ask($, e.text, await $.session.id(), await $.session.cwd(), e.origin.kind) } catch { /* the hook */ }
+  return next(a && typeof a.text === 'string' ? { ...e, text: a.text } : e)
+}
+
 // a parsed answer of mod-prompt for this session: what the steps below read, or null
 function takeAnswer(answer, session) {
   if (!answer || answer.maisecrets !== MARK) return null
@@ -2436,6 +2444,9 @@ export function register(on) {
     // a demo answer Python gave for an earlier prompt is never shown for this one (the hook may block this prompt, and
     // no step then takes it): only this prompt's answer sets it again below
     try { demoShow.delete(await $.session.id()) } catch { /* the step shows the demo line */ }
+    if (!person && e.origin?.kind === 'task-notification' && String(e.text ?? '').includes('<summary>MCP task ')) {
+      return await taskResult($, e, next)
+    }
     if (!person) return next(e)
     afterPrompt($, own)
     const near = meant ? null : nearCommand(e.text)

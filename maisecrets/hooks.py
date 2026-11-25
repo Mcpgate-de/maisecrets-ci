@@ -36,7 +36,7 @@ from .notices import (  # noqa: F401
 )
 from .agent_reports import (  # noqa: F401
     _NOTIFICATION_RE, _AGENT_TOOLS, _notification_tag, _result_span, _plain, _last_answer, _called_an_agent,
-    _one_report_proves_itself, _report_rest, report_kind,
+    _one_report_proves_itself, _report_rest, report_kind, mcp_tasks,
 )
 from .shell_commands import (  # noqa: F401
     _STORE_READ_PATTERNS, _STORE_READ_RE, _STORE_READ_RE_I, _store_read_match, _store_dir_spellings, _protected_dirs,
@@ -754,6 +754,11 @@ def _verdict(text: str, cfg: dict, session: str | None, vault=None) -> tuple:
     return entries, matches, stored["n"], values
 
 
+def _wr():
+    from . import withheld_results
+    return withheld_results
+
+
 def _pc():
     """maisecrets/prompt_commands.py: the ms:(…) check, ms:(value) inside a prompt, the mod's own commands."""
     from . import prompt_commands
@@ -795,9 +800,9 @@ def rewrite_prompt(payload: dict) -> dict:
     dm = demo.mod_answer(payload, cfg)          # demo.py: a demo prompt enters masked, or goes to the hook
     if dm is not None:
         return dm
-    # a subagent's report is the hook's to judge (C19); a model wrote it, so nothing of it is stored
+    # C19: the hook judges a report; an MCP task's result is masked as tool output (#107)
     if "<task-notification>" in prompt:
-        return {}
+        return _wr().rewrite(payload, session) if payload.get("origin") == "task-notification" else {}
     # /maisecrets:term add|remove carries a name: the hook answers it, and the mod must not rewrite the name first
     if term_files.parse_command(prompt) or value_files.parse_removal(prompt) or not_a_secret.parse(prompt):
         return {}
@@ -1068,13 +1073,16 @@ def user_prompt(payload: dict) -> dict:
 
     # 2. references the human typed or pasted: this session may resolve them from now on. A message of another session
     # or a subagent's prompt admits none: a session another one controls could name a reference it never saw and let
-    # this session resolve it (C4; codex Gate A, 2026-10-22)
+    # this session resolve it (C4; codex Gate A, 2026-10-22), nor a notification (#107)
     typed = find_refs(prompt)
-    matches = _prompt_hits(prompt)
+    note = prompt.lstrip().startswith("<task-notification>")
+    matches = _wr().hits(prompt) if note else _prompt_hits(prompt)
+    if note and _wr().hidden(prompt):
+        return _wr().hidden_block(payload)
     vault = None
     if typed or matches or _has_live(cfg):
         vault = Vault(cfg)
-        if settings_mod.peer_sender(prompt) is None and not payload.get("agent_id"):
+        if settings_mod.peer_sender(prompt) is None and not payload.get("agent_id") and not note:
             for key, _s, _e in typed:
                 vault.admit(key, session)
     rewritten, entries, values, stored, matches = _take_values_out(prompt, matches, cfg, vault, session)
@@ -1093,6 +1101,8 @@ def user_prompt(payload: dict) -> dict:
     peer = settings_mod.peer_sender(prompt) if client_of(payload) == "claude" else None
     # a blocked report is passed on with /ms; the person's clipboard stays theirs
     report = None if peer or client_of(payload) != "claude" else report_kind(prompt)
+    if report == "an MCP tool's background result":
+        _wr().note(session, mcp_tasks(prompt, str(payload.get("transcript_path") or "")))
     copied = False if peer or report else _clipboard(rewritten)
     if not peer:
         _save_pending(rewritten, session)
@@ -3488,7 +3498,7 @@ def main(argv: list[str]) -> int:
     _record(incidents.discard)
     _record(functools.partial(incidents.set_context, _EVENT_NAMES[event], tool_class, client))
     try:
-        won = answer(HANDLERS[event](payload), "ok")
+        won = answer(_wr().with_note(event, payload, HANDLERS[event](payload)), "ok")
         return 0
     except ConfigError as exc:
         # the policy file is wrong: fail closed, and say which key (its message never carries

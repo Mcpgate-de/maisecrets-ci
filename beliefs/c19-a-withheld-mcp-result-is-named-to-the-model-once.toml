@@ -1,0 +1,11 @@
+# c19-a-withheld-mcp-result-is-named-to-the-model-once: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c19-a-withheld-mcp-result-is-named-to-the-model-once"
+control = "C19"
+serves = ["M1.7"]
+statement = "Without the mod, an MCP task's result that the prompt hook blocked is named to the model once, in the next hook answer that reaches it (a prompt that passes, a tool result), never with its value."
+runner = ["tests/test_mcp_task_results.py::HookTests::test_the_next_answer_that_reaches_the_model_names_the_withheld_result_once"]
+
+[proof]
+file = "maisecrets/withheld_results.py"
+find = "        p.unlink()\n"
+replace = "        pass\n"

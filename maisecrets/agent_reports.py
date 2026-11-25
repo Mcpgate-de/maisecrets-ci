@@ -285,6 +285,83 @@ def _command_span(body: str, transcript: str) -> tuple[int, int] | None:
     return span if any(_same_text(body[span[0]:span[1]], t) for t in said) else None
 
 
+# An MCP call that runs longer than the client's limit goes to the background (Claude Code 2.1.331 and later). The
+# call's tool result names the task, and the result comes later as a prompt (#107; measured on 2.1.332, 2026-11-25):
+#   tool result: `MCP tool "<server>/<tool>" is still running after 2s. It was moved to the background as task <id> …`
+#   prompt body: `<task-id><id></task-id>\n<status>completed</status>\n<summary>MCP task <id> (<server>/<tool>)
+#                completed.</summary>\n<result>\n<the tool's text>\n</result>`
+# The result is a server's output, as in PostToolUse: the mod masks it and lets it pass (hooks.rewrite_prompt). The
+# envelope must be exactly this shape, and the id and the name must be those of an MCP call of this transcript
+_MCP_TASK_RE = _LazyRx(r"<task-id>(?P<id>[A-Za-z0-9]{6,64})</task-id>\n<status>(?P<status>completed|failed)</status>\n"
+                       r"<summary>MCP task (?P=id) \((?P<name>[^()<>\"\n]{1,200})\) (?P=status)\.</summary>"
+                       r"(?:\n<result>\n.*\n</result>)?\Z", re.S)
+_MCP_MOVED_RE = _LazyRx(r'MCP tool "(?P<name>[^"\n]{1,200})" (?:is still running after \d{1,7}s\. It was moved|was '
+                        r"moved) to the background as task (?P<id>[A-Za-z0-9]{6,64})[ ;.]")
+
+
+def _mcp_tool_name(name: str) -> set:
+    """The tool names Claude Code gives `<server>/<tool>`: mcp__<server>__<tool>, each part with any sign other than a
+    letter, a digit, `_` and `-` as `_`, for each `/` the name can be split at."""
+    norm = lambda part: re.sub(r"[^A-Za-z0-9_-]", "_", part)      # noqa: E731
+    return {f"mcp__{norm(name[:i])}__{norm(name[i + 1:])}" for i, c in enumerate(name) if c == "/"}
+
+
+def _moved_call(transcript: str, task_id: str, name: str) -> bool:
+    """Whether this transcript has the tool result that moved an MCP call to the background as this task, written by
+    the client: a tool_result block (a person's prompt is no tool_result) that starts with the client's sentence for
+    this id and name, of a tool_use whose tool is that MCP tool."""
+    calls = set()
+    try:
+        with open(transcript, encoding="utf-8") as f:
+            for line in f:
+                if task_id not in line or '"tool_result"' not in line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if rec.get("type") != "user":
+                    continue
+                for b in (rec.get("message") or {}).get("content") or []:
+                    if not isinstance(b, dict) or b.get("type") != "tool_result":
+                        continue
+                    c = b.get("content")
+                    text = c if isinstance(c, str) else "".join(
+                        x.get("text", "") for x in c[:1] if isinstance(x, dict) and x.get("type") == "text") \
+                        if isinstance(c, list) else ""
+                    m = _MCP_MOVED_RE.match(text)
+                    if m and m.group("id") == task_id and m.group("name") == name:
+                        calls.add(str(b.get("tool_use_id")))
+    except OSError:
+        return False
+    names = _mcp_tool_name(name)
+    return any(_tool_input(transcript, c, tuple(names)) is not None for c in calls)
+
+
+def mcp_tasks(prompt: str, transcript: str) -> list | None:
+    """The (task id, `<server>/<tool>`) of each block when the prompt is nothing but notifications of MCP tasks of this
+    session, each proven (_MCP_TASK_RE, _moved_call); None otherwise. Two tasks that end in the same turn may arrive in
+    one prompt; each block proves itself, and a task id counts once."""
+    if not transcript.endswith(".jsonl"):
+        return None
+    opened = prompt.count("<task-notification>")
+    if not opened or opened != prompt.count("</task-notification>") or opened > 16:
+        return None
+    blocks = list(_NOTIFICATION_RE.finditer(prompt))
+    pos, found = 0, []
+    for m in blocks:
+        if prompt[pos:m.start()].strip():
+            return None
+        pos = m.end()
+        task = _MCP_TASK_RE.match(m.group("body"))
+        if task is None or any(task.group("id") == t for t, _n in found):
+            return None
+        found.append((task.group("id"), task.group("name")))
+    if not blocks or prompt[pos:].strip() or opened != len(blocks):
+        return None
+    return found if all(_moved_call(transcript, t, n) for t, n in found) else None
+
+
 def report_kind(prompt: str) -> str | None:
     """What a blocked prompt of nothing but notification blocks is, in words for the notice: a subagent's report, or a
     background command's notice when every block is one. None for any other prompt. The block notice must not tell the
@@ -298,6 +375,8 @@ def report_kind(prompt: str) -> str | None:
         return None
     if all("<summary>Background command " in m.group("body") for m in blocks):
         return "a background command's notice"
+    if all("<summary>MCP task " in m.group("body") for m in blocks):
+        return "an MCP tool's background result"
     return "a subagent's report"
 
 
