@@ -1296,6 +1296,14 @@ class ParallelPiecesTests(unittest.TestCase):
         det = rm.RemoteDetector(svc.url, max_chars=SIZE, parallel=parallel, **kw)
         return det.ask(text, [], time.monotonic() + wait)
 
+    @staticmethod
+    def until(done, limit=10.0):
+        """Wait in the service's thread until `done()` holds: an answer that must come after other pieces arrived
+        waits for them, so the order does not depend on how loaded the runner is (a replay job runs 8 at once)."""
+        end = time.monotonic() + limit
+        while not done() and time.monotonic() < end:
+            time.sleep(0.005)
+
     def test_five_pieces_take_the_time_of_two_and_at_most_three_are_in_flight(self):
         text = lines_of(5)
         self.assertEqual(len(rm.plan_pieces(text, SIZE)), 5, "premise: five pieces")
@@ -1376,13 +1384,26 @@ class ParallelPiecesTests(unittest.TestCase):
         text = lines_of(5)
         plan = rm.plan_pieces(text, SIZE)
         limited = (429, {"error": "rate_limited", "retry_after": 0.05}, {}, 0.0)
-        svc = self.svc(lambda t: limited if piece_of(t) == 1 else (200, [], {}, 0.3))
+
+        sent: dict = {}
+
+        def answer(t):
+            # the order on any runner: pieces 0, 1 and 2 arrive, piece 1 answers rate_limited, and only then do 0 and
+            # 2 end (0.5 s later), so a slot frees after the failure. On a loaded runner piece 2 started after piece 1
+            # had failed, or piece 0 ended first and piece 3 took its slot: red without a mutation
+            if piece_of(t) == 1:
+                self.until(lambda: {0, 1, 2} <= {piece_of(r["inputs"]) for r in list(svc.received)})
+                sent[1] = True
+                return limited
+            self.until(lambda: sent.get(1))
+            return (200, [], {}, 0.5)
+        svc = self.svc(answer)
         det = rm.RemoteDetector(svc.url, max_chars=SIZE, parallel=3, timeout=2.0)
         begun: list = []                             # each piece that starts builds its body first
         real = det._body
         det._body = lambda text, kind=None: (begun.append(piece_of(text)), real(text, kind))[1]
         _spans, status = det.ask(text, [], time.monotonic() + 3.0)
-        time.sleep(0.3)                              # a piece started late would arrive now
+        time.sleep(0.5)                              # a piece started late would arrive now
         self.assertEqual(sorted(piece_of(r["inputs"]) for r in svc.received), [0, 1, 2],
                          "the three in flight; no piece after rate_limited")
         self.assertEqual(sorted(begun), [0, 1, 2], "no piece even starts after rate_limited")
@@ -1433,13 +1454,24 @@ class ParallelPiecesTests(unittest.TestCase):
             n = piece_of(t)
             seen[n] = seen.get(n, 0) + 1
             if n == 1:
-                return (429, {"error": "rate_limited", "retry_after": 30}, {}, 0.1)
+                # rate_limited only once piece 2 got its busy answer, which it then waits out: in this order on any
+                # runner (a loaded one started piece 2 after piece 1 had failed, and the test was red without a
+                # mutation)
+                self.until(lambda: done.get(2))
+                done[1] = True
+                return (429, {"error": "rate_limited", "retry_after": 30}, {}, 0.0)
             if n == 2 and seen[n] == 1:
-                return (429, {"error": "busy", "retry_after": 0.3}, {}, 0.0)
-            return (200, [], {}, 0.6 if n == 0 else 0.0)
+                self.until(lambda: 1 in seen)        # piece 1 is in flight, so it fails within the busy wait
+                done[2] = True
+                return (429, {"error": "busy", "retry_after": 1.0}, {}, 0.0)
+            if n == 0:
+                self.until(lambda: done.get(1))      # piece 0 ends after the failure: its slot takes no piece 3
+                return (200, [], {}, 0.5)
+            return (200, [], {}, 0.0)
+        done: dict = {}
         svc = self.svc(answer)
         _spans, status = self.ask(svc, text, wait=3.0, timeout=2.0)
-        time.sleep(0.4)                              # a retry of piece 2 would arrive by now
+        time.sleep(1.2)                              # a retry of piece 2 (after its 1 s) would arrive by now
         self.assertEqual((status.state, status.reason, status.checked_to), ("partial", "rate_limited", plan[0][2]))
         self.assertEqual(seen, {0: 1, 1: 1, 2: 1}, "piece 2 sent once, piece 3 never")
 
