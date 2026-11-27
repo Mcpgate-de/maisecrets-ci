@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## [0.9.35] - 2026-11-27
+
+### Fixes
+
+- a value in a code block stands as plain text, not as a raw link (02c3cd2)
+- "Hi guys", "Hello everyone" and "Hey folks" are no longer masked as a person's name (e990b1d)
+
 ## [0.9.34] - 2026-11-26
 
 ### Features
