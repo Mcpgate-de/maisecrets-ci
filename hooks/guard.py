@@ -42,6 +42,14 @@ RETRY = ("maisecrets did not answer in time for this call (the computer may be b
          "Exit this session and run the command above in the directory where you started it.{clip} "
          "/reload-plugins does not help after an update of a synced plugin. "
          "If maisecrets is off on purpose, switch the guard off in a terminal: python3 {script} --off")
+# a synced copy that never started in this session: Claude Code loads the organisation's plugins only with a valid
+# login. An expired login gave RETRY, whose retry and restart did not help; /login did (field report, 2026-11-27)
+LOGIN = ("maisecrets did not start in this session, so the call did not run. Your organization gives you "
+         "maisecrets, and Claude Code may not load it when your login expired. Run /login, then run the call "
+         "again. If you are logged in, a plugin update replaced the maisecrets folder:\n\n"
+         "    claude --resume {session}\n\n"
+         "Exit this session and run the command above in the directory where you started it.{clip} "
+         "If maisecrets is off on purpose, switch the guard off in a terminal: python3 {script} --off")
 # maisecrets started for this call: its folder is there, so no restart helps
 SLOW = ("maisecrets started for this call but did not answer in time (the computer may be busy), so the call did "
         "not run. Run it again.")
@@ -302,13 +310,14 @@ def _copy_resume(session: str) -> bool:
 
 def _refusal(hook_event: str, session: str, cause: str = "update") -> dict:
     """cause: "update" (a maisecrets folder went to the trash minutes ago), "slow" (maisecrets started and did not
-    answer), "unknown" (no start and no sign of an update)."""
+    answer), "login" (a synced copy that never started in this session), "unknown" (no start and no sign of an
+    update)."""
     if cause == "slow":
         message = SLOW
     else:
         # a synced update: /reload-plugins keeps the gone generation path (measured 2026-09-29); a new process
         # does not
-        message = (MESSAGE if cause == "update" else RETRY).format(
+        message = {"update": MESSAGE, "login": LOGIN}.get(cause, RETRY).format(
             script=os.path.join(_claude_dir(), "maisecrets-guard.py"), session=session,
             clip=CLIP if _copy_resume(session) else "")
     if hook_event == "UserPromptSubmit":
@@ -319,8 +328,21 @@ def _refusal(hook_event: str, session: str, cause: str = "update") -> dict:
     if cause != "update":
         # the tool ran: running it again repeats what it did. Its effect can be read in a new call
         message = message.replace("so the call did not run. Run it again.", "so its result is not shown.")
+        message = message.replace("so the call did not run.", "so its result is not shown.")
     return {"hookSpecificOutput": {"hookEventName": "PostToolUse",
                                    "updatedToolOutput": f"[{message} The tool ran; its output is withheld.]"}}
+
+
+def _cause_without_a_start(session: str) -> str:
+    """Why maisecrets did not start for this call: "update" (a folder in the trash), "login" (a synced copy that
+    never started in this session: no session mark, see maisecrets.hooks._heartbeat), else "unknown"."""
+    claude = _claude_dir()
+    if _recently_trashed(claude):
+        return "update"
+    mark = os.path.join(_home(), "alive", heartbeat_name(session, "session", "") + ".m")
+    if not os.path.exists(mark) and _synced_copies(claude, _account()):
+        return "login"
+    return "unknown"
 
 
 def decide(payload: dict, wait: float) -> dict:
@@ -341,7 +363,7 @@ def decide(payload: dict, wait: float) -> dict:
         now = time.monotonic()
         # no start within `wait`: maisecrets does not run; started but no answer by its own watchdog: it died
         if now - begin >= wait and not os.path.exists(started):
-            return _refusal(hook_event, session, "update" if _recently_trashed(_claude_dir()) else "unknown")
+            return _refusal(hook_event, session, _cause_without_a_start(session))
         if now - begin >= wait + ANSWER_WAIT[hook_event]:
             return _refusal(hook_event, session, "slow")
         time.sleep(0.05)

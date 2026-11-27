@@ -371,6 +371,43 @@ class DecisionTests(_Env):
                 # after a tool the call ran: running it again would repeat it
                 self.assertEqual("Run it again" in reason, name == "PreToolUse")
 
+    def test_a_synced_copy_that_never_started_in_this_session_names_the_login_first(self):
+        # field report 2026-11-27: an expired login; Claude Code loaded no synced plugin, the guard said "the
+        # computer may be busy" and gave a restart, and neither helped; /login did
+        self.installed("synced")
+        self.account()
+        for name, payload in PAYLOADS.items():
+            with self.subTest(name), mock.patch.object(guard, "_recently_trashed", return_value=False):
+                reason = _reason(guard.decide(payload, wait=0.1))
+                self.assertIn("did not start in this session", reason)
+                self.assertLess(reason.index("/login"), reason.index("claude --resume"), "the login comes first")
+                self.assertNotIn("may be busy", reason)
+                # after a tool the call ran: the text does not say it did not run
+                self.assertEqual("did not run" in reason, name != "PostToolUse")
+
+    def test_a_session_where_maisecrets_ran_keeps_the_retry_and_an_update_keeps_its_text(self):
+        self.installed("synced")
+        self.account()
+        hooks._heartbeat("pre-tool", dict(PAYLOADS["PreToolUse"], tool_use_id="call_0"), done=True)
+        with mock.patch.object(guard, "_recently_trashed", return_value=False):
+            reason = _reason(guard.decide(PAYLOADS["PreToolUse"], wait=0.1))
+        self.assertIn("Run it again. If every call fails this way", reason)
+        self.assertNotIn("/login", reason)
+        other = dict(PAYLOADS["PreToolUse"], session_id="S2")
+        with mock.patch.object(guard, "_recently_trashed", return_value=True):
+            reason = _reason(guard.decide(other, wait=0.1))
+        self.assertIn("a plugin update replaced its folder", reason)
+        self.assertNotIn("/login", reason)
+
+    def test_without_a_synced_copy_no_login_is_named(self):
+        # a marketplace install does not depend on the organisation's sync
+        self.installed("always")
+        self.account(synced=False)
+        with mock.patch.object(guard, "_recently_trashed", return_value=False):
+            reason = _reason(guard.decide(PAYLOADS["PreToolUse"], wait=0.1))
+        self.assertIn("Run it again", reason)
+        self.assertNotIn("/login", reason)
+
     def test_the_guard_waits_as_long_as_maisecrets_may_take(self):
         from maisecrets import cli
         for event, timeout in cli.GUARD_TIMEOUTS.items():
@@ -450,6 +487,22 @@ class HeartbeatTests(_Env):
         self.assertFalse(old.exists())
 
 
+    def test_the_session_mark_outlives_a_call_heartbeat_and_goes_after_two_days(self):
+        self.installed("synced")
+        hooks._heartbeat("pre-tool", PAYLOADS["PreToolUse"])
+        mark = Path(HOME, "alive", guard.heartbeat_name("S1", "session", "") + ".m")
+        self.assertTrue(mark.exists(), "the guard reads the same name")
+        call = Path(HOME, "alive", guard.heartbeat_name("S1", "pre-tool", "call_1") + ".s")
+        for p in (mark, call):
+            os.utime(p, (time.time() - 3600, time.time() - 3600))
+        other = dict(PAYLOADS["PreToolUse"], session_id="S9", tool_use_id="call_9")
+        hooks._heartbeat("pre-tool", other)
+        self.assertFalse(call.exists())
+        self.assertTrue(mark.exists(), "a session runs longer than 10 minutes")
+        os.utime(mark, (time.time() - 3 * 86400, time.time() - 3 * 86400))
+        hooks._heartbeat("pre-tool", other)
+        self.assertFalse(mark.exists())
+
 @unittest.skipIf(os.name == "nt", "a synced install registers the guard on POSIX only (hooks/dispatch.py)")
 class SyncedInstallTests(_Env):
     """A synced install gets the guard without a step by its user: the session start places the script,
@@ -483,6 +536,13 @@ class SyncedInstallTests(_Env):
                            input=json.dumps({"session_id": "S1", "hook_event_name": "SessionStart"}),
                            capture_output=True, text=True, env=dict(os.environ, CLAUDECODE="1"), timeout=60)
         return json.loads(r.stdout)["systemMessage"]
+
+    def test_the_session_start_writes_the_session_mark(self):
+        # before the first prompt: without it the first prompt of a slow start would name the login
+        copy = self.synced_copy()
+        self.account("org-1", "acc-1", synced=False)
+        self.start(copy)
+        self.assertTrue(Path(HOME, "alive", guard.heartbeat_name("S1", "session", "") + ".m").exists())
 
     def guard_entries(self) -> int:
         settings = self.claude / "settings.json"

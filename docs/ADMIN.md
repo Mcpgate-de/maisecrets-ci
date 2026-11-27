@@ -72,7 +72,9 @@ keeps its hooks. The install from this repository (`main`) keeps the refusal.
   run, or started and died), the guard blocks the prompt, denies
   the tool call or withholds the result. Without a sign of an update it asks to
   run the call again first, so an agent that works alone goes on; after an update
-  it names `/reload-plugins` and the restart command. It stays
+  it names `/reload-plugins` and the restart command. When a synced copy did not
+  start at all in this session, it names `/login` first: Claude Code may not load
+  the plugins of an organization while the login is expired. It stays
   silent for an account without maisecrets, for a plugin you switched off, and
   for Codex. Measured with the real client: `plugin_folder_moved_guarded` (the
   command does not run) and `bash_rehydrate_guarded` (a healthy session passes).
