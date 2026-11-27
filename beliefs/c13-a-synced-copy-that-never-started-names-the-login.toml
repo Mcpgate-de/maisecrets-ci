@@ -1,0 +1,11 @@
+# c13-a-synced-copy-that-never-started-names-the-login: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c13-a-synced-copy-that-never-started-names-the-login"
+control = "C13"
+serves = ["M5.2"]
+statement = "When maisecrets did not start for a call, no update is in the trash, the session has no session mark and the account has a synced copy, the guard names /login before the claude --resume command: Claude Code may not load the organization's plugins while the login is expired."
+runner = ["tests/test_guard.py::DecisionTests::test_a_synced_copy_that_never_started_in_this_session_names_the_login_first"]
+
+[proof]
+file = "hooks/guard.py"
+find = "        return \"login\"\n"
+replace = "        return \"unknown\"\n"

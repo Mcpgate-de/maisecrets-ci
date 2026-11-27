@@ -3235,11 +3235,13 @@ def _heartbeat(event: str, payload: dict, done: bool = False) -> None:
         # the answer, so a hook that dies after it started is refused (Codex review, 2026-09-29)
         with open(d / (name if done else name + ".s"), "w", encoding="utf-8"):
             pass
+        # ".m": maisecrets ran in this session (guard.py LOGIN); kept for 2 days
+        open(d / (hashlib.sha256(f"{session}\0session\0".encode()).hexdigest()[:32] + ".m"), "w").close()
         now = time.time()
         for n in os.listdir(d):
             # a heartbeat whose guard never came for it (the guard removed, a matcher that differs)
             p = d / n
-            if now - p.stat().st_mtime > 600:
+            if now - p.stat().st_mtime > (172800 if n.endswith(".m") else 600):
                 p.unlink()
     except OSError:
         pass
