@@ -266,13 +266,14 @@ if len(sys.argv) == 2 and sys.argv[1] == "session-start":
     codex = _is_codex()
     import time
     from maisecrets.hooks import _heartbeat, session_context  # noqa: E402
+    from maisecrets.vault import ConfigError, load_config  # noqa: E402
+    HOME.mkdir(mode=0o700, parents=True, exist_ok=True)
     if not codex:
         # the session mark (".m") before the first prompt: the guard tells "maisecrets never started in this
         # session" (a synced copy without a valid login) from "it started late" (hooks/guard.py LOGIN). The
-        # prompt id is no real call, so the start mark of it waits for no answer and goes in 10 minutes
+        # prompt id is no real call, so the start mark of it waits for no answer and goes in 10 minutes. After the
+        # mkdir above: the heartbeat's own mkdir would give a missing home the default mode
         _heartbeat("user-prompt", dict(payload, prompt_id="session-start"))
-    from maisecrets.vault import ConfigError, load_config  # noqa: E402
-    HOME.mkdir(mode=0o700, parents=True, exist_ok=True)
     try:
         cfg = load_config()
     except ConfigError as exc:

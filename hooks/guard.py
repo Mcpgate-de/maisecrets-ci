@@ -329,6 +329,7 @@ def _refusal(hook_event: str, session: str, cause: str = "update") -> dict:
         # the tool ran: running it again repeats what it did. Its effect can be read in a new call
         message = message.replace("so the call did not run. Run it again.", "so its result is not shown.")
         message = message.replace("so the call did not run.", "so its result is not shown.")
+        message = message.replace("Run /login, then run the call again.", "Run /login.")
     return {"hookSpecificOutput": {"hookEventName": "PostToolUse",
                                    "updatedToolOutput": f"[{message} The tool ran; its output is withheld.]"}}
 

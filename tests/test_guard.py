@@ -384,6 +384,7 @@ class DecisionTests(_Env):
                 self.assertNotIn("may be busy", reason)
                 # after a tool the call ran: the text does not say it did not run
                 self.assertEqual("did not run" in reason, name != "PostToolUse")
+                self.assertEqual("again" in reason, name != "PostToolUse", "a tool that ran is not run again")
 
     def test_a_session_where_maisecrets_ran_keeps_the_retry_and_an_update_keeps_its_text(self):
         self.installed("synced")
@@ -542,6 +543,21 @@ class SyncedInstallTests(_Env):
         self.account("org-1", "acc-1", synced=False)
         self.start(copy)
         self.assertTrue(Path(HOME, "alive", guard.heartbeat_name("S1", "session", "") + ".m").exists())
+
+    def test_the_session_mark_leaves_a_new_home_private(self):
+        # the mark's mkdir(parents=True) ran before the home's own mkdir and gave the home 0755 (Opus review)
+        import shutil
+        copy = self.synced_copy()
+        base = Path(tempfile.mkdtemp(prefix="maisecrets-newhome-"))
+        self.addCleanup(lambda: shutil.rmtree(base, ignore_errors=True))
+        home = base / "home"
+        # a new home has no config.json: the plugin option keeps the store off the keychain
+        env = dict(os.environ, CLAUDECODE="1", MAISECRETS_HOME=str(home), CLAUDE_PLUGIN_OPTION_BACKEND="jsonfile")
+        subprocess.run([sys.executable, str(copy / "hooks" / "dispatch.py"), "session-start"],
+                       input=json.dumps({"session_id": "S1", "hook_event_name": "SessionStart"}),
+                       capture_output=True, text=True, env=env, timeout=60)
+        self.assertTrue((home / "alive").is_dir(), "the mark was written")
+        self.assertEqual(home.stat().st_mode & 0o777, 0o700)
 
     def guard_entries(self) -> int:
         settings = self.claude / "settings.json"
