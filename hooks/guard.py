@@ -335,7 +335,7 @@ def _refusal(hook_event: str, session: str, cause: str = "update") -> dict:
 
 def _cause_without_a_start(session: str) -> str:
     """Why maisecrets did not start for this call: "update" (a folder in the trash), "login" (a synced copy that
-    never started in this session: no session mark, see maisecrets.hooks._heartbeat), else "unknown"."""
+    did not run in this session for 2 days: no session mark, see maisecrets.hooks._heartbeat), else "unknown"."""
     claude = _claude_dir()
     if _recently_trashed(claude):
         return "update"

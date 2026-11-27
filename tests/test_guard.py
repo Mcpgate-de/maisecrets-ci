@@ -481,11 +481,10 @@ class HeartbeatTests(_Env):
     def test_an_old_heartbeat_is_swept(self):
         self.installed("synced")
         hooks._heartbeat("pre-tool", PAYLOADS["PreToolUse"])
-        old = next(Path(HOME, "alive").iterdir())
+        old = Path(HOME, "alive", guard.heartbeat_name("S1", "pre-tool", "call_1") + ".s")
         os.utime(old, (time.time() - 3600, time.time() - 3600))
         hooks._heartbeat("pre-tool", dict(PAYLOADS["PreToolUse"], tool_use_id="call_9"))
         self.assertFalse(old.exists())
-
 
     def test_the_session_mark_outlives_a_call_heartbeat_and_goes_after_two_days(self):
         self.installed("synced")
