@@ -346,7 +346,11 @@ class PopulationTests(unittest.TestCase):
                                  ("Read", {"file_path": key}),
                                  ("Grep", {"pattern": "a", "path": key})):
             with self.subTest(tool=tool, tool_input=tool_input):
-                self.assertTrue(deny(pre(tool, tool_input, "/tmp")), f"{tool}: {tool_input}")
+                out = pre(tool, tool_input, "/tmp")
+                self.assertTrue(deny(out), f"{tool}: {tool_input}")
+                if " -c " in str(tool_input):            # the routes through Python
+                    # the key's own refusal, not only the later refusal of any maisecrets import (#98)
+                    self.assertIn("the key of the second net", out["hookSpecificOutput"]["permissionDecisionReason"])
         # the tests of the module itself run: the module's test file is no route to the key
         self.assertFalse(deny(pre("Bash", {"command": "python3 -m unittest tests.test_second_net"}, "/tmp")))
 
