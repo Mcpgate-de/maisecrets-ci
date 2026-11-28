@@ -24,7 +24,7 @@ says = "The name service gets text only when the person set one up, and by defau
 
 [[part]]
 id = "M6.5"
-says = "The mod starts only hooks/dispatch.py, with a fixed command line and no shell, and makes no network request of its own: its one MCP call site asks a claude.ai connector of the person that showed a reference for its gateway, with no argument, or, after the person's typed login for it, for its pairing proof, with a random nonce as the only argument; its hooks/dispatch.py mod-settings child then sends that nonce with the person's token to the gateway the person logged in to (its discovery and pairing endpoint)."
+says = "The mod starts only hooks/dispatch.py, with a fixed command line and no shell, and makes no network request of its own: its one MCP call site asks a claude.ai connector of the person that showed a reference for its gateway, with no argument, or, after the person's typed login for it, for its pairing proof, with a random nonce that Python made for that login as the only argument; its hooks/dispatch.py mod-settings child then sends that nonce with the person's token to the gateway the person logged in to (its discovery and pairing endpoint)."
 
 [[part]]
 id = "M6.6"

@@ -1,0 +1,11 @@
+# c31-the-mod-pairs-only-with-the-nonce-python-made: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c31-the-mod-pairs-only-with-the-nonce-python-made"
+control = "C31"
+serves = ["M3.3"]
+statement = '''The mod sends the connector only the nonce that Python made for the login; without one of 43 base64url characters it asks the connector nothing and the unused login mark goes (#98).'''
+runner = ["tests/mod.test.ts::without a nonce from Python the mod asks the connector nothing, and the unused login mark goes"]
+
+[proof]
+file = "claude-mod/maisecrets-mod.mjs"
+find = '''  if (due && !PAIR_NONCE.test(String(due.nonce ?? ''))) why = '''
+replace = '''  if (false) why = '''

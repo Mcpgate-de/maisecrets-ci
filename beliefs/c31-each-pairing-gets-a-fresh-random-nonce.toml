@@ -2,11 +2,12 @@
 belief = "c31-each-pairing-gets-a-fresh-random-nonce"
 control = "C31"
 serves = ["M3.3"]
-statement = "Each pairing sends the connector a fresh random nonce of 43 base64url characters, never a fixed one."
-runner = ["tests/mod.test.ts::after a login of a proposed connector succeeded, the mod asks the connector to prove it with a fresh nonce"]
+statement = "Each pairing sends the connector a fresh random nonce of 43 base64url characters, never a fixed one; Python makes it for the login (pair_due), and a second one replaces the first (#98)."
+runner = ["tests/test_sref_hooks.py::SrefBashTests::test_a_second_pair_due_replaces_the_nonce_and_a_nonce_serves_once"]
 
 [proof]
-file = "claude-mod/maisecrets-mod.mjs"
-find = '''  globalThis.crypto.getRandomValues(b)
+file = "maisecrets/vault_refs.py"
+find = '''    nonce = secrets.token_urlsafe(32)
 '''
-replace = ''''''
+replace = '''    nonce = "n" * 43
+'''

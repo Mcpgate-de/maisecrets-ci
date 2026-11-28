@@ -501,7 +501,11 @@ class SrefBashTests(unittest.TestCase):
             code = cli.cmd_sref(["login", key])
         return code, out.getvalue()
 
-    def pair(self, answer: object, key: str = "Team_GW", nonce: str = "") -> dict:
+    def pair(self, answer: object, key: str = "Team_GW", nonce: str = "", issue: bool = True) -> dict:
+        """The mod's pairing: it asks pair_due (Python makes the nonce, here NONCE), then hands the answer to pair."""
+        if issue:
+            with mock.patch("secrets.token_urlsafe", lambda n: self.NONCE):
+                sref_hooks.pair_due(key)
         text = answer if isinstance(answer, str) else json.dumps(answer)
         return hub.mod_answer({"action": "pair", "key": key, "nonce": nonce or self.NONCE, "answer": text})
 
@@ -513,7 +517,11 @@ class SrefBashTests(unittest.TestCase):
                       "your account", out)
         self.assertIn("Without the mod (claude -p, Codex) nothing binds it.", out)
         self.assertEqual(vault_refs.connectors(), {})                  # the login alone binds nothing
-        self.assertEqual(hub.mod_answer({"action": "pair_due", "key": "Team_GW"}), {"due": True})
+        due = hub.mod_answer({"action": "pair_due", "key": "Team_GW"})
+        self.assertEqual(sorted(due), ["due", "nonce"])
+        self.assertTrue(due["due"])
+        self.assertRegex(due["nonce"], r"\A[A-Za-z0-9_-]{43}\Z")      # 32 random bytes that Python made (#98)
+        self.assertNotIn(due["nonce"], (HOME / "sref" / "connectors.json").read_text())   # only its hash is kept
         url = self.srv.url + "/mcp"
         got = self.pair({"resource": url, "proof": self.srv.proof(self.NONCE)})
         self.assertTrue(got["bound"], got)
@@ -526,6 +534,38 @@ class SrefBashTests(unittest.TestCase):
         self.assertNotIn(self.srv.proof(self.NONCE), stored)          # the proof is never kept
         self.assertNotIn(self.NONCE, stored)
         self.assertEqual(hub.mod_answer({"action": "pair_due", "key": "Team_GW"}), {"due": False})
+
+    def test_a_nonce_that_maisecrets_did_not_make_binds_nothing_and_uses_the_login_mark(self):
+        # #98: `pair` took any nonce from its caller, so an old nonce and the proof of the person's gateway for it
+        # bound again after a new login. Only the nonce Python made for this login (pair_due) counts, once.
+        from maisecrets import vault_refs
+        url = self.srv.url + "/mcp"
+        other = "o" * 43
+        for issue in (False, True):                  # none made at all, or another one made
+            with self.subTest(issue=issue):
+                vault_refs.forget_connector("Team_GW")
+                self.assertEqual(self.typed_login()[0], 0)
+                got = self.pair({"resource": url, "proof": self.srv.proof(other)}, nonce=other, issue=issue)
+                self.assertFalse(got["bound"])
+                self.assertIn("the proof request was not one that maisecrets made for your login", got["note"])
+                self.assertEqual(vault_refs.connectors(), {})
+                # the mark and the nonce served once: the right nonce now needs a new typed login
+                got = self.pair({"resource": url, "proof": self.srv.proof(self.NONCE)}, issue=False)
+                self.assertIn("no login of yours for it in the last 15 minutes", got["note"])
+        self.assertEqual(self.srv.pairings, [])      # the gateway was never asked
+
+    def test_a_second_pair_due_replaces_the_nonce_and_a_nonce_serves_once(self):
+        from maisecrets import vault_refs
+        url = self.srv.url + "/mcp"
+        self.assertEqual(self.typed_login()[0], 0)
+        first = sref_hooks.pair_due("Team_GW")
+        second = sref_hooks.pair_due("Team_GW")
+        self.assertNotEqual(first, second)
+        got = self.pair({"resource": url, "proof": self.srv.proof(first)}, nonce=first, issue=False)
+        self.assertIn("the proof request was not one that maisecrets made for your login", got["note"])
+        self.assertEqual(self.typed_login(propose=False)[0], 0)
+        self.assertTrue(self.pair({"resource": url, "proof": self.srv.proof(self.NONCE)})["bound"])
+        self.assertEqual(vault_refs.connectors(), {"Team_GW": url})
 
     def test_a_wrong_proof_binds_nothing_and_uses_the_login_mark(self):
         from maisecrets import vault_refs

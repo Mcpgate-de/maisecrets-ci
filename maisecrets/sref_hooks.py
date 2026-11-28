@@ -190,10 +190,11 @@ def pairing_call_refusal(payload: dict) -> str | None:
             "ran.")
 
 
-def pair_due(key: str) -> bool:
-    """The mod asks after a login of KEY succeeded: does a proposed connector wait for its pairing proof?"""
-    from .vault_refs import login_mark_due
-    return _SERVER_NAME_RE.fullmatch(key or "") is not None and login_mark_due(key)
+def pair_due(key: str) -> str | None:
+    """The mod asks after a login of KEY succeeded: does a proposed connector wait for its pairing proof? Then the
+    nonce for it, which only Python makes (#98: `pair` takes no nonce it did not issue), else None."""
+    from .vault_refs import issue_pairing_nonce
+    return issue_pairing_nonce(key) if _SERVER_NAME_RE.fullmatch(key or "") is not None else None
 
 
 def pair_cancel(key: str) -> bool:
@@ -226,7 +227,9 @@ def pair_connector(key: str, nonce: str, answer: str) -> dict:
         return {"bound": False, "note": "maisecrets: that is no claude.ai connector."}
     if not isinstance(nonce, str) or not sref_client.NONCE_RE.fullmatch(nonce):
         return no("the proof request had no valid form")
-    url, why = vault_refs.take_login_mark(key)
+    url, why = vault_refs.take_login_mark(key, nonce)
+    if why == "nonce":
+        return no("the proof request was not one that maisecrets made for your login")
     if why == "expired":
         return no("its proposal expired (an hour after the connector named its gateway); it is proposed again after "
                   "it shows a reference")

@@ -1035,7 +1035,11 @@ const BOUND = 'maisecrets: the claude.ai connector team-gw is bound to gw.exampl
   'gateway with your account.'
 function pairSetup(on, opts: any = {}) {
   const asked: any[] = []
-  const st = runSetup(on, { answer: (q) => q.action === 'pair_due' ? (opts.dueFails ? null : { due: opts.due ?? true })
+  // Python makes the nonce of each pairing (#98): a new one for each question, or none (opts.nonce)
+  let made = 0
+  const due = () => opts.due === false ? { due: false }
+    : { due: true, nonce: 'nonce' in opts ? opts.nonce : 'N' + String(++made).padStart(42, '0') }
+  const st = runSetup(on, { answer: (q) => q.action === 'pair_due' ? (opts.dueFails ? null : due())
     : q.action === 'pair_cancel' ? { cancelled: true }
     : q.action === 'pair' ? { bound: true, note: BOUND } : (opts.plan ?? LOGIN_PAIR), code: opts.code,
   chunks: ['maisecrets: logged in to gw.example. The claude.ai connector team-gw is bound only when it proves it.\n'] })
@@ -1075,7 +1079,7 @@ test('after a login of a proposed connector succeeded, the mod asks the connecto
     expect([asked[0].server, asked[0].tool]).toEqual(['claude_ai_team-gw', 'sensitive_references_resource'])
     expect(Object.keys(asked[0].args)).toEqual(['nonce'])              // the nonce alone goes to the connector
     const nonce = asked[0].args.nonce
-    expect(nonce).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    expect(nonce).toBe('N' + '1'.padStart(42, '0'))                   // the nonce Python made, as it came (#98)
     const pair = questions(st, 'pair')
     expect(pair.length).toBe(1)
     expect(pair[0].key).toBe('team-gw')
@@ -1102,9 +1106,29 @@ async function asksNothing($, on, opts) {
   expect(questions(st, 'pair').length).toBe(0)
   expect(st.toasts.includes(BOUND)).toBe(false)
   expect(questions(st, 'pair_due').length).toBe(opts.due === false ? 1 : 0)
+  // nothing waited for a proof: no line that a pairing failed, and no mark to drop
+  expect(st.toasts.some(t => t.includes('was not bound'))).toBe(false)
+  expect(questions(st, 'pair_cancel').length).toBe(0)
 }
 
 test('a failed login asks the connector nothing', async ($, on) => asksNothing($, on, { code: 1 }))
+
+async function noNonce($, on, nonce) {
+  const { st, asked } = pairSetup(on, { nonce })
+  await $.prompt.submit({ text: '/maisecrets:sref login team-gw', wait: false, origin: { kind: 'composer' } })
+  expect(await until(() => st.toasts.some(t => t.includes('was not bound')))).toBe(true)
+  expect(asked.length).toBe(0)
+  expect(questions(st, 'pair').length).toBe(0)
+  expect(questions(st, 'pair_cancel').length).toBe(1)
+  expect(st.toasts).toContain('maisecrets: the claude.ai connector team-gw was not bound: maisecrets made no ' +
+    'nonce for it. To try again, send /maisecrets:sref login team-gw.')
+}
+
+test('without a nonce from Python the mod asks the connector nothing, and the unused login mark goes',
+  async ($, on) => noNonce($, on, undefined))
+
+test('a nonce from Python of another form asks the connector nothing', async ($, on) =>
+  noNonce($, on, 'x'.repeat(42) + '!'))
 
 test('a plan without a connector asks the connector nothing', async ($, on) => asksNothing($, on, { plan: LOGIN }))
 

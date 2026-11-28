@@ -140,7 +140,7 @@ claude --plugin-dir /path/to/maisecrets                 # one session, straight 
 python3 -m unittest discover -s tests -v               # about 30 seconds
 python3 harness/run.py                                 # 86 scenarios against a fake upstream (4 for the PowerShell tool of Windows, 9 in Code Mode)
 python3 harness/codex.py [--real]                      # 20 scenarios through codex exec (five need --real)
-python3 scripts/replay_can_fail.py                     # 676 proofs: each control's test, and each path of the 18 invariant beliefs, goes red without its guard
+python3 scripts/replay_can_fail.py                     # 685 proofs: each control's test, and each path of the 18 invariant beliefs, goes red without its guard
 python3 scripts/derived_counts.py                      # the numbers in the docs, measured again
 python3 scripts/lint_plugin.py                         # frontmatter YAML, manifests, hook paths (pre-commit, CI)
 scripts/install-hooks.sh                               # git pre-commit / pre-push
@@ -915,8 +915,9 @@ resolve, output that prints the value shows the reference instead.
    connector you added that is not your gateway can name your gateway's URL,
    so a gateway whose metadata names `sensitive_references.pairing_endpoint`
    binds only after a proof: when your typed login for the connector
-   succeeded, the mod sends the connector a fresh random nonce (its only
-   argument), and the connector answers with a proof that only your account
+   succeeded, the mod sends the connector a fresh random nonce that
+   maisecrets made for that login (its only argument; any other nonce binds
+   nothing), and the connector answers with a proof that only your account
    at that gateway can give. maisecrets asks the gateway for the proof of
    your own login (the same token as for a resolve) and compares the two in
    constant time; only a match within 15 minutes of the login binds, and

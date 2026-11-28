@@ -386,6 +386,7 @@ def clear_login_mark(key: str) -> None:
         entry = mine["pending"].get(key)
         if isinstance(entry, dict):
             entry.pop("login_t", None)
+            entry.pop("nonce_h", None)
     _write_connectors(change)
 
 
@@ -399,10 +400,33 @@ def login_mark_due(key: str) -> bool:
     return key in connectors(pending=True) and _fresh_mark(_connector_data().get("pending", {}).get(key), time.time())
 
 
-def take_login_mark(key: str) -> tuple:
-    """(url, None) once, when the proposal of this key holds a fresh login mark; else (None, why): "no login" (no
-    mark, or one older than LOGIN_MARK_TTL) or "expired" (the proposal itself expired). The mark goes either way
-    (used once, also by a pairing that fails)."""
+def _nonce_hash(nonce: str) -> str:
+    return hashlib.sha256(nonce.encode("utf-8", "surrogatepass")).hexdigest()
+
+
+def issue_pairing_nonce(key: str) -> str | None:
+    """#98: the nonce of the mod's pairing, made here and not by the caller of `pair`. Only its hash is kept with a
+    fresh login mark; a second call replaces it. None when no proposal of this key waits for its pairing."""
+    import secrets
+    if not login_mark_due(key):
+        return None
+    nonce = secrets.token_urlsafe(32)
+
+    def change(mine):
+        entry = mine["pending"].get(key)
+        if not isinstance(entry, dict) or not _fresh_mark(entry, time.time()):
+            return None
+        entry["nonce_h"] = _nonce_hash(nonce)
+        return nonce
+    return _write_connectors(change)
+
+
+def take_login_mark(key: str, nonce: str = "") -> tuple:
+    """(url, None) once, when the proposal of this key holds a fresh login mark and `nonce` is the one
+    issue_pairing_nonce made for it; else (None, why): "no login" (no mark, or one older than LOGIN_MARK_TTL),
+    "nonce" (no nonce issued, or another one) or "expired" (the proposal itself expired). The mark and the nonce go
+    either way (used once, also by a pairing that fails)."""
+    import hmac
     url = connectors(pending=True).get(key)
 
     def change(mine):
@@ -411,10 +435,14 @@ def take_login_mark(key: str) -> tuple:
             return None, "no login"
         fresh = _fresh_mark(entry, time.time())
         entry.pop("login_t", None)
+        issued = entry.pop("nonce_h", None)
         if not fresh:
             return None, "no login"
         if not url or entry.get("url") != url:
             return None, "expired"
+        if not isinstance(issued, str) or not isinstance(nonce, str) or \
+                not hmac.compare_digest(issued.encode("ascii", "replace"), _nonce_hash(nonce).encode("ascii")):
+            return None, "nonce"
         return url, None
     return _write_connectors(change)
 

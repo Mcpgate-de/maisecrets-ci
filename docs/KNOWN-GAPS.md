@@ -8,6 +8,13 @@ was measured or documented. The controls and where each one ends are in [THREAT-
 What the plugin does not protect. Each item is a limit of the mechanism, not
 a to-do.
 
+- **Code that the agent runs as the person can call maisecrets (#98).** A shell
+  command that imports a module of maisecrets is refused, in its own text and in a
+  Python script it starts by path. A script that builds the module name at run
+  time, loads another file, or lies inside a maisecrets checkout is not read. Such
+  code runs with the person's rights and can reach the store and bind a connector
+  directly; only a sandbox of the client stops it (C22). The pairing nonce that
+  Python makes for each login is depth, not a boundary.
 - **The status knows the mod only from its rows in `hooks.log`.** The mod
   writes one at the session start, for each prompt it checks, and once per new
   session id one second after its first prompt (after `/clear` or a resume).

@@ -205,6 +205,8 @@ class _Base(unittest.TestCase):
         if login:
             self.login()
         self.assertTrue(vault_refs.mark_login(key, self.url))
+        with mock.patch("secrets.token_urlsafe", lambda n: NONCE):   # the mod asks Python for the nonce (#98)
+            self.assertEqual(sref_hooks.pair_due(key), NONCE)
         got = sref_hooks.pair_connector(key, NONCE, json.dumps({"resource": self.url,
                                                                 "proof": self.srv.proof(NONCE)}))
         self.assertTrue(got["bound"], got)

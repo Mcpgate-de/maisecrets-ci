@@ -1032,21 +1032,8 @@ const PAIR_DENY = 'maisecrets: this call carried the nonce of a running pairing,
 // one the gateway gives that login (sref_hooks.pair_connector). The nonce goes to the connector and to Python only
 const PAIR_MS = 20000           // Python's discovery and one request to the gateway (PAIR_DISCOVERY_S, PAIR_REQUEST_S)
 const PAIR_KEY = /^[A-Za-z0-9_-]{1,64}$/
-const B64URL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
-
-// 32 random bytes in base64url without padding (43 characters); no source of randomness: no nonce, no pairing
-function pairingNonce() {
-  const b = new Uint8Array(32)
-  globalThis.crypto.getRandomValues(b)
-  let s = ''
-  for (let i = 0; i < b.length; i += 3) {
-    const n = (b[i] << 16) | ((b[i + 1] ?? 0) << 8) | (b[i + 2] ?? 0)
-    s += B64URL[(n >> 18) & 63] + B64URL[(n >> 12) & 63]
-    if (i + 1 < b.length) s += B64URL[(n >> 6) & 63]
-    if (i + 2 < b.length) s += B64URL[n & 63]
-  }
-  return s
-}
+// #98: the nonce of a pairing comes from Python (sref_hooks.pair_due), which takes back only the one it made
+const PAIR_NONCE = /^[A-Za-z0-9_-]{43}$/
 
 async function pairConnector($, key) {
   if (!PAIR_KEY.test(key)) return
@@ -1054,9 +1041,10 @@ async function pairConnector($, key) {
   if (due && due.due !== true) return          // no proposal waits for a proof (a gateway without pairing bound it)
   let line = null
   let why = 'its proof could not be checked'
-  if (due) {
+  if (due && !PAIR_NONCE.test(String(due.nonce ?? ''))) why = 'maisecrets made no nonce for it'
+  else if (due) {
     try {
-      const nonce = pairingNonce()
+      const nonce = due.nonce
       const p = { key, tainted: false }
       pairings.set(nonce, p)
       let r = null
