@@ -1713,9 +1713,6 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
     if _calls_a_hook_entry(command, broad=bool(cfg.get("ssh_consent"))):
         return _deny("maisecrets: this command calls a maisecrets hook directly; only the client calls the hooks. "
                      "The command did not run.")
-    why = runs_maisecrets_code(command, payload.get("cwd"))
-    if why:
-        return _deny(why)
     ctxs = _shell_contexts(command)
     refs = [(k, a, b) for k, a, b in find_refs(command) if ctxs[a] != "comment"]
     from . import vault_refs
@@ -1741,6 +1738,9 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
                        (not_a_secret.in_a_command, not_a_secret.IN_A_COMMAND), (demo.in_a_command, demo.IN_A_COMMAND)):
         if _carries(command, found):
             return _deny(why + data_hint(command, found))
+    why = runs_maisecrets_code(command, payload.get("cwd"))      # after the guards that name their own reason
+    if why:
+        return _deny(why)
     # ssh consent (#8), before any value is recorded or served: a refusal leaves no audit line
     if cfg.get("ssh_consent") and re.search(r"maisecrets:\s*allow\s+ssh\s+\S|allow\s+ssh\s+\S+\s+\d{6}", command,
                                            re.I):
