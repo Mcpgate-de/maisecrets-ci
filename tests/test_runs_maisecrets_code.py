@@ -66,13 +66,15 @@ class RunsMaisecretsCodeTests(unittest.TestCase):
                 self.assertEqual(decision(cmd, self.cwd, CODEX), "deny")
 
     def test_a_script_run_by_path_that_imports_maisecrets_is_refused(self):
+        # a path as Git Bash on Windows takes it: with slashes (an unquoted backslash is an escape there too)
         other = tempfile.mkdtemp(prefix="ms98-other-")
         Path(other, "run.py").write_text("from maisecrets.hub import mod_answer\n")
         Path(self.cwd, "run.py").write_text("print(1)\n")        # the file of the same name where the hook starts
-        for cmd in ("python3 binds.py", f"python3 {self.cwd}/binds.py", "uv run binds.py", "uv run python binds.py",
+        here, there = Path(self.cwd).as_posix(), Path(other).as_posix()
+        for cmd in ("python3 binds.py", f"python3 {here}/binds.py", "uv run binds.py", "uv run python binds.py",
                     "python3 -u -W ignore binds.py --x", "python3 -m pytest binds.py", "pytest -q binds.py",
                     "SCRIPT=binds.py; python3 \"$SCRIPT\"", "export S=binds.py && python3 ${S}",
-                    f"cd {other} && python3 run.py", f"cd {other}; python3 ./run.py",
+                    f"cd {there} && python3 run.py", f"cd {there}; python3 ./run.py",
                     # Gate B of #98: a local module by -m, code on Python's input, flag clusters, option values
                     "python3 -m binds", "python3 -Im binds", "python3 -m unittest binds", "poetry run python -m binds",
                     "python3 < binds.py", "python3 - < binds.py", "cat binds.py | python3",
@@ -120,7 +122,8 @@ class RunsMaisecretsCodeTests(unittest.TestCase):
     def test_a_script_of_a_maisecrets_checkout_passes(self):
         # the repository's own scripts and the plugin folder import maisecrets by design
         self.assertTrue(shell_commands._a_checkout(str(ROOT / "scripts" / "derived_counts.py")))
-        self.assertEqual(decision(f"python3 {ROOT}/skills/secret-hygiene/scripts/audit_transcripts.py --help",
+        audit = f"{ROOT.as_posix()}/skills/secret-hygiene/scripts/audit_transcripts.py"
+        self.assertEqual(decision(f"python3 {audit} --help",
                                   self.cwd), "pass")
         self.assertFalse(shell_commands._a_checkout(os.path.join(self.cwd, "binds.py")))
 

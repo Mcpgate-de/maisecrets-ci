@@ -14,7 +14,8 @@ a to-do.
   Not read: a script that builds the module name at run time or loads another file,
   the tests that pytest or `unittest discover` finds by itself and pytest's `conftest.py`, a folder that looks
   like a maisecrets checkout or skill, a `cd` inside a subshell, `pushd`, `env -C`, a
-  glob, and Python started by another program. Inline code such as `python3 -c` is
+  glob, Python started by another program, and in PowerShell a script path
+  written with backslashes (the check reads the line as Bash does). Inline code such as `python3 -c` is
   refused also inside a maisecrets checkout. Such
   code runs with the person's rights and can reach the store and bind a connector
   directly; only a sandbox of the client stops it (C22). The pairing nonce that
