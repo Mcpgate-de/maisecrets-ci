@@ -1,0 +1,13 @@
+# c22-a-module-named-by-dash-m-or-importlib-is-refused: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c22-a-module-named-by-dash-m-or-importlib-is-refused"
+control = "C22"
+serves = ["M4.2"]
+statement = '''A command that starts a module of maisecrets by name (python3 -m maisecrets.hub, importlib.import_module or __import__ with the name) is refused like an import (#98).'''
+runner = ["tests/test_runs_maisecrets_code.py::RunsMaisecretsCodeTests::test_python_code_in_the_command_that_imports_maisecrets_is_refused"]
+
+[proof]
+file = "maisecrets/shell_commands.py"
+find = '''    found += [m.group(1) for m in _IMPORT_CALL_RE.finditer(text)]
+'''
+replace = '''    pass
+'''

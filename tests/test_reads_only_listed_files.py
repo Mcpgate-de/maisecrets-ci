@@ -135,6 +135,8 @@ class World:
                                                 encoding="utf-8")
         self.read_file = self.project / "README.md"           # the file of a Read tool call
         self.read_file.write_text("hello\n", encoding="utf-8")
+        self.script_file = self.project / "tool.py"         # a script a shell command runs by path (#98)
+        self.script_file.write_text("print(1)\n", encoding="utf-8")
         # the values of the prompts stand in the transcripts already, as the client writes them: the scrub child then
         # runs its branch that finds and masks a value, not only its polls
         self.values = {k: fake_value(k) for k in ("Rd", "Rp", "Rx")}
@@ -205,7 +207,7 @@ class World:
             return "the client's configuration"
         if p == R(home / "Library" / "Preferences" / ".GlobalPreferences.plist"):
             return "the language setting of the system"
-        if p == R(self.read_file):
+        if p in (R(self.read_file), R(self.script_file)):
             return "the file of a tool call"
         if _under(p, [R(x) for x in _python_dirs() + _pycache(home)] + [R(self.venv)]) or \
                 p == "/etc/os-release" or _under(p, ["/proc", "/dev"]):
@@ -307,6 +309,9 @@ def payloads(ref: str, key: str, world: World) -> list[tuple[str, dict]]:
         ("user-prompt", {**codex, "prompt": f"password: {world.values['Rx']}"}),
         ("post-tool", {**codex, "tool_name": "Bash", "tool_response": {"stdout": f"api_key={fake_value('Ry')}"}}),
         ("session-end", {"session_id": "S1", "reason": "clear"}),
+        # last, so the numbers of the events above stay: a script that a command runs by path (#98)
+        ("pre-tool", {"tool_name": "Bash", "tool_input": {"command": f"python3 {world.script_file}"},
+                      "session_id": "S1", "prompt_id": "p3s", "cwd": str(world.project)}),
     ]
 
 

@@ -48,7 +48,7 @@ from .shell_commands import (  # noqa: F401
     _value_reaches, _refusal_for, _SSH_ARG_FLAGS, _SSH_REFUSED_FLAGS, _SSH_REFUSED_OPTIONS, _ssh_options, _ssh_way,
     _remote_refusal, READ_ONLY_REMOTE, _JOURNALCTL_STATEFUL, _READ_ONLY_WRAPPERS, _SORT_OK, _UNIQ_OK,
     _remote_is_read_only, _ssh_route, _HOOK_ENTRIES, _calls_a_hook_entry, _only_prints, _parse_for_consent,
-    only_mentions, data_hint,
+    only_mentions, data_hint, runs_maisecrets_code,
 )
 from .tool_output import (  # noqa: F401
     _TOKEN_SPLIT_RE, _FINE_SPLIT_RE, _EXACT_MIN_LEN, _candidates, _HEX_RE, _B64_RE, _decoded, _derived_forms,
@@ -1713,6 +1713,9 @@ def _pre_bash(payload: dict, cfg: dict, tool_input: dict) -> dict:
     if _calls_a_hook_entry(command, broad=bool(cfg.get("ssh_consent"))):
         return _deny("maisecrets: this command calls a maisecrets hook directly; only the client calls the hooks. "
                      "The command did not run.")
+    why = runs_maisecrets_code(command, payload.get("cwd"))
+    if why:
+        return _deny(why)
     ctxs = _shell_contexts(command)
     refs = [(k, a, b) for k, a, b in find_refs(command) if ctxs[a] != "comment"]
     from . import vault_refs
@@ -2389,6 +2392,9 @@ def _pre_powershell(payload: dict, tool_input: dict, cfg: dict | None = None) ->
         # PowerShell has no word parser here: any mention of a hook entry with its event is refused
         return _deny("maisecrets: this command calls a maisecrets hook directly; only the client calls the hooks. "
                      "The command did not run.")
+    why = runs_maisecrets_code(command, payload.get("cwd"))
+    if why:
+        return _deny(why)
     keys = ", ".join(f"⟦{k}⟧" for k in dict.fromkeys(k for k, _a, _b in find_refs(command)))
     if keys:
         return _deny(f"maisecrets: {keys} cannot be placed in a PowerShell command (maisecrets places values "

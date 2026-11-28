@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 
 from .lazy_regex import LazyRx as _LazyRx
 
@@ -1265,3 +1266,160 @@ def only_mentions(command: str, found) -> bool:
 def _parse_for_consent(text: str):
     ctxs = _shell_contexts(text)
     return _segments(text, ctxs), ctxs
+
+
+# #98: a shell command that imports a module of maisecrets runs code that only the client and the person's commands
+# start (a binding of a connector, the hub, the store). A text match like C8: a backstop for the forms an agent writes,
+# not a boundary (C22). Only import positions count, so a commit message or the contract name `maisecrets.detect/1`
+# in a request body is no import. Allowed: the package itself (it reads its version), the library API `detection`
+# with its old names, and the CLI started as a program (`-m maisecrets.cli`), which the launchers run too and whose
+# reads C8 refuses by their words; imported, the CLI hands over its Vault (Gate A of #98), so an import of it counts.
+CODE_ALLOWED = frozenset({"detection", "detect", "checksums", "lazy_regex", "normalise", "personal", "regions",
+                          "rule_filter", "registry", "rulespec"})
+_IMPORT_FROM_RE = _LazyRx(r"\bfrom\s+maisecrets((?:\s*\.\s*\w+)*)\s+import\s+(\([^)]*\)|[^\n;#]+)")
+_IMPORT_RE = _LazyRx(r"(?<![\w.])import\s+([^\n;#]+)")
+# a module by its name: importlib, __import__, runpy (also as a keyword argument) and a lookup in sys.modules
+_IMPORT_CALL_RE = _LazyRx(r"(?:(?:import_module|__import__|run_module)\s*\(\s*(?:(?:name|mod_name)\s*=\s*)?"
+                          r"|modules\s*(?:\[|\.\s*get\s*\()\s*)[rbuRBU]?[\"']maisecrets\s*\.\s*(\w+)")
+_RUN_MODULE_RE = _LazyRx(r"-m\s*maisecrets\s*\.\s*(\w+)")
+SCRIPT_MAX_BYTES = 256 * 1024
+RUNS_CODE = ("maisecrets: this command runs maisecrets code ({what}), which only the client and the person's "
+             "/maisecrets commands start. The library maisecrets.detection and the CLI as a program (python3 -m "
+             "maisecrets.cli) are allowed. "
+             "The command did not run.")
+
+
+def _package_modules() -> frozenset:
+    """The module and package names of this maisecrets (a stem of a .py file, a folder with __init__.py)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    try:
+        names = os.listdir(here)
+    except OSError:
+        return frozenset()
+    return frozenset(n[:-3] for n in names if n.endswith(".py") and n != "__init__.py") | frozenset(
+        n for n in names if os.path.isfile(os.path.join(here, n, "__init__.py")))
+
+
+def imported_modules(text: str) -> list[str]:
+    """The modules of maisecrets that `text` imports outside CODE_ALLOWED, in import positions only."""
+    real = _package_modules()
+    found = []
+    for m in _IMPORT_FROM_RE.finditer(text):
+        sub = re.sub(r"\s", "", m.group(1)).lstrip(".")
+        if sub:
+            found.append(sub.split(".")[0])
+        else:
+            # `from maisecrets import detection, vault_refs`: each name, also in a list in parentheses
+            # the name alone: a quote or a parenthesis that closes the code may follow it (`… import vault'`)
+            found += [w.group(0) for n in m.group(2).split(",") if (w := re.search(r"\w+", n))]
+    for m in _IMPORT_RE.finditer(text):
+        for n in m.group(1).split(","):
+            w = re.match(r"\s*maisecrets\s*\.\s*(\w+)", n)
+            if w:
+                found.append(w.group(1))
+    found += [m.group(1) for m in _IMPORT_CALL_RE.finditer(text)]
+    found += [m.group(1) for m in _RUN_MODULE_RE.finditer(text) if m.group(1) != "cli"]   # the CLI as a program
+    return list(dict.fromkeys(n for n in found if n in real and n not in CODE_ALLOWED))
+
+
+def _a_checkout(path: str) -> bool:
+    """A file inside a maisecrets checkout or plugin folder (an ancestor holds maisecrets/hooks.py): its own scripts."""
+    d = os.path.dirname(path)
+    while True:
+        if os.path.isfile(os.path.join(d, "maisecrets", "hooks.py")):
+            return True
+        up = os.path.dirname(d)
+        if up == d:
+            return False
+        d = up
+
+
+_PYTHON_RE = _LazyRx(r"python(?:\d(?:\.\d+)?)?|pypy3?")
+_PROJECT_RUNNERS = ("uv", "poetry", "pipenv", "pdm", "hatch")
+
+
+def _script_words(words: list[str]) -> list[str]:
+    """The words of a runner's command line that name a file Python runs: the first word after the options of python
+    (the script; none after -c, -m or -), each .py file of pytest, and the command after `run` of a project runner."""
+    cmd, rest = os.path.basename(words[0]), words[1:]
+    if cmd in _PROJECT_RUNNERS:
+        rest = rest[rest.index("run") + 1:] if "run" in rest else []
+        while rest and rest[0].startswith("-"):
+            rest = rest[1:]
+        if rest and rest[0].endswith(".py"):
+            return [rest[0]]
+        return _script_words(rest) if rest and (_PYTHON_RE.fullmatch(os.path.basename(rest[0]))
+                                                or os.path.basename(rest[0]) == "pytest") else []
+    if cmd == "pytest":
+        return [w for w in rest if w.endswith(".py") and not w.startswith("-")]
+    if not _PYTHON_RE.fullmatch(cmd):
+        return []
+    i = 0
+    while i < len(rest):
+        w = rest[i]
+        if w == "-m" and rest[i + 1:i + 2] == ["pytest"]:
+            return _script_words(rest[i + 1:])
+        if w in ("-c", "-m", "-") or w.startswith(("-c", "-m")) and len(w) > 2:
+            return []                   # code in the text or a module by name: the text check reads them
+        if w.startswith("-"):
+            i += 2 if w in ("-W", "-X") else 1
+            continue
+        return [w]
+    return []
+
+
+def _scripts_run(command: str, cwd: str | None) -> list[str]:
+    """The files a Python runner of the command starts (_script_words), as real paths: relative to the folder of a `cd`
+    before it, with ~, a variable the line assigns and one of the environment put in. A word that keeps a `$` is not
+    read (a name built at run time, C22)."""
+    out: list[str] = []
+    here = cwd or os.getcwd()
+    assigned: dict[str, str] = {}
+
+    def expand(w: str) -> str:
+        w = re.sub(r"\$(?:\{(\w+)\}|(\w+))", lambda m: assigned.get(m.group(1) or m.group(2),
+                                                               os.environ.get(m.group(1) or m.group(2), m.group(0))), w)
+        return os.path.expanduser(w)
+    for sg in _segments(command, _shell_contexts(command)):
+        try:
+            raw = shlex.split(command[sg["start"]:sg["end"]])
+        except ValueError:
+            raw = []
+        for w in raw[1:] if raw[:1] == ["export"] else raw:
+            m = re.fullmatch(r"([A-Za-z_]\w*)=(.*)", w, re.S)
+            if not m:
+                break
+            assigned[m.group(1)] = expand(m.group(2))
+        words = sg.get("words") or []
+        if not words:
+            continue
+        if sg.get("cmd") == "cd":
+            target = expand(words[1]) if len(words) > 1 else os.path.expanduser("~")
+            here = os.path.join(here, target)
+            continue
+        for w in _script_words(words):
+            p = expand(w)
+            if "$" not in p:
+                out.append(os.path.realpath(p if os.path.isabs(p) else os.path.join(here, p)))
+    return out
+
+
+def runs_maisecrets_code(command: str, cwd: str | None = None) -> str | None:
+    """RUNS_CODE when a shell command imports maisecrets code outside CODE_ALLOWED: in its own text (`python3 -c`,
+    `-m`, a heredoc or a pipe into Python), or in a script file of at most SCRIPT_MAX_BYTES that a Python runner
+    starts by path, outside a maisecrets checkout. A command that only mentions such an import (only_mentions) runs
+    nothing. A name built at run time, or a script that loads another file, is the same-user limit of C22."""
+    mods = imported_modules(command)
+    if mods and not only_mentions(command, lambda t: bool(imported_modules(t))):
+        return RUNS_CODE.format(what=", ".join(f"maisecrets.{n}" for n in mods))
+    for path in _scripts_run(command, cwd):
+        try:
+            if _a_checkout(path) or not os.path.isfile(path) or os.path.getsize(path) > SCRIPT_MAX_BYTES:
+                continue
+            with open(path, encoding="utf-8", errors="replace") as f:
+                mods = imported_modules(f.read(SCRIPT_MAX_BYTES))
+        except OSError:
+            continue
+        if mods:
+            return RUNS_CODE.format(what=", ".join(f"maisecrets.{n}" for n in mods) + " in " + os.path.basename(path))
+    return None

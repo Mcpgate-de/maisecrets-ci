@@ -278,3 +278,9 @@ quote = "**The language setting of the system:**"
 kind = "promise"
 mission = "M6"
 
+[[claim]]
+source = "PRIVACY.md"
+quote = "**A Python script that a shell command runs:**"
+kind = "promise"
+mission = "M6"
+
