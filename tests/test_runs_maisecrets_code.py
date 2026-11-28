@@ -59,6 +59,7 @@ class RunsMaisecretsCodeTests(unittest.TestCase):
                     "python3 -c '__import__(\"maisecrets\", fromlist=[\"hub\"])'",
                     "python3 -c 'import importlib; importlib.import_module(\".hub\", \"maisecrets\")'",
                     "python3 -c 'import importlib; importlib.import_module(\".hub\", package=\"maisecrets\")'",
+                    "python3 -c '__import__(\"maisecrets\", globals(), locals(), [\"hub\"])'",
                     "python3 - <<'EOF'\nfrom maisecrets import \\\n    hub\nEOF"):
             with self.subTest(cmd=cmd):
                 self.assertEqual(decision(cmd, self.cwd), "deny")
@@ -76,7 +77,9 @@ class RunsMaisecretsCodeTests(unittest.TestCase):
                     "python3 -m binds", "python3 -Im binds", "python3 -m unittest binds", "poetry run python -m binds",
                     "python3 < binds.py", "python3 - < binds.py", "cat binds.py | python3",
                     "python3 -Im pytest binds.py", "uv run --with requests binds.py",
-                    "python3 --check-hash-based-pycs never binds.py", "python3 -X dev -W ignore binds.py"):
+                    "python3 --check-hash-based-pycs never binds.py", "python3 -X dev -W ignore binds.py",
+                    "uv run -m binds", "uv run --python 3.12 binds.py", "python3 0<binds.py",
+                    "python3 /dev/stdin < binds.py", "pytest binds.py::test_a", "python3 -m pytest -q binds.py::t"):
             with self.subTest(cmd=cmd):
                 self.assertEqual(decision(cmd, self.cwd), "deny")
         out = hooks.pre_tool({"tool_name": "Bash", "tool_input": {"command": "python3 binds.py"}, "session_id": "S1",
@@ -108,7 +111,9 @@ class RunsMaisecretsCodeTests(unittest.TestCase):
                     "git log -S 'from maisecrets import vault_refs'",
                     "ls maisecrets  # from maisecrets import hub",
                     "python3 -m detects",
-                    "cat detects.py | python3"):
+                    "cat detects.py | python3",
+                    "uv run ruff check binds.py",                      # another tool's file is no script
+                    "python3 -m unittest discover -s . -p 'test_*.py'"):
             with self.subTest(cmd=cmd):
                 self.assertEqual(decision(cmd, self.cwd), "pass")
 
@@ -122,7 +127,13 @@ class RunsMaisecretsCodeTests(unittest.TestCase):
     def test_a_search_that_runs_a_program_is_no_mention(self):
         for cmd in ("git -c alias.grep='!python3 -c \"from maisecrets import hub\"' grep x",
                     "rg 'from maisecrets import hub' . | python3",
-                    "grep -h 'from maisecrets import hub' notes.txt > x.py && python3 x.py"):
+                    "grep -h 'from maisecrets import hub' notes.txt > x.py && python3 x.py",
+                    # re-review: a search program that runs its option's or a variable's value
+                    "GIT_EXTERNAL_DIFF='python3 -c \"from maisecrets import hub\"' git diff",
+                    "git grep -O'python3 -c \"from maisecrets import hub\"' foo",
+                    "git grep --open-files-in-pager='python3 -c \"from maisecrets import hub\"' foo",
+                    "LESSOPEN='|python3 -c \"from maisecrets import hub\" %s' less README.md",
+                    "ack --pager='python3 -c \"from maisecrets import hub\"' foo"):
             with self.subTest(cmd=cmd):
                 self.assertEqual(decision(cmd, self.cwd), "deny")
 

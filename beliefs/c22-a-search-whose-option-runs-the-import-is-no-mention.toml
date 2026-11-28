@@ -1,0 +1,13 @@
+# c22-a-search-whose-option-runs-the-import-is-no-mention: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c22-a-search-whose-option-runs-the-import-is-no-mention"
+control = "C22"
+serves = ["M4.2"]
+statement = '''A search whose option runs its value as a program (git grep -O, --open-files-in-pager) is no mention: the import text in that option is refused (re-review of #98).'''
+runner = ["tests/test_runs_maisecrets_code.py::RunsMaisecretsCodeTests::test_a_search_that_runs_a_program_is_no_mention"]
+
+[proof]
+file = "maisecrets/shell_commands.py"
+find = '''        if any(w.startswith("-") and imported_modules(w) for w in words):
+'''
+replace = '''        if False:
+'''

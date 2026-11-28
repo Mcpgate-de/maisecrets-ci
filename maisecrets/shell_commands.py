@@ -1284,10 +1284,11 @@ _IMPORT_CALL_RE = _LazyRx(r"(?:(?:import_module|__import__|run_module)\s*\(\s*(?
 _RUN_MODULE_RE = _LazyRx(r"-m\s*maisecrets\s*\.\s*(\w+)")
 # __import__("maisecrets", fromlist=["hub"]) and import_module(".hub", "maisecrets") (Gate B of #98)
 _FROMLIST_RE = _LazyRx(r"__import__\s*\(\s*[rbuRBU]?[\"']maisecrets[\"'][^)]*?fromlist\s*=\s*[\[(]([^\])]*)")
+_IMPORT_PACKAGE_RE = _LazyRx(r"__import__\s*\(\s*[rbuRBU]?[\"']maisecrets[\"']")
 _RELATIVE_RE = _LazyRx(r"import_module\s*\(\s*[rbuRBU]?[\"']\.(\w+)[\"']\s*,\s*(?:package\s*=\s*)?"
                        r"[rbuRBU]?[\"']maisecrets[\"']")
 # programs that search or show a text and run none: an import that stands only in their quoted data is a mention
-_SEARCHERS = frozenset({"grep", "egrep", "fgrep", "rg", "ag", "ack", "cat", "head", "tail", "less", "wc", "ls"})
+_SEARCHERS = frozenset({"grep", "egrep", "fgrep", "rg", "cat", "head", "tail", "wc", "ls"})
 _GIT_READS = frozenset({"grep", "log", "show", "diff", "blame"})
 SCRIPT_MAX_BYTES = 256 * 1024
 RUNS_CODE = ("maisecrets: this command runs maisecrets code ({what}), which only the client and the person's "
@@ -1314,6 +1315,9 @@ def imported_modules(text: str) -> list[str]:
     found = []
     for m in _FROMLIST_RE.finditer(text):
         found += re.findall(r"\w+", m.group(1))
+    for m in _IMPORT_PACKAGE_RE.finditer(text):         # __import__("maisecrets", globals(), locals(), ["hub"])
+        listed = re.match(r"[^\n\[]{0,200}\[([^\]]*)\]", text[m.end():])
+        found += re.findall(r"\w+", listed.group(1)) if listed else []
     found += [m.group(1) for m in _RELATIVE_RE.finditer(text)]
     for m in _IMPORT_FROM_RE.finditer(text):
         sub = re.sub(r"\s", "", m.group(1)).lstrip(".")
@@ -1350,6 +1354,9 @@ def _a_checkout(path: str) -> bool:
 
 _PYTHON_RE = _LazyRx(r"python(?:\d(?:\.\d+)?)?|pypy3?")
 _PROJECT_RUNNERS = ("uv", "poetry", "pipenv", "pdm", "hatch")
+_RUN_OPTIONS_WITH_A_VALUE = frozenset({"--with", "--with-requirements", "--with-editable", "-p", "--python",
+                                       "--directory", "--project", "--group", "--extra", "--env-file", "--index",
+                                       "--package", "--from", "-e", "--env"})
 
 
 _STDIN = "-"                    # _script_words: Python reads its code from its input
@@ -1371,20 +1378,27 @@ def _script_words(words: list[str]) -> list[str]:
     cmd, rest = os.path.basename(words[0]), words[1:]
     if cmd in _PROJECT_RUNNERS:
         rest = rest[rest.index("run") + 1:] if "run" in rest else []
-        py = [w for w in rest if w.endswith(".py") and not w.startswith("-")]
-        run = next((i for i, w in enumerate(rest) if _PYTHON_RE.fullmatch(os.path.basename(w))
-                    or os.path.basename(w) == "pytest"), None)
-        if run is not None and (not py or rest.index(py[0]) > run):
-            return _script_words(rest[run:])
-        return py[:1]
+        i = 0
+        while i < len(rest) and rest[i].startswith("-"):
+            if rest[i] in ("-m", "--module") and i + 1 < len(rest):
+                return _module_files(rest[i + 1])
+            i += 2 if rest[i] in _RUN_OPTIONS_WITH_A_VALUE else 1
+        first = rest[i] if i < len(rest) else ""
+        if first.endswith(".py"):
+            return [first]
+        if _PYTHON_RE.fullmatch(os.path.basename(first)) or os.path.basename(first) == "pytest":
+            return _script_words(rest[i:])
+        return []                       # another tool (uv run ruff check x.py): its files are no script
     if cmd == "pytest":
-        return [w for w in rest if w.endswith(".py") and not w.startswith("-")]
+        # a file, also as a node id (tests/test_x.py::test_a)
+        return [w.split("::")[0] for w in rest if w.split("::")[0].endswith(".py") and not w.startswith("-")]
     if not _PYTHON_RE.fullmatch(cmd):
         return []
     i = 0
     while i < len(rest):
         w = rest[i]
-        if w == "-" or re.match(r"\d*[<>]", w):       # no script before a redirection: the code comes on the input
+        # no script before a redirection, or the input as the script: the code comes on the input
+        if w in ("-", "/dev/stdin", "/dev/fd/0") or re.match(r"\d*[<>]", w):
             return [_STDIN]
         if w.startswith("--"):
             i += 2 if w == "--check-hash-based-pycs" else 1
@@ -1406,6 +1420,8 @@ def _script_words(words: list[str]) -> list[str]:
             if value == "pytest":
                 return _script_words(["pytest"] + after)
             if value == "unittest":
+                if "discover" in after:
+                    return []           # unittest finds its own tests, as pytest does: not read (KNOWN-GAPS)
                 return [f for a in after if not a.startswith("-") for f in
                         ([a] if a.endswith(".py") else _module_files(a))]
             return _module_files(value)
@@ -1450,8 +1466,8 @@ def _scripts_run(command: str, cwd: str | None) -> list[str]:
             continue
         files = _script_words(words)
         if files == [_STDIN]:
-            redirect = [raw[k + 1] for k, w in enumerate(raw[:-1]) if w == "<"] + \
-                [w[1:] for w in raw if w.startswith("<") and len(w) > 1 and not w.startswith("<<")]
+            redirect = [raw[k + 1] for k, w in enumerate(raw[:-1]) if re.fullmatch(r"0?<", w)] + \
+                [m.group(1) for w in raw if (m := re.fullmatch(r"0?<([^<].*)", w))]
             files = redirect or (cat if sg.get("piped") else [])
         for w in files:
             p = expand(w)
@@ -1471,6 +1487,10 @@ def _searched(command: str) -> bool:
         words, cmd = sg.get("words") or [], sg.get("cmd") or ""
         if not words:
             continue
+        if re.match(r"\s*(?:export\s+)?[A-Za-z_]\w*=", command[sg["start"]:sg["end"]]):
+            return False                # GIT_EXTERNAL_DIFF=… git diff: a variable can name a program (re-review)
+        if any(w.startswith("-") and imported_modules(w) for w in words):
+            return False                # git grep -O'…', --open-files-in-pager=…: an option that runs its value
         sub = next((w for w in words[1:] if not w.startswith("-")), "")
         if not (cmd in _SEARCHERS or (cmd == "git" and words[0] == "git" and sub in _GIT_READS)):
             return False

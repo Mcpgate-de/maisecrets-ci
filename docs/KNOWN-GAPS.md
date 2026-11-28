@@ -12,7 +12,7 @@ a to-do.
   command that imports a module of maisecrets is refused, in its own text and in the
   file that Python runs (a script, a module of the folder by `-m`, code on its input).
   Not read: a script that builds the module name at run time or loads another file,
-  the tests that pytest finds by itself and its `conftest.py`, a folder that looks
+  the tests that pytest or `unittest discover` finds by itself and pytest's `conftest.py`, a folder that looks
   like a maisecrets checkout or skill, a `cd` inside a subshell, `pushd`, `env -C`, a
   glob, and Python started by another program. Inline code such as `python3 -c` is
   refused also inside a maisecrets checkout. Such
