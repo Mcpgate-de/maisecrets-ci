@@ -1,0 +1,13 @@
+# c22-a-local-module-started-with-dash-m-is-read: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c22-a-local-module-started-with-dash-m-is-read"
+control = "C22"
+serves = ["M4.2"]
+statement = '''A command that starts a module of the folder with python3 -m (also -Im, poetry run python -m, the test modules of unittest) is read like a script, and refused when the module imports maisecrets code (Gate B of #98).'''
+runner = ["tests/test_runs_maisecrets_code.py::RunsMaisecretsCodeTests::test_a_script_run_by_path_that_imports_maisecrets_is_refused"]
+
+[proof]
+file = "maisecrets/shell_commands.py"
+find = '''            return _module_files(value)
+'''
+replace = '''            return []
+'''

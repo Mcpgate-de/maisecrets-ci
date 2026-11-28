@@ -1282,6 +1282,13 @@ _IMPORT_RE = _LazyRx(r"(?<![\w.])import\s+([^\n;#]+)")
 _IMPORT_CALL_RE = _LazyRx(r"(?:(?:import_module|__import__|run_module)\s*\(\s*(?:(?:name|mod_name)\s*=\s*)?"
                           r"|modules\s*(?:\[|\.\s*get\s*\()\s*)[rbuRBU]?[\"']maisecrets\s*\.\s*(\w+)")
 _RUN_MODULE_RE = _LazyRx(r"-m\s*maisecrets\s*\.\s*(\w+)")
+# __import__("maisecrets", fromlist=["hub"]) and import_module(".hub", "maisecrets") (Gate B of #98)
+_FROMLIST_RE = _LazyRx(r"__import__\s*\(\s*[rbuRBU]?[\"']maisecrets[\"'][^)]*?fromlist\s*=\s*[\[(]([^\])]*)")
+_RELATIVE_RE = _LazyRx(r"import_module\s*\(\s*[rbuRBU]?[\"']\.(\w+)[\"']\s*,\s*(?:package\s*=\s*)?"
+                       r"[rbuRBU]?[\"']maisecrets[\"']")
+# programs that search or show a text and run none: an import that stands only in their quoted data is a mention
+_SEARCHERS = frozenset({"grep", "egrep", "fgrep", "rg", "ag", "ack", "cat", "head", "tail", "less", "wc", "ls"})
+_GIT_READS = frozenset({"grep", "log", "show", "diff", "blame"})
 SCRIPT_MAX_BYTES = 256 * 1024
 RUNS_CODE = ("maisecrets: this command runs maisecrets code ({what}), which only the client and the person's "
              "/maisecrets commands start. The library maisecrets.detection and the CLI as a program (python3 -m "
@@ -1303,7 +1310,11 @@ def _package_modules() -> frozenset:
 def imported_modules(text: str) -> list[str]:
     """The modules of maisecrets that `text` imports outside CODE_ALLOWED, in import positions only."""
     real = _package_modules()
+    text = re.sub(r"\\\r?\n", " ", text)            # `from maisecrets import \` and the name on the next line
     found = []
+    for m in _FROMLIST_RE.finditer(text):
+        found += re.findall(r"\w+", m.group(1))
+    found += [m.group(1) for m in _RELATIVE_RE.finditer(text)]
     for m in _IMPORT_FROM_RE.finditer(text):
         sub = re.sub(r"\s", "", m.group(1)).lstrip(".")
         if sub:
@@ -1323,10 +1334,13 @@ def imported_modules(text: str) -> list[str]:
 
 
 def _a_checkout(path: str) -> bool:
-    """A file inside a maisecrets checkout or plugin folder (an ancestor holds maisecrets/hooks.py): its own scripts."""
+    """A file inside a maisecrets checkout, plugin folder or unpacked secret-hygiene skill (an ancestor holds
+    maisecrets/hooks.py or the skill's copy maisecrets/detection/core.py): their own scripts import maisecrets. A folder
+    the agent made to look like one is the same-user limit of C22."""
     d = os.path.dirname(path)
     while True:
-        if os.path.isfile(os.path.join(d, "maisecrets", "hooks.py")):
+        if os.path.isfile(os.path.join(d, "maisecrets", "hooks.py")) or \
+                os.path.isfile(os.path.join(d, "maisecrets", "detection", "core.py")):
             return True
         up = os.path.dirname(d)
         if up == d:
@@ -1338,18 +1352,31 @@ _PYTHON_RE = _LazyRx(r"python(?:\d(?:\.\d+)?)?|pypy3?")
 _PROJECT_RUNNERS = ("uv", "poetry", "pipenv", "pdm", "hatch")
 
 
+_STDIN = "-"                    # _script_words: Python reads its code from its input
+
+
+def _module_files(name: str) -> list[str]:
+    """The files `python3 -m NAME` may run from the folder it starts in: NAME.py, NAME/__main__.py, NAME/__init__.py."""
+    if not re.fullmatch(r"\w+(?:\.\w+)*", name):
+        return []
+    base = name.replace(".", "/")
+    return [base + ".py", base + "/__main__.py", base + "/__init__.py"]
+
+
 def _script_words(words: list[str]) -> list[str]:
-    """The words of a runner's command line that name a file Python runs: the first word after the options of python
-    (the script; none after -c, -m or -), each .py file of pytest, and the command after `run` of a project runner."""
+    """What a runner's command line runs from a file: python's script after its options (also a cluster such as -Im
+    and the value of -W, -X, --check-hash-based-pycs), the files of a module started with -m (a local one, the test
+    modules of unittest, the files of pytest), each .py file of pytest, the command after `run` of a project runner,
+    and _STDIN when Python reads its code from its input. Empty for code in the text (-c): the text check reads it."""
     cmd, rest = os.path.basename(words[0]), words[1:]
     if cmd in _PROJECT_RUNNERS:
         rest = rest[rest.index("run") + 1:] if "run" in rest else []
-        while rest and rest[0].startswith("-"):
-            rest = rest[1:]
-        if rest and rest[0].endswith(".py"):
-            return [rest[0]]
-        return _script_words(rest) if rest and (_PYTHON_RE.fullmatch(os.path.basename(rest[0]))
-                                                or os.path.basename(rest[0]) == "pytest") else []
+        py = [w for w in rest if w.endswith(".py") and not w.startswith("-")]
+        run = next((i for i, w in enumerate(rest) if _PYTHON_RE.fullmatch(os.path.basename(w))
+                    or os.path.basename(w) == "pytest"), None)
+        if run is not None and (not py or rest.index(py[0]) > run):
+            return _script_words(rest[run:])
+        return py[:1]
     if cmd == "pytest":
         return [w for w in rest if w.endswith(".py") and not w.startswith("-")]
     if not _PYTHON_RE.fullmatch(cmd):
@@ -1357,24 +1384,44 @@ def _script_words(words: list[str]) -> list[str]:
     i = 0
     while i < len(rest):
         w = rest[i]
-        if w == "-m" and rest[i + 1:i + 2] == ["pytest"]:
-            return _script_words(rest[i + 1:])
-        if w in ("-c", "-m", "-") or w.startswith(("-c", "-m")) and len(w) > 2:
-            return []                   # code in the text or a module by name: the text check reads them
-        if w.startswith("-"):
-            i += 2 if w in ("-W", "-X") else 1
+        if w == "-" or re.match(r"\d*[<>]", w):       # no script before a redirection: the code comes on the input
+            return [_STDIN]
+        if w.startswith("--"):
+            i += 2 if w == "--check-hash-based-pycs" else 1
             continue
+        if w.startswith("-"):
+            flags = w[1:]
+            at = next((k for k, ch in enumerate(flags) if ch in "cmWX"), None)
+            if at is None:
+                i += 1
+                continue
+            value = flags[at + 1:] or (rest[i + 1] if i + 1 < len(rest) else "")
+            nxt = i + 1 if flags[at + 1:] else i + 2
+            if flags[at] == "c":
+                return []
+            if flags[at] in "WX":
+                i = nxt
+                continue
+            after = rest[nxt:]                      # -m MODULE and its arguments
+            if value == "pytest":
+                return _script_words(["pytest"] + after)
+            if value == "unittest":
+                return [f for a in after if not a.startswith("-") for f in
+                        ([a] if a.endswith(".py") else _module_files(a))]
+            return _module_files(value)
         return [w]
-    return []
+    return [_STDIN]
 
 
 def _scripts_run(command: str, cwd: str | None) -> list[str]:
-    """The files a Python runner of the command starts (_script_words), as real paths: relative to the folder of a `cd`
-    before it, with ~, a variable the line assigns and one of the environment put in. A word that keeps a `$` is not
-    read (a name built at run time, C22)."""
+    """The files a Python runner of the command runs (_script_words), as real paths: relative to the folder of a `cd`
+    before it, with ~, a variable the line assigns and one of the environment put in; for code on Python's input, the
+    file of a `<` redirection or of a `cat` that pipes into it. A word that keeps a `$` is not read (a name built at run
+    time, C22), nor a pytest that finds its own tests."""
     out: list[str] = []
     here = cwd or os.getcwd()
     assigned: dict[str, str] = {}
+    last_cat: list[str] = []
 
     def expand(w: str) -> str:
         w = re.sub(r"\$(?:\{(\w+)\}|(\w+))", lambda m: assigned.get(m.group(1) or m.group(2),
@@ -1391,17 +1438,43 @@ def _scripts_run(command: str, cwd: str | None) -> list[str]:
                 break
             assigned[m.group(1)] = expand(m.group(2))
         words = sg.get("words") or []
+        cat, last_cat = last_cat, []
         if not words:
             continue
         if sg.get("cmd") == "cd":
             target = expand(words[1]) if len(words) > 1 else os.path.expanduser("~")
             here = os.path.join(here, target)
             continue
-        for w in _script_words(words):
+        if sg.get("cmd") == "cat":
+            last_cat = [w for w in words[1:] if not w.startswith("-")]
+            continue
+        files = _script_words(words)
+        if files == [_STDIN]:
+            redirect = [raw[k + 1] for k, w in enumerate(raw[:-1]) if w == "<"] + \
+                [w[1:] for w in raw if w.startswith("<") and len(w) > 1 and not w.startswith("<<")]
+            files = redirect or (cat if sg.get("piped") else [])
+        for w in files:
             p = expand(w)
             if "$" not in p:
                 out.append(os.path.realpath(p if os.path.isabs(p) else os.path.join(here, p)))
     return out
+
+
+def _searched(command: str) -> bool:
+    """Every import in the command stands in data (quotes, a comment) and each of its programs only searches or shows
+    a text (_SEARCHERS, git grep/log/show/diff/blame): `rg 'import maisecrets.hooks'` and `git log -S '…'` (Gate B of
+    #98). False when unsure."""
+    code = _code_of(command)
+    if code is None or imported_modules(code):
+        return False
+    for sg in _segments(command, _shell_contexts(command)):
+        words, cmd = sg.get("words") or [], sg.get("cmd") or ""
+        if not words:
+            continue
+        sub = next((w for w in words[1:] if not w.startswith("-")), "")
+        if not (cmd in _SEARCHERS or (cmd == "git" and words[0] == "git" and sub in _GIT_READS)):
+            return False
+    return True
 
 
 def runs_maisecrets_code(command: str, cwd: str | None = None) -> str | None:
@@ -1410,7 +1483,7 @@ def runs_maisecrets_code(command: str, cwd: str | None = None) -> str | None:
     starts by path, outside a maisecrets checkout. A command that only mentions such an import (only_mentions) runs
     nothing. A name built at run time, or a script that loads another file, is the same-user limit of C22."""
     mods = imported_modules(command)
-    if mods and not only_mentions(command, lambda t: bool(imported_modules(t))):
+    if mods and not only_mentions(command, lambda t: bool(imported_modules(t))) and not _searched(command):
         return RUNS_CODE.format(what=", ".join(f"maisecrets.{n}" for n in mods))
     for path in _scripts_run(command, cwd):
         try:

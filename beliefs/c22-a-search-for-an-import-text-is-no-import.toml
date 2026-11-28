@@ -1,0 +1,13 @@
+# c22-a-search-for-an-import-text-is-no-import: the test owns the rule; this file names it and the mutation that must turn it red.
+belief = "c22-a-search-for-an-import-text-is-no-import"
+control = "C22"
+serves = ["M4.2"]
+statement = '''A command whose programs only search or show a text (grep, rg, git grep, git log -S, ls) and holds the import text only in its quoted data or a comment runs; a search that feeds Python or a git alias does not count (Gate B of #98).'''
+runner = ["tests/test_runs_maisecrets_code.py::RunsMaisecretsCodeTests::test_the_library_the_cli_and_mentions_pass"]
+
+[proof]
+file = "maisecrets/shell_commands.py"
+find = ''' and not _searched(command):
+'''
+replace = ''':
+'''

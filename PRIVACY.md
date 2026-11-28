@@ -34,9 +34,10 @@ a person or a data-protection officer can check it against the source.
   (`~/Library/Preferences/.GlobalPreferences.plist`), to choose the label languages and the
   national identifiers. The environment variable `MAISECRETS_LOCALE` replaces this read.
 
-- **A Python script that a shell command runs:** when a command starts a `.py` file by its path
-  (`python3 tool.py`), the hook reads that file (up to 256 KB) and looks only for an import of
-  maisecrets code. A command that imports it is refused.
+- **A Python script that a shell command runs:** when a command makes Python run a file (`python3 tool.py`,
+  a module of the folder with `python3 -m tool`, `python3 < tool.py`, the files named to pytest), the hook
+  reads that file (up to 256 KB) and looks only for an import of maisecrets code. A command that imports it
+  is refused.
 
 It reads no other file of yours, except through a tool call that you or the agent makes.
 

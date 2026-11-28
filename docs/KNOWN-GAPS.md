@@ -9,9 +9,13 @@ What the plugin does not protect. Each item is a limit of the mechanism, not
 a to-do.
 
 - **Code that the agent runs as the person can call maisecrets (#98).** A shell
-  command that imports a module of maisecrets is refused, in its own text and in a
-  Python script it starts by path. A script that builds the module name at run
-  time, loads another file, or lies inside a maisecrets checkout is not read. Such
+  command that imports a module of maisecrets is refused, in its own text and in the
+  file that Python runs (a script, a module of the folder by `-m`, code on its input).
+  Not read: a script that builds the module name at run time or loads another file,
+  the tests that pytest finds by itself and its `conftest.py`, a folder that looks
+  like a maisecrets checkout or skill, a `cd` inside a subshell, `pushd`, `env -C`, a
+  glob, and Python started by another program. Inline code such as `python3 -c` is
+  refused also inside a maisecrets checkout. Such
   code runs with the person's rights and can reach the store and bind a connector
   directly; only a sandbox of the client stops it (C22). The pairing nonce that
   Python makes for each login is depth, not a boundary.
